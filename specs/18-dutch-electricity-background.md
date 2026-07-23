@@ -423,31 +423,65 @@ Instead, every exported kWh earns a **redelijke vergoeding** — a reasonable co
 
 ### E5.2 The rules on compensation
 
-Four provisions, several added by amendment during passage, define the shape:
+The rules live in **artikel 2.34 van de Energiewet** (BWBR0050714), in the text as it
+reads from 1 January 2027 — the *Wet beëindiging salderingsregeling* (dossier 36.611)
+rewrote the article and several of its paragraphs were added by amendment during passage.
+The article as in force on 1 July 2026 has five paragraphs and carries none of this. Four
+provisions define the shape:
 
-1. **Minimum 50%.** Between 1 January 2027 and 1 January 2030, the compensation must be
-   at least half the bare supply price — the commodity price excluding taxes.
+1. **Minimum 50%,** in **lid 9**. Between 1 January 2027 and 1 January 2030 the reasonable
+   compensation is "niet minder dan 50% van de voor de te leveren elektriciteit
+   overeengekomen prijs" — not less than half the price agreed for the electricity to be
+   supplied. The statute does not decompose that price. ACM has since read it as
+   tax-exclusive: "het kale leveringstarief, dus het leveringstarief per kWh zonder
+   energiebelasting en btw" (Besluit modelcontracten 2026, toelichting rn. 65), and states
+   that the floor applies to every type of contract, dynamic included (rn. 66). ACM's gloss
+   settles taxes only; it says nothing about supplier markup, which is
+   [open question §8.1](17-open-questions.md).
 
-2. **Never negative.** The compensation may not be a negative amount. Importantly, an
-   amendment specified this is assessed **over a period of at least one month**, not
-   instant by instant. Individual negative-price intervals do not breach it as long as the
-   monthly aggregate is non-negative.
+   Two scoping conditions, both in the enacted text and neither in the amendment as tabled.
+   The floor applies to an active customer **met een kleine aansluiting** — the household
+   case this document is written for, so it is the normal case rather than a narrow one.
+   And it applies where the supplier holds **both** a leverings- and a
+   terugleveringsovereenkomst with that customer, so it is a rule about the supplier who
+   also sells you your electricity.
+
+2. **Never negative,** in **lid 7**, in the same sentence as the duty to compensate at all.
+   For an active customer with a kleine aansluiting the compensation "gemiddeld gewogen
+   over een periode van een maand niet kan worden vastgesteld op een negatief bedrag" —
+   weighted-averaged over a period of a month, it cannot be set at a negative amount. That
+   the assessment is periodic and monthly is therefore statutory, not a regulator's reading
+   of it. Individual negative-price intervals do not breach the rule as long as the monthly
+   aggregate is non-negative. The statute names one month and qualifies it neither as a
+   minimum nor as an exact requirement, so whether a supplier may assess over a longer
+   window is unresolved — see provision 2's note in the specification block below.
+
+   Lid 7 also carries the test for what makes a compensation unreasonable, and it is
+   **conjunctive**: a compensation is not reasonable if it is (a) disproportionately low
+   given the supplier's costs and benefits **and** (b) not competitive. Both limbs must
+   fail. A rate that is low but matches the market therefore does not fail the test on
+   limb (a) alone.
 
 3. **ACM supervision, with teeth.** The regulator oversees compensation levels and may
    intervene against unreasonable rates; a further amendment gave it power to set a
    minimum compensation **retroactively**.
 
-4. **Costs restricted.** Charges that are discriminatory, or not directly or indirectly
-   related to feed-in, are prohibited for households and micro-enterprises. Feed-in costs
-   may be charged only to *active customers* — the people who actually cause them — rather
-   than spread across all customers.
+4. **Costs restricted,** the cost-allocation half in **lid 8**. Charges that are
+   discriminatory, or not directly or indirectly related to feed-in, are prohibited for
+   households and micro-enterprises. Feed-in costs may be charged only to *active
+   customers* — the people who actually cause them — rather than spread across all
+   customers.
 
-> **In the specification:** provision 1 is `feedin_alpha = 0.50`. Provision 2 is the
-> `feedin_floor_mode` treatment in [§6.5](10-pricing.md#65-price-curves) — note that the
-> assessment period is "at least one month", so a supplier may legally use a longer one;
-> see [open question §8.14](17-open-questions.md). Provision 4 constrains which
-> terugleverkosten preset shapes are plausible, which bears on
-> [open question §8.5](17-open-questions.md).
+> **In the specification:** provision 1 is `feedin_alpha = 0.50`; what its base is for a
+> dynamic contract is [open question §8.1](17-open-questions.md), which also carries the
+> watch on the pending Energieregeling. Provision 2 is the `feedin_floor_mode` treatment in
+> [§6.5](10-pricing.md#65-price-curves), and `feedin_floor_period` defaults to the calendar
+> month lid 7 names. Whether a supplier may instead assess over a longer period is an
+> inference from the statute's silence — lid 7 says neither *ten minste* nor *precies* one
+> month, so the silence establishes neither that longer periods are permitted nor that they
+> are forbidden. [Open question §8.14](17-open-questions.md) poses that choice and leaves
+> both readings open. Provision 4 constrains which terugleverkosten preset
+> shapes are plausible, which bears on [open question §8.5](17-open-questions.md).
 
 ### E5.3 Terugleverkosten continue
 
@@ -610,7 +644,7 @@ p_import(t) = (bare(t) + inkoopvergoeding + energiebelasting) × (1 + btw)
 compensation(t) = max(0, α × bare(t) + β)     with α ≥ 0.5 until 2030
 p_export(t)     = compensation(t) − terugleverkosten
                   # may be negative; the ≥0 constraint applies to
-                  # compensation, assessed over ≥1 month, not to the net
+                  # compensation, assessed over a month, not to the net
 
 # Export, ≤2026 (salderen)
   netted against import up to annual consumption, at p_import
@@ -664,10 +698,21 @@ Primary and regulatory:
 - Rijksoverheid — energy bill composition, energy tax rates and rebate for 2026
 - Rijksoverheid — end of the salderingsregeling from 2027
 - Eerste Kamer, dossier 36.611 — *Wet beëindiging salderingsregeling*, including the
-  amendments on the 50% floor, the ban on negative compensation assessed over ≥1 month,
+  amendments on the 50% floor, the ban on negative compensation assessed over a month,
   retroactive ACM powers, and the restriction of feed-in costs to active customers
+- Energiewet, BWBR0050714, consolidated text on wetten.overheid.nl — artikel 2.34 as it
+  reads from 1 January 2027. This is the operative text for Part E5.2; note that the
+  version in force on 1 July 2026 does not contain it
+- ACM — *Besluit modelcontracten 2026*, 12 December 2025 (ACM/UIT/664047), including the
+  toelichting's reading of the 50% base as the kale leveringstarief excluding
+  energiebelasting and btw (rn. 65) and its statement that the floor applies to every
+  contract type (rn. 66)
+- Internetconsultatie — *Wijzigingsregeling Energieregeling* (presenteren en factureren
+  terugleverkosten) and *Regeling garanties van oorsprong*, published 15 June 2026, closed
+  10 July 2026. Draft and nine public responses; the final text is not yet published
 - ACM — investigation into feed-in charges for solar power
-- ACM — advisory opinion on the salderingsregeling bill
+- ACM — advisory opinion on the salderingsregeling bill, 17 September 2024, which asked
+  for "redelijke terugleververgoeding" to be defined in the bill
 - Netbeheer Nederland — DSMR / P1 specification
 
 Secondary, for market practice and rates:

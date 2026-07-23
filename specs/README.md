@@ -1,9 +1,15 @@
 # Home Battery Simulator — Specification Package
 
-**Version:** 1.1 (draft for implementation)
-**Date:** 2026-07-22
-**Status:** Ready for implementer hand-off. Open questions are collected in
-[17-open-questions.md](17-open-questions.md).
+**Version:** 1.2 (draft for implementation)
+**Date:** 2026-07-23
+**Status:** Ready for implementer hand-off. Decisions still owed are collected in
+[17-open-questions.md](17-open-questions.md); measurements to run once a prototype exists
+are collected in [19-prototype-experiments.md](19-prototype-experiments.md).
+
+**Changes in 1.2:** prototype experiments, the measurements that establish which
+parameters, policies and diagnostics actually change the answer
+([§9](19-prototype-experiments.md)), cross-linked with the open questions several of them
+inform.
 
 **Changes in 1.1:** configuration epochs for mid-window PV/battery installation
 ([§6.15](13-configuration-epochs.md)); installation topology selector with diagrams
@@ -69,6 +75,7 @@ These apply to every file in this package and are not restated in full elsewhere
 | [16-validation-harness.md](16-validation-harness.md) | The fixtures the implementation must reproduce exactly | Backend, QA |
 | [17-open-questions.md](17-open-questions.md) | Decisions still owed by the product owner | Product owner |
 | [18-dutch-electricity-background.md](18-dutch-electricity-background.md) | Domain background: what the meter measures, how the bill is built, salderen and the 2027 regime, what is still unknown | Everyone; essential if the Dutch regime is unfamiliar |
+| [19-prototype-experiments.md](19-prototype-experiments.md) | Measurements to run once a prototype exists: which parameters, policies and diagnostics actually change the answer | Product owner, backend |
 | [appendix-a-defaults.md](appendix-a-defaults.md) | Every default parameter value with its rationale | Everyone |
 | [appendix-b-glossary.md](appendix-b-glossary.md) | Dutch energy terminology and abbreviations | Everyone |
 
@@ -102,13 +109,16 @@ headings because the text cross-references them heavily. Use this table to resol
 | §7.1 | Overlap diagnostic | [14-diagnostics.md](14-diagnostics.md#71-the-overlap-diagnostic--measure-resolution-damage-directly) |
 | §7.2–7.5 | Limitations, quality checks, anchoring, ops | [15-data-quality-and-limits.md](15-data-quality-and-limits.md) |
 | §8 | Open questions | [17-open-questions.md](17-open-questions.md) |
+| §9 | Prototype experiments | [19-prototype-experiments.md](19-prototype-experiments.md) |
 | E1–E7, E-A–E-D | Dutch electricity background | [18-dutch-electricity-background.md](18-dutch-electricity-background.md) |
 | Appendix A | Default parameter values | [appendix-a-defaults.md](appendix-a-defaults.md) |
 | Appendix B | Glossary | [appendix-b-glossary.md](appendix-b-glossary.md) |
 
 Background sections carry an **`E` prefix** (`E1.4`, `E5.2`, Appendix `E-A`) so they never
 collide with the specification's own `§1.4`, `§5.2` and Appendix A. A reference of the
-form `§n.m` is always the specification; `En.m` is always the background.
+form `§n.m` is always the specification; `En.m` is always the background. The experiments
+in §9 carry an **`X` prefix** (`X1`, `X7`) for the same reason — `E` was already taken by
+the background.
 
 Two groupings depart from the original section order, in both cases to put material next
 to what it is used with rather than where its number fell:

@@ -132,9 +132,17 @@ Three consequences for the implementation:
    than dropping the partial period or extrapolating it. For windows shorter than one
    assessment period the floor is assessed over the whole window, which is a weaker
    constraint than the law imposes — record it in `diagnostics`.
-3. **The assessment period is configurable.** The law says "at least one month", so a
-   supplier may legally use a longer one. `feedin_floor_period` defaults to a calendar
-   month; see [open question §8.14](17-open-questions.md).
+3. **The assessment period is configurable, but the statute names one month.** Artikel
+   2.34, zevende lid Energiewet specifies "gemiddeld gewogen over een periode van een
+   maand" — weighted-averaged over a period of a month. It does not say *ten minste* a
+   month and it does not say *precies* a month. Whether a supplier may lawfully assess
+   over a longer window is therefore an inference from the statute's silence, and it is
+   unverified in both directions: the sources consulted establish neither that longer
+   periods are permitted nor that they are forbidden. `feedin_floor_period` remains
+   configurable and defaults to a calendar month, which is what the statute names; the
+   longer settings exist so the alternative can be modelled if it turns out to be lawful,
+   and as a stress test if it does not. See [open question §8.14](17-open-questions.md)
+   and [E5.2](18-dutch-electricity-background.md#e52-the-rules-on-compensation).
 
 `feedin_floor_mode = PER_INTERVAL` is retained so v1.1 numbers remain reproducible, and
 because a supplier may in practice choose to guarantee a non-negative compensation in every

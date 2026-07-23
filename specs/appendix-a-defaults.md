@@ -26,8 +26,8 @@
 | `supplier_markup` | 0.0205 €/kWh | Representative dynamic-supplier inkoopvergoeding |
 | `feedin_alpha` | 0.50 | Statutory minimum to 1 Jan 2030 |
 | `feedin_beta` | 0.0000 | |
-| `feedin_floor_mode` | `monthly` | The law assesses the ≥0 floor over ≥1 month, not per interval |
-| `feedin_floor_period` | calendar month | Shortest period the law permits, so the most favourable — see [§8.14](17-open-questions.md) |
+| `feedin_floor_mode` | `monthly` | The law assesses the ≥0 floor over a month, not per interval |
+| `feedin_floor_period` | calendar month | The period art. 2.34 lid 7 Energiewet names; whether longer ones are lawful is unresolved — see [§8.14](17-open-questions.md) |
 | `tlk_eur_per_kwh` | 0.0400 | Placeholder — 2027 tariffs unpublished |
 | `dal_start_hour` | 23 | Varies by grid operator (21:00 in some areas) |
 | `dal_end_hour` | 7 | |
