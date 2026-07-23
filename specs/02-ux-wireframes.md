@@ -46,6 +46,100 @@ The panel ② summary line ends with the run's cost mode: the contract name
 when it is off. That word is the fastest way for a user to see, from the collapsed state,
 which of the two products they are looking at.
 
+### The four availability states
+
+A control described in this package is not always usable, and it is unusable for four
+different reasons. Each renders differently, because each means something different, and
+confusing them is the fastest way to make the app feel broken.
+
+| State | Rendering | Why | Clears when |
+|---|---|---|---|
+| **Available** | Normal | — | — |
+| **Inapplicable** | **Absent** | The configuration gives it no meaning | The user changes the configuration |
+| **Blocked** | Disabled, greyed | A precondition is unmet | The user satisfies the precondition |
+| **Soft-blocked** | Selectable, warns, offers an approximation | The model cannot represent the choice | A later version models it |
+| **Pending** | Disabled, greyed, with a `[?]` affordance | Specified, but not built yet | The next increment ships it |
+
+The soft block has one instance, the unsupported battery phase topologies in
+[§2.5](03-topology-selector.md); it is listed here so it is not mistaken for either of the
+two states it sits between.
+
+**Inapplicable is hidden, never greyed.** With `has_pv` off there is no solar row; with
+`simulate_cost` off there is no Pricing box. A greyed control invites the user to work out
+how to un-grey it, and here there is nothing to work out that the toggle does not already
+say. This rule is applied throughout §2.2, §2.3 and §2.4.
+
+**Blocked is greyed, because the user can clear it.** `[ Load data ]` while a slot is empty,
+the annualised figure under 90 days. The greying is the message: this becomes available when
+you do something, and the adjacent text says what.
+
+**Pending is different in kind from the other three, and the difference is the point.**
+Inapplicable and blocked are properties of the user's *configuration*; the soft block in
+[§2.5](03-topology-selector.md) is a property of what the model can *represent*. All three
+are permanent facts about a situation. Pending is a property of **build progress**: the
+application is built one feature at a time behind a UI that is laid out in full from the
+start, so a control can be fully specified here and not yet wired to anything. It is a
+temporary condition and is expected to disappear.
+
+This has a direct consequence for the specification: **which controls are pending is not
+recorded here.** It changes with every release, and a list in the spec would be wrong within
+a week of being written. Any control described in this package may render pending while its
+machinery is outstanding; the state is removed as each feature lands, and no other text
+changes when it is. A reader encountering a pending control in a running build must not
+infer that the feature was cut — the specification is the statement of intent, and the
+control's presence in it is the commitment.
+
+### The pending affordance
+
+A pending control renders disabled with a small `[?]` button beside it. The button opens the
+dialog below, in which `<control>` stands for whichever control was clicked — the wireframe
+is the template, not a statement that any particular control is pending:
+
+```
+  ┌──────────────────────────────────────────────────────────────────────┐
+  │  Not built yet                                                       │
+  │                                                                      │
+  │     <Control> is part of the plan for this simulator, but it is      │
+  │     not built yet. The app is being written one feature at a time    │
+  │     and this one has not been reached.                               │
+  │                                                                      │
+  │     If you would use it, say so. It tells us what to build next,     │
+  │     and it is the only signal we get.                                │
+  │                                                                      │
+  │  [ 👍  I want this ]                                        [ close ]│
+  └──────────────────────────────────────────────────────────────────────┘
+```
+
+The user-facing wording is **"not built yet"**, not "not in v1". The two say different
+things: "not in v1" is a release decision, and this is not one — the work simply has not
+happened yet. The label the topology selector uses for its unsupported options
+([§2.5](03-topology-selector.md)) *is* a release decision and correctly reads `not in v1`.
+
+**Clicking the thumbs-up** increments a per-feature counter and, if an endpoint is
+configured, fires an asynchronous POST
+([§5.1](08-architecture.md#51-diagram), [§7.5](15-data-quality-and-limits.md#75-operational-notes)).
+The dialog acknowledges in place — the button becomes `✓ Noted` and the text below it reads
+*"Thanks. We have recorded that you want this."* Reopening the dialog for a feature already
+thumbed shows that state rather than a fresh button, and **a second click does not count
+twice**.
+
+**No count is ever shown to the user.** On a single-household installation the number is
+either 1 or 0, which tells the user nothing, and any figure shown next to a thumbs-up is
+read as a global tally that it is not.
+
+**The dialog never reports failure.** The POST is fire-and-forget; a timeout, a refused
+connection or an unset endpoint all leave the acknowledgement exactly as described. The
+counter write is local and does not depend on the request.
+
+**Feature keys.** Each pending control carries a short stable string key naming it in the
+counter table and in the POST body, formed from the box and the control: `battery_rte`,
+`spot_source_upload`, `export_csv` are the shape, not a list of pending features. The keys
+are a closed vocabulary: they are allocated when a control is first marked
+pending and are not reused for anything else afterwards, so a counter row keeps its meaning
+after the feature ships and the control stops being pending. Same discipline as the series
+names in [§4.1](05-data-formats.md), and for the same reason: a key that quietly changes
+meaning makes every historical row a lie.
+
 ## 2.2 Panel ① — Data input (expanded)
 
 ```

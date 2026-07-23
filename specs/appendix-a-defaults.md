@@ -47,6 +47,8 @@
 | `debounce_ms` | 400 | |
 | `dp_soc_levels` | 101 | Shared by both perfect-foresight runs ([§6.9](11-policies-and-battery.md#69-main-simulation-loop), runs D and E) |
 | `dp_action_levels` | 41 | Likewise; the two objectives differ only in `transition_cost` |
+| `feature_interest_url` | *(empty)* | Nothing is transmitted until someone sets it ([§7.5](15-data-quality-and-limits.md#75-operational-notes)) |
+| `installation_id` | *(generated)* | Random on first run; clear the line to get a new one |
 
 Tax and tariff constants must be editable in the UI and are stamped with the year they
 were taken from. They will change on 1 January 2027.

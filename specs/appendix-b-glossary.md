@@ -40,6 +40,14 @@ Where these terms carry a modelling consequence:
   `DYNAMIC` / `FIXED` / `VARIABLE` values of `cfg.contract`
   ([§6.5](10-pricing.md#65-price-curves)) — the package carries no country qualifier on
   them, being single-jurisdiction throughout.
+- **Pending** — a control that this package specifies but whose machinery is not built yet.
+  It renders disabled with a *not built yet* affordance
+  ([§2.1](02-ux-wireframes.md#the-four-availability-states)). Pending is a fact about build
+  progress and clears when the feature ships, which distinguishes it from the three other
+  reasons a control can be unusable: *inapplicable* (hidden, because the configuration gives
+  it no meaning), *blocked* (greyed, because a precondition is unmet) and the *soft block*
+  on topologies the model cannot represent ([§2.5](03-topology-selector.md)). Only the last
+  of those is a statement about what version 1 will contain.
 - **Salderingsregeling** — the pre-2027 regime is out of scope, but the pricing engine
   keeps an extension point for it ([§6.5](10-pricing.md#65-price-curves)). The regime binds
   the cost path only; energy flows and the kWh metrics derived from them are

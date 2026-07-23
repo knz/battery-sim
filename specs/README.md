@@ -52,7 +52,7 @@ These apply to every file in this package and are not restated in full elsewhere
 | File | Contents | Primary audience |
 |---|---|---|
 | [01-product-brief.md](01-product-brief.md) | Purpose, target user, regulatory regime, scope, success criteria, design principles | Everyone |
-| [02-ux-wireframes.md](02-ux-wireframes.md) | Overall layout and the three panels: data, parameters, results | Frontend |
+| [02-ux-wireframes.md](02-ux-wireframes.md) | Overall layout, the four availability states, and the three panels: data, parameters, results | Frontend |
 | [03-topology-selector.md](03-topology-selector.md) | Illustrated PV-coupling and battery-phase selectors, soft block, SVG asset requirements | Frontend |
 | [04-state-machine.md](04-state-machine.md) | Session states, events, run identity, panel focus, persistence points | Frontend + backend |
 | [05-data-formats.md](05-data-formats.md) | The series vocabulary, the per-series CSV file format, `kind` semantics, per-slot validation | Backend, integrators |

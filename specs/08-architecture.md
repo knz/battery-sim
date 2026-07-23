@@ -22,6 +22,7 @@
 │    routes/params.py   PATCH /params                                       │
 │    routes/results.py  GET  /results  /results/export.csv                  │
 │    routes/stream.py   GET  /api/stream           (SSE)                    │
+│    routes/feedback.py POST /feature-interest/{feature_key}                │
 │                                                                           │
 │    deps.py:  get_principal() -> Principal        ← v1 returns "local"      │
 │              get_workspace(principal, id) -> Workspace                    │
@@ -40,7 +41,8 @@
 │    HaStatsClient            │   │    ingest/     cumulative→delta        │
 │    CsvLoader                │   │    normalize/  grid selection, resample│
 │    PriceLoader              │   │    quality/    checks, flags           │
-│    (future) EntsoeClient    │   │    pricing/    import/export curves    │
+│    InterestReporter         │   │    pricing/    import/export curves    │
+│    (future) EntsoeClient    │   │                                        │
 └──────┬──────────────────────┘   │    policies/   charge + discharge      │
        │                          │    battery/    step function, limits   │
        │                          │    simulate/   main loop               │
@@ -56,6 +58,7 @@
 │      params(workspace_id, json, updated_at)          -- current config    │
 │      runs(id, workspace_id, run_id, config_hash, result_json, created_at) │
 │      credentials(workspace_id, ha_url, ha_token_enc)                      │
+│      feature_interest(workspace_id, feature_key, count, last_clicked_at)  │
 │                                                                           │
 │    Filesystem                                                             │
 │      <data_dir>/<workspace_id>/series/<name>_<res>.parquet                │
@@ -88,6 +91,42 @@ the spot price as a dispatch signal, which exists in both modes. Fixture 18 in
 [16-validation-harness.md](16-validation-harness.md) asserts that everything except the
 added cost outputs is bit-identical across the flag.
 
+### Feature interest
+
+`feature_interest` records that a user asked for a control that is specified but not built
+yet ([§2.1](02-ux-wireframes.md#the-pending-affordance)). `feature_key` is the short stable
+string that names the control; `(workspace_id, feature_key)` is the primary key, so a
+repeat click updates `last_clicked_at` and leaves `count` alone.
+
+The table carries `workspace_id` like every other, for the reason given in §5.5: no table is
+implicitly global. Interest is arguably an installation-level fact rather than a
+workspace-level one, and totalling across workspaces at read time is the right way to get
+that — cheaper than making one table an exception to the rule the whole schema rests on.
+
+`InterestReporter` is the adapter that performs the outbound POST. It is an adapter and not
+a service because it does I/O and nothing else, and it is the **only** component in the
+application that sends anything to a host the user did not nominate as a data source. The
+egress posture it implies is stated in
+[§7.5](15-data-quality-and-limits.md#75-operational-notes) and is the authoritative
+description; this section covers only the mechanism.
+
+Three invariants, which stand in place of a fixture. Every fixture in
+[16-validation-harness.md](16-validation-harness.md) is pure-domain — arrays in, numbers
+out, no I/O — and this path is I/O and nothing else, so it is asserted here rather than
+forced into a harness built for something different:
+
+1. **A failed POST is invisible.** Timeout, refused connection, DNS failure, non-2xx
+   response and an unset endpoint are all handled identically: the request is abandoned and
+   nothing changes. No user-visible state, no error surface, no retry, no queue. The
+   `[?]` dialog acknowledges before the request resolves and never revises that
+   acknowledgement.
+2. **The counter increments exactly once per feature per workspace.** The write is an upsert,
+   not an append. Interest is a boolean fact about a household, and the count is meaningful
+   only when summed across installations.
+3. **An unset endpoint disables the request and nothing else.** The counter still increments,
+   the dialog still acknowledges. Reporting is an optional addition to a local feature, not
+   the feature itself.
+
 ## 5.2 Why this split
 
 The **domain layer is pure** — it takes arrays and a config object and returns arrays and
@@ -113,10 +152,16 @@ every 1,024 intervals. The `run_id` protocol that drives cancellation is in
 ## 5.4 Configuration
 
 Single `config.toml` next to the data directory: bind host/port, data dir, log level,
-default parameter values, encryption key for stored HA tokens. Environment variables
-override. HA tokens are encrypted at rest with a key derived from a local secret file
-(0600); this is deterrence against casual disclosure, not a security boundary. See also
-[§7.5](15-data-quality-and-limits.md#75-operational-notes).
+default parameter values, encryption key for stored HA tokens, and the feature-interest
+endpoint. Environment variables override. HA tokens are encrypted at rest with a key derived
+from a local secret file (0600); this is deterrence against casual disclosure, not a security
+boundary. See also [§7.5](15-data-quality-and-limits.md#75-operational-notes).
+
+`feature_interest_url` is **empty by default** and no request is made while it is empty. A
+packager or a user who wants the reports to reach someone sets it deliberately. Beside it,
+`installation_id` holds the random identifier described in §7.5; it is generated on first
+run, written back to `config.toml`, and clearing the line generates a fresh one on the next
+start.
 
 Default parameter values shipped in `config.toml` are listed in
 [appendix-a-defaults.md](appendix-a-defaults.md).

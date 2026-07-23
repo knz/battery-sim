@@ -8,5 +8,5 @@ Whenever possible, it will be preferable to rewrite/simplify existing paragraphs
 - [x] UX/wireframes: the data overview may need to show different granularities for different data series.
 - [x] UX/wireframes: when adding a CSV file, the user should be prompted to indicate what data series the CSV is for
 - [x] UX/wireframes: the contract types should e just "dynamic", "fixed", "variable" (all are implicitely Dutch)
-- [ ] UX wireframes: in various places, we'll want to mark a feature as "not implemented yet": UI control disabled / greyed out, but with a small button next to it that pops up a dialog that explains "this is not implemented yet, if you are interested please click the button below" with a "thumbs up" button. The button increments a corresponding feature counter in the database, as well as performs an asynchronous POST request to a configurable URL (failures ignored).
+- [x] UX wireframes: in various places, we'll want to mark a feature as "not implemented yet": UI control disabled / greyed out, but with a small button next to it that pops up a dialog that explains "this is not implemented yet, if you are interested please click the button below" with a "thumbs up" button. The button increments a corresponding feature counter in the database, as well as performs an asynchronous POST request to a configurable URL (failures ignored).
 

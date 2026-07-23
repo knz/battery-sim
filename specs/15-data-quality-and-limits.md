@@ -188,6 +188,32 @@ different windows can differ by more than the difference in their data.
 - **Token storage** is encrypted at rest with a key in a `0600` file beside the database.
   This is deterrence, not a security boundary; say so in the UI.
 - **Never log the token**, including in HTTP client debug output.
+- **What the app sends out, and when.** Two things leave the machine, both to hosts the user
+  nominated: Home Assistant requests, to the URL the user entered; and price fetches, to the
+  source the user selected. Energy data, parameters, results and the contents of the database
+  are never transmitted anywhere. There is one exception, described next, and it is inert
+  unless configured.
+- **Feature-interest reports are off unless an endpoint is configured.** Clicking the
+  thumbs-up on a not-built-yet control ([§2.1](02-ux-wireframes.md#the-pending-affordance))
+  always increments a local counter. It additionally POSTs to `feature_interest_url`, which
+  is **empty in a stock configuration**, so on an installation nobody has configured, nothing
+  is ever transmitted. Where it is set, the body is three fields and no more: the feature key
+  (a short string such as `battery_rte`), the application version, and the installation id.
+  No energy data, no parameters, no results, no hostname, no IP beyond what any HTTP request
+  discloses. The request is asynchronous and fire-and-forget: failures are ignored, nothing
+  is retried or queued, and the user is never told either way.
+- **The installation id is a persistent pseudonymous identifier, and should be described as
+  one.** It is a random value generated on first run and stored in `config.toml`. It is not
+  derived from the hardware, the MAC address, the hostname, the user account, the household
+  or anything about the data — it carries no information about who or where the installation
+  is, what it consumes or how it is configured. But it is deliberately **stable across
+  runs**, because its purpose is to let ten clicks from one household be counted as one
+  household rather than ten. That stability is exactly what makes it an identifier: an
+  endpoint operator can tell that two reports came from the same installation. This is a real
+  property and the UI should not describe it as anonymous. Deleting the `installation_id`
+  line from `config.toml` generates a new one at the next start, which breaks the link to
+  everything sent before. The id only ever leaves a machine whose operator set an endpoint;
+  with the endpoint unset it is a local value that is never used.
 - Target performance: hourly year (8,760 intervals) end-to-end under 3 s including the DP;
   5-minute month (8,640 intervals) comparable. 5-minute year (105k intervals) is the case
   that may need Numba — see [§5.3](08-architecture.md#53-compute).

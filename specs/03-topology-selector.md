@@ -128,6 +128,18 @@ fixture 12 in [16-validation-harness.md](16-validation-harness.md) asserts that 
 approximated run is numerically identical to the 3-phase case. Whether the soft block is
 the right call is [open question §8.9](17-open-questions.md).
 
+**Why this dialog asks for an email and not a thumbs-up.** The app has a general affordance
+for controls that are specified but not built yet: a disabled control, a `[?]` button, and a
+one-click way to register interest
+([§2.1](02-ux-wireframes.md#the-pending-affordance)). This dialog is deliberately not that,
+and the two should not be merged later. Per-phase modelling is not waiting on
+implementation — it is waiting on information nobody has, namely how these installations are
+actually wired and whether the households running them have per-phase sensors at all. A
+counter cannot carry inverter model and phase allocation, and a tally of clicks would not
+tell us whether the feature is buildable. The `not in v1` label on the two unsupported
+options is likewise accurate as written: it is a release decision, which is what that phrase
+means, whereas a pending control reflects work not yet reached.
+
 The phase selector is **independent of PV** — it describes how the battery inverter sits
 across L1/L2/L3, which is the same question with or without solar. It is shown whenever the
 connection is 3-phase, in both cases.

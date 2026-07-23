@@ -181,6 +181,24 @@ enforced by fixture 18 in [16-validation-harness.md](16-validation-harness.md).
 - Authentication and multi-tenancy. See
   [§5.5](08-architecture.md#55-multi-user-readiness-designed-for-not-implemented) — the
   architecture must *permit* it, v1 does not *implement* it.
+- Usage analytics, crash reporting and telemetry of any kind. The app runs on the user's own
+  machine and keeps their data there. The single outbound report it can make — a
+  feature-interest click, described in
+  [§7.5](15-data-quality-and-limits.md#75-operational-notes) — is off unless an endpoint is
+  configured, carries no energy data, and is never sent unasked.
+
+## Built incrementally behind a complete UI
+
+The application is written one feature at a time, but the screens are laid out in full from
+the start, so a control specified here may exist on screen before the machinery behind it
+does. Such a control renders disabled with an affordance that says it is not built yet and
+lets the user register that they want it
+([§2.1](02-ux-wireframes.md#the-four-availability-states)).
+
+Which controls are in that state at any moment is a fact about the build, not about the
+product, and is deliberately not recorded in this package: it changes with every release.
+Everything specified here is intended to exist. A control the user finds disabled today is
+pending, not cut.
 
 ## 1.6 Success criteria
 
