@@ -99,15 +99,14 @@ and [§6.13](14-diagnostics.md#613-resolution-bias-diagnostic).
 
 ## 6.3 Household load reconstruction
 
-A Dutch smart meter measures only what crosses the grid connection. Solar generated and
-consumed in the house never passes it, so the meter cannot report either household
-consumption or solar production — only the net difference, direction by direction
+A Dutch smart meter measures only what crosses the grid connection
 ([background E1.1](18-dutch-electricity-background.md#e11-the-single-most-important-fact)).
-Consumption must therefore be reconstructed from the meter plus an independent solar
-figure from the inverter, and any clock offset or scaling error between those two sources
-propagates straight into the result.
+Everything generated and consumed behind the meter is invisible to it. Household
+consumption must therefore be reconstructed from the meter plus whatever independent
+behind-the-meter sources exist.
 
-Energy balance at the AC bus over one interval:
+Energy balance at the AC bus over one interval — every term a non-negative magnitude, and
+each of the behind-the-meter terms present only if that equipment exists:
 
 ```
 pv + import + battery_discharge  =  load + export + battery_charge
@@ -116,9 +115,11 @@ pv + import + battery_discharge  =  load + export + battery_charge
 therefore
 
 ```python
-def reconstruct_load(pv, imp, exp, batt_chg=None, batt_dis=None):
+def reconstruct_load(imp, exp, pv=None, batt_chg=None, batt_dis=None):
     """[vectorisable] Returns the battery-free, standby-free household load."""
-    load = pv + imp - exp
+    load = imp - exp
+    if pv is not None:                       # no PV: load is the meter alone
+        load = load + pv
     if batt_chg is not None:                 # strip an existing battery
         load = load + batt_dis - batt_chg
 
@@ -132,18 +133,39 @@ def reconstruct_load(pv, imp, exp, batt_chg=None, batt_dis=None):
     return load, flags
 ```
 
-Negative reconstructed load is always a data problem, never physics. Likely causes, in
-order of frequency: the PV sensor measures only part of the array or sits behind a
-sub-meter; a clock offset between the P1 meter and the inverter integration; sign
-convention inverted on an export sensor; or an existing battery whose sensors were not
-mapped. The UI must say this rather than presenting a clamped series as clean.
+**Without PV the reconstruction is nearly trivial** — `load = import − export` — and its
+accuracy is correspondingly better, because the dominant error source in the PV case is
+the disagreement between two independently-clocked, independently-scaled sensors. A no-PV
+household has one source of truth. This is worth stating in the UI: the caveats that
+qualify a PV household's headline figure largely do not apply.
+
+Negative reconstructed load is always a data problem, never physics, but **what it
+indicates differs sharply between the two cases** and the UI must say the right thing:
+
+- **With PV.** Likely causes, in order of frequency: the PV sensor measures only part of
+  the array or sits behind a sub-meter; a clock offset between the P1 meter and the
+  inverter integration; sign convention inverted on an export sensor; or an existing
+  battery whose sensors were not mapped.
+- **Without PV**, negative load means `export > import` over the interval — the meter
+  recorded net export from a household that has declared it has no generator. Two of the
+  causes above are excluded by construction, which makes the remaining ones much more
+  likely: undeclared PV (the household has solar and answered the panel ② question wrong,
+  or a housemate's array is on the same connection), an undeclared battery discharging to
+  the grid, or an inverted export sensor. Anything beyond a handful of intervals should be
+  treated as a probable misconfiguration and put to the user as such, not clamped quietly.
+  This is check 6b in
+  [§7.3](15-data-quality-and-limits.md#73-data-quality-checks-in-execution-order).
+
+In both cases the UI must say what happened rather than presenting a clamped series as
+clean.
 
 If `house_load` is supplied directly, use it, and report
 `max|load_supplied − load_reconstructed|` as a consistency check.
 
 Two related failure modes are handled elsewhere: a clock offset is detected in
-[§6.17](14-diagnostics.md#617-timestamp-misalignment-detection), and a battery whose
-sensors were never mapped in
+[§6.17](14-diagnostics.md#617-timestamp-misalignment-detection) — by a method that needs a
+PV signal, so a different one applies without PV — and a battery or PV array whose sensors
+were never mapped in
 [§6.15](13-configuration-epochs.md#615-configuration-epochs). This function also assumes
 **AC-side** battery measurements — see
 [§7.2](15-data-quality-and-limits.md#72-known-modelling-limitations--state-these-in-the-ui-not-just-here)

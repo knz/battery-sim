@@ -15,6 +15,7 @@
 | `roundtrip_dc_bonus` | +0.04 | DC-coupled PV path |
 | `standby_w` | 30 | ≈ 260 kWh/yr — material, routinely omitted |
 | `coupling` | `ac` | |
+| `has_pv` | `true` | The common case among likely users; asked explicitly, never inferred — see [§8.16](17-open-questions.md) |
 | `initial_soc_pct` | 50 | |
 | `phases` | 1 | |
 | `fuse_a` | 25 | → 5.75 kW (1×25 A) / 17.3 kW (3×25 A) |
@@ -33,7 +34,7 @@
 | `degradation_eur_per_kwh` | 0.0 | Disabled |
 | `allow_grid_export` | false | |
 | `economic_guard` | false | Policies stay literal by default |
-| `pv_coupling` | `dc_hybrid` | Most new installs are hybrid; ask, do not assume |
+| `pv_coupling` | `dc_hybrid` | Most new installs are hybrid; ask, do not assume. Forced to `null` when `has_pv = false` |
 | `battery_phases` | `three_phase` | Only offered when connection is 3-phase |
 | `supplier_settlement` | `hourly` | Most NL dynamic suppliers still bill hourly averages |
 | `epoch_detection` | on | PV/battery commissioning |
@@ -49,10 +50,10 @@
 Tax and tariff constants must be editable in the UI and are stamped with the year they
 were taken from. They will change on 1 January 2027.
 
-Four of these defaults are themselves open questions: `degradation_eur_per_kwh`
+Five of these defaults are themselves open questions: `degradation_eur_per_kwh`
 ([§8.3](17-open-questions.md)), `supplier_settlement` ([§8.12](17-open-questions.md)),
-`pv_capacity_change_detection` ([§8.13](17-open-questions.md)) and `feedin_floor_period`
-([§8.14](17-open-questions.md)).
+`pv_capacity_change_detection` ([§8.13](17-open-questions.md)), `feedin_floor_period`
+([§8.14](17-open-questions.md)) and `has_pv` ([§8.16](17-open-questions.md)).
 
 The 2026 constants above are drawn from
 [background E-A](18-dutch-electricity-background.md#appendix-e-a--quick-reference-2026),

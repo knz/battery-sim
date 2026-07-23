@@ -18,8 +18,10 @@ saved_pct  = 100 * saved_kwh / A.imp.sum()
 # Convention matters: AC-side throughput gives a figure ~5% lower.
 efc = C.withdrawn.sum() / cfg.usable_capacity_kwh
 
-self_consumption = 1 - export.sum() / pv.sum()          # per scenario
-self_sufficiency = 1 - import.sum() / load.sum()        # per scenario
+# Self-consumption is undefined without PV: nothing was generated to consume.
+# Report null, never 0 or 1 — both would assert something the data cannot support.
+self_consumption = (1 - export.sum() / pv.sum()) if pv.sum() > EPS else None
+self_sufficiency = 1 - import.sum() / load.sum()        # per scenario; always defined
 
 # Conversion loss = AC in - AC out - energy still sitting in the battery.
 # Equivalently (charge_ac - stored) + (withdrawn - discharge_ac).

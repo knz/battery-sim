@@ -1,7 +1,9 @@
 # 2.5 Topology selector detail
 
-> **Purpose:** the two illustrated selectors in panel ②, the soft block on unsupported
-> phase topologies, and the SVG asset requirements.
+> **Purpose:** the illustrated selectors in panel ② — PV coupling where there is PV, the
+> grid-only battery arrangement where there is not, and the battery phase configuration in
+> both cases — plus the soft block on unsupported phase topologies and the SVG asset
+> requirements.
 > **Audience:** frontend.
 > **Read with:** [02-ux-wireframes.md](02-ux-wireframes.md) §2.3, which hosts these
 > selectors; [11-policies-and-battery.md](11-policies-and-battery.md) §6.8, where PV
@@ -12,7 +14,7 @@ Both selectors are **illustrated radio groups**, not dropdowns. Users recognise 
 of their own meter cupboard far more reliably than they answer the equivalent question in
 words, and both of these settings materially change the numbers.
 
-## (a) PV coupling — always shown
+## (a) PV coupling — shown when the household has PV
 
 ```
   How is your PV connected to the battery?
@@ -44,6 +46,37 @@ The selection sets `cfg.coupling`, which selects `eta_c_dc` instead of `eta_c` o
 charging path in the battery step function
 ([§6.8](11-policies-and-battery.md#68-battery-step-function)). The default bonus is
 `roundtrip_dc_bonus = +0.04`.
+
+**Rendered only when `cfg.has_pv`.** The choice describes how PV reaches the battery, so
+without PV it has nothing to describe. Set `cfg.coupling = ac` and `topology.pv_coupling =
+null` in the result object. Forcing `ac` is not an approximation: `eta_c_dc` applies only
+to `chg_pv`, which is identically zero, so the two settings produce bit-identical results.
+
+## (a′) Battery coupling without PV
+
+Shown in place of (a) when `has_pv = false`. There is nothing to choose here — the option
+is single and preselected — but it is rendered anyway, because a user who has just told the
+app they have no solar should see that the app understood them, and because the diagram
+confirms the modelled arrangement is the one they have.
+
+```
+  Your setup — battery on the AC side, no solar
+
+  ┌────────────────────────────────────────────┐
+  │ ( • ) Grid-coupled battery                 │
+  │                                            │
+  │        ┌─────┐    ┌──────────┐             │
+  │        │ BAT │───►│ battery  │───┐         │
+  │        └─────┘    │ inverter │   │         │
+  │                   └──────────┘   ▼         │
+  │                              ══╪══ AC      │
+  │                                │           │
+  │                     grid ──────┴─ load     │
+  │                                            │
+  │  Charges from the grid, discharges to the  │
+  │  house. One conversion each way.           │
+  └────────────────────────────────────────────┘
+```
 
 ## (b) Battery phase configuration
 
@@ -95,9 +128,15 @@ fixture 12 in [16-validation-harness.md](16-validation-harness.md) asserts that 
 approximated run is numerically identical to the 3-phase case. Whether the soft block is
 the right call is [open question §8.9](17-open-questions.md).
 
+The phase selector is **independent of PV** — it describes how the battery inverter sits
+across L1/L2/L3, which is the same question with or without solar. It is shown whenever the
+connection is 3-phase, in both cases.
+
 ## Asset requirements
 
-Four inline SVGs, 240 × 160 viewBox, single `currentColor` stroke at 2 px, no fills, no
+Six inline SVGs: two for the PV-coupling options in (a), one for the grid-only battery in
+(a′), and three for the phase options in (b). Each 240 × 160 viewBox, single
+`currentColor` stroke at 2 px, no fills, no
 external fonts or dependencies. Selected state indicated by border and background, never
 by colour alone. Each `<svg>` carries a `role="img"` and an `aria-label` repeating the
 full text description, and each option keeps a visible text label — the diagram

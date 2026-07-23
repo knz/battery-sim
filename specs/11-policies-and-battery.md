@@ -41,6 +41,11 @@ Note that `A` is a lower bound and exists mainly to let the user *exclude* deepl
 prices (unusual) or, more typically, to be left at a large negative value so only `B`
 binds.
 
+**Without PV, `st.pv` is all zeros**, so `solar_surplus` is identically zero and P1 charges
+nothing while P3 degenerates to P2. Neither is offered in the UI in that case
+([§2.3](02-ux-wireframes.md#without-pv)); `charge_policy` is P2. The code above needs no
+branch on `has_pv` — it already computes the right answer — and should not acquire one.
+
 ## 6.7 Discharge policy
 
 ```python
@@ -68,6 +73,21 @@ def discharge_request(policy, i, st, cfg):
 - **D2** — discharge only while `C ≤ spot ≤ D`, at full rated power. Outside the band the
   battery does nothing, even if the house is importing. This is intentional and literal.
 - **D3** — both.
+
+All three remain available and distinct **without PV**, where the deficit `max(0, load −
+pv)` is simply the whole load: D1 discharges whenever the house draws anything, D2 only
+inside the price band. D1's label changes to "serve house load" in that case
+([§2.3](02-ux-wireframes.md#without-pv)) since there is no solar to exceed, but its
+behaviour does not.
+
+**The no-PV configuration to think about is P2 with D2 or D3** — buy low, sell or self-use
+high. It is the only way a battery earns anything without solar, it is entirely dependent
+on the spread between the charge and discharge bands clearing the round-trip loss, and it
+is what the perfect-foresight benchmark in
+[§6.12](12-metrics-and-benchmarks.md#612-perfect-foresight-benchmark) will beat by a wide
+margin, because fixed bands are a poor approximation of a price signal that moves daily.
+Expect capture ratios well below the PV case, and do not treat that as a defect in the
+simulator.
 
 `allow_grid_export` defaults **off**. Under the 2027 regime, a kWh discharged to the house
 displaces `p_import` (≈ €0.25 at €0.08 spot) while a kWh exported earns `p_export_net`

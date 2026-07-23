@@ -23,6 +23,11 @@ continuously, so they are collected here. The distinctions worth holding on to:
 
 §6.13 and §6.16 measure independent errors and both should be reported.
 
+**Without PV, only §6.17 changes.** The overlap diagnostic, the resolution-bias run and
+the price bracket are all computed from grid flows and prices and are unaffected by the
+absence of solar — overlap in particular remains the primary resolution gate. §6.17's
+primary method needs a PV signal and is unavailable; see that section.
+
 ---
 
 ## 7.1 The overlap diagnostic — measure resolution damage directly
@@ -61,6 +66,13 @@ resolution destroyed. Use it as the primary gate:
 | < 2% | Fine. Report quietly. |
 | 2–10% | Warn. Headline savings are an upper bound. |
 | > 10% | Prominent warning. Recommend re-running over the 5-minute window instead. |
+
+**In a household with no PV, `overlap_kwh` should be essentially zero**, because there is
+nothing behind the meter that can push power outward within an interval. A nonzero value
+there is not a resolution finding — it is evidence of undeclared generation or storage, and
+should be routed to the undeclared-PV and undeclared-battery checks in
+[§6.15](13-configuration-epochs.md#undeclared-pv) rather than reported as resolution
+damage. The gate table below applies as written only when the household has declared PV.
 
 Consequently `SimulationFrame` must retain `import_obs`/`export_obs` — they are not used
 in the simulation itself, only in validation. Keep both. See
@@ -175,6 +187,14 @@ A clock offset between the P1 meter integration and the solar inverter integrati
 common (minutes to a full hour, the latter usually a timezone bug) and corrupts the
 reconstruction in [§6.3](09-ingest-algorithms.md#63-household-load-reconstruction) in a
 way that looks like noise rather than an error.
+
+**This is a PV-household problem.** It arises from combining two independently-clocked
+sensors; a household without PV reconstructs load from the meter alone, so there is no
+second clock to disagree with and this entire class of error does not exist. The primary
+method below is unavailable there — it correlates PV against export — and the diagnostic
+reports `time_offset_s: null` rather than `0`, which would claim a measurement that was
+never made. The corroborating method still runs if the user mapped a grid power sensor
+alongside the energy meter, where it checks that sensor against the meter.
 
 **Min/max alone cannot detect an offset** — shifting a series in time does not change its
 hourly extrema in any recoverable way. Two things do work:

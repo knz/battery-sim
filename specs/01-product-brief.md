@@ -17,11 +17,19 @@ It is a **retrospective counterfactual simulator**, not a forecaster and not a c
 
 ## 1.2 Target user
 
-A technically literate Dutch homeowner who runs Home Assistant, has solar PV, and is
-evaluating a battery purchase (or evaluating operating strategies for one they own).
-They can obtain an HA long-lived access token or export CSVs. They are assumed to be
-comfortable entering numeric parameters but **not** assumed to know Dutch energy tax
-structure.
+A technically literate Dutch homeowner who runs Home Assistant and is evaluating a battery
+purchase (or evaluating operating strategies for one they own). They can obtain an HA
+long-lived access token or export CSVs. They are assumed to be comfortable entering numeric
+parameters but **not** assumed to know Dutch energy tax structure.
+
+**Solar PV is optional.** The household may have it or not, and the simulator supports
+both. Where PV is present, the battery's value comes mainly from storing surplus that would
+otherwise be exported at a poor rate. Where it is absent, the value comes entirely from
+price arbitrage — charging at cheap hours and discharging at expensive ones — plus avoided
+peak-tariff import. That is a smaller and more volatile saving under most parameter
+choices, but it is not zero, and whether it clears the cost of a battery is exactly the
+question this tool exists to answer. The app must therefore never treat a missing PV series
+as an error.
 
 ## 1.3 Regulatory regime — fixed decision
 
@@ -62,6 +70,9 @@ for. But two things follow:
 ## 1.4 In scope (v1)
 
 - Two data ingestion paths: direct Home Assistant access, and standardised CSV upload.
+- **Households with and without solar PV.** PV series are optional; the household declares
+  which case applies, and the requirements, policies, topology choices, metrics and
+  diagnostics that depend on PV are adjusted accordingly.
 - Reconstruction of the battery-free household load, including stripping out an
   already-installed battery if its sensors are provided.
 - Mixed-resolution input data, normalised onto a single uniform simulation grid.

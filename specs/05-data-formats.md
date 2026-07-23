@@ -40,7 +40,7 @@ timestamp,series,value,unit,kind
 | `grid_import_t2` | no | cumulative/delta | Omit if the meter has a single register |
 | `grid_export_t1` | yes¹ | cumulative/delta | |
 | `grid_export_t2` | no | cumulative/delta | |
-| `solar_production` | yes | cumulative/delta | AC output of the PV inverter |
+| `solar_production` | conditional² | cumulative/delta | AC output of the PV inverter. Required when the household declares PV, absent otherwise |
 | `battery_charge` | no | cumulative/delta | **AC-side.** See [§7.2](15-data-quality-and-limits.md#72-known-modelling-limitations--state-these-in-the-ui-not-just-here) item 2 |
 | `battery_discharge` | no | cumulative/delta | **AC-side.** |
 | `price_spot` | conditional | price | Required for dynamic pricing. Bare EPEX, excl. markup, tax and VAT |
@@ -51,6 +51,15 @@ timestamp,series,value,unit,kind
 
 ¹ `grid_import`/`grid_export` are accepted as aliases for the `_t1` variants when the
 meter is not split.
+
+² Required exactly when the household declares solar PV
+([§2.3](02-ux-wireframes.md#23-panel--parameter-configuration-expanded), `cfg.has_pv`).
+A household without PV omits it, and the simulator treats production as zero throughout.
+Supplying the series while declaring no PV, or declaring PV without supplying it, is a
+configuration error and is caught by check 4 in
+[§7.3](15-data-quality-and-limits.md#73-data-quality-checks-in-execution-order) — the
+absence of a solar series is never inferred to mean "no PV", because the far more common
+cause is a user who has PV and forgot to map the inverter.
 
 ### Semantics of `kind`
 

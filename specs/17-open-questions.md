@@ -3,7 +3,7 @@
 > **Purpose:** decisions the specification does not make, ordered by how much rework the
 > answer causes if deferred.
 > **Audience:** product owner.
-> **Status:** all thirteen are open. Where the spec had to pick something to remain
+> **Status:** all seventeen are open. Where the spec had to pick something to remain
 > implementable, the choice it made is stated and marked as a choice, not a finding.
 
 1. **Feed-in reference for dynamic contracts.** The statutory floor is 50% of the "bare
@@ -114,3 +114,28 @@
     keeping the panel clean, and is the recommendation.
     → [§6.10](10-pricing.md#610-cost-accounting),
     [§2.4](02-ux-wireframes.md#24-panel--results-expanded)
+
+16. **Default for `has_pv`.** Defaulted to `true`, on the reasoning that a household
+    motivated enough to run Home Assistant and evaluate a battery is more likely than not
+    to already have solar. The cost of the default being wrong is asymmetric: a no-PV user
+    who leaves it alone is asked for a solar sensor they do not have and is blocked by
+    check 4 until they notice the toggle, which is annoying but self-correcting. Options:
+    keep `true`; default to `false`, which fails in the other direction and is caught by
+    the daytime-export heuristic; or make it an unset radio group that must be answered
+    before the run proceeds, which costs one click for everyone and removes the guess
+    entirely. The third is the recommendation if panel ② can afford the friction.
+    → [§2.3](02-ux-wireframes.md#23-panel--parameter-configuration-expanded),
+    [appendix-a-defaults.md](appendix-a-defaults.md)
+
+17. **Should D1 remain a separate option without PV?** With PV, D1 ("serve the deficit
+    above solar") and D3 ("that plus price-band discharge") are clearly different
+    strategies. Without PV, D1 becomes "discharge whenever the house draws anything, at any
+    price", which is a defensible policy — it maximises self-sufficiency and needs no price
+    data — but it is also the policy most likely to lose money under a dynamic contract,
+    since it will happily discharge into a cheap hour. The spec keeps all three options and
+    relabels D1. The alternative is to hide D1 without PV and offer only D2/D3, which
+    removes a footgun but also removes the ability to demonstrate that the footgun is one.
+    Consistent with the "literal policies" principle in
+    [§1.7](01-product-brief.md#17-design-principles), keeping it is the recommendation.
+    → [§6.7](11-policies-and-battery.md#67-discharge-policy),
+    [§2.3](02-ux-wireframes.md#without-pv)

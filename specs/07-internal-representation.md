@@ -45,6 +45,13 @@ SimulationFrame:
 
 Notes on the fields that are not simulation inputs:
 
+- `pv` **is always present and always an array.** When the household has no PV it is
+  all-zero, filled once at frame construction. It is deliberately not `None` and not
+  optional: every consumer downstream — the policies, the battery step, the metrics, the
+  DP — is already correct on an all-zero array, and making the field nullable would push a
+  `has_pv` branch into each of them for no gain. Whether the household declared PV is
+  carried separately, on the config object, for the requirements and diagnostics that
+  genuinely differ.
 - `import_obs` / `export_obs` are never used by the battery model. They exist solely for
   the overlap diagnostic in
   [§7.1](14-diagnostics.md#71-the-overlap-diagnostic--measure-resolution-damage-directly),
@@ -102,6 +109,7 @@ Notes on the fields that are not simulation inputs:
     "intervals_at_max_soc": 1204, "intervals_at_min_soc": 2988
   },
 
+  // self_consumption_* are null when the household has no PV (§6.11).
   "ratios": {
     "self_consumption_baseline": 0.58, "self_consumption_battery": 0.81,
     "self_sufficiency_baseline": 0.31, "self_sufficiency_battery": 0.52
@@ -131,7 +139,8 @@ Notes on the fields that are not simulation inputs:
   },
 
   "topology": {
-    "pv_coupling": "dc_hybrid",
+    "has_pv": true,
+    "pv_coupling": "dc_hybrid",       // null when has_pv is false
     "battery_phases": "three_phase",
     "approximated": false
   },
@@ -172,6 +181,27 @@ Where each block comes from:
 | `price_bracket` | [§6.16](14-diagnostics.md#616-price-bracketing-under-settlementresolution-mismatch) |
 | `topology` | [§2.5](03-topology-selector.md) |
 | `diagnostics` | [14-diagnostics.md](14-diagnostics.md) and [§7.3](15-data-quality-and-limits.md#73-data-quality-checks-in-execution-order) |
+
+**Shape of the object without PV.** Every key above is still present — consumers never
+need to test for existence, only for `null`. What changes:
+
+- `topology.has_pv` is `false` and `topology.pv_coupling` is `null`.
+- `ratios.self_consumption_baseline` and `ratios.self_consumption_battery` are `null`.
+- `energy.pv_kwh` is `0.0`, and `energy.curtailed_kwh` is `0.0` unless arbitrage export hit
+  the connection limit.
+- `cost.waterfall` keeps all its lines. `lost_feedin_compensation` and
+  `avoided_terugleverkosten` will be `0.00` for most no-PV runs but are not special-cased,
+  and the closure identity in fixture 4 must still hold.
+- `diagnostics` fields that depend on a PV signal are `null` rather than `0`:
+  `time_offset_s` and `time_offset_confidence` when cross-correlation could not be run
+  ([§6.17](14-diagnostics.md#617-timestamp-misalignment-detection)), and
+  `negative_load_pct` remains meaningful but carries a different interpretation
+  ([§6.3](09-ingest-algorithms.md#63-household-load-reconstruction)).
+- `epochs[].has_pv` is `false` throughout, and no `pv_commissioned` event can be detected
+  ([§6.15](13-configuration-epochs.md#615-configuration-epochs)).
+
+A `null` here means "not computable for this household", which is distinct from a zero
+measurement, and the UI must render the distinction rather than collapsing both to `0`.
 
 ## 4.6 Per-interval CSV export
 

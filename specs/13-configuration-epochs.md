@@ -19,22 +19,24 @@ def detect_epochs(series, index_local):
     """Segment the window into intervals of constant physical configuration."""
     events = []
 
-    # --- PV commissioning ------------------------------------------------
-    # A sensor can exist and read zero for months before the panels go live,
-    # so "first non-null" is the wrong test. Use sustained daily production.
-    daily = series.solar.resample("1D").sum()
-    ref   = daily.quantile(0.95)
-    if ref > 0.1:
-        live = daily.rolling(7, min_periods=4).mean() > 0.10 * ref
-        if not live.iloc[0] and live.any():
-            events.append(("pv_commissioned", live.idxmax()))
+    if series.solar is not None:
+        # --- PV commissioning --------------------------------------------
+        # A sensor can exist and read zero for months before the panels go
+        # live, so "first non-null" is the wrong test. Use sustained daily
+        # production.
+        daily = series.solar.resample("1D").sum()
+        ref   = daily.quantile(0.95)
+        if ref > 0.1:
+            live = daily.rolling(7, min_periods=4).mean() > 0.10 * ref
+            if not live.iloc[0] and live.any():
+                events.append(("pv_commissioned", live.idxmax()))
 
-    # --- PV capacity change (panels added) --------------------------------
-    # Compare rolling 30-day peak hourly output. A sustained step > 20% that
-    # is not explained by season indicates added capacity.
-    peak = series.solar.resample("1D").max().rolling(30).median()
-    for d in changepoints(peak, min_rel_step=0.20, min_segment_days=45):
-        events.append(("pv_capacity_changed", d))
+        # --- PV capacity change (panels added) ----------------------------
+        # Compare rolling 30-day peak hourly output. A sustained step > 20%
+        # that is not explained by season indicates added capacity.
+        peak = series.solar.resample("1D").max().rolling(30).median()
+        for d in changepoints(peak, min_rel_step=0.20, min_segment_days=45):
+            events.append(("pv_capacity_changed", d))
 
     # --- Battery commissioning / removal ---------------------------------
     if series.batt_charge is not None:
@@ -50,6 +52,45 @@ default (`pv_capacity_change_detection = off`, see
 [appendix-a-defaults.md](appendix-a-defaults.md) and
 [open question §8.13](17-open-questions.md)).
 
+**Without PV both PV branches are skipped**, not run against a zero array — the guard is
+on the series being present, so a household that declared no PV can produce only battery
+events. A no-PV household with no battery has exactly one epoch spanning the window, which
+is the common case and needs no timeline strip. This does not mean PV commissioning is
+undetectable for such a household: it means a household that *did* commission PV mid-window
+and answered "no PV" has told the app something false, which the next section addresses.
+
+## Undeclared PV
+
+The mirror of the undeclared-battery case below, and the reason the app asks about PV
+explicitly rather than inferring it from an unmapped sensor. A household that has solar but
+did not map the inverter — or that has an array on the same connection they did not think
+to mention — produces a reconstruction of `load = import − export` that is wrong by exactly
+the self-consumed generation, all day, every sunny day.
+
+The signature is unambiguous and cheap to test:
+
+```python
+def detect_undeclared_pv(frame, cfg):
+    """Only meaningful when the household declared it has no PV."""
+    if cfg.has_pv:
+        return
+
+    # A household with no generator cannot export. Any sustained daytime
+    # export is generation the app has not been told about.
+    day     = (frame.index_local.hour >= 9) & (frame.index_local.hour < 17)
+    exp_day = frame.export_obs[day].sum()
+    if exp_day > 0.01 * max(frame.import_obs.sum(), EPS):
+        warn(POSSIBLE_UNDECLARED_PV,
+             detail="sustained daytime export from a household declaring no PV")
+```
+
+The daytime restriction separates this from an undeclared battery arbitraging to the grid,
+which has no reason to prefer midday. Where both signatures fire, report both and let the
+user say which it is. As with every heuristic here, this is put to the user as a question —
+"we see export around midday; do you have solar panels?" — and never applied by changing
+`has_pv` automatically. It is check 6b in
+[§7.3](15-data-quality-and-limits.md#73-data-quality-checks-in-execution-order).
+
 ## Undeclared batteries
 
 **The dangerous case is an undeclared battery**: the unit was installed but its sensors
@@ -59,20 +100,27 @@ the battery's charging to household load, and every downstream number is wrong w
 error raised. Heuristic detection:
 
 ```python
-def detect_undeclared_battery(frame, epochs):
+def detect_undeclared_battery(frame, epochs, cfg):
     """Flag unexplained step changes consistent with hidden storage."""
-    sc    = rolling_self_consumption(frame, window="14D")
     night = rolling_night_import(frame, window="14D")
 
-    for d in changepoints(sc, min_abs_step=0.15):
-        if not epoch_boundary_near(d, epochs, tol="7D"):
-            warn(POSSIBLE_UNDECLARED_BATTERY, date=d,
-                 detail="self-consumption rose sharply with no PV or battery event")
+    if cfg.has_pv:
+        # Needs a PV denominator; unavailable without solar.
+        sc = rolling_self_consumption(frame, window="14D")
+        for d in changepoints(sc, min_abs_step=0.15):
+            if not epoch_boundary_near(d, epochs, tol="7D"):
+                warn(POSSIBLE_UNDECLARED_BATTERY, date=d,
+                     detail="self-consumption rose sharply with no PV or battery event")
 
     # Grid-charging storage shows as flat-topped night import at constant power.
+    # Available in both cases, and the only available signal without PV.
     if flat_top_fraction(night) > 0.3:
         warn(POSSIBLE_UNDECLARED_BATTERY, detail="constant-power night import blocks")
 ```
+
+Without PV only the second signal is available, so detection is weaker — but it is also the
+signal that matters more there, since a battery installed in a household with no solar is
+almost certainly grid-charging and will show the flat-topped night blocks.
 
 Both are heuristics and both are presented as questions to the user, never as findings.
 Detected boundaries are **always user-confirmable and overridable** — the household knows

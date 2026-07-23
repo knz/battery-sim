@@ -43,7 +43,7 @@ HA computes different aggregates depending on the sensor's `state_class`:
 
 | `state_class` | Columns stored | Typical sensors |
 |---|---|---|
-| `total` / `total_increasing` | `sum`, `state`, `last_reset` | Grid import/export, solar production, battery charge/discharge |
+| `total` / `total_increasing` | `sum`, `state`, `last_reset` | Grid import/export, solar production (if any), battery charge/discharge |
 | `measurement` | `mean`, `min`, `max` | Spot price, power (W), voltage, SoC (%) |
 
 The consequence is important and slightly counter-intuitive: **the energy meters have no

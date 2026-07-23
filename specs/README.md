@@ -24,7 +24,9 @@ data: *if I had owned a home battery over this period, operated under this polic
 much grid electricity and how much money would I have saved?*
 
 It is a **retrospective counterfactual simulator**, not a forecaster and not a controller.
-Start with [01-product-brief.md](01-product-brief.md).
+It serves households **with or without solar PV** — PV data is optional throughout, and a
+battery bought purely for price arbitrage is a supported case. Start with
+[01-product-brief.md](01-product-brief.md).
 
 ---
 
@@ -62,7 +64,7 @@ These apply to every file in this package and are not restated in full elsewhere
 | [13-configuration-epochs.md](13-configuration-epochs.md) | Detecting PV/battery commissioning mid-window, undeclared-battery heuristics | Backend + frontend |
 | [14-diagnostics.md](14-diagnostics.md) | Overlap, resolution bias, price bracketing, timestamp misalignment | Backend + frontend |
 | [15-data-quality-and-limits.md](15-data-quality-and-limits.md) | Known modelling limitations, the 18 quality checks, window anchoring, ops notes | Everyone |
-| [16-validation-harness.md](16-validation-harness.md) | The twelve fixtures the implementation must reproduce exactly | Backend, QA |
+| [16-validation-harness.md](16-validation-harness.md) | The fixtures the implementation must reproduce exactly | Backend, QA |
 | [17-open-questions.md](17-open-questions.md) | Decisions still owed by the product owner | Product owner |
 | [18-dutch-electricity-background.md](18-dutch-electricity-background.md) | Domain background: what the meter measures, how the bill is built, salderen and the 2027 regime, what is still unknown | Everyone; essential if the Dutch regime is unfamiliar |
 | [appendix-a-defaults.md](appendix-a-defaults.md) | Every default parameter value with its rationale | Everyone |

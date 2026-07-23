@@ -62,3 +62,20 @@ clock.
     from the normaal rate, raises no gap or missing-series warning, and suppresses the
     §6.4(b) zone-mismatch check rather than reporting 100% mismatch.
     → [§6.4](09-ingest-algorithms.md#64-tariff-register-identification-and-zone-assignment)
+16. **No-PV arbitrage** — `has_pv = false`, no `solar_production` series, flat 1 kW load,
+    and a square-wave price alternating daily between a low inside band `[A,B]` and a high
+    inside band `[C,D]`. With P2/D2 the battery performs exactly one full cycle per day and
+    the saving is analytically computable from the spread, the round-trip efficiency and
+    the standby draw. Assert additionally that `reconstruct_load` returned `import −
+    export` unmodified, that `ratios.self_consumption_*` are `null` rather than 0,
+    that `topology.pv_coupling` is `null`, and that the run raises no missing-series
+    warning for the absent solar sensor.
+    → [§6.3](09-ingest-algorithms.md#63-household-load-reconstruction),
+    [§6.6–6.7](11-policies-and-battery.md#66-charge-policy),
+    [§6.11](12-metrics-and-benchmarks.md#611-metrics)
+17. **PV-invariance of the core** — the same input run twice, once with `has_pv = true` and
+    an all-zero `solar_production` series, once with `has_pv = false` and no series at all,
+    produces identical energy and cost figures. Only the nullable diagnostic and ratio
+    fields may differ. This pins the decision that the numeric core takes no `has_pv`
+    branch ([§4.4](07-internal-representation.md#44-internal-normalised-representation)).
+    → [§6.8](11-policies-and-battery.md#68-battery-step-function)
