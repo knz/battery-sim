@@ -10,7 +10,10 @@ consumes. When the real service layer lands (specs/08-architecture.md §5.1), th
 replaced by the result object of specs/07-internal-representation.md §4.5 — the template
 field names deliberately mirror that eventual structure.
 
-Current variant: the app default — has_pv=True, simulate_cost=False (energy only).
+Current variant: the app default — has_pv=True, simulate_cost=False (energy only). These two
+choices are the setup band (specs/02-ux-wireframes.md §2.1); they drive which series/slots
+panel ① asks for, which boxes panel ② shows, and which sections panel ③ renders. They live in
+CONFIG below and are rendered by templates/_setup_band.html, not by either panel.
 
 Translatable chrome vs. data. Some values here are UI chrome that must translate (role
 labels, series names, warning sentences, policy descriptions); others are data that must not
@@ -52,8 +55,13 @@ def _panel_data():
             "version": "HA 2026.6.2",
             "statistic_count": "1,284",
         },
-        # Series mapping table. `req` is one of required / conditional / optional,
-        # rendered as ● / ◐ / ○.
+        # Series mapping table. `req` is one of required / conditional / cost_optional /
+        # optional, rendered as ● / ◐ / ◒ / ○.
+        #
+        # The slot roster is derived from the setup band (§2.2): rows flagged `pv_only` show
+        # only when cfg.has_pv; rows flagged `cost_only` show only when cfg.simulate_cost.
+        # The two price-bracketing rows below are cost_only, so with this sample's
+        # simulate_cost=False they are absent; they appear when cost simulation is enabled.
         "mapping": [
             {"role": _N("Grid import T1"), "req": "required", "entity": "sensor.electricity_meter_import_t1"},
             {"role": _N("Grid import T2"), "req": "required", "entity": "sensor.electricity_meter_import_t2"},
@@ -63,6 +71,8 @@ def _panel_data():
             {"role": _N("Battery charge"), "req": "optional", "entity": "— none —"},
             {"role": _N("Battery discharge"), "req": "optional", "entity": "— none —"},
             {"role": _N("Spot price"), "req": "required", "entity": "sensor.epex_spot_price"},
+            {"role": _N("Spot price (min)"), "req": "cost_optional", "entity": "— none —", "cost_only": True},
+            {"role": _N("Spot price (max)"), "req": "cost_optional", "entity": "— none —", "cost_only": True},
         ],
         "quality": {
             "coverage": "2025-06-01 → 2026-07-21   (416 days)",

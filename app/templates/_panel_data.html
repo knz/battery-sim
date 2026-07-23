@@ -1,15 +1,20 @@
 {#
   _panel_data.html — Panel ① Data input (specs/02-ux-wireframes.md §2.2).
 
-  Collapsed to a one-line summary; expands to the source sub-panel, the series-mapping table
-  (solar row shown because cfg.has_pv), and the data-quality box. All values are the static
-  sample (app/sample_data.py `data`). The uploaded-CSV variant of the source sub-panel is
-  not rendered in this increment — only the Home Assistant path is shown.
+  Collapsed to a one-line summary; expands to the source sub-panel, the series-mapping table,
+  and the data-quality box. All values are the static sample (app/sample_data.py `data`). The
+  uploaded-CSV variant of the source sub-panel is not rendered in this increment — only the
+  Home Assistant path is shown.
+
+  The slot roster is derived from the setup band (§2.2, §2.1): the solar row shows only when
+  cfg.has_pv, and the two Spot price (min/max) rows are offered only when cfg.simulate_cost.
+  Those two choices live in the band above panel ① (_setup_band.html), not here.
 
   UI chrome is wrapped in _() for translation (English/Dutch); data values (entity IDs,
   numbers, coverage strings) stay literal. Role labels come pre-translated from sample_data.
 
-  The `req` → marker mapping: required ●, conditional ◐ (PV-only), optional ○.
+  The `req` → marker mapping: required ●, conditional ◐ (PV-only), cost_optional ◒
+  (cost-simulation-only), optional ○.
 #}
 <section class="collapse collapse-arrow bg-base-100 border border-base-300 rounded-box">
   <input type="checkbox" aria-label="{{ _('Toggle Data panel') }}" />
@@ -67,17 +72,6 @@
         <div class="card-body gap-3 p-4">
           <h3 class="text-sm font-semibold text-base-content/70">{{ _('Series mapping') }}</h3>
 
-          <div class="flex flex-wrap gap-x-8 gap-y-2">
-            <div class="flex items-center gap-2">
-              <span class="label-text">{{ _('Do you have solar PV?') }}</span>
-              <span class="badge badge-primary badge-sm">{{ _('Yes') }}</span>
-            </div>
-            <div class="flex items-center gap-2">
-              <span class="label-text">{{ _('Simulate cost savings?') }}</span>
-              <span class="badge badge-ghost badge-sm">{{ _('No') }}</span>
-            </div>
-          </div>
-
           <div class="overflow-x-auto">
             <table class="table table-sm">
               <thead>
@@ -85,13 +79,16 @@
               </thead>
               <tbody>
                 {% for row in data.mapping %}
-                  {# Solar row is conditional on PV; hidden entirely when has_pv is false (§2.2). #}
-                  {% if not row.pv_only or cfg.has_pv %}
+                  {# Slot roster is derived from the setup band (§2.2): the solar row shows only
+                     with has_pv; the two price-bracketing rows are offered only with
+                     simulate_cost. Both conditions read cfg.*, set in the band above panel ①. #}
+                  {% if (not row.pv_only or cfg.has_pv) and (not row.cost_only or cfg.simulate_cost) %}
                   <tr>
                     <td>{{ _(row.role) }}</td>
                     <td class="text-center">
                       {% if row.req == "required" %}<span title="{{ _('required') }}">●</span>
                       {% elif row.req == "conditional" %}<span title="{{ _('required if you have PV') }}" class="text-primary">◐</span>
+                      {% elif row.req == "cost_optional" %}<span title="{{ _('offered if you simulate costs') }}" class="text-primary">◒</span>
                       {% else %}<span title="{{ _('optional') }}" class="text-base-content/40">○</span>{% endif %}
                     </td>
                     <td><span class="font-mono text-xs">{{ row.entity }}</span></td>
@@ -103,7 +100,7 @@
           </div>
 
           <p class="text-xs text-base-content/60">
-            {{ _('● = required.  ○ = optional.  ◐ = required only if you have solar PV. Spot price drives the charge and discharge bands, so it is required whether or not you simulate costs.') }}
+            {{ _('● = required.  ○ = optional.  ◐ = required only if you have solar PV.  ◒ = offered only if you simulate costs (intra-hour price bracketing). Both answers come from the setup band above. Spot price drives the charge and discharge bands, so it is required whether or not you simulate costs.') }}
           </p>
 
           <div class="flex justify-end">

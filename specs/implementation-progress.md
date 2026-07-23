@@ -31,7 +31,7 @@ authoritative list is `app/features.py` (`FEATURE_KEYS`); the templates carry th
 | Key | Control | Template | Blocked on |
 |---|---|---|---|
 | `data_source_csv` | "Upload CSV" data source | `_panel_data.html` | CSV ingestion |
-| `simulate_cost` | "Also simulate cost savings" toggle | `_panel_params.html` | cost/pricing model |
+| `simulate_cost` | "Simulate cost savings?" choice in the setup band | `_setup_band.html` | cost/pricing model |
 | `discharge_allow_export` | "Allow export to grid during D2/D3" | `_panel_params.html` | export dispatch |
 | `export_csv` | "Export CSV" of results | `_panel_results.html` | results export |
 

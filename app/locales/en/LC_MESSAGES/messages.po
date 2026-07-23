@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-23 20:54+0200\n"
+"POT-Creation-Date: 2026-07-23 21:14+0200\n"
 "PO-Revision-Date: 2026-07-23 20:40+0200\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: en\n"
@@ -68,16 +68,6 @@ msgstr "Allow export to grid"
 msgid "Allow export to grid during D2/D3"
 msgstr "Allow export to grid during D2/D3"
 
-msgid "Also simulate cost savings"
-msgstr "Also simulate cost savings"
-
-msgid ""
-"Answering No hides the solar sensor mapping, the PV coupling choice, and "
-"the policies that act on solar surplus."
-msgstr ""
-"Answering No hides the solar sensor mapping, the PV coupling choice, and "
-"the policies that act on solar surplus."
-
 msgid "B"
 msgstr "B"
 
@@ -98,6 +88,9 @@ msgstr "Battery charge"
 
 msgid "Battery discharge"
 msgstr "Battery discharge"
+
+msgid "Before you start"
+msgstr ""
 
 msgid "Benchmark: grid import avoided"
 msgstr "Benchmark: grid import avoided"
@@ -163,9 +156,6 @@ msgstr "Discharged from the battery"
 msgid "Do you have solar PV?"
 msgstr "Do you have solar PV?"
 
-msgid "Do you have solar panels?"
-msgstr "Do you have solar panels?"
-
 msgid "ENERGY SAVINGS"
 msgstr "ENERGY SAVINGS"
 
@@ -177,9 +167,6 @@ msgstr "Enable cost simulation"
 
 msgid "Energy flows"
 msgstr "Energy flows"
-
-msgid "Energy savings"
-msgstr "Energy savings"
 
 msgid "Entity / statistic ID"
 msgstr "Entity / statistic ID"
@@ -281,13 +268,6 @@ msgstr "Min state of charge"
 msgid "Monthly savings"
 msgstr "Monthly savings"
 
-msgid ""
-"Needs your contract type, supply rates, energy tax, VAT and feed-in "
-"terms. Leave this off to see kWh saved only."
-msgstr ""
-"Needs your contract type, supply rates, energy tax, VAT and feed-in "
-"terms. Leave this off to see kWh saved only."
-
 msgid "Next: parameters →"
 msgstr "Next: parameters →"
 
@@ -383,9 +363,6 @@ msgstr "Simulation grid"
 msgid "SoC + price"
 msgstr "SoC + price"
 
-msgid "Solar PV"
-msgstr "Solar PV"
-
 msgid "Solar production"
 msgstr "Solar production"
 
@@ -396,6 +373,14 @@ msgid "Source:"
 msgstr "Source:"
 
 msgid "Spot price"
+msgstr "Spot price"
+
+#, fuzzy
+msgid "Spot price (max)"
+msgstr "Spot price"
+
+#, fuzzy
+msgid "Spot price (min)"
 msgstr "Spot price"
 
 msgid ""
@@ -420,6 +405,9 @@ msgstr "Thanks. We have recorded that you want this."
 msgid "The run uses"
 msgstr "The run uses"
 
+msgid "These two answers decide what the app asks you for below."
+msgstr ""
+
 msgid "This control"
 msgstr "This control"
 
@@ -443,9 +431,6 @@ msgstr "Usable capacity"
 
 msgid "Want to know what this is worth in euros?"
 msgstr "Want to know what this is worth in euros?"
-
-msgid "What to simulate"
-msgstr "What to simulate"
 
 msgid "Where the energy comes from"
 msgstr "Where the energy comes from"
@@ -476,9 +461,6 @@ msgstr ""
 " run sees one averaged price per hour and cannot act on within-hour "
 "swings."
 
-msgid "always"
-msgstr "always"
-
 msgid "close"
 msgstr "close"
 
@@ -500,6 +482,9 @@ msgstr "kWh"
 
 msgid "not nameplate"
 msgstr "not nameplate"
+
+msgid "offered if you simulate costs"
+msgstr ""
 
 msgid "optional"
 msgstr "optional"
@@ -531,10 +516,12 @@ msgstr "← Back"
 msgid "≈260 kWh/yr"
 msgstr "≈260 kWh/yr"
 
+#, fuzzy
 msgid ""
-"● = required.  ○ = optional.  ◐ = required only if you have solar PV. "
-"Spot price drives the charge and discharge bands, so it is required "
-"whether or not you simulate costs."
+"● = required.  ○ = optional.  ◐ = required only if you have solar PV.  ◒ "
+"= offered only if you simulate costs (intra-hour price bracketing). Both "
+"answers come from the setup band above. Spot price drives the charge and "
+"discharge bands, so it is required whether or not you simulate costs."
 msgstr ""
 "● = required.  ○ = optional.  ◐ = required only if you have solar PV. "
 "Spot price drives the charge and discharge bands, so it is required "
@@ -553,4 +540,44 @@ msgstr "✓ Noted"
 
 msgid "👍 I want this"
 msgstr "👍 I want this"
+
+#~ msgid "Also simulate cost savings"
+#~ msgstr "Also simulate cost savings"
+
+#~ msgid ""
+#~ "Answering No hides the solar sensor "
+#~ "mapping, the PV coupling choice, and "
+#~ "the policies that act on solar "
+#~ "surplus."
+#~ msgstr ""
+#~ "Answering No hides the solar sensor "
+#~ "mapping, the PV coupling choice, and "
+#~ "the policies that act on solar "
+#~ "surplus."
+
+#~ msgid "Do you have solar panels?"
+#~ msgstr "Do you have solar panels?"
+
+#~ msgid "Energy savings"
+#~ msgstr "Energy savings"
+
+#~ msgid ""
+#~ "Needs your contract type, supply rates,"
+#~ " energy tax, VAT and feed-in "
+#~ "terms. Leave this off to see kWh"
+#~ " saved only."
+#~ msgstr ""
+#~ "Needs your contract type, supply rates,"
+#~ " energy tax, VAT and feed-in "
+#~ "terms. Leave this off to see kWh"
+#~ " saved only."
+
+#~ msgid "Solar PV"
+#~ msgstr "Solar PV"
+
+#~ msgid "What to simulate"
+#~ msgstr "What to simulate"
+
+#~ msgid "always"
+#~ msgstr "always"
 

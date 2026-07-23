@@ -8,14 +8,21 @@
 
 ## 2.1 Overall layout
 
-Single page, three stacked panels acting as a stepper. Completed panels collapse to a
-one-line summary and can be reopened at any time. Reopening and editing does **not**
-discard results — it marks them stale and triggers a recalculation.
+Single page, a **setup band** followed by three stacked panels acting as a stepper.
+Completed panels collapse to a one-line summary and can be reopened at any time. Reopening
+and editing does **not** discard results — it marks them stale and triggers a
+recalculation.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │  Home Battery Simulator                          [workspace: local]  [⚙]     │
 ├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ┌─ Before you start ─────────────────────────────────────────────────────┐  │
+│  │  Do you have solar PV?      ( • ) Yes    (   ) No                      │  │
+│  │  Simulate cost savings?     (   ) Yes    ( • ) No                      │  │
+│  │  ⓘ These two answers decide what the app asks you for below.           │  │
+│  └────────────────────────────────────────────────────────────────────────┘  │
 │                                                                              │
 │  ┌────────────────────────────────────────────────────────────────────────┐  │
 │  │ ① DATA                                            ✓ 412 days  [edit ▾] │  │
@@ -35,6 +42,31 @@ discard results — it marks them stale and triggers a recalculation.
 │  └────────────────────────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
+
+### The setup band
+
+The band carries the two choices that decide the *shape* of everything below it — which
+series the data panel asks for, which boxes the parameter panel shows, and which sections
+the results panel renders:
+
+- **`has_pv`** — *do you have solar PV?*
+- **`simulate_cost`** — *simulate cost savings?* (default off)
+
+It is a **scope selector, not a stepper panel**: it does not collapse to a summary, does
+not carry a `[?]` or a CTA, and is not numbered. It sits above panel ① because the natural
+order of use is to answer it first — a user cannot sensibly map sensors or upload files
+before the app knows whether it should be asking for a solar series or for cost-only
+inputs. The band is the **single source of truth** for both choices; they appear nowhere
+else as controls.
+
+**The band is editable at any time**, including after data is loaded. Changing either
+answer re-derives the panels below in place — showing or hiding rows and boxes against the
+new answer — **retains** any values already entered in still-applicable fields, and marks
+results stale so they recalculate ([§3.2](04-state-machine.md#32-events)). It never
+discards a loaded dataset or resets the configuration; a user who toggles a choice and
+toggles it back finds their earlier inputs where they left them. What each answer controls
+is set out per panel in §2.2 (data slots), §2.3 (parameter boxes) and §2.4 (result
+sections).
 
 The panel ① summary line reports the **simulation grid**, not any one series' native
 resolution — one line cannot carry a per-series fact, and the grid is the figure that
@@ -157,9 +189,6 @@ meaning makes every historical row a lie.
 │  └────────────────────────────────────────────────────────────────────────┘  │
 │                                                                              │
 │  ┌─ Series mapping ───────────────────────────────────────────────────────┐  │
-│  │  Do you have solar PV?      ( • ) Yes    (   ) No                      │  │
-│  │  Simulate cost savings?     (   ) Yes    ( • ) No                      │  │
-│  │                                                                        │  │
 │  │  ROLE                REQ  ENTITY / STATISTIC ID                        │  │
 │  │  ──────────────────────────────────────────────────────────────────    │  │
 │  │  Grid import T1       ●   [ sensor.electricity_meter_import_t1    ▾ ]  │  │
@@ -170,9 +199,13 @@ meaning makes every historical row a lie.
 │  │  Battery charge       ○   [ — none —                              ▾ ]  │  │
 │  │  Battery discharge    ○   [ — none —                              ▾ ]  │  │
 │  │  Spot price           ●   [ sensor.epex_spot_price                ▾ ]  │  │
+│  │  Spot price (min)     ◒   [ — none —                              ▾ ]  │  │
+│  │  Spot price (max)     ◒   [ — none —                              ▾ ]  │  │
 │  │                                                                        │  │
 │  │  ● = required.  ○ = optional.                                          │  │
-│  │  ◐ = required only if you have solar PV (set in panel ②).              │  │
+│  │  ◐ = required only if you have solar PV.                               │  │
+│  │  ◒ = offered only if you simulate costs (intra-hour price bracketing). │  │
+│  │  Both answers come from the setup band above.                          │  │
 │  │  Spot price drives the charge and discharge bands, so it is required   │  │
 │  │  whether or not you simulate costs.                                    │  │
 │  │  Both meter registers should be mapped. See "Tariff registers" below.  │  │
@@ -222,22 +255,33 @@ meaning makes every historical row a lie.
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-The **Solar production** row is rendered only when the household has declared PV
-(`cfg.has_pv`, set by the toggle in panel ② below). With PV declared it is required and
-carries the same `●` as the grid registers; the `◐` in the wireframe marks the row as
-conditional on that declaration rather than as a third level of optionality. With PV not
-declared the row is hidden entirely rather than shown greyed, so there is no invitation to
-map a sensor the run will ignore.
+**The setup band decides which slots this box asks for.** The two choices in the band above
+panel ① ([§2.1](#the-setup-band)) determine the slot roster here, and this is the reason
+they are asked first:
 
-Panel ② is therefore the panel that decides what panel ① asks for. Since the natural order
-of use is ① then ②, both toggles — *do you have solar PV* and *simulate cost savings* — are
-mirrored at the head of the series-mapping box as one-line questions, and changing either
-in one place changes it in both.
+- **`has_pv`** governs the **Solar production** row. It is rendered only when the household
+  has declared PV; with PV declared it is required and carries the same `●` as the grid
+  registers, and the `◐` in the wireframe marks the row as conditional on that declaration
+  rather than as a third level of optionality. With PV not declared the row is hidden
+  entirely rather than shown greyed, so there is no invitation to map a sensor the run will
+  ignore.
+- **`simulate_cost`** governs the two **Spot price (min)** and **Spot price (max)** rows.
+  These carry the intra-interval price minimum and maximum that enable the bracketing
+  diagnostic ([§6.16](14-diagnostics.md#616-price-bracketing-under-settlementresolution-mismatch)),
+  which quantifies a euro figure and therefore has no meaning in an energy-only run. They
+  are offered — as optional (`◒`) slots, never required — only when cost simulation is on,
+  and are absent otherwise. They are the one place the cost choice *adds* a data slot rather
+  than only hiding downstream boxes.
 
-The **Spot price** row is required in both cost modes, because the charge and discharge
-bands compare against it regardless of whether anything is converted to euros
+Editing either answer in the band re-derives this roster in place: a slot that ceases to
+apply is removed and any file or mapping in a still-applicable slot is kept
+([§2.1](#the-setup-band), [§3.2](04-state-machine.md#32-events)).
+
+The **Spot price** row itself is required in both cost modes, because the charge and
+discharge bands compare against it regardless of whether anything is converted to euros
 ([§1.4](01-product-brief.md#a-price-series-is-not-a-cost-model)). It is the one input a
-user might expect the cost toggle to remove and it does not.
+user might expect the cost choice to remove and it does not — only the min/max companions
+above are cost-gated.
 
 ### Granularity, per series
 
@@ -332,6 +376,8 @@ collect**, presented before any upload, with one upload slot per series.
   │  Battery charge       ○   [ choose file… ]                             │
   │  Battery discharge    ○   [ choose file… ]                             │
   │  Spot price           ●   prices.csv          ✗ see below   [ replace ]│
+  │  Spot price (min)     ◒   [ choose file… ]                             │
+  │  Spot price (max)     ◒   [ choose file… ]                             │
   │                                                                        │
   │  ✗  prices.csv does not match the expected format for Spot price.      │
   │     Expected a timestamp column with a UTC offset and a price column   │
@@ -340,7 +386,9 @@ collect**, presented before any upload, with one upload slot per series.
   │                                              [ choose another file… ]  │
   │                                                                        │
   │  ● = required.  ○ = optional.                                          │
-  │  ◐ = required only if you have solar PV (set in panel ②).              │
+  │  ◐ = required only if you have solar PV.                               │
+  │  ◒ = offered only if you simulate costs (intra-hour price bracketing). │
+  │  Both answers come from the setup band above.                          │
   │  Spot price drives the charge and discharge bands, so it is required   │
   │  whether or not you simulate costs.                                    │
   │                                                                        │
@@ -358,12 +406,14 @@ plainly: the series names in
 [§4.1](05-data-formats.md#41-the-series-vocabulary) are internal identifiers used
 downstream and in the result object; a user's file is never required to contain them.
 
-**Which rows appear** follows the same rules as the Home Assistant mapping table above.
-`Solar production` is rendered only when `cfg.has_pv` is set, and `Spot price` is required
-in both cost modes. The two panel ② toggles are mirrored at the head of this box exactly as
-they are for the Home Assistant path. The list is not a mirror of that table, though: it
-answers "what do I need to go and download", so it leads with where the files come from
-rather than with sensor names.
+**Which rows appear** follows the same rules as the Home Assistant mapping table above,
+driven by the same two answers in the setup band ([§2.1](#the-setup-band)): `Solar
+production` is rendered only when `cfg.has_pv` is set, the `Spot price (min)` / `Spot price
+(max)` slots are offered only when `cfg.simulate_cost` is on, and `Spot price` itself is
+required in both cost modes. Neither choice is asked here — the band is the single source of
+truth for both — and editing it in the band re-derives this checklist in place. The list is
+not a mirror of that table, though: it answers "what do I need to go and download", so it
+leads with where the files come from rather than with sensor names.
 
 **Validation is per slot and recoverable.** A file is checked against the expected format
 for the series it was dropped into, and a failure is reported on that row alone: what was
@@ -385,13 +435,6 @@ The expected format for each series is in [05-data-formats.md](05-data-formats.m
 │ ② PARAMETERS                                                      [collapse] │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  ┌─ What to simulate ─────────────────────────────────────────────────────┐  │
-│  │  Energy savings          ✓ always                                      │  │
-│  │  [ ] Also simulate cost savings                                        │  │
-│  │      ⓘ Needs your contract type, supply rates, energy tax, VAT and     │  │
-│  │        feed-in terms. Leave this off to see kWh saved only.            │  │
-│  └────────────────────────────────────────────────────────────────────────┘  │
-│                                                                              │
 │  ┌─ Battery ──────────────────────────────────────────────────────────────┐  │
 │  │  Usable capacity        [  10.0 ] kWh    ⓘ not nameplate               │  │
 │  │  Min state of charge    [    10 ] %                                    │  │
@@ -408,12 +451,6 @@ The expected format for each series is in [05-data-formats.md](05-data-formats.m
 │  │  Phases      ( • ) 1-phase    (   ) 3-phase                            │  │
 │  │  Fuse rating [ 25 ] A     →  max import 5.75 kW   [ override ]         │  │
 │  │  Export limit          [ same as import ▾ ]                            │  │
-│  └────────────────────────────────────────────────────────────────────────┘  │
-│                                                                              │
-│  ┌─ Solar PV ─────────────────────────────────────────────────────────────┐  │
-│  │  Do you have solar panels?   ( • ) Yes    (   ) No                     │  │
-│  │  ⓘ Answering No hides the solar sensor mapping, the PV coupling        │  │
-│  │    choice, and the policies that act on solar surplus.                 │  │
 │  └────────────────────────────────────────────────────────────────────────┘  │
 │                                                                              │
 │  ┌─ Installation topology ────────────────────────────── [see §2.5] ─────┐  │
@@ -533,8 +570,9 @@ off, along with everything else in that box.
 
 ### Without PV
 
-The `[PV only]` markers above are not rendered; those options are **absent**. With
-`has_pv = false` the panel changes as follows, and nothing else changes:
+`has_pv` is set in the setup band ([§2.1](#the-setup-band)); this panel reads it and does
+not ask again. The `[PV only]` markers above are not rendered; those options are **absent**.
+With `has_pv = false` the panel changes as follows, and nothing else changes:
 
 ```
   ┌─ Charge policy ────────────────────────────────────────────────────────┐
@@ -571,8 +609,9 @@ The `[PV only]` markers above are not rendered; those options are **absent**. Wi
 
 ### Without cost simulation
 
-With `simulate_cost = false` — the default — the panel loses everything that exists to
-turn kWh into euros, and keeps everything that decides which kWh move:
+`simulate_cost` is set in the setup band ([§2.1](#the-setup-band)); this panel reads it and
+does not ask again. With `simulate_cost = false` — the default — the panel loses everything
+that exists to turn kWh into euros, and keeps everything that decides which kWh move:
 
 - **The entire Pricing box is absent**: contract type, all three contract sub-panels, the
   supplier markup, energy tax, VAT, the Feed-in box, and the Advanced box with its
@@ -784,9 +823,9 @@ without the second half rather than looking truncated. Two smaller consequences:
   headline number would go reads as a failed calculation; an absent section reads as a
   choice the user made, which is what it is.
 - A short affordance sits at the foot of the energy section: *"Want to know what this is
-  worth in euros? [ Enable cost simulation ]"*, linking back to the panel ② toggle. Since
-  the toggle defaults off, some users will otherwise never discover that the app can do
-  this at all.
+  worth in euros? [ Enable cost simulation ]"*, linking back to the `simulate_cost` choice
+  in the setup band ([§2.1](#the-setup-band)). Since it defaults off, some users will
+  otherwise never discover that the app can do this at all.
 
 ### Panel ③ without PV
 

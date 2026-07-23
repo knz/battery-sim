@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-23 20:54+0200\n"
+"POT-Creation-Date: 2026-07-23 21:14+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -67,14 +67,6 @@ msgstr ""
 msgid "Allow export to grid during D2/D3"
 msgstr ""
 
-msgid "Also simulate cost savings"
-msgstr ""
-
-msgid ""
-"Answering No hides the solar sensor mapping, the PV coupling choice, and "
-"the policies that act on solar surplus."
-msgstr ""
-
 msgid "B"
 msgstr ""
 
@@ -94,6 +86,9 @@ msgid "Battery charge"
 msgstr ""
 
 msgid "Battery discharge"
+msgstr ""
+
+msgid "Before you start"
 msgstr ""
 
 msgid "Benchmark: grid import avoided"
@@ -158,9 +153,6 @@ msgstr ""
 msgid "Do you have solar PV?"
 msgstr ""
 
-msgid "Do you have solar panels?"
-msgstr ""
-
 msgid "ENERGY SAVINGS"
 msgstr ""
 
@@ -171,9 +163,6 @@ msgid "Enable cost simulation"
 msgstr ""
 
 msgid "Energy flows"
-msgstr ""
-
-msgid "Energy savings"
 msgstr ""
 
 msgid "Entity / statistic ID"
@@ -274,11 +263,6 @@ msgstr ""
 msgid "Monthly savings"
 msgstr ""
 
-msgid ""
-"Needs your contract type, supply rates, energy tax, VAT and feed-in "
-"terms. Leave this off to see kWh saved only."
-msgstr ""
-
 msgid "Next: parameters →"
 msgstr ""
 
@@ -367,9 +351,6 @@ msgstr ""
 msgid "SoC + price"
 msgstr ""
 
-msgid "Solar PV"
-msgstr ""
-
 msgid "Solar production"
 msgstr ""
 
@@ -380,6 +361,12 @@ msgid "Source:"
 msgstr ""
 
 msgid "Spot price"
+msgstr ""
+
+msgid "Spot price (max)"
+msgstr ""
+
+msgid "Spot price (min)"
 msgstr ""
 
 msgid ""
@@ -400,6 +387,9 @@ msgid "Thanks. We have recorded that you want this."
 msgstr ""
 
 msgid "The run uses"
+msgstr ""
+
+msgid "These two answers decide what the app asks you for below."
 msgstr ""
 
 msgid "This control"
@@ -426,9 +416,6 @@ msgstr ""
 msgid "Want to know what this is worth in euros?"
 msgstr ""
 
-msgid "What to simulate"
-msgstr ""
-
 msgid "Where the energy comes from"
 msgstr ""
 
@@ -451,9 +438,6 @@ msgid ""
 "swings."
 msgstr ""
 
-msgid "always"
-msgstr ""
-
 msgid "close"
 msgstr ""
 
@@ -472,6 +456,9 @@ msgid "kWh"
 msgstr ""
 
 msgid "not nameplate"
+msgstr ""
+
+msgid "offered if you simulate costs"
 msgstr ""
 
 msgid "optional"
@@ -505,9 +492,10 @@ msgid "≈260 kWh/yr"
 msgstr ""
 
 msgid ""
-"● = required.  ○ = optional.  ◐ = required only if you have solar PV. "
-"Spot price drives the charge and discharge bands, so it is required "
-"whether or not you simulate costs."
+"● = required.  ○ = optional.  ◐ = required only if you have solar PV.  ◒ "
+"= offered only if you simulate costs (intra-hour price bracketing). Both "
+"answers come from the setup band above. Spot price drives the charge and "
+"discharge bands, so it is required whether or not you simulate costs."
 msgstr ""
 
 #, python-format

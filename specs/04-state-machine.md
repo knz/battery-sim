@@ -87,14 +87,29 @@ so the states below always describe an assembled dataset. This mirrors the Home 
 path, where filling in the mapping table likewise produces no session event until
 **Fetch history**.
 
-Two fields in panel ② — `has_pv` and `simulate_cost` — change *which other fields exist*
-rather than only their values. They still emit an ordinary `PARAMS_CHANGED`; there is no
-separate event and no new state. What they additionally require is that validation runs
-against the field set implied by the new toggle value, not the old one: switching cost
-simulation off must clear any pending validation errors on contract fields that have just
-ceased to exist, or the panel reports itself invalid over fields the user can no longer
-see. Values already entered are **retained, not discarded**, so that switching the toggle
-back restores the previous configuration rather than resetting it to defaults.
+Two choices live in the **setup band** above panel ① (§2.1) rather than in a panel:
+`has_pv` and `simulate_cost`. They change *which other fields and data slots exist* rather
+than only their values, and this is why they are asked first — the data panel's slot roster
+(§2.2), the parameter panel's boxes (§2.3) and the result panel's sections (§2.4) are all
+derived from them. The band is available from `EMPTY` onward; it has no collapsed/expanded
+panel state of its own (§3.4) and is never disabled, so both answers can be changed at any
+point in the session, including after data is loaded.
+
+Editing either answer emits an ordinary `PARAMS_CHANGED`; there is no separate event and no
+new state. What it additionally requires is:
+
+- **Validation runs against the field set implied by the new answer, not the old one.**
+  Switching cost simulation off must clear any pending validation errors on contract fields
+  that have just ceased to exist, or the panel reports itself invalid over fields the user
+  can no longer see.
+- **The panel ① slot roster is re-derived in place.** A slot that ceases to apply — the
+  solar slot when PV is switched off, the `price_spot_min`/`price_spot_max` slots when cost
+  simulation is switched off — is removed; a slot that begins to apply appears empty. A file
+  or mapping already placed in a slot that still applies is **kept**, and `SOURCE_CONFIGURED`
+  is re-evaluated against the new required set (a run may become blocked if a now-required
+  slot is empty, or unblocked if the newly-absent slot was the only thing missing).
+- **Values already entered are retained, not discarded**, so switching an answer back
+  restores the previous configuration rather than resetting it to defaults.
 
 `RESULTS_STALE` keeps rendering the previous results while the recalculation runs, which
 means a run made with cost simulation on stays visible, dimmed, for the few hundred
@@ -141,6 +156,10 @@ panel *n* and expands panel *n+1*. Panel ③ auto-expands on first `RUN_COMPLETE
 Reopening panel ① or ② does **not** collapse panel ③ — the user must be able to watch
 results change while editing parameters. This is the single most important interaction
 detail in the app.
+
+The **setup band** (§2.1) is not a panel and has no focus state. It is always expanded,
+never collapses to a summary, and carries no CTA — it is a scope selector, not a step in
+the stepper. It sits above panel ① and is editable throughout the session.
 
 ## 3.5 Persistence points
 

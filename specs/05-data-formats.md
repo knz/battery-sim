@@ -29,16 +29,17 @@ its own series name.
 | `battery_charge` | no | cumulative/delta | **AC-side.** See [§7.2](15-data-quality-and-limits.md#72-known-modelling-limitations--state-these-in-the-ui-not-just-here) item 2 |
 | `battery_discharge` | no | cumulative/delta | **AC-side.** |
 | `price_spot` | yes³ | price | Bare EPEX, excl. markup, tax and VAT |
-| `price_spot_min` | no | price | Intra-interval minimum. Enables [§6.16](14-diagnostics.md#616-price-bracketing-under-settlementresolution-mismatch) bracketing; cost simulation only |
-| `price_spot_max` | no | price | Intra-interval maximum. Enables [§6.16](14-diagnostics.md#616-price-bracketing-under-settlementresolution-mismatch) bracketing; cost simulation only |
+| `price_spot_min` | no⁵ | price | Intra-interval minimum. Enables [§6.16](14-diagnostics.md#616-price-bracketing-under-settlementresolution-mismatch) bracketing; cost simulation only |
+| `price_spot_max` | no⁵ | price | Intra-interval maximum. Enables [§6.16](14-diagnostics.md#616-price-bracketing-under-settlementresolution-mismatch) bracketing; cost simulation only |
 | `power_grid` | no | power | Signed W, import positive. Enables [§6.17](14-diagnostics.md#617-timestamp-misalignment-detection) checks |
 | `house_load` | no | cumulative/delta | If supplied, overrides reconstruction ([§6.3](09-ingest-algorithms.md#63-household-load-reconstruction)) and enables a consistency check |
 
 ¹ A household whose meter exports a single import register and a single export register
 fills the `_t1` slots and leaves `_t2` empty.
 
-² Required exactly when the household declares solar PV
-([§2.3](02-ux-wireframes.md#23-panel--parameter-configuration-expanded), `cfg.has_pv`).
+² Required exactly when the household declares solar PV in the setup band
+([§2.1](02-ux-wireframes.md#the-setup-band), `cfg.has_pv`). The slot is present in the data
+step only under that declaration ([§2.2](02-ux-wireframes.md#22-panel--data-input-expanded)).
 A household without PV omits it, and the simulator treats production as zero throughout.
 Supplying the series while declaring no PV, or declaring PV without supplying it, is a
 configuration error and is caught by check 4 in
@@ -56,6 +57,12 @@ without them: a window with only T1 still yields correct energy results, and cor
 results if the household is billed a single rate. A missing or permanently flat second
 register is reported as a probable installation or export problem rather than accepted
 silently — see [§6.4](09-ingest-algorithms.md#64-tariff-registers--availability-identification-and-use).
+
+⁵ Never required. The min/max slots are *offered* in the data step only when the household
+enables cost simulation in the setup band ([§2.1](02-ux-wireframes.md#the-setup-band),
+`cfg.simulate_cost`), since the bracketing they feed qualifies a euro figure and has no
+meaning in an energy-only run. With cost simulation off the slots are absent from the data
+step; with it on they appear as optional. Supplying them is always optional even then.
 
 ## 4.2 The per-series file format
 

@@ -2,9 +2,11 @@
   _panel_params.html — Panel ② Parameter configuration (specs/02-ux-wireframes.md §2.3, §2.5).
 
   Collapsed to a one-line summary ending "energy only" (cost simulation off). Expands to the
-  What-to-simulate, Battery, Grid connection, Solar PV, Installation topology, Charge policy
-  and Discharge policy boxes. Because this sample has simulate_cost=False, the entire Pricing
-  box is ABSENT (§2.3 "Without cost simulation"), not greyed.
+  Battery, Grid connection, Installation topology, Charge policy and Discharge policy boxes.
+  The has_pv / simulate_cost choices are NOT here — they live in the setup band above panel ①
+  (_setup_band.html, §2.1); this panel only reads cfg.* to decide what to render. Because this
+  sample has simulate_cost=False, the entire Pricing box is ABSENT (§2.3 "Without cost
+  simulation"), not greyed.
 
   The Installation topology box shows the illustrated PV-coupling selector (§2.5a). The
   battery-phase selector (§2.5b) is absent because this sample is 1-phase. The topology SVGs
@@ -25,26 +27,10 @@
   <div class="collapse-content">
     <div class="flex flex-col gap-4 pt-2">
 
-      {# ── What to simulate ────────────────────────────────────────────── #}
-      <div class="card bg-base-200 border border-base-300">
-        <div class="card-body gap-2 p-4">
-          <h3 class="text-sm font-semibold text-base-content/70">{{ _('What to simulate') }}</h3>
-          <div class="flex items-center justify-between">
-            <span>{{ _('Energy savings') }}</span><span class="text-success text-sm">✓ {{ _('always') }}</span>
-          </div>
-          {# Pending (§2.1): cost-simulation machinery is not built yet, so the toggle renders
-             disabled with a [?] affordance. Remove this markup when cost simulation lands;
-             keep the feature key (see app/features.py). #}
-          <label class="label justify-start gap-3">
-            <input type="checkbox" class="checkbox checkbox-sm" disabled />
-            <span class="label-text text-base-content/50">{{ _('Also simulate cost savings') }}</span>
-            <button type="button" class="btn btn-ghost btn-xs" data-pending-name="{{ _('Simulate cost savings') }}" data-feature-key="simulate_cost">[?]</button>
-          </label>
-          <p class="text-xs text-base-content/60">
-            ⓘ {{ _('Needs your contract type, supply rates, energy tax, VAT and feed-in terms. Leave this off to see kWh saved only.') }}
-          </p>
-        </div>
-      </div>
+      {# The has_pv and simulate_cost choices are set in the setup band above panel ①
+         (_setup_band.html, §2.1) — not here. The "What to simulate" and "Solar PV" boxes
+         that used to hold them have been removed; this panel only reads cfg.* to decide
+         which boxes to render (§2.3 "Without PV" / "Without cost simulation"). #}
 
       <div class="grid gap-4 lg:grid-cols-2">
         {# ── Battery ───────────────────────────────────────────────────── #}
@@ -77,39 +63,23 @@
           </div>
         </div>
 
-        {# ── Grid connection + Solar PV ────────────────────────────────── #}
-        <div class="flex flex-col gap-4">
-          <div class="card bg-base-200 border border-base-300">
-            <div class="card-body gap-2 p-4">
-              <h3 class="text-sm font-semibold text-base-content/70">{{ _('Grid connection') }}</h3>
-              <div class="flex items-center gap-3">
-                <span class="w-28 label-text">{{ _('Phases') }}</span>
-                <label class="label cursor-pointer gap-1"><input type="radio" name="phases" class="radio radio-xs" checked /><span class="label-text">{{ _('1-phase') }}</span></label>
-                <label class="label cursor-pointer gap-1"><input type="radio" name="phases" class="radio radio-xs" /><span class="label-text">{{ _('3-phase') }}</span></label>
-              </div>
-              <div class="flex items-center gap-2">
-                <span class="w-28 label-text">{{ _('Fuse rating') }}</span>
-                <input type="text" class="input input-bordered input-xs w-16 text-right" value="{{ params.grid.fuse }}" />
-                <span class="text-sm text-base-content/60">{{ _('A → max import %(kw)s kW', kw=params.grid.max_import) }}</span>
-              </div>
-              <div class="flex items-center gap-2">
-                <span class="w-28 label-text">{{ _('Export limit') }}</span>
-                <span class="text-sm">{{ _('same as import') }}</span>
-              </div>
+        {# ── Grid connection ───────────────────────────────────────────── #}
+        <div class="card bg-base-200 border border-base-300">
+          <div class="card-body gap-2 p-4">
+            <h3 class="text-sm font-semibold text-base-content/70">{{ _('Grid connection') }}</h3>
+            <div class="flex items-center gap-3">
+              <span class="w-28 label-text">{{ _('Phases') }}</span>
+              <label class="label cursor-pointer gap-1"><input type="radio" name="phases" class="radio radio-xs" checked /><span class="label-text">{{ _('1-phase') }}</span></label>
+              <label class="label cursor-pointer gap-1"><input type="radio" name="phases" class="radio radio-xs" /><span class="label-text">{{ _('3-phase') }}</span></label>
             </div>
-          </div>
-
-          <div class="card bg-base-200 border border-base-300">
-            <div class="card-body gap-2 p-4">
-              <h3 class="text-sm font-semibold text-base-content/70">{{ _('Solar PV') }}</h3>
-              <div class="flex items-center gap-3">
-                <span class="label-text">{{ _('Do you have solar panels?') }}</span>
-                <label class="label cursor-pointer gap-1"><input type="radio" name="haspv" class="radio radio-xs" checked /><span class="label-text">{{ _('Yes') }}</span></label>
-                <label class="label cursor-pointer gap-1"><input type="radio" name="haspv" class="radio radio-xs" /><span class="label-text">{{ _('No') }}</span></label>
-              </div>
-              <p class="text-xs text-base-content/60">
-                ⓘ {{ _('Answering No hides the solar sensor mapping, the PV coupling choice, and the policies that act on solar surplus.') }}
-              </p>
+            <div class="flex items-center gap-2">
+              <span class="w-28 label-text">{{ _('Fuse rating') }}</span>
+              <input type="text" class="input input-bordered input-xs w-16 text-right" value="{{ params.grid.fuse }}" />
+              <span class="text-sm text-base-content/60">{{ _('A → max import %(kw)s kW', kw=params.grid.max_import) }}</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="w-28 label-text">{{ _('Export limit') }}</span>
+              <span class="text-sm">{{ _('same as import') }}</span>
             </div>
           </div>
         </div>

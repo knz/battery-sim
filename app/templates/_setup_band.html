@@ -1,0 +1,60 @@
+{#
+  _setup_band.html — the setup band (specs/02-ux-wireframes.md §2.1 "The setup band").
+
+  The two shape-determining choices — has_pv and simulate_cost — that decide what every panel
+  below asks for: which series/slots panel ① requests (§2.2), which boxes panel ② shows (§2.3),
+  which sections panel ③ renders (§2.4). It is the single source of truth for both; they appear
+  nowhere else as controls.
+
+  It is a scope selector, not a stepper panel: always visible, never collapses, no CTA, not
+  numbered. It sits above panel ① because the answers must be known before the data step can
+  decide what to ask for.
+
+  Editability (§2.1, state machine §3.2): both answers are editable at any time and re-derive
+  the panels in place. In this static scaffold the radios reflect cfg.* and re-derivation is
+  not wired (matching the rest of the scaffold — no HTMX round-trips yet).
+
+  Pending (§2.1): the cost-simulation machinery is not built yet, so the "Yes" answer to
+  "Simulate cost savings?" renders disabled with a [?] affordance. Remove the disabled state
+  when cost simulation lands; keep the feature key `simulate_cost` (see app/features.py).
+
+  UI chrome is wrapped in _() for translation (English/Dutch).
+#}
+<section class="card bg-base-100 border border-base-300 rounded-box" aria-label="{{ _('Before you start') }}">
+  <div class="card-body gap-3 p-4">
+    <h2 class="text-sm font-semibold text-base-content/70">{{ _('Before you start') }}</h2>
+
+    <div class="flex flex-col gap-2">
+      {# ── Do you have solar PV? ─────────────────────────────────────────── #}
+      <div class="flex flex-wrap items-center gap-3">
+        <span class="w-56 label-text">{{ _('Do you have solar PV?') }}</span>
+        <label class="label cursor-pointer gap-1">
+          <input type="radio" name="setup_haspv" class="radio radio-sm" {% if cfg.has_pv %}checked{% endif %} />
+          <span class="label-text">{{ _('Yes') }}</span>
+        </label>
+        <label class="label cursor-pointer gap-1">
+          <input type="radio" name="setup_haspv" class="radio radio-sm" {% if not cfg.has_pv %}checked{% endif %} />
+          <span class="label-text">{{ _('No') }}</span>
+        </label>
+      </div>
+
+      {# ── Simulate cost savings? — the "Yes" answer is pending (§2.1). ───── #}
+      <div class="flex flex-wrap items-center gap-3">
+        <span class="w-56 label-text">{{ _('Simulate cost savings?') }}</span>
+        <label class="label gap-1">
+          <input type="radio" name="setup_cost" class="radio radio-sm" disabled {% if cfg.simulate_cost %}checked{% endif %} />
+          <span class="label-text text-base-content/50">{{ _('Yes') }}</span>
+          <button type="button" class="btn btn-ghost btn-xs" data-pending-name="{{ _('Simulate cost savings') }}" data-feature-key="simulate_cost">[?]</button>
+        </label>
+        <label class="label cursor-pointer gap-1">
+          <input type="radio" name="setup_cost" class="radio radio-sm" {% if not cfg.simulate_cost %}checked{% endif %} />
+          <span class="label-text">{{ _('No') }}</span>
+        </label>
+      </div>
+    </div>
+
+    <p class="text-xs text-base-content/60">
+      ⓘ {{ _('These two answers decide what the app asks you for below.') }}
+    </p>
+  </div>
+</section>

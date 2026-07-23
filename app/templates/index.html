@@ -1,9 +1,10 @@
 {#
   index.html — the single-page shell for the Home Battery Simulator (specs/02-ux-wireframes.md §2.1).
 
-  Renders the header and the three stacked stepper panels. Panels ① and ② are collapsed to
-  their one-line summaries; panel ③ (Results) is expanded. Content comes from the static
-  sample view-model (app/sample_data.py); nothing here is wired to feature logic yet.
+  Renders the header, the setup band (§2.1 — the has_pv / simulate_cost scope choices), and
+  the three stacked stepper panels. Panels ① and ② are collapsed to their one-line summaries;
+  panel ③ (Results) is expanded. Content comes from the static sample view-model
+  (app/sample_data.py); nothing here is wired to feature logic yet.
 
   Interactivity in this increment is limited to native <details> expand/collapse and the
   <dialog>-based "not built yet" modal — no HTMX round-trips, no simulation.
@@ -39,6 +40,8 @@
   </header>
 
   <main class="mx-auto flex max-w-5xl flex-col gap-4 p-4 lg:p-8">
+    {# The setup band (§2.1) — the two shape-determining choices, above the panels. #}
+    {% include "_setup_band.html" %}
     {% include "_panel_data.html" %}
     {% include "_panel_params.html" %}
     {% include "_panel_results.html" %}

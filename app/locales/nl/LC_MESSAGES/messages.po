@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-23 20:54+0200\n"
+"POT-Creation-Date: 2026-07-23 21:14+0200\n"
 "PO-Revision-Date: 2026-07-23 20:30+0200\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: nl\n"
@@ -70,16 +70,6 @@ msgstr "Teruglevering aan net toestaan"
 msgid "Allow export to grid during D2/D3"
 msgstr "Teruglevering aan net toestaan tijdens D2/D3"
 
-msgid "Also simulate cost savings"
-msgstr "Ook kostenbesparing simuleren"
-
-msgid ""
-"Answering No hides the solar sensor mapping, the PV coupling choice, and "
-"the policies that act on solar surplus."
-msgstr ""
-"Nee verbergt de zonnesensor-toewijzing, de PV-koppelingskeuze en de "
-"strategieën die op zonne-overschot inspelen."
-
 msgid "B"
 msgstr "B"
 
@@ -100,6 +90,9 @@ msgstr "Batterij laden"
 
 msgid "Battery discharge"
 msgstr "Batterij ontladen"
+
+msgid "Before you start"
+msgstr "Voordat je begint"
 
 msgid "Benchmark: grid import avoided"
 msgstr "Benchmark: vermeden netafname"
@@ -166,9 +159,6 @@ msgstr "Uit de batterij ontladen"
 msgid "Do you have solar PV?"
 msgstr "Heb je zonnepanelen?"
 
-msgid "Do you have solar panels?"
-msgstr "Heb je zonnepanelen?"
-
 msgid "ENERGY SAVINGS"
 msgstr "ENERGIEBESPARING"
 
@@ -180,9 +170,6 @@ msgstr "Kostensimulatie inschakelen"
 
 msgid "Energy flows"
 msgstr "Energiestromen"
-
-msgid "Energy savings"
-msgstr "Energiebesparing"
 
 msgid "Entity / statistic ID"
 msgstr "Entiteit / statistiek-ID"
@@ -284,13 +271,6 @@ msgstr "Min. laadtoestand"
 msgid "Monthly savings"
 msgstr "Maandelijkse besparing"
 
-msgid ""
-"Needs your contract type, supply rates, energy tax, VAT and feed-in "
-"terms. Leave this off to see kWh saved only."
-msgstr ""
-"Vereist je contracttype, leveringstarieven, energiebelasting, btw en "
-"terugleververgoeding. Laat dit uit om alleen bespaarde kWh te zien."
-
 msgid "Next: parameters →"
 msgstr "Volgende: parameters →"
 
@@ -386,9 +366,6 @@ msgstr "Simulatieraster"
 msgid "SoC + price"
 msgstr "Laadtoestand + prijs"
 
-msgid "Solar PV"
-msgstr "Zonnepanelen"
-
 msgid "Solar production"
 msgstr "Zonopwekking"
 
@@ -400,6 +377,12 @@ msgstr "Bron:"
 
 msgid "Spot price"
 msgstr "Spotprijs"
+
+msgid "Spot price (max)"
+msgstr "Spotprijs (max)"
+
+msgid "Spot price (min)"
+msgstr "Spotprijs (min)"
 
 msgid ""
 "Spot prices are quarter-hourly but the run is hourly, so the battery "
@@ -424,6 +407,9 @@ msgstr "Bedankt. We hebben genoteerd dat u dit wilt."
 msgid "The run uses"
 msgstr "De berekening gebruikt"
 
+msgid "These two answers decide what the app asks you for below."
+msgstr "Deze twee antwoorden bepalen wat de app hieronder van je vraagt."
+
 msgid "This control"
 msgstr "Dit onderdeel"
 
@@ -447,9 +433,6 @@ msgstr "Bruikbare capaciteit"
 
 msgid "Want to know what this is worth in euros?"
 msgstr "Wil je weten wat dit in euro's waard is?"
-
-msgid "What to simulate"
-msgstr "Wat te simuleren"
 
 msgid "Where the energy comes from"
 msgstr "Waar de energie vandaan komt"
@@ -480,9 +463,6 @@ msgstr ""
 "De berekening ziet dus één gemiddelde prijs per uur en kan niet inspelen "
 "op schommelingen binnen het uur."
 
-msgid "always"
-msgstr "altijd"
-
 msgid "close"
 msgstr "sluiten"
 
@@ -505,6 +485,9 @@ msgstr "kWh"
 
 msgid "not nameplate"
 msgstr "niet de nominale waarde"
+
+msgid "offered if you simulate costs"
+msgstr "aangeboden als je kosten simuleert"
 
 msgid "optional"
 msgstr "optioneel"
@@ -537,13 +520,16 @@ msgid "≈260 kWh/yr"
 msgstr "≈260 kWh/jaar"
 
 msgid ""
-"● = required.  ○ = optional.  ◐ = required only if you have solar PV. "
-"Spot price drives the charge and discharge bands, so it is required "
-"whether or not you simulate costs."
+"● = required.  ○ = optional.  ◐ = required only if you have solar PV.  ◒ "
+"= offered only if you simulate costs (intra-hour price bracketing). Both "
+"answers come from the setup band above. Spot price drives the charge and "
+"discharge bands, so it is required whether or not you simulate costs."
 msgstr ""
 "● = vereist.  ○ = optioneel.  ◐ = alleen vereist als je zonnepanelen "
-"hebt. De spotprijs stuurt de laad- en ontlaadbanden aan en is dus "
-"vereist, of je nu kosten simuleert of niet."
+"hebt.  ◒ = alleen aangeboden als je kosten simuleert (prijsspreiding "
+"binnen het uur). Beide antwoorden komen uit de instelbalk hierboven. De "
+"spotprijs stuurt de laad- en ontlaadbanden aan en is dus vereist, of je "
+"nu kosten simuleert of niet."
 
 #, python-format
 msgid ""
@@ -556,4 +542,43 @@ msgstr "✓ Genoteerd"
 
 msgid "👍 I want this"
 msgstr "👍 Ik wil dit"
+
+#~ msgid "Also simulate cost savings"
+#~ msgstr "Ook kostenbesparing simuleren"
+
+#~ msgid ""
+#~ "Answering No hides the solar sensor "
+#~ "mapping, the PV coupling choice, and "
+#~ "the policies that act on solar "
+#~ "surplus."
+#~ msgstr ""
+#~ "Nee verbergt de zonnesensor-toewijzing, "
+#~ "de PV-koppelingskeuze en de strategieën"
+#~ " die op zonne-overschot inspelen."
+
+#~ msgid "Do you have solar panels?"
+#~ msgstr "Heb je zonnepanelen?"
+
+#~ msgid "Energy savings"
+#~ msgstr "Energiebesparing"
+
+#~ msgid ""
+#~ "Needs your contract type, supply rates,"
+#~ " energy tax, VAT and feed-in "
+#~ "terms. Leave this off to see kWh"
+#~ " saved only."
+#~ msgstr ""
+#~ "Vereist je contracttype, leveringstarieven, "
+#~ "energiebelasting, btw en terugleververgoeding. "
+#~ "Laat dit uit om alleen bespaarde "
+#~ "kWh te zien."
+
+#~ msgid "Solar PV"
+#~ msgstr "Zonnepanelen"
+
+#~ msgid "What to simulate"
+#~ msgstr "Wat te simuleren"
+
+#~ msgid "always"
+#~ msgstr "altijd"
 
