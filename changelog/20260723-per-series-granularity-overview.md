@@ -136,11 +136,13 @@ could stand in for a per-series fact without looking wrong.
 
 ### The per-series table (Q1, Q3)
 
-Panel ①'s single `Resolution` row becomes a table with one row per mapped series and three
-informative columns: native resolution (carrying both resolutions and their coverage in the
-HA dual-fetch case), what the run used, and how the two were reconciled. The reconciliation
-column is the load-bearing one — `exact` for energy summed down, `averaged` for a price
-downsampled, `held` for a price forward-filled, `—` where native already equals the grid.
+Panel ①'s single `Resolution` row becomes a table with one row per mapped series and two
+informative columns: `RECORDED AT` (the native resolution, carrying both resolutions and
+their coverage in the HA dual-fetch case) and `THE RUN USES` (the simulation grid together
+with how the series was reconciled onto it). The reconciliation is the load-bearing fact
+and is folded into the second column rather than given a column of its own — `exact` for
+energy summed down, `averaged` for a price downsampled, `held` for a price forward-filled,
+and nothing where native already equals the grid.
 
 `averaged` is the only value that represents a real loss of information, and it is the only
 one rendered with a warning marker. Energy downsampling by summation is exact and price

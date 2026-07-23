@@ -35,7 +35,7 @@ clock.
    → [§6.12](12-metrics-and-benchmarks.md#612-perfect-foresight-benchmark)
 7. **DST** — a window spanning both the March and October transitions has 8,760 ± 1 hourly
    intervals with no duplicated or dropped index entries.
-   → [§4.1](05-data-formats.md#column-rules); see also
+   → [§4.2](05-data-formats.md#column-rules); see also
    [open question §8.8](17-open-questions.md)
 8. **Reset** — a synthetic register that resets to 0 mid-window yields the correct total.
    → [§6.1](09-ingest-algorithms.md#61-cumulative-meter-register--interval-deltas)
@@ -147,3 +147,19 @@ clock.
     → [§6.2](09-ingest-algorithms.md#62-simulation-grid-selection-and-resampling),
     [§4.5](07-internal-representation.md#45-result-object),
     [§7.3](15-data-quality-and-limits.md#73-data-quality-checks-in-execution-order)
+
+22. **A failed slot upload is recoverable** — fill every required slot with a valid file
+    except `price_spot`, into which a file with naive timestamps (no UTC offset) is
+    uploaded. Assert that the upload is rejected against that slot with an error naming the
+    missing offset, that the session state is unchanged and no `LOAD_FAILED` is emitted,
+    that the already-filled slots still hold their files, and that `SOURCE_CONFIGURED` has
+    not fired. Then upload a well-formed `price_spot` file into the same slot and assert
+    that it is accepted, replaces nothing else, and that `SOURCE_CONFIGURED` now fires and
+    the run completes normally. Assert additionally that uploading a second valid file into
+    an already-filled slot replaces its contents rather than appending, leaving the series
+    row count equal to the second file's. The point is that a bad supplier export is a
+    panel-local condition: a validation failure on one slot must not be reachable from, or
+    escalate into, the session's `DATA_ERROR` state.
+    → [§4.2](05-data-formats.md#validation-and-failure),
+    [§2.2](02-ux-wireframes.md#csv-variant-of-the-source-sub-panel),
+    [§3.2](04-state-machine.md#32-events)

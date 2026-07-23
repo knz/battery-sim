@@ -149,8 +149,10 @@ user might expect the cost toggle to remove and it does not.
 
 The granularity table exists because series arrive at genuinely different resolutions —
 hourly meter registers, 15-minute spot prices, 5-minute recent Home Assistant statistics —
-and a single "resolution: hourly" line hides which series contributed what. Two columns,
-because two different facts matter:
+and a single "resolution: hourly" line hides which series contributed what. Each series
+carries its own native resolution whichever path it came in by: one Home Assistant
+statistic per row, one uploaded file per row. Two columns, because two different facts
+matter:
 
 - **Recorded at** — the series' *native* resolution, as it came from the source. Where a
   finer copy exists over part of the window, both appear with their coverage; the Home
@@ -209,30 +211,78 @@ Two rows in that box behave differently under the cost toggle, and the split fol
   window check below it are shown **only when cost simulation is on**. Which register
   carries which *tariff* matters only to a bill.
 
-CSV variant of the source sub-panel:
+### CSV variant of the source sub-panel
+
+A user on this path does not own their data and does not control its shape. They will be
+downloading exports from an energy supplier, a grid operator's portal, or a PV installer,
+and a first-time user typically does not know which of those files they need before they
+start. The sub-panel is therefore built around a **checklist of the series to go and
+collect**, presented before any upload, with one upload slot per series.
 
 ```
   ┌─ Upload CSV ───────────────────────────────────────────────────────────┐
   │                                                                        │
-  │    ┌──────────────────────────────────────────────────────────────┐    │
-  │    │            Drop CSV files here, or click to browse           │    │
-  │    │                                                              │    │
-  │    │        Long format (canonical) or wide format accepted       │    │
-  │    └──────────────────────────────────────────────────────────────┘    │
+  │  Collect one file per row below. Most of these come from your energy   │
+  │  supplier's website; solar production usually comes from your          │
+  │  installer's monitoring portal or the inverter app.                    │
+  │                                                    [ Where do I get    │
+  │                                                      these files? ]    │
   │                                                                        │
-  │    Uploaded:  meter_2025.csv   ✓ 8,412 rows · 4 series                 │
-  │               solar_2025.csv   ✓ 8,760 rows · 1 series                 │
-  │               prices.csv       ✓ 8,760 rows · 1 series                 │
+  │  SERIES              REQ  FILE                                         │
+  │  ───────────────────────────────────────────────────────────────────   │
+  │  Grid import T1       ●   import_t1_2025.csv  ✓ 8,760 rows  [ replace ]│
+  │  Grid import T2       ●   import_t2_2025.csv  ✓ 8,760 rows  [ replace ]│
+  │  Grid export T1       ●   [ choose file… ]                             │
+  │  Grid export T2       ●   [ choose file… ]                             │
+  │  Solar production     ◐   solar_2025.csv      ✓ 8,760 rows  [ replace ]│
+  │  Battery charge       ○   [ choose file… ]                             │
+  │  Battery discharge    ○   [ choose file… ]                             │
+  │  Spot price           ●   prices.csv          ✗ see below   [ replace ]│
   │                                                                        │
-  │    [ Download format spec ]   [ Download example file ]   [ Clear all ] │
+  │  ✗  prices.csv does not match the expected format for Spot price.      │
+  │     Expected a timestamp column with a UTC offset and a price column   │
+  │     in EUR/kWh. Row 2 reads `2026-01-01 00:00`, which has no offset,   │
+  │     so the October clock change cannot be resolved.                    │
+  │                                              [ choose another file… ]  │
+  │                                                                        │
+  │  ● = required.  ○ = optional.                                          │
+  │  ◐ = required only if you have solar PV (set in panel ②).              │
+  │  Spot price drives the charge and discharge bands, so it is required   │
+  │  whether or not you simulate costs.                                    │
+  │                                                                        │
+  │  [ Download format spec ]  [ Download example file ]  [ Clear all ]    │
+  │                                                                        │
+  │                                              [ Load data ]             │
   └────────────────────────────────────────────────────────────────────────┘
 ```
 
-The two accepted CSV shapes are specified in [05-data-formats.md](05-data-formats.md). A
-long-format file may carry several series at different native resolutions and each is
-reported on its own row of the granularity table; a wide-format file shares one timestamp
-column across all of its columns, so every series it contributes has the same native
-resolution by construction.
+**The slot supplies the series identity.** Nothing inside an uploaded file says which
+series it is — not a column header, not a name column, not the filename. The user declares
+what they are providing by choosing where to put it, which is the one thing they reliably
+know and the one thing a supplier's export cannot get wrong. The consequence worth stating
+plainly: the series names in
+[§4.1](05-data-formats.md#41-the-series-vocabulary) are internal identifiers used
+downstream and in the result object; a user's file is never required to contain them.
+
+**Which rows appear** follows the same rules as the Home Assistant mapping table above.
+`Solar production` is rendered only when `cfg.has_pv` is set, and `Spot price` is required
+in both cost modes. The two panel ② toggles are mirrored at the head of this box exactly as
+they are for the Home Assistant path. The list is not a mirror of that table, though: it
+answers "what do I need to go and download", so it leads with where the files come from
+rather than with sensor names.
+
+**Validation is per slot and recoverable.** A file is checked against the expected format
+for the series it was dropped into, and a failure is reported on that row alone: what was
+expected, what was found, and a fresh file chooser for the same slot. The other slots keep
+their contents and the session does not enter an error state — a badly-formatted export is
+an ordinary event on this path, not a run-fatal one, and the user's recourse is a different
+file rather than a restart. The row is not marked complete until a file passes, and
+`[ Load data ]` stays disabled while any required slot is empty or failing.
+
+Uploading into a slot that already holds a file **replaces** it. There is one file per
+series, so there is no merging to specify and no collision to resolve.
+
+The expected format for each series is in [05-data-formats.md](05-data-formats.md).
 
 ## 2.3 Panel ② — Parameter configuration (expanded)
 

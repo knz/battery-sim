@@ -94,7 +94,8 @@ for. But two things follow:
 
 ## 1.4 In scope (v1)
 
-- Two data ingestion paths: direct Home Assistant access, and standardised CSV upload.
+- Two data ingestion paths: direct Home Assistant access, and CSV upload of one file per
+  data series, which the user collects from their energy supplier or PV installer.
 - **Households with and without solar PV.** PV series are optional; the household declares
   which case applies, and the requirements, policies, topology choices, metrics and
   diagnostics that depend on PV are adjusted accordingly.

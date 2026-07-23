@@ -62,9 +62,9 @@ re-parameterisation feel responsive.
 
 | Event | Trigger | Effect |
 |---|---|---|
-| `SOURCE_CONFIGURED` | HA credentials tested OK, or ≥1 CSV parsed | → `DATA_LOADING` |
+| `SOURCE_CONFIGURED` | HA credentials tested OK, or every required CSV slot holds a file that passed validation | → `DATA_LOADING` |
 | `LOAD_SUCCEEDED` | Ingest + normalise + QA complete | → `DATA_READY`, persist dataset |
-| `LOAD_FAILED` | Network, auth, parse or validation error | → `DATA_ERROR` with actionable message |
+| `LOAD_FAILED` | Network, auth, or a validation error against the assembled dataset | → `DATA_ERROR` with actionable message |
 | `PARAMS_CHANGED` | Any field in panel ② | Validate; persist; if valid → `INPUT_CHANGED` |
 | `RANGE_CHANGED` | Period selector in panel ③ | Persist; → `INPUT_CHANGED` |
 | `INPUT_CHANGED` | From `PARAMS_CHANGED` / `RANGE_CHANGED` / `LOAD_SUCCEEDED` | → `RESULTS_STALE`, start debounce timer |
@@ -74,6 +74,18 @@ re-parameterisation feel responsive.
 | `RUN_SUPERSEDED` | Worker finishes, `run_id` is stale | Discard result silently, no state change |
 | `RUN_FAILED` | Exception in domain layer | → `RUN_ERROR`, previous results retained |
 | `RELOAD_DATA` | User edits panel ① | → `DATA_LOADING` |
+
+**Per-slot CSV validation is panel-local and emits nothing here.** On the CSV path the user
+uploads one file per series into a named slot, and each file is validated against that
+slot's expected format as it arrives
+([§2.2](02-ux-wireframes.md#csv-variant-of-the-source-sub-panel)). A file that fails is
+rejected on its own row, with the other slots untouched and the session state unchanged —
+it never reaches `DATA_ERROR`. Downloading the wrong export from a supplier's website is an
+ordinary event on this path, and the recourse is another file for the same slot, not a
+restart. `SOURCE_CONFIGURED` fires only once every required slot holds a file that passed,
+so the states below always describe an assembled dataset. This mirrors the Home Assistant
+path, where filling in the mapping table likewise produces no session event until
+**Fetch history**.
 
 Two fields in panel ② — `has_pv` and `simulate_cost` — change *which other fields exist*
 rather than only their values. They still emit an ordinary `PARAMS_CHANGED`; there is no

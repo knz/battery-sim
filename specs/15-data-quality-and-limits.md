@@ -77,7 +77,7 @@ ceiling cannot be modelled without per-phase data — is handled as a soft block
 
 | # | Check | Action on failure |
 |---|---|---|
-| 1 | Timestamps carry a UTC offset | Reject file, explain DST ambiguity |
+| 1 | Timestamps carry a UTC offset | Reject the file, explain DST ambiguity. On the CSV path this is per slot and recoverable — see below |
 | 2 | Series monotonic where `kind=cumulative` | [§6.1](09-ingest-algorithms.md#61-cumulative-meter-register--interval-deltas) reset handling, count and flag |
 | 3 | Gap detection at > 1.5× native resolution | Flag; exclude from sums; report hours |
 | 3b | Price series downsampled onto a coarser grid by a factor ≥ 2 ([§6.2](09-ingest-algorithms.md#62-simulation-grid-selection-and-resampling)) | Warn; set `diagnostics.price_granularity_lost`. Do not block |
@@ -98,6 +98,14 @@ ceiling cannot be modelled without per-phase data — is handled as a soft block
 | 16 | *PV only:* cross-correlation lag between PV and meter ([§6.17](14-diagnostics.md#617-timestamp-misalignment-detection)) | Offer a shift; never apply silently |
 | 17 | Power-vs-energy residual, where both mapped ([§6.17](14-diagnostics.md#617-timestamp-misalignment-detection)) | Warn above 5% mean or 3% diurnal |
 | 18 | Unsupported phase topology selected ([§2.5](03-topology-selector.md)) | Soft block; set `topology.approximated` |
+
+**Where these checks run on the CSV path.** Checks 1 and 2 are per-file format checks and
+run as each upload arrives, against the format expected for the slot it was dropped into
+([§4.2](05-data-formats.md#42-the-per-series-file-format)). A failure is reported on that
+slot and the user supplies another file for it; the other slots keep their contents, the
+session does not enter an error state, and the run is not attempted. Everything from
+check 3 onward runs once against the assembled dataset, so those checks see a complete set
+of validated files whichever source path produced them.
 
 Checks marked *PV only* are **skipped** when `has_pv = false`, and those marked *cost only*
 are skipped when `simulate_cost = false`. In both cases they are reported as **skipped

@@ -75,7 +75,8 @@ both on the display and in the P1 telegram:
 All four are in kWh and all four only ever increase. They reset only on meter replacement.
 
 > **In the specification:** these are the four required `grid_import_t*` /
-> `grid_export_t*` series in [§4.1](05-data-formats.md#series-names). "Only ever increase"
+> `grid_export_t*` series in [§4.1](05-data-formats.md#41-the-series-vocabulary). "Only ever
+increase"
 > is what [§6.1](09-ingest-algorithms.md#61-cumulative-meter-register--interval-deltas)
 > relies on, and meter replacement is the reset it corrects for.
 

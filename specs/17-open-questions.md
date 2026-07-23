@@ -58,7 +58,7 @@
 8. **DST-boundary intervals.** The October transition produces a 25-hour local day. The
    spec computes in UTC throughout, which is correct, but hourly *prices* published per
    local hour need care at the boundary. Confirm the spot price source's convention.
-   → [§4.1](05-data-formats.md#column-rules),
+   → [§4.2](05-data-formats.md#column-rules),
    [fixture 7](16-validation-harness.md)
 
 9. **Is a soft block on 1-phase / 3×1-phase batteries the right call?** The spec

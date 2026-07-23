@@ -55,7 +55,7 @@ These apply to every file in this package and are not restated in full elsewhere
 | [02-ux-wireframes.md](02-ux-wireframes.md) | Overall layout and the three panels: data, parameters, results | Frontend |
 | [03-topology-selector.md](03-topology-selector.md) | Illustrated PV-coupling and battery-phase selectors, soft block, SVG asset requirements | Frontend |
 | [04-state-machine.md](04-state-machine.md) | Session states, events, run identity, panel focus, persistence points | Frontend + backend |
-| [05-data-formats.md](05-data-formats.md) | Canonical long-format CSV, wide format, series names, `kind` semantics | Backend, integrators |
+| [05-data-formats.md](05-data-formats.md) | The series vocabulary, the per-series CSV file format, `kind` semantics, per-slot validation | Backend, integrators |
 | [06-home-assistant-ingestion.md](06-home-assistant-ingestion.md) | WebSocket statistics API, fetch strategy, which columns exist per `state_class` | Backend |
 | [07-internal-representation.md](07-internal-representation.md) | `SeriesFrame`, `SimulationFrame`, result JSON, per-interval CSV export | Backend |
 | [08-architecture.md](08-architecture.md) | Layer diagram, why the split, compute model, configuration, multi-user readiness | Backend |
