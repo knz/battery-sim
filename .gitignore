@@ -11,3 +11,6 @@ tests/artifacts/
 
 # uv
 .uv/
+
+# Local runtime data: SQLite DB + config.toml (installation_id, feature_interest_url)
+data/

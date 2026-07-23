@@ -32,9 +32,13 @@
           <div class="flex items-center justify-between">
             <span>{{ _('Energy savings') }}</span><span class="text-success text-sm">✓ {{ _('always') }}</span>
           </div>
-          <label class="label cursor-pointer justify-start gap-3">
-            <input type="checkbox" class="checkbox checkbox-sm" />
-            <span class="label-text">{{ _('Also simulate cost savings') }}</span>
+          {# Pending (§2.1): cost-simulation machinery is not built yet, so the toggle renders
+             disabled with a [?] affordance. Remove this markup when cost simulation lands;
+             keep the feature key (see app/features.py). #}
+          <label class="label justify-start gap-3">
+            <input type="checkbox" class="checkbox checkbox-sm" disabled />
+            <span class="label-text text-base-content/50">{{ _('Also simulate cost savings') }}</span>
+            <button type="button" class="btn btn-ghost btn-xs" data-pending-name="{{ _('Simulate cost savings') }}" data-feature-key="simulate_cost">[?]</button>
           </label>
           <p class="text-xs text-base-content/60">
             ⓘ {{ _('Needs your contract type, supply rates, energy tax, VAT and feed-in terms. Leave this off to see kWh saved only.') }}
@@ -191,7 +195,7 @@
             <label class="label cursor-pointer justify-start gap-3">
               <input type="checkbox" class="checkbox checkbox-sm" disabled />
               <span class="label-text text-base-content/50">{{ _('Allow export to grid during D2/D3') }}</span>
-              <button type="button" class="btn btn-ghost btn-xs" data-pending-name="{{ _('Allow export to grid') }}">[?]</button>
+              <button type="button" class="btn btn-ghost btn-xs" data-pending-name="{{ _('Allow export to grid') }}" data-feature-key="discharge_allow_export">[?]</button>
             </label>
             <div role="alert" class="alert alert-success py-1 text-sm">
               <span>{{ _('⚠ Charge band [%(a)s, %(b)s] and discharge band [%(c)s, %(d)s] do not overlap. ✓', a=params.charge_band.a, b=params.charge_band.b, c=params.discharge_band.c, d=params.discharge_band.d) }}</span>

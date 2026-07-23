@@ -30,9 +30,13 @@
           <input type="radio" name="source" class="radio radio-sm" checked />
           <span class="label-text">{{ _('Home Assistant') }}</span>
         </label>
-        <label class="label cursor-pointer gap-2">
-          <input type="radio" name="source" class="radio radio-sm" />
-          <span class="label-text">{{ _('Upload CSV') }}</span>
+        {# Pending (§2.1): CSV upload is not built yet, so this source option renders disabled
+           with a [?] affordance. Remove this markup when CSV upload lands; keep the feature
+           key (see app/features.py). #}
+        <label class="label gap-2">
+          <input type="radio" name="source" class="radio radio-sm" disabled />
+          <span class="label-text text-base-content/50">{{ _('Upload CSV') }}</span>
+          <button type="button" class="btn btn-ghost btn-xs" data-pending-name="{{ _('Upload CSV') }}" data-feature-key="data_source_csv">[?]</button>
         </label>
       </div>
 

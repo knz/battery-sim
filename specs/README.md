@@ -78,6 +78,7 @@ These apply to every file in this package and are not restated in full elsewhere
 | [19-prototype-experiments.md](19-prototype-experiments.md) | Measurements to run once a prototype exists: which parameters, policies and diagnostics actually change the answer | Product owner, backend |
 | [appendix-a-defaults.md](appendix-a-defaults.md) | Every default parameter value with its rationale | Everyone |
 | [appendix-b-glossary.md](appendix-b-glossary.md) | Dutch energy terminology and abbreviations | Everyone |
+| [implementation-progress.md](implementation-progress.md) | Living build record: which controls are pending and their feature keys (not a spec) | Implementers |
 
 ---
 

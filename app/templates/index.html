@@ -45,8 +45,9 @@
   </main>
 
   {# ── "Not built yet" dialog — the pending affordance (§2.1). Shared by any pending
-       control; the control name is filled in by the small script below. #}
-  <dialog id="pending-dialog" class="modal">
+       control; the control name and feature key are filled in by the script below. The
+       thumbs-up posts to /feature-interest/{key} and acknowledges in place. #}
+  <dialog id="pending-dialog" class="modal" data-feature-key="">
     <div class="modal-box">
       <h3 class="text-lg font-bold">{{ _('Not built yet') }}</h3>
       <p class="py-2">
@@ -56,8 +57,12 @@
       <p class="pb-2 text-sm text-base-content/70">
         {{ _('If you would use it, say so. It tells us what to build next, and it is the only signal we get.') }}
       </p>
+      {# Acknowledgement line — hidden until the thumbs-up is clicked (§2.1). #}
+      <p id="pending-thanks" class="pb-2 text-sm text-success hidden">
+        {{ _('Thanks. We have recorded that you want this.') }}
+      </p>
       <div class="modal-action">
-        <button class="btn btn-primary btn-sm">{{ _('👍 I want this') }}</button>
+        <button id="pending-thumbsup" class="btn btn-primary btn-sm">{{ _('👍 I want this') }}</button>
         <form method="dialog"><button class="btn btn-ghost btn-sm">{{ _('close') }}</button></form>
       </div>
     </div>
@@ -65,16 +70,46 @@
   </dialog>
 
   <script>
-    // Wire every pending control's [?] button to the shared dialog, passing along the
-    // control's human name. No counter/POST yet — that is feature logic for a later
-    // increment (§2.1, §5.1 InterestReporter).
-    document.querySelectorAll('[data-pending-name]').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        document.getElementById('pending-control-name').textContent =
-          btn.getAttribute('data-pending-name');
-        document.getElementById('pending-dialog').showModal();
+    // The pending affordance (§2.1, §5.1). A [?] button opens the shared dialog for its
+    // control; the thumbs-up POSTs to /feature-interest/{key} and acknowledges in place. Keys
+    // already thumbed this session are remembered so reopening shows "✓ Noted" and a second
+    // click neither re-counts nor re-POSTs. The POST is fire-and-forget: the UI acknowledges
+    // regardless of its outcome (failures are never surfaced).
+    (function () {
+      var dialog = document.getElementById('pending-dialog');
+      var nameEl = document.getElementById('pending-control-name');
+      var thanksEl = document.getElementById('pending-thanks');
+      var thumbsBtn = document.getElementById('pending-thumbsup');
+      var labelWant = {{ _('👍 I want this') | tojson }};
+      var labelNoted = {{ _('✓ Noted') | tojson }};
+      var thumbed = new Set();  // feature keys already acknowledged this session
+
+      function renderState(key) {
+        var noted = thumbed.has(key);
+        thumbsBtn.textContent = noted ? labelNoted : labelWant;
+        thumbsBtn.disabled = noted;
+        thanksEl.classList.toggle('hidden', !noted);
+      }
+
+      document.querySelectorAll('[data-pending-name]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          nameEl.textContent = btn.getAttribute('data-pending-name');
+          dialog.setAttribute('data-feature-key', btn.getAttribute('data-feature-key') || '');
+          renderState(dialog.getAttribute('data-feature-key'));
+          dialog.showModal();
+        });
       });
-    });
+
+      thumbsBtn.addEventListener('click', function () {
+        var key = dialog.getAttribute('data-feature-key');
+        if (!key || thumbed.has(key)) return;  // second click does not count twice (§2.1)
+        thumbed.add(key);
+        renderState(key);  // acknowledge in place, before the request resolves
+        // Fire-and-forget: the acknowledgement above is never revised by the result.
+        fetch('/feature-interest/' + encodeURIComponent(key), { method: 'POST' })
+          .catch(function () { /* failures are ignored (§2.1, §5.1) */ });
+      });
+    })();
   </script>
 </body>
 </html>

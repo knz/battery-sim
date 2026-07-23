@@ -5,17 +5,24 @@ simulate_cost=False) are present or absent as the wireframes require. This is de
 about structure, not exact numbers — the numbers are static sample data and will be replaced
 when the domain layer lands.
 
+It also covers the pending affordance (specs/02-ux-wireframes.md §2.1): the four pending
+controls open the "Not built yet" dialog, the thumbs-up acknowledges in place, and the
+counter route (specs/08-architecture.md §5.1) upserts once per key and 404s an unknown key.
+The server runs against a throwaway data directory so the counter DB and the generated
+config.toml never touch the working tree.
+
     uv run pytest tests/test_smoke.py
 
 Requires the CSS built (npm run build:css) and Playwright's Chromium installed.
 """
 
+import os
 import socket
 import subprocess
 import sys
 import time
 from pathlib import Path
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 import pytest
 from playwright.sync_api import sync_playwright
@@ -30,12 +37,15 @@ def _free_port() -> int:
 
 
 @pytest.fixture(scope="module")
-def base_url():
+def base_url(tmp_path_factory):
     port = _free_port()
     url = f"http://127.0.0.1:{port}"
+    # Isolate the counter DB + generated config.toml in a temp dir, not the repo's ./data.
+    env = {**os.environ, "BATTERY_SIM_DATA_DIR": str(tmp_path_factory.mktemp("data"))}
     server = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "app.main:app", "--port", str(port), "--log-level", "warning"],
         cwd=REPO_ROOT,
+        env=env,
     )
     deadline = time.time() + 20
     while time.time() < deadline:
@@ -116,6 +126,51 @@ def test_pending_dialog_opens(page):
     page.get_by_role("button", name="Export CSV").click()
     assert page.get_by_text("Not built yet").first.is_visible()
     page.keyboard.press("Escape")
+
+
+def test_new_pending_controls_marked(page):
+    # The two controls marked pending in this increment render disabled with a [?] affordance.
+    assert page.locator("input[name=source][disabled]").count() >= 1  # Upload CSV radio
+    # "Also simulate cost savings" checkbox is disabled (cost machinery not built yet).
+    cost_row = page.get_by_text("Also simulate cost savings")
+    assert cost_row.count() >= 1
+
+
+def test_thumbsup_acknowledges_in_place(page):
+    # Clicking the thumbs-up flips the button to "✓ Noted" and shows the thanks line, without
+    # reporting any failure. Uses the Allow-export control so it is independent of other tests.
+    page.locator("[data-feature-key=discharge_allow_export]").click()
+    dialog = page.locator("#pending-dialog")
+    assert dialog.get_by_role("heading", name="Not built yet").is_visible()
+    dialog.get_by_role("button", name="I want this").click()
+    assert dialog.get_by_text("✓ Noted").is_visible()
+    assert dialog.get_by_text("Thanks. We have recorded that you want this.").is_visible()
+    page.keyboard.press("Escape")
+
+
+# ── Feature-interest counter route (specs/08-architecture.md §5.1) ─────────────
+
+
+def _post(url: str) -> int:
+    """POST with no body; return the HTTP status (treating a 4xx as its code, not an error)."""
+    import urllib.error
+
+    try:
+        with urlopen(Request(url, method="POST"), timeout=5) as resp:
+            return resp.status
+    except urllib.error.HTTPError as e:
+        return e.code
+
+
+def test_feature_interest_known_key(base_url):
+    # A known key returns 204 (success), and a repeat click is still 204 (idempotent upsert).
+    assert _post(base_url + "/feature-interest/export_csv") == 204
+    assert _post(base_url + "/feature-interest/export_csv") == 204
+
+
+def test_feature_interest_unknown_key(base_url):
+    # A key outside the closed vocabulary is rejected.
+    assert _post(base_url + "/feature-interest/definitely_not_a_key") == 404
 
 
 def test_chart_rendered(page):
