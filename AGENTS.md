@@ -2,6 +2,14 @@
 
 ## Project Overview
 
+A locally-run web application that simulates, retrospectively, what a home battery would
+have saved a Dutch household — using that household's own historical Home Assistant or CSV
+data, priced under the post-2027 Dutch regime in which net metering (salderen) no longer
+exists. It is a counterfactual simulator, not a forecaster and not a controller: it answers
+"what if I had owned this battery, operated under this policy, over this period".
+
+The specification lives in `specs/` — start at [specs/README.md](specs/README.md).
+
 ## Agent session persistence and context tracking
 
 You must always create, update maintain a changelog file that tracks specifications, changes, decisions, and progress.

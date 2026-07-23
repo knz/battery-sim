@@ -1,0 +1,118 @@
+# 7.2–7.5 Modelling limits, quality checks, anchoring and operations
+
+> **Purpose:** what the model knowingly gets wrong, the ordered list of validation checks,
+> how time windows are anchored, and how the app is meant to be run.
+> **Audience:** everyone. §7.2 in particular is worth reading before implementing the
+> domain layer rather than after.
+> **Read with:** [14-diagnostics.md](14-diagnostics.md) for the measurements several of
+> these checks consume.
+
+## 7.2 Known modelling limitations — state these in the UI, not just here
+
+1. **Baseline curtailment must match.** If an export limit is configured, run A must apply
+   it too. Curtailing PV only in the battery scenario would credit the battery with
+   avoiding a constraint the baseline never faced. Easy to get wrong; assert in tests.
+   See [§6.8](11-policies-and-battery.md#68-battery-step-function) step 6.
+2. **DC-side battery sensors break reconstruction.**
+   [§6.3](09-ingest-algorithms.md#63-household-load-reconstruction) assumes AC-side
+   measurements. DC-side figures put conversion losses on the wrong side of the balance
+   and silently bias the reconstructed load. Ask the user which they mapped; if unknown,
+   check whether `Σcharge > Σdischarge` by roughly the expected round-trip loss (AC-side)
+   or by substantially less (DC-side).
+3. **Standby is modelled as a constant.** Real inverters draw more when cycling and less
+   when deeply idle. A constant is defensible and conservative-ish; a load-dependent model
+   is not worth the parameter burden.
+4. **`chg_grid` is a request label, not a measurement.** Under P2/P3 during a sunny hour,
+   energy requested "from grid" may in fact be served by PV. This only affects the
+   efficiency assignment on DC-coupled systems, by a fraction of a percent. Documented,
+   not fixed.
+5. **No inverter power derating** at high SoC, low temperature, or high grid voltage.
+   Real systems taper. This flatters the battery slightly on the highest-value intervals.
+6. **Perfect foresight is genuinely perfect** — it knows every future price exactly. No
+   real controller reaches it. Treat the capture ratio as a floor on achievable
+   improvement, not a target.
+7. **Prices are treated as exogenous.** Fine for one household; invalid if you imagine
+   scaling the strategy to a population.
+8. **The load profile is held fixed across the regime change.** The input data was
+   recorded by a household living under salderen, which gave it no financial reason to
+   shift consumption toward its own solar. A household facing 2027 prices would gradually
+   change that behaviour. The simulator changes the prices and adds the battery but leaves
+   the occupants' habits exactly as recorded, which credits the battery with all of the
+   load-shifting and the household with none of it. The direction is *conservative* —
+   savings are understated relative to what a 2027 household would achieve — but the
+   magnitude is unknown and unmeasurable from the data.
+   See [§1.3](01-product-brief.md#13-regulatory-regime--fixed-decision) and
+   [background E4.2](18-dutch-electricity-background.md#e42-why-this-matters-for-battery-analysis).
+
+A further known gap — a 1-phase battery on a 3-phase connection, where the per-phase power
+ceiling cannot be modelled without per-phase data — is handled as a soft block in
+[§2.5](03-topology-selector.md) and raised as
+[open questions §8.7 and §8.9](17-open-questions.md).
+
+## 7.3 Data quality checks, in execution order
+
+| # | Check | Action on failure |
+|---|---|---|
+| 1 | Timestamps carry a UTC offset | Reject file, explain DST ambiguity |
+| 2 | Series monotonic where `kind=cumulative` | [§6.1](09-ingest-algorithms.md#61-cumulative-meter-register--interval-deltas) reset handling, count and flag |
+| 3 | Gap detection at > 1.5× nominal resolution | Flag; exclude from sums; report hours |
+| 4 | Required series present for chosen pricing | Block run, name the missing series |
+| 5 | Windows of the mapped series overlap | Restrict to intersection, report |
+| 6 | Reconstructed load ≥ 0 | Clamp, flag, warn with likely causes ([§6.3](09-ingest-algorithms.md#63-household-load-reconstruction)) |
+| 7 | `overlap_pct` ([§7.1](14-diagnostics.md#71-the-overlap-diagnostic--measure-resolution-damage-directly)) | Warn per the table there |
+| 8 | Tariff zone rule vs registers ([§6.4](09-ingest-algorithms.md#64-tariff-register-identification-and-zone-assignment)) | Warn above 5% mismatch |
+| 9 | Implausible PV: `pv > 0` at local solar midnight | Warn — likely a mismapped sensor |
+| 10 | Implausible totals: PV > 2000 kWh/kWp/yr, load > 30 MWh/yr | Warn, do not block |
+| 11 | Config: `soc_min < soc_max`, powers > 0, `0.5 < RTE ≤ 1.0` | Block with field errors |
+| 12 | Config: charge band ∩ discharge band = ∅ | Warn, allow (netting handles it — [§6.7](11-policies-and-battery.md#67-discharge-policy)) |
+| 13 | Window ≥ 90 days for annualisation, tiered TLK | Disable those features, explain |
+| 14 | Configuration epoch boundaries ([§6.15](13-configuration-epochs.md)) | Offer to restrict window; block annualisation if spanning |
+| 15 | Undeclared battery heuristics ([§6.15](13-configuration-epochs.md#undeclared-batteries)) | Ask the user; do not assert |
+| 16 | Cross-correlation lag between PV and meter ([§6.17](14-diagnostics.md#617-timestamp-misalignment-detection)) | Offer a shift; never apply silently |
+| 17 | Power-vs-energy residual, where both mapped ([§6.17](14-diagnostics.md#617-timestamp-misalignment-detection)) | Warn above 5% mean or 3% diurnal |
+| 18 | Unsupported phase topology selected ([§2.5](03-topology-selector.md)) | Soft block; set `topology.approximated` |
+
+## 7.4 Window anchoring and short-window guard
+
+Predefined ranges anchor to the **last timestamp present in the data**, not to `now()`.
+If the HA instance stopped recording three days ago, "last week" means the final seven
+days of data, and the UI states the actual dates. Anchoring to wall-clock time silently
+produces a window that is partly empty and a savings figure that is quietly too low.
+
+If the requested range exceeds available coverage, clamp to coverage and say so; never
+pad with zeros.
+
+Annualised projections are disabled below 90 days. Battery savings are strongly seasonal —
+a summer week has abundant surplus and a battery that saturates by noon, a winter week has
+almost no surplus and value comes only from price arbitrage. Scaling either to a year is
+wrong by a factor of roughly 2–3 in opposite directions.
+
+The same 90-day floor gates tiered terugleverkosten, which must be resolved from
+annualised export — see [§6.5](10-pricing.md#65-price-curves). Annualisation is also
+disabled when the window spans a configuration-epoch boundary
+([§6.15](13-configuration-epochs.md#effects-on-the-rest-of-the-application)).
+
+**Partial assessment periods for the feed-in floor.** The statutory floor on feed-in
+compensation is assessed over a calendar month by default, so an arbitrary window leaves a
+partial month at each end. Assess the floor over the partial period as it stands and
+record the count in `diagnostics.feedin_floor_partial_periods`; do not drop the partial
+period, and do not extrapolate it to a full month. A window shorter than one assessment
+period is assessed over the whole window, which is a weaker constraint than the law
+imposes — set `diagnostics.feedin_floor_shorter_than_period` so the result carries the
+fact. The effect is small in every ordinary case, but it means two runs over slightly
+different windows can differ by more than the difference in their data.
+
+## 7.5 Operational notes
+
+- **Bind to `127.0.0.1` by default.** The app stores a Home Assistant long-lived access
+  token, which is a full-privilege credential. If the user wants LAN access, make them
+  change the bind address deliberately and show a warning when the bind address is not
+  loopback.
+- **Token storage** is encrypted at rest with a key in a `0600` file beside the database.
+  This is deterrence, not a security boundary; say so in the UI.
+- **Never log the token**, including in HTTP client debug output.
+- Target performance: hourly year (8,760 intervals) end-to-end under 3 s including the DP;
+  5-minute month (8,640 intervals) comparable. 5-minute year (105k intervals) is the case
+  that may need Numba — see [§5.3](08-architecture.md#53-compute).
+- Language: English UI in v1. Dutch is likely wanted later given the audience — keep user
+  strings in a single catalogue module rather than inline in templates.
