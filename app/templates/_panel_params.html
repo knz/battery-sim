@@ -1,0 +1,215 @@
+{#
+  _panel_params.html — Panel ② Parameter configuration (specs/02-ux-wireframes.md §2.3, §2.5).
+
+  Collapsed to a one-line summary ending "energy only" (cost simulation off). Expands to the
+  What-to-simulate, Battery, Grid connection, Solar PV, Installation topology, Charge policy
+  and Discharge policy boxes. Because this sample has simulate_cost=False, the entire Pricing
+  box is ABSENT (§2.3 "Without cost simulation"), not greyed.
+
+  The Installation topology box shows the illustrated PV-coupling selector (§2.5a). The
+  battery-phase selector (§2.5b) is absent because this sample is 1-phase. The topology SVGs
+  are inlined (not <img>) so they inherit currentColor.
+
+  Values are the static sample (app/sample_data.py `params`).
+#}
+<section class="collapse collapse-arrow bg-base-100 border border-base-300 rounded-box">
+  <input type="checkbox" aria-label="Toggle Parameters panel" />
+  <div class="collapse-title flex flex-wrap items-center gap-x-3 gap-y-1">
+    <span class="badge badge-neutral">②</span>
+    <span class="font-semibold">PARAMETERS</span>
+    <span class="text-success">✓ valid</span>
+    <span class="text-base-content/60">{{ params.summary }}</span>
+  </div>
+
+  <div class="collapse-content">
+    <div class="flex flex-col gap-4 pt-2">
+
+      {# ── What to simulate ────────────────────────────────────────────── #}
+      <div class="card bg-base-200 border border-base-300">
+        <div class="card-body gap-2 p-4">
+          <h3 class="text-sm font-semibold text-base-content/70">What to simulate</h3>
+          <div class="flex items-center justify-between">
+            <span>Energy savings</span><span class="text-success text-sm">✓ always</span>
+          </div>
+          <label class="label cursor-pointer justify-start gap-3">
+            <input type="checkbox" class="checkbox checkbox-sm" />
+            <span class="label-text">Also simulate cost savings</span>
+          </label>
+          <p class="text-xs text-base-content/60">
+            ⓘ Needs your contract type, supply rates, energy tax, VAT and feed-in terms.
+            Leave this off to see kWh saved only.
+          </p>
+        </div>
+      </div>
+
+      <div class="grid gap-4 lg:grid-cols-2">
+        {# ── Battery ───────────────────────────────────────────────────── #}
+        <div class="card bg-base-200 border border-base-300">
+          <div class="card-body gap-2 p-4">
+            <h3 class="text-sm font-semibold text-base-content/70">Battery</h3>
+            {% set b = params.battery %}
+            {% for label, value, unit, hint in [
+              ("Usable capacity", b.capacity, "kWh", "not nameplate"),
+              ("Min state of charge", b.min_soc, "%", ""),
+              ("Max state of charge", b.max_soc, "%", ""),
+              ("Max charge power", b.max_charge, "kW", ""),
+              ("Max discharge power", b.max_discharge, "kW", ""),
+              ("Round-trip efficiency", b.rte, "%", "AC-to-AC at the meter"),
+              ("Standby draw", b.standby, "W", "≈260 kWh/yr"),
+              ("Initial SoC", b.initial_soc, "%", ""),
+            ] %}
+            <div class="flex items-center gap-2">
+              <span class="w-44 label-text">{{ label }}</span>
+              <input type="text" class="input input-bordered input-xs w-20 text-right" value="{{ value }}" />
+              <span class="text-sm text-base-content/60">{{ unit }}</span>
+              {% if hint %}<span class="text-xs text-base-content/50">ⓘ {{ hint }}</span>{% endif %}
+            </div>
+            {% endfor %}
+            <div class="flex items-center gap-3">
+              <span class="w-44 label-text">Coupling</span>
+              <label class="label cursor-pointer gap-1"><input type="radio" name="coupling" class="radio radio-xs" checked /><span class="label-text">AC-coupled</span></label>
+              <label class="label cursor-pointer gap-1"><input type="radio" name="coupling" class="radio radio-xs" /><span class="label-text">DC / hybrid</span></label>
+            </div>
+          </div>
+        </div>
+
+        {# ── Grid connection + Solar PV ────────────────────────────────── #}
+        <div class="flex flex-col gap-4">
+          <div class="card bg-base-200 border border-base-300">
+            <div class="card-body gap-2 p-4">
+              <h3 class="text-sm font-semibold text-base-content/70">Grid connection</h3>
+              <div class="flex items-center gap-3">
+                <span class="w-28 label-text">Phases</span>
+                <label class="label cursor-pointer gap-1"><input type="radio" name="phases" class="radio radio-xs" checked /><span class="label-text">1-phase</span></label>
+                <label class="label cursor-pointer gap-1"><input type="radio" name="phases" class="radio radio-xs" /><span class="label-text">3-phase</span></label>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="w-28 label-text">Fuse rating</span>
+                <input type="text" class="input input-bordered input-xs w-16 text-right" value="{{ params.grid.fuse }}" />
+                <span class="text-sm text-base-content/60">A → max import {{ params.grid.max_import }} kW</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="w-28 label-text">Export limit</span>
+                <span class="text-sm">{{ params.grid.export_limit }}</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="card bg-base-200 border border-base-300">
+            <div class="card-body gap-2 p-4">
+              <h3 class="text-sm font-semibold text-base-content/70">Solar PV</h3>
+              <div class="flex items-center gap-3">
+                <span class="label-text">Do you have solar panels?</span>
+                <label class="label cursor-pointer gap-1"><input type="radio" name="haspv" class="radio radio-xs" checked /><span class="label-text">Yes</span></label>
+                <label class="label cursor-pointer gap-1"><input type="radio" name="haspv" class="radio radio-xs" /><span class="label-text">No</span></label>
+              </div>
+              <p class="text-xs text-base-content/60">
+                ⓘ Answering No hides the solar sensor mapping, the PV coupling choice, and
+                the policies that act on solar surplus.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {# ── Installation topology — illustrated PV coupling selector (§2.5a) ── #}
+      {% if cfg.has_pv %}
+      <div class="card bg-base-200 border border-base-300">
+        <div class="card-body gap-3 p-4">
+          <div class="flex items-center justify-between">
+            <h3 class="text-sm font-semibold text-base-content/70">Installation topology</h3>
+            <span class="text-xs text-base-content/50">see §2.5</span>
+          </div>
+          <p class="text-sm">How is your PV connected to the battery?</p>
+          <div class="grid gap-4 sm:grid-cols-2">
+            <label class="radio-card">
+              <span class="flex items-center gap-2 font-medium">
+                <input type="radio" name="pvcoupling" class="radio radio-sm" checked />
+                DC-coupled / hybrid
+              </span>
+              {% include "topology/pv-dc.svg" %}
+              <span class="text-xs text-base-content/60">One conversion PV→battery</span>
+            </label>
+            <label class="radio-card">
+              <span class="flex items-center gap-2 font-medium">
+                <input type="radio" name="pvcoupling" class="radio radio-sm" />
+                AC-coupled
+              </span>
+              {% include "topology/pv-ac.svg" %}
+              <span class="text-xs text-base-content/60">Two conversions PV→battery</span>
+            </label>
+          </div>
+          <p class="text-xs text-base-content/60">
+            DC-coupled skips an inversion on the solar charging path — typically +3 to +5
+            percentage points on that path only. Grid charging is unaffected.
+          </p>
+        </div>
+      </div>
+      {% endif %}
+
+      <div class="grid gap-4 lg:grid-cols-2">
+        {# ── Charge policy ─────────────────────────────────────────────── #}
+        <div class="card bg-base-200 border border-base-300">
+          <div class="card-body gap-2 p-4">
+            <h3 class="text-sm font-semibold text-base-content/70">Charge policy</h3>
+            {% for p in params.charge_policies %}
+              {% if not p.pv_only or cfg.has_pv %}
+              <label class="label cursor-pointer justify-start gap-3">
+                <input type="radio" name="charge" class="radio radio-sm" {% if p.selected %}checked{% endif %} />
+                <span class="label-text"><b>{{ p.key }}</b> {{ p.label }}</span>
+                {% if p.pv_only %}<span class="badge badge-ghost badge-xs">PV only</span>{% endif %}
+              </label>
+              {% endif %}
+            {% endfor %}
+            <div class="mt-1 flex flex-wrap items-center gap-2 text-sm">
+              <span>Band A</span>
+              <input type="text" class="input input-bordered input-xs w-24 text-right" value="{{ params.charge_band.a }}" />
+              <span>B</span>
+              <input type="text" class="input input-bordered input-xs w-24 text-right" value="{{ params.charge_band.b }}" />
+              <span class="text-base-content/60">€/kWh</span>
+            </div>
+          </div>
+        </div>
+
+        {# ── Discharge policy ──────────────────────────────────────────── #}
+        <div class="card bg-base-200 border border-base-300">
+          <div class="card-body gap-2 p-4">
+            <h3 class="text-sm font-semibold text-base-content/70">Discharge policy</h3>
+            {% for p in params.discharge_policies %}
+            <label class="label cursor-pointer justify-start gap-3">
+              <input type="radio" name="discharge" class="radio radio-sm" {% if p.selected %}checked{% endif %} />
+              <span class="label-text"><b>{{ p.key }}</b> {{ p.label }}</span>
+            </label>
+            {% endfor %}
+            <div class="mt-1 flex flex-wrap items-center gap-2 text-sm">
+              <span>Band C</span>
+              <input type="text" class="input input-bordered input-xs w-24 text-right" value="{{ params.discharge_band.c }}" />
+              <span>D</span>
+              <input type="text" class="input input-bordered input-xs w-24 text-right" value="{{ params.discharge_band.d }}" />
+              <span class="text-base-content/60">€/kWh</span>
+            </div>
+            {# Economic guard is absent without cost simulation (§2.3). "Allow export"
+               remains as a dispatch setting, shown here as a pending example. #}
+            <label class="label cursor-pointer justify-start gap-3">
+              <input type="checkbox" class="checkbox checkbox-sm" disabled />
+              <span class="label-text text-base-content/50">Allow export to grid during D2/D3</span>
+              <button type="button" class="btn btn-ghost btn-xs" data-pending-name="Allow export to grid">[?]</button>
+            </label>
+            <div role="alert" class="alert alert-success py-1 text-sm">
+              <span>⚠ Charge band [{{ params.charge_band.a }}, {{ params.charge_band.b }}] and
+                discharge band [{{ params.discharge_band.c }}, {{ params.discharge_band.d }}]
+                do not overlap. ✓</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {# ── Pricing box is ABSENT: simulate_cost is off (§2.3 "Without cost simulation"). #}
+
+      <div class="flex justify-between">
+        <button class="btn btn-ghost btn-sm">← Back</button>
+        <button class="btn btn-primary btn-sm">Calculate →</button>
+      </div>
+    </div>
+  </div>
+</section>

@@ -1,0 +1,65 @@
+/* Tailwind v4 + daisyUI v5 source stylesheet.
+ *
+ * This file is the INPUT to the Tailwind CLI (see package.json build:css); the generated
+ * output is app/static/app.css, which is what the browser loads and what is committed. Edit
+ * this file for custom styles, then regenerate. Do not edit app/static/app.css by hand.
+ *
+ * Tailwind v4 is CSS-first: there is no tailwind.config.js. Content sources are
+ * auto-detected; the `@source` line pins template scanning explicitly since the templates
+ * live outside this file's directory. daisyUI is loaded as a v4 plugin via `@plugin`.
+ *
+ * Custom rules below cover the few widgets daisyUI does not provide directly: the
+ * illustrated radio-card selectors (§2.5) and the benchmark bars (§2.4).
+ */
+
+@import 'tailwindcss';
+@source '../../templates';
+
+@plugin 'daisyui' {
+  themes: light --default, dark --prefersdark;
+}
+
+/* Pin a concrete sans-serif fallback. Tailwind's default stack leads with ui-sans-serif /
+   system-ui, which resolves fine on a normal desktop but falls back to a wide serif in
+   headless environments (and on minimal systems). Appending common installed families keeps
+   typography sensible everywhere, including the Playwright screenshots used for iteration. */
+@layer base {
+  html {
+    font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
+      'Helvetica Neue', 'DejaVu Sans', Arial, sans-serif;
+  }
+}
+
+@layer components {
+  /* Illustrated radio card: a labelled option whose whole area is the click target and
+     whose selected state is shown by border + background, never colour alone (§2.5). */
+  .radio-card {
+    @apply relative flex cursor-pointer flex-col gap-2 rounded-box border-2 border-base-300
+           bg-base-100 p-4 transition-colors;
+  }
+  .radio-card:hover {
+    @apply border-base-content/30;
+  }
+  .radio-card:has(input:checked) {
+    @apply border-primary bg-primary/5;
+  }
+  .radio-card svg {
+    @apply h-auto w-full text-base-content/80;
+  }
+
+  /* Benchmark bar: a track with an optional filled portion and a marker dot (§2.4). */
+  .bench-track {
+    @apply relative h-3 flex-1 rounded-full bg-base-300;
+  }
+  .bench-fill {
+    @apply absolute inset-y-0 left-0 rounded-full bg-primary/30;
+  }
+  .bench-dot {
+    @apply absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary;
+  }
+
+  /* Right-aligned tabular figures for the breakdown/waterfall columns. */
+  .figure-col {
+    @apply text-right font-mono tabular-nums;
+  }
+}

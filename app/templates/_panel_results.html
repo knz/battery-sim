@@ -1,0 +1,147 @@
+{#
+  _panel_results.html — Panel ③ Results (specs/02-ux-wireframes.md §2.4).
+
+  Rendered expanded. This sample has simulate_cost=False, so ONLY the ENERGY SAVINGS section
+  is shown: the three KPI tiles, the energy breakdown, the energy benchmark bars, the
+  secondary metrics, the monthly-savings chart, and the caveats box. The COST SAVINGS
+  section and the money KPI/waterfall/benchmark are ABSENT (§2.4 "Panel ③ without cost
+  simulation"), replaced by the "enable cost simulation" affordance at the foot.
+
+  Values are the static sample (app/sample_data.py `results`). The chart is drawn client-side
+  by Plotly from data embedded as JSON — no server round-trip and no computed result.
+#}
+<section class="bg-base-100 border border-base-300 rounded-box">
+  <div class="p-4 lg:p-6 flex flex-col gap-5">
+
+    <div class="flex flex-wrap items-center gap-2">
+      <span class="badge badge-neutral">③</span>
+      <span class="font-semibold">RESULTS</span>
+    </div>
+
+    {# ── Period selector ───────────────────────────────────────────────── #}
+    <div class="flex flex-wrap items-center gap-3">
+      <div class="join">
+        {% for p in results.periods %}
+        <button class="btn btn-sm join-item {% if p == results.period_selected %}btn-active{% endif %}">{{ p }}</button>
+        {% endfor %}
+      </div>
+      <span class="text-sm text-base-content/60">{{ results.period }}</span>
+    </div>
+
+    {# ══ ENERGY SAVINGS ══════════════════════════════════════════════════ #}
+    <div class="divider divider-start text-xs font-semibold tracking-wider text-base-content/70">
+      ENERGY SAVINGS
+    </div>
+
+    {# ── KPI tiles ─────────────────────────────────────────────────────── #}
+    <div class="stats stats-vertical sm:stats-horizontal border border-base-300 bg-base-200 w-full">
+      {% for k in results.kpis %}
+      <div class="stat">
+        <div class="stat-title text-xs">{{ k.title }}</div>
+        <div class="stat-value text-2xl">{{ k.value }}{% if k.unit %}<span class="text-base font-normal text-base-content/60"> {{ k.unit }}</span>{% endif %}</div>
+        <div class="stat-desc">{{ k.delta }}{% if k.extra %}<br>{{ k.extra }}{% endif %}</div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <div class="grid gap-4 lg:grid-cols-2">
+      {# ── Where the energy comes from ─────────────────────────────────── #}
+      <div class="card bg-base-200 border border-base-300">
+        <div class="card-body gap-1 p-4">
+          <h3 class="text-sm font-semibold text-base-content/70">Where the energy comes from</h3>
+          {% for row in results.energy_breakdown %}
+            {% if row.rule_above %}<div class="my-1 border-t border-base-300"></div>{% endif %}
+            {% if row.gap_above %}<div class="h-2"></div>{% endif %}
+            <div class="flex justify-between {% if row.rule_above %}font-semibold{% endif %}">
+              <span>{{ row.label }}</span>
+              <span class="figure-col">{{ row.value }}</span>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      {# ── Secondary metrics ───────────────────────────────────────────── #}
+      <div class="card bg-base-200 border border-base-300">
+        <div class="card-body gap-1 p-4">
+          <h3 class="text-sm font-semibold text-base-content/70">Secondary metrics</h3>
+          {% for row in results.secondary %}
+          <div class="flex justify-between">
+            <span>{{ row.label }}</span><span class="figure-col">{{ row.value }}</span>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    {# ── Benchmark: grid import avoided ────────────────────────────────── #}
+    <div class="card bg-base-200 border border-base-300">
+      <div class="card-body gap-3 p-4">
+        <h3 class="text-sm font-semibold text-base-content/70">Benchmark: grid import avoided</h3>
+        {% for row in results.benchmark.rows %}
+        <div class="flex items-center gap-3">
+          <span class="w-36 text-sm">{{ row.label }}</span>
+          <span class="w-20 figure-col text-sm">{{ row.value }}</span>
+          <div class="bench-track">
+            <div class="bench-fill" style="width: {{ (row.frac * 100) | round(1) }}%"></div>
+            {% if row.dot %}<div class="bench-dot" style="left: {{ (row.frac * 100) | round(1) }}%"></div>{% endif %}
+          </div>
+        </div>
+        {% endfor %}
+        <p class="text-sm text-base-content/70">{{ results.benchmark.gloss }}</p>
+      </div>
+    </div>
+
+    {# ── Charts ────────────────────────────────────────────────────────── #}
+    <div class="card bg-base-200 border border-base-300">
+      <div class="card-body gap-3 p-4">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div class="join">
+            <button class="btn btn-xs join-item btn-active">Monthly savings</button>
+            <button class="btn btn-xs join-item">SoC + price</button>
+            <button class="btn btn-xs join-item">Energy flows</button>
+          </div>
+          <button class="btn btn-ghost btn-xs" data-pending-name="Export CSV">⤓ export CSV [?]</button>
+        </div>
+        <div id="monthly-chart" class="h-64 w-full"></div>
+      </div>
+    </div>
+
+    {# ── Caveats ───────────────────────────────────────────────────────── #}
+    <div class="card bg-base-200 border border-base-300">
+      <div class="card-body gap-2 p-4">
+        <h3 class="text-sm font-semibold text-base-content/70">Caveats for this run</h3>
+        {% for c in results.caveats %}
+        <div role="alert" class="alert alert-warning py-2"><span class="text-sm">⚠ {{ c }}</span></div>
+        {% endfor %}
+      </div>
+    </div>
+
+    {# ── Cost section absent (cost off): offer to enable it (§2.4). ─────── #}
+    <div class="alert bg-base-200 border border-base-300">
+      <span>Want to know what this is worth in euros?</span>
+      <button class="btn btn-primary btn-sm">Enable cost simulation</button>
+    </div>
+  </div>
+</section>
+
+{# Plotly, served locally (no runtime CDN dependency — §5.1). Draws the monthly chart from
+   the embedded sample data. Guarded so a missing bundle does not break the page. #}
+<script src="/static/vendor/plotly.min.js"></script>
+<script id="monthly-data" type="application/json">
+  {{ {"months": results.chart.months, "values": results.chart["values"]} | tojson }}
+</script>
+<script>
+  (function () {
+    if (typeof Plotly === 'undefined') return;
+    var d = JSON.parse(document.getElementById('monthly-data').textContent);
+    Plotly.newPlot('monthly-chart', [{
+      type: 'bar', x: d.months, y: d.values,
+      marker: { color: '#570df8' }
+    }], {
+      margin: { t: 10, r: 10, b: 30, l: 40 },
+      yaxis: { title: 'kWh' },
+      paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+      font: { size: 11 }
+    }, { displayModeBar: false, responsive: true });
+  })();
+</script>
