@@ -20,7 +20,7 @@ efc = C.withdrawn.sum() / cfg.usable_capacity_kwh
 
 # Self-consumption is undefined without PV: nothing was generated to consume.
 # Report null, never 0 or 1 — both would assert something the data cannot support.
-self_consumption = (1 - export.sum() / pv.sum()) if pv.sum() > EPS else None
+self_consumption = (1 - export.sum() / pv.sum()) if pv.sum() > DIV_GUARD_EPS else None
 self_sufficiency = 1 - import.sum() / load.sum()        # per scenario; always defined
 
 # Conversion loss = AC in - AC out - energy still sitting in the battery.
@@ -59,9 +59,11 @@ one. It is pinned by fixture 18 in
 [16-validation-harness.md](16-validation-harness.md).
 
 **SoC drift correction.** The battery does not end the window at its starting SoC. Report
-`soc_end − soc_start` always, and surface the drift when it exceeds 2% of the energy
-saving. With cost simulation on, also value it at the median import price and surface it
-additionally when that value exceeds 2% of the euro saving. The two tests are a union, so
+`soc_end − soc_start` always, and surface the drift when it exceeds `SOC_DRIFT_WARN_FRAC`
+(2%) of the energy saving. With cost simulation on, also value it at the median import price
+and surface it additionally when that value exceeds `SOC_DRIFT_WARN_FRAC_EUR` (2%) of the
+euro saving — a separate constant sharing the same default, since the kWh and euro bases are
+independent decisions. The two tests are a union, so
 enabling cost simulation can only raise the drift caveat where it was previously silent,
 never withdraw it: whether the user sees the warning at all does not depend on the toggle.
 Without a cost model there is no median import price, so `soc_delta_value_eur` is `null`;
@@ -107,13 +109,14 @@ self-sufficiency rather than for money would want — and the capture ratio it p
 real measurement in every run, not a placeholder for the euro figure.
 
 ```python
-def perfect_foresight(frame, cfg, n_soc=101, n_actions=41):
+def perfect_foresight(frame, cfg):        # n_soc = cfg.dp_soc_levels, n_actions = cfg.dp_action_levels
+    n_soc, n_actions = cfg.dp_soc_levels, cfg.dp_action_levels
     soc_levels = linspace(cfg.soc_min_kwh, cfg.soc_max_kwh, n_soc)
     V          = zeros(n_soc)
 
     # Terminal constraint: must finish at or above the starting SoC.
     # Without it the DP simply liquidates the battery and inflates the bound.
-    V[soc_levels < cfg.initial_soc_kwh - EPS] = +INF
+    V[soc_levels < cfg.initial_soc_kwh - SOC_COMPARE_EPS_KWH] = +INF
 
     policy = zeros((len(frame), n_soc), dtype=int8)
 
@@ -132,14 +135,31 @@ def perfect_foresight(frame, cfg, n_soc=101, n_actions=41):
     return roll_forward(policy, frame, cfg)
 ```
 
-Complexity `O(T · n_soc · n_actions)` ≈ 8,760 × 101 × 41 ≈ 36M vectorised operations —
+Complexity `O(T · n_soc · n_actions)` ≈ 8,760 × `dp_soc_levels` × `dp_action_levels`
+(≈ 8,760 × 101 × 41 ≈ 36M at the default levels) vectorised operations —
 a few seconds in numpy. Interpolation of `V` rather than snapping to the nearest SoC level
 avoids a systematic pessimism bias of several percent.
 
 The DP obeys the same power, SoC and connection limits, and the same standby draw, so the
 comparison is like-for-like. It does **not** obey the user's price bands — that is the
-point. Whether it should also inherit `allow_grid_export` is
-[open question §8.2](17-open-questions.md).
+point.
+
+**Both export baselines are computed, not one.** Rather than pick whether the DP inherits
+`allow_grid_export` — [open question §8.2](17-open-questions.md) — each benchmark is run
+under both readings and both bounds land in the result object, so accumulated runs supply
+the answer §8.2 was asking a person to guess ([experiment X10](19-prototype-experiments.md#x10--does-the-benchmarks-export-permission-matter)):
+
+- **inheriting** — the DP plays by the same export permission the user's policy plays by,
+  so the capture ratio measures decision quality alone. This is the primary figure.
+- **unconstrained** — the DP may always export, so the bound is the true physical maximum
+  and the capture ratio also absorbs the cost of the user's export setting.
+
+When `allow_grid_export` is **on** the two readings coincide by construction, so only the
+inheriting DP runs and the unconstrained fields are `null` — the second pass is skipped
+because it is provably identical, not merely similar. When it is **off** — the default —
+the second DP runs, differing only in that `feasible()` permits grid export. That is the
+one case where the two bounds can diverge, and the case X10 measures. The extra pass costs
+what one DP costs (§6.12 complexity above), and only in the export-off case.
 
 `perfect_foresight_saving ≥ policy_saving` for every configuration is a strong invariant
 and catches most policy and pricing errors — fixture 6 in
@@ -147,7 +167,16 @@ and catches most policy and pricing errors — fixture 6 in
 block, in that block's own units: the energy DP cannot be beaten on kWh of import avoided,
 and the cost DP cannot be beaten on euros. Asserting it across the two blocks is
 meaningless and will fail correctly-built code, since the cost-optimal dispatch routinely
-avoids less import than the import-optimal one. Note also
+avoids less import than the import-optimal one.
+
+A second invariant governs the two export baselines within a block:
+`unconstrained_saving ≥ inheriting_saving`, in that block's units, because the
+unconstrained DP optimises over a superset of the inheriting DP's action set. Assert it
+whenever the unconstrained figure is present. When `allow_grid_export` is on the two are
+equal by construction and the unconstrained fields are `null`, so the assertion is on
+equality-or-null there, strict `≥` only in the export-off case.
+
+Note also
 [§7.2](15-data-quality-and-limits.md#72-known-modelling-limitations--state-these-in-the-ui-not-just-here)
 item 6: the capture ratio is a floor on achievable improvement, not a target, because no
 real controller knows every future price.

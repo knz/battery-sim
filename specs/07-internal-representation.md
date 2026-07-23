@@ -164,14 +164,21 @@ Notes on the fields that are not simulation inputs:
     "energy": {
       "no_battery_saved_kwh": 0.0,
       "policy_saved_kwh": 1412.3,
-      "perfect_foresight_saved_kwh": 1988.0,
-      "capture_ratio": 0.710
+      "perfect_foresight_saved_kwh": 1988.0,        // inheriting allow_grid_export
+      "capture_ratio": 0.710,
+      // Unconstrained-export bound (§8.2, X10): the same DP allowed to export
+      // freely. null when allow_grid_export is on, where it equals the field
+      // above by construction and no second DP is run.
+      "perfect_foresight_saved_kwh_unconstrained": 2310.5,
+      "capture_ratio_unconstrained": 0.611
     },
     "cost": {
       "no_battery_eur": 0.0,
       "policy_eur": 331.10,
-      "perfect_foresight_eur": 478.30,
-      "capture_ratio": 0.692
+      "perfect_foresight_eur": 478.30,              // inheriting allow_grid_export
+      "capture_ratio": 0.692,
+      "perfect_foresight_eur_unconstrained": 502.80,
+      "capture_ratio_unconstrained": 0.659
     }
   },
 
@@ -266,6 +273,13 @@ What is `null` with `simulate_cost = false`, and populated when it is `true`:
   grid import regardless of what else is being computed
   ([§6.12](12-metrics-and-benchmarks.md#612-perfect-foresight-benchmark)). If the DP could
   not run at all, both blocks are `null`.
+
+  Within each present block, the `*_unconstrained` fields are governed by a *different*
+  toggle — `allow_grid_export`, not `simulate_cost`. They are `null` when export is on
+  (identical to the inheriting field by construction, §6.12) and populated when it is off.
+  This is orthogonal to the additive-cost invariant above: the energy block's unconstrained
+  fields are still bit-identical across `simulate_cost`, because export permission does not
+  depend on whether euros are computed.
 - `price_bracket` — `null`. Bracketing exists to bound a *pricing* error.
 - `battery.soc_delta_value_eur` — `null`. Residual SoC is still reported in kWh as
   `soc_end_kwh − soc_start_kwh`; only its valuation is unavailable.

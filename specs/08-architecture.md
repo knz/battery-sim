@@ -189,3 +189,59 @@ change rather than a rewrite:
 Deliberately deferred: authentication, authorisation policy, quotas, per-user encryption
 keys, workspace sharing, migration of the v1 single workspace into a user account
 (a one-row `UPDATE` when the time comes).
+
+## 5.6 Named constants
+
+No magic numbers in the code. Every numeric literal that carries meaning is named, so a
+reader meets a word before a digit and a maintainer changes a value in one place. A literal
+"carries meaning" when it encodes a decision — a tolerance, a window, a discretisation, a
+threshold — as opposed to being arithmetically inevitable. Three homes, by who the value
+belongs to:
+
+1. **User-facing defaults** live in `config.toml` and are listed, with their rationale, in
+   [appendix-a-defaults.md](appendix-a-defaults.md). These are values a user or packager
+   may reasonably set: battery parameters, tariff constants, the dal window, the plausibility
+   bounds a user with an atypical installation might raise, and any threshold that changes
+   what the results panel shows. The appendix table *is* the checklist for `config.toml`
+   (§5.4), so a new user-facing default is added in both places or neither.
+
+2. **Internal tunables** live as module-level named constants in the code, next to the
+   function that uses them, each with a comment giving the value's origin (a datasheet
+   figure, a heuristic sensitivity, a discretisation chosen for speed). These have no user
+   meaning and are not exposed in `config.toml` — surfacing them would grow the appendix
+   with rows no user should touch. The DP discretisation levels are the boundary case:
+   they are internal in nature but are named in the appendix
+   (`dp_soc_levels`, `dp_action_levels`) because an experiment
+   ([X13](19-prototype-experiments.md)) is *about* their values, so they are documented
+   where that experiment can point at them.
+
+   A named constant is a single value with a single meaning. Where one name would paper over
+   two distinct quantities that merely happen to share a digit, use two — the point of the
+   name is to make the decision legible, and conflating decisions defeats it. `EPS` is the
+   cautionary example: the pseudocode in these specs originally wrote a single undefined
+   `EPS` in four distinct roles. It is replaced by four constants, defined once in a shared
+   numerics module and referenced from the pseudocode:
+
+   | Constant | Value | Role |
+   |---|---|---|
+   | `DIV_GUARD_EPS` | `1e-9` | Floor on a denominator that is a physical total (`x / max(total, DIV_GUARD_EPS)`), to avoid divide-by-zero when the total is genuinely ~0. Dimensionless; it only prevents a NaN, it does not set a meaningful scale. |
+   | `SOC_COMPARE_EPS_KWH` | `1e-6` | Float-comparison slack, in kWh, on SoC bound assertions and the DP terminal constraint, so rounding does not trip an exact `<=`. |
+   | `STD_GUARD_EPS` | `1e-9` | Guard added to a standard-deviation denominator in the time-offset confidence score, where the std can be zero for a flat signal. |
+   | `FLAT_SPAN_EPS_KWH` | `1e-6` | Threshold, in kWh, below which a register's observed span counts as flat (no variation) — a presence test, not a division guard. |
+
+   `DIV_GUARD_EPS` and `STD_GUARD_EPS` share a value today but not a meaning, so they stay
+   separate: one is a ratio denominator floor, the other a variance-denominator floor, and a
+   future adjustment to one should not silently move the other.
+
+3. **Genuine literals** are left as literals. `0`, `1`, array indices, percent conversions
+   (`100 *`), unit conversions (`/ 1000.0` for W→kW, `3600` for h→s), and the calendar
+   constant `dayofweek >= 5` for the weekend are arithmetically inevitable or self-evident
+   in context, and naming them (`ONE = 1`) would add noise, not legibility. This category is
+   deliberate: "no magic numbers" is a rule about *meaningful* values, not a mandate to name
+   every digit.
+
+The rule binds new code as written and the existing pseudocode in these specs, which has
+been swept to obey it (see [changelog](../changelog/) for the pass). When a value that
+looks like a genuine literal turns out to encode a choice — the weekend mask omitting public
+holidays, say ([§8.21](17-open-questions.md)) — that is a signal the classification was
+wrong and the value wants a name and a decision, not that the rule has an exception.

@@ -15,6 +15,25 @@ a figure that describes a household that never existed.
 EPOCH_EVENTS = ["pv_commissioned", "pv_capacity_changed",
                 "battery_commissioned", "battery_removed"]
 
+# --- module constants (epoch-detection heuristics) --------------------------
+# These are heuristic sensitivities with no user meaning; none is exposed in
+# config.toml. Their thresholds are untested against ground truth — see X11.
+REF_QUANTILE           = 0.95   # a robust "typical good day" production level
+PV_PRESENT_MIN_KWH        = 0.1    # daily ref below this: treat PV as absent
+PV_LIVE_WINDOW_DAYS       = 7      # rolling window for the "PV is producing" test
+PV_LIVE_MIN_PERIODS       = 4      # min days in that window before it reports
+PV_LIVE_FRACTION          = 0.10   # fraction of ref above which PV counts as live
+PV_PEAK_SMOOTH_DAYS       = 30     # rolling window for capacity-change peak smoothing
+BATTERY_ACTIVE_FRACTION   = 0.05   # daily throughput fraction of ref: battery active
+UNDECLARED_PV_EXPORT_FRACTION = 0.01  # daytime export fraction of import: undeclared PV
+UNDECLARED_PV_DAY_START   = 9      # daytime window for the undeclared-PV export test
+UNDECLARED_PV_DAY_END     = 17     #   (hours; "midday" as a modelling choice)
+UNDECLARED_BATT_WINDOW    = "14D"  # rolling window for night-import / self-consumption
+SELF_CONSUMPTION_STEP     = 0.15   # min absolute self-consumption step: hidden battery
+EPOCH_BOUNDARY_TOL        = "7D"   # a changepoint this close to an epoch edge is explained
+FLAT_TOP_NIGHT_FRACTION   = 0.3    # night-import flat-topped fraction: grid-charging battery
+                                   #   (no stated derivation — untested, see X11)
+
 def detect_epochs(series, index_local):
     """Segment the window into intervals of constant physical configuration."""
     events = []
@@ -25,23 +44,25 @@ def detect_epochs(series, index_local):
         # live, so "first non-null" is the wrong test. Use sustained daily
         # production.
         daily = series.solar.resample("1D").sum()
-        ref   = daily.quantile(0.95)
-        if ref > 0.1:
-            live = daily.rolling(7, min_periods=4).mean() > 0.10 * ref
+        ref   = daily.quantile(REF_QUANTILE)
+        if ref > PV_PRESENT_MIN_KWH:
+            live = daily.rolling(PV_LIVE_WINDOW_DAYS,
+                                 min_periods=PV_LIVE_MIN_PERIODS).mean() > PV_LIVE_FRACTION * ref
             if not live.iloc[0] and live.any():
                 events.append(("pv_commissioned", live.idxmax()))
 
         # --- PV capacity change (panels added) ----------------------------
         # Compare rolling 30-day peak hourly output. A sustained step > 20%
         # that is not explained by season indicates added capacity.
-        peak = series.solar.resample("1D").max().rolling(30).median()
-        for d in changepoints(peak, min_rel_step=0.20, min_segment_days=45):
+        peak = series.solar.resample("1D").max().rolling(PV_PEAK_SMOOTH_DAYS).median()
+        for d in changepoints(peak, min_rel_step=cfg.pv_capacity_min_rel_step,
+                               min_segment_days=cfg.epoch_min_segment_days):
             events.append(("pv_capacity_changed", d))
 
     # --- Battery commissioning / removal ---------------------------------
     if series.batt_charge is not None:
         thr = (series.batt_charge + series.batt_discharge).resample("1D").sum()
-        active = thr > 0.05 * max(thr.quantile(0.95), EPS)
+        active = thr > BATTERY_ACTIVE_FRACTION * max(thr.quantile(REF_QUANTILE), DIV_GUARD_EPS)
         events += transitions(active, "battery_commissioned", "battery_removed")
 
     return build_epochs(events, index_local)
@@ -77,9 +98,10 @@ def detect_undeclared_pv(frame, cfg):
 
     # A household with no generator cannot export. Any sustained daytime
     # export is generation the app has not been told about.
-    day     = (frame.index_local.hour >= 9) & (frame.index_local.hour < 17)
+    day     = ((frame.index_local.hour >= UNDECLARED_PV_DAY_START) &
+               (frame.index_local.hour <  UNDECLARED_PV_DAY_END))
     exp_day = frame.export_obs[day].sum()
-    if exp_day > 0.01 * max(frame.import_obs.sum(), EPS):
+    if exp_day > UNDECLARED_PV_EXPORT_FRACTION * max(frame.import_obs.sum(), DIV_GUARD_EPS):
         warn(POSSIBLE_UNDECLARED_PV,
              detail="sustained daytime export from a household declaring no PV")
 ```
@@ -102,19 +124,19 @@ error raised. Heuristic detection:
 ```python
 def detect_undeclared_battery(frame, epochs, cfg):
     """Flag unexplained step changes consistent with hidden storage."""
-    night = rolling_night_import(frame, window="14D")
+    night = rolling_night_import(frame, window=UNDECLARED_BATT_WINDOW)
 
     if cfg.has_pv:
         # Needs a PV denominator; unavailable without solar.
-        sc = rolling_self_consumption(frame, window="14D")
-        for d in changepoints(sc, min_abs_step=0.15):
-            if not epoch_boundary_near(d, epochs, tol="7D"):
+        sc = rolling_self_consumption(frame, window=UNDECLARED_BATT_WINDOW)
+        for d in changepoints(sc, min_abs_step=SELF_CONSUMPTION_STEP):
+            if not epoch_boundary_near(d, epochs, tol=EPOCH_BOUNDARY_TOL):
                 warn(POSSIBLE_UNDECLARED_BATTERY, date=d,
                      detail="self-consumption rose sharply with no PV or battery event")
 
     # Grid-charging storage shows as flat-topped night import at constant power.
     # Available in both cases, and the only available signal without PV.
-    if flat_top_fraction(night) > 0.3:
+    if flat_top_fraction(night) > FLAT_TOP_NIGHT_FRACTION:
         warn(POSSIBLE_UNDECLARED_BATTERY, detail="constant-power night import blocks")
 ```
 

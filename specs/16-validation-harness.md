@@ -10,16 +10,19 @@ The domain layer is pure by design ([§5.2](08-architecture.md#52-why-this-split
 is what makes these fixtures possible: each is arrays in, numbers out, no I/O and no
 clock.
 
+Conservation and closure identities are asserted to `CLOSURE_TOL` (a module constant,
+`1e-6`), the floating-point slack below which a sum-of-parts identity counts as exact.
+
 1. **Trivial** — flat 1 kW load, no PV, flat price, P2/D2 with disjoint bands. Cycles,
    throughput and cost are analytically computable.
    → [§6.6–6.7](11-policies-and-battery.md#66-charge-policy)
 2. **Efficiency** — one charge and one discharge of a 10 kWh battery at 90% RTE returns
    9.0 kWh AC. Round-trip loss is 1.0 kWh, not 0.9 or 1.11.
    → [§6.8](11-policies-and-battery.md#68-battery-step-function)
-3. **Conservation** — for every run, `Σ(pv + imp + dis) == Σ(load + exp + chg) ± 1e-6`.
+3. **Conservation** — for every run, `Σ(pv + imp + dis) == Σ(load + exp + chg) ± CLOSURE_TOL`.
    → [§6.3](09-ingest-algorithms.md#63-household-load-reconstruction),
    [§6.8](11-policies-and-battery.md#68-battery-step-function)
-4. **Waterfall closure** — `Σ(waterfall) == cost(A) − cost(C) − degradation ± 1e-6`.
+4. **Waterfall closure** — `Σ(waterfall) == cost(A) − cost(C) − degradation ± CLOSURE_TOL`.
    → [§6.10](10-pricing.md#610-cost-accounting)
 5. **Monotonicity** — larger capacity never reduces savings, all else equal. Violation
    indicates a clamping bug.
@@ -32,6 +35,13 @@ clock.
    compare across the two blocks — the cost-optimal dispatch routinely avoids *less* import
    than the import-optimal one, so asserting the bound across them would fail
    correctly-built code.
+
+   Two further checks on the export baselines (§6.12): where the `*_unconstrained` fields
+   are present, `perfect_foresight_*_unconstrained ≥ perfect_foresight_*` in the block's own
+   units, since the unconstrained DP optimises over a superset of actions; and when
+   `allow_grid_export` is on, the `*_unconstrained` fields are `null` (no second DP runs
+   because it would be identical). With export off they are present and satisfy the strict
+   bound above.
    → [§6.12](12-metrics-and-benchmarks.md#612-perfect-foresight-benchmark)
 7. **DST** — a window spanning both the March and October transitions has 8,760 ± 1 hourly
    intervals with no duplicated or dropped index entries.
@@ -47,7 +57,8 @@ clock.
     swapped.
     → [§6.16](14-diagnostics.md#616-price-bracketing-under-settlementresolution-mismatch)
 11. **Offset recovery** — a series shifted by a known lag is recovered by
-    `detect_time_offset` to within one interval, with confidence above 3.0.
+    `detect_time_offset` to within one interval, with confidence above
+    `TIME_OFFSET_CONFIDENCE_MIN`.
     → [§6.17](14-diagnostics.md#617-timestamp-misalignment-detection)
 12. **Phase approximation** — selecting an unsupported phase topology and continuing sets
     `topology.approximated = true` and produces results identical to the 3-phase case
@@ -62,7 +73,7 @@ clock.
 14. **Feed-in floor binding** — a synthetic month whose export earns a net negative
     unclamped amount yields exactly zero compensation revenue for that month under
     `MONTHLY`, and the shortfall appears in `feedin_floor_topup`, not in any other
-    waterfall line. Fixture 4's closure must still hold to ±1e-6 with the top-up nonzero.
+    waterfall line. Fixture 4's closure must still hold to ±`CLOSURE_TOL` with the top-up nonzero.
     → [§6.10](10-pricing.md#610-cost-accounting)
 15. **Incomplete register set** — a window in which T2 never increments yields
     availability `INCOMPLETE`, raises the check 8a installation warning, raises no gap or

@@ -15,6 +15,12 @@ should run in numpy over the whole array.
 ## 6.1 Cumulative meter register → interval deltas
 
 ```python
+# --- module constants (ingest heuristics) -----------------------------------
+RESET_TOLERANCE_KWH = 0.01   # a negative step smaller than this is float noise
+RESET_FLOOR_KWH     = 1.0    # register restarting below this reads as a reset
+DAL_SHARE_GAP_MIN   = 0.2    # min gap between the two registers' night-shares
+                             #   below which the dal register is UNCERTAIN
+
 def cumulative_to_delta(ts, values):
     """
     Meter registers are total_increasing. They reset on meter replacement,
@@ -27,9 +33,9 @@ def cumulative_to_delta(ts, values):
 
     for i where d[i] < 0:
         drop = -d[i]
-        if drop < RESET_TOLERANCE_KWH:     # 0.01 — float noise / rounding
+        if drop < RESET_TOLERANCE_KWH:     # float noise / rounding
             d[i] = 0
-        elif values[i+1] < RESET_FLOOR_KWH:  # 1.0 — register restarted near zero
+        elif values[i+1] < RESET_FLOOR_KWH:  # register restarted near zero
             # Genuine reset: energy consumed since the reset is the new reading.
             d[i] = values[i+1]
             flags[i] |= RESET_CORRECTED
@@ -46,7 +52,7 @@ def cumulative_to_delta(ts, values):
 # CSV input and to raw `state` series.
 ```
 
-Gap handling: if `ts[i+1] - ts[i]` exceeds 1.5× the series' native resolution, the interval is a
+Gap handling: if `ts[i+1] - ts[i]` exceeds `gap_factor`× the series' native resolution, the interval is a
 **gap**. Gaps are *not* interpolated for energy; they are emitted as `NaN` and excluded
 from all sums, with their duration reported. Interpolating a 6-hour outage invents a load
 profile and quietly changes the answer. Prices, by contrast, are forward-filled (a price
@@ -235,7 +241,7 @@ which is why concern (1) is checked even when no bill is being computed.
 def register_availability(series):
     """Always evaluated. Describes the meter installation, not the contract."""
     present = {t: series.get(f"grid_import_{t}") is not None for t in ("t1", "t2")}
-    active  = {t: present[t] and span(series[f"grid_import_{t}"]) > EPS
+    active  = {t: present[t] and span(series[f"grid_import_{t}"]) > FLAT_SPAN_EPS_KWH
                for t in ("t1", "t2")}
 
     if not any(present.values()):
@@ -271,15 +277,25 @@ than a guarantee and inverted installations exist
 Identify it from when each register accrues, not from its label:
 
 ```python
-def detect_dal_register(import_t1, import_t2, index_local):
+def detect_dal_register(import_t1, import_t2, index_local, cfg):
     """
     The dal register is the one that accrues predominantly during the hours
     the dal tariff applies. Requires both registers active (COMPLETE).
+
+    The reference window is the user's configured dal window, not a fixed
+    23:00-07:00 — it varies by grid operator (21:00 in Noord-Brabant, Limburg
+    and parts of Zuid-Holland), and probing the wrong hours weakens the very
+    share signal this test relies on. Same mask as tariff_zone below, so the
+    detector and the pricing zone agree by construction. Public holidays are
+    also dal on Dutch dubbeltarief meters but are not modelled here (see the
+    note under tariff_zone).
     """
-    night = (index_local.hour >= 23) | (index_local.hour < 7)
-    share_t1 = import_t1[night].sum() / max(import_t1.sum(), EPS)
-    share_t2 = import_t2[night].sum() / max(import_t2.sum(), EPS)
-    if abs(share_t1 - share_t2) < 0.2:
+    night = ((index_local.hour >= cfg.dal_start_hour) |
+             (index_local.hour <  cfg.dal_end_hour)   |
+             (index_local.dayofweek >= 5))              # Sat/Sun — dal
+    share_t1 = import_t1[night].sum() / max(import_t1.sum(), DIV_GUARD_EPS)
+    share_t2 = import_t2[night].sum() / max(import_t2.sum(), DIV_GUARD_EPS)
+    if abs(share_t1 - share_t2) < DAL_SHARE_GAP_MIN:
         return UNCERTAIN            # ask the user
     return T2 if share_t2 > share_t1 else T1
 ```
@@ -305,10 +321,15 @@ Default window: dal from 23:00 to 07:00 plus weekends. **This varies by grid ope
 (21:00 in some areas), so it is user-configurable, and the app validates the configured
 rule against the observed registers:
 
+> On Dutch dubbeltarief meters the low tariff also applies on nationally recognised public
+> holidays (≈ 8–10 days/year), which this mask does not model — those days are priced as
+> `NORMAAL`. The error is small and pre-existing; recorded as a watch item rather than
+> fixed here, since it touches pricing correctness beyond the register detector.
+
 ```python
 mismatch = sum(import_t2[zone == NORMAAL]) + sum(import_t1[zone == DAL])
 mismatch_pct = 100 * mismatch / total_import
-# > 5% means the configured window is wrong — surface it in panel ①.
+# > tariff_zone_mismatch_pct means the configured window is wrong — surface it in panel ①.
 ```
 
 This check costs almost nothing and catches a whole class of silent mispricing under

@@ -82,9 +82,9 @@ resolution destroyed. Use it as the primary gate:
 
 | `overlap_pct` | Treatment |
 |---|---|
-| < 2% | Fine. Report quietly. |
-| 2–10% | Warn. Headline savings are an upper bound. |
-| > 10% | Prominent warning. Recommend re-running over the 5-minute window instead. |
+| < `overlap_warn_pct` | Fine. Report quietly. |
+| `overlap_warn_pct`–`overlap_prominent_pct` | Warn. Headline savings are an upper bound. |
+| > `overlap_prominent_pct` | Prominent warning. Recommend re-running over the 5-minute window instead. |
 
 **In a household with no PV, `overlap_kwh` should be essentially zero**, because there is
 nothing behind the meter that can push power outward within an interval. A nonzero value
@@ -118,13 +118,20 @@ show only the net, which makes the household look more self-balancing than it wa
 specific (5–20% is typical), so it must be measured, not assumed.
 
 ```python
+# --- module constants (resolution-bias diagnostic) --------------------------
+FINE_GRID_S          = 300     # 5-minute: the fine comparison basis
+COARSE_GRID_S        = 3600    # hourly: the coarse comparison basis
+BIAS_MIN_WINDOW_DAYS = 3       # below this the fine window is too short to trust
+BIAS_FLOOR_KWH       = 5.0     # kWh stability floor for the ratio (see note below)
+BIAS_FLOOR_EUR       = 1.0     # €   stability floor — a separate magnitude, not a unit-converted BIAS_FLOOR_KWH
+
 def resolution_bias(dataset, cfg):
-    fine_window = dataset.window_with_resolution(300)     # trailing ~10 days
-    if fine_window is None or fine_window.days < 3:
+    fine_window = dataset.window_with_resolution(FINE_GRID_S)   # trailing ~10 days
+    if fine_window is None or fine_window.days < BIAS_MIN_WINDOW_DAYS:
         return None
 
-    r_fine   = run_all(dataset.frame(fine_window, grid_s=300),  cfg)
-    r_coarse = run_all(dataset.frame(fine_window, grid_s=3600), cfg)
+    r_fine   = run_all(dataset.frame(fine_window, grid_s=FINE_GRID_S),   cfg)
+    r_coarse = run_all(dataset.frame(fine_window, grid_s=COARSE_GRID_S), cfg)
 
     def bias(fine, coarse, floor):
         # Below the floor the ratio is numerically unstable and carries no
@@ -134,7 +141,7 @@ def resolution_bias(dataset, cfg):
     # The kWh basis is computed always. This diagnostic measures dispatch error,
     # dispatch does not depend on the cost model, and so neither does this number.
     out = {
-      "bias_pct": bias(r_fine.saved_kwh, r_coarse.saved_kwh, 5.0),
+      "bias_pct": bias(r_fine.saved_kwh, r_coarse.saved_kwh, BIAS_FLOOR_KWH),
       "basis":    f"{fine_window.days} days at 5-minute vs hourly",
       "bias_pct_eur": None,
     }
@@ -143,12 +150,13 @@ def resolution_bias(dataset, cfg):
     # different percentage: the intervals it distorts are not equally priced.
     # Reported alongside, never instead of, the kWh figure.
     if cfg.simulate_cost:
-        out["bias_pct_eur"] = bias(r_fine.saved_eur, r_coarse.saved_eur, 1.0)
+        out["bias_pct_eur"] = bias(r_fine.saved_eur, r_coarse.saved_eur, BIAS_FLOOR_EUR)
 
     return out if out["bias_pct"] is not None else None
 ```
 
-The 5 kWh and €1 floors are not the same number in different units. Each is the level below
+The `BIAS_FLOOR_KWH` (5 kWh) and `BIAS_FLOOR_EUR` (€1) floors are not the same number in
+different units. Each is the level below
 which the ratio becomes numerically unstable in that quantity — both roughly "less than a
 day's worth of effect over a ten-day window".
 
@@ -244,7 +252,11 @@ alongside the energy meter, where it checks that sensor against the meter.
 hourly extrema in any recoverable way. Two things do work:
 
 ```python
-def detect_time_offset(pv, export_obs, max_lag_intervals=12):
+# Confidence (z-score of the best lag against the lag-score distribution) at or
+# above which a detected offset is worth surfacing to the user. Heuristic.
+TIME_OFFSET_CONFIDENCE_MIN = 3.0
+
+def detect_time_offset(pv, export_obs, max_lag_intervals):   # = cfg.time_offset_max_lag
     """
     Primary method: normalised cross-correlation. PV production and grid export
     are strongly coupled in a PV household; the lag maximising correlation is
@@ -252,9 +264,10 @@ def detect_time_offset(pv, export_obs, max_lag_intervals=12):
     """
     a = zscore(detrend_daily(pv))
     b = zscore(detrend_daily(export_obs))
-    scores = [pearson(a, shift(b, lag)) for lag in range(-max_lag, max_lag + 1)]
+    scores = [pearson(a, shift(b, lag))
+              for lag in range(-max_lag_intervals, max_lag_intervals + 1)]
     best   = argmax(scores)
-    confidence = (scores[best] - median(scores)) / (std(scores) + EPS)
+    confidence = (scores[best] - median(scores)) / (std(scores) + STD_GUARD_EPS)
     return lag_at(best), confidence
 
 
@@ -271,7 +284,7 @@ def power_energy_consistency(power_mean_w, energy_sum_kwh, dt_h):
     is being attributed to the wrong hour.
     """
     implied  = power_mean_w / 1000.0 * dt_h
-    residual = (implied - energy_sum_kwh) / maximum(energy_sum_kwh, EPS)
+    residual = (implied - energy_sum_kwh) / maximum(energy_sum_kwh, DIV_GUARD_EPS)
     return dict(mean_pct=100 * residual.mean(),
                 diurnal_amplitude_pct=100 * daily_fourier_amplitude(residual))
 ```
@@ -286,5 +299,6 @@ shifted PV series creates apparent import and export in the same interval. If ov
 high *and* cross-correlation finds a confident non-zero lag, misalignment is the likely
 cause rather than genuine sub-interval variation.
 
-Recovery of a known injected lag to within one interval, at confidence above 3.0, is
+Recovery of a known injected lag to within one interval, at confidence above
+`TIME_OFFSET_CONFIDENCE_MIN`, is
 fixture 11 in [16-validation-harness.md](16-validation-harness.md).

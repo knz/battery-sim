@@ -70,7 +70,7 @@ how to un-grey it, and here there is nothing to work out that the toggle does no
 say. This rule is applied throughout §2.2, §2.3 and §2.4.
 
 **Blocked is greyed, because the user can clear it.** `[ Load data ]` while a slot is empty,
-the annualised figure under 90 days. The greying is the message: this becomes available when
+the annualised figure under `min_annualisation_days`. The greying is the message: this becomes available when
 you do something, and the adjacent text says what.
 
 **Pending is different in kind from the other three, and the difference is the point.**
@@ -648,9 +648,12 @@ tariffs.
 │  │  No battery            0 kWh   ├────────────────────────────────────┤  │  │
 │  │  Your policy       1,412 kWh   ├──────────────────────●─────────────┤  │  │
 │  │  Perfect foresight 1,988 kWh   ├────────────────────────────────●───┤  │  │
+│  │  …if export allowed 2,311 kWh  ├──────────────────────────────────●─┤  │  │
 │  │                                                                        │  │
 │  │  Your policy captures 71% of the grid import a perfectly-informed      │  │
-│  │  battery could have avoided.                                           │  │
+│  │  battery could have avoided. Allowed to export, that ceiling rises to  │  │
+│  │  2,311 kWh (a 61% capture) — the extra is arbitrage your export        │  │
+│  │  setting currently forbids.                                            │  │
 │  └────────────────────────────────────────────────────────────────────────┘  │
 │                                                                              │
 │  ┌─ Secondary metrics ────────────────────────────────────────────────────┐  │
@@ -673,11 +676,13 @@ tariffs.
 │  │  No battery            € 0     ├────────────────────────────────────┤  │  │
 │  │  Your policy           € 331   ├─────────────────────●──────────────┤  │  │
 │  │  Perfect foresight     € 478   ├────────────────────────────────●───┤  │  │
+│  │  …if export allowed    € 503   ├──────────────────────────────────●─┤  │  │
 │  │                                                                        │  │
 │  │  Your policy captures 69% of the money a perfectly-informed battery    │  │
 │  │  could have saved. A different ceiling from the energy benchmark, and  │  │
 │  │  a different dispatch behind it: buying cheaply is not the same as     │  │
-│  │  importing little.                                    [ what is this? ]│  │
+│  │  importing little. Allowed to export, the ceiling rises to € 503.      │  │
+│  │                                                       [ what is this? ]│  │
 │  └────────────────────────────────────────────────────────────────────────┘  │
 │                                                                              │
 │  ┌─ Where the money comes from ───────────────────────────────────────────┐  │
@@ -737,6 +742,18 @@ Notes on the two sections:
   ceilings come from genuinely different dispatches and the two capture ratios will differ,
   usually by a few points. That is information, not an inconsistency, and the money box says
   so in one line: a battery that buys cheaply imports more, not less.
+- **The "…if export allowed" row is conditional.** Both benchmark boxes carry a fourth row
+  and a trailing gloss for the unconstrained-export bound, drawn from the
+  `*_unconstrained` fields
+  ([§4.5](07-internal-representation.md#45-result-object)). It renders only when those
+  fields are non-null (i.e. `allow_grid_export` is off, so a second DP actually ran) **and**
+  the two capture ratios differ by more than `benchmark_divergence_display_threshold`
+  ([appendix A](appendix-a-defaults.md), default 0.02) — a provisional cutoff whose value
+  [experiment X10](19-prototype-experiments.md#x10--does-the-benchmarks-export-permission-matter)
+  is meant to revisit once real runs show how far the two bounds usually sit apart. When
+  export is on, or when the bounds are within the threshold, the row is omitted and the box
+  reads exactly as before. This keeps a dense box from carrying a near-duplicate line that
+  says nothing.
 - **The Charts box gains options rather than swapping them.** *Monthly savings* always
   offers kWh and shows it by default; with cost simulation on it gains a *Monthly savings
   (€)* option beside it. The two are separate views, not a dual axis — a euro series moves
@@ -790,7 +807,7 @@ lines that evaluate to zero are dropped from the display, never from `cost.water
 the result JSON, which must continue to close against `cost(A) − cost(C)`.
 
 Short-window guard, shown instead of an annualised figure when the range is under
-90 days (see
+`min_annualisation_days` (see
 [§7.4](15-data-quality-and-limits.md#74-window-anchoring-and-short-window-guard)):
 
 ```

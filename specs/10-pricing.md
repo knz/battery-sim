@@ -166,7 +166,7 @@ What counts as the "bare supply price" for a *dynamic* contract's feed-in refere
 > function** of annual export — reducing export by 200 kWh can be worth €0 or €40
 > depending on which side of a tier boundary you land. When `tlk_mode == TIERED` the tier
 > must be resolved from **annualised** export, so it is unavailable for windows under
-> 90 days; fall back to `FLAT` with a visible notice. See
+> `min_tlk_tiering_days` (default 90); fall back to `FLAT` with a visible notice. See
 > [§7.4](15-data-quality-and-limits.md#74-window-anchoring-and-short-window-guard).
 
 > **What shapes terugleverkosten may legally take.** The 2027 law restricts feed-in

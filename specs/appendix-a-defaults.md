@@ -47,6 +47,24 @@
 | `debounce_ms` | 400 | |
 | `dp_soc_levels` | 101 | Shared by both perfect-foresight runs ([§6.9](11-policies-and-battery.md#69-main-simulation-loop), runs D and E) |
 | `dp_action_levels` | 41 | Likewise; the two objectives differ only in `transition_cost` |
+| `benchmark_divergence_display_threshold` | 0.02 | Capture-ratio gap above which the "…if export allowed" benchmark row is shown ([§2.4](02-ux-wireframes.md#24-panel--results-expanded)). **Provisional** — an untested guess pending [experiment X10](19-prototype-experiments.md#x10--does-the-benchmarks-export-permission-matter) |
+| `min_annualisation_days` | 90 | Below this a window is too short to annualise without large seasonal error ([§7.4](15-data-quality-and-limits.md#74-window-anchoring-and-short-window-guard)); check 13 |
+| `min_tlk_tiering_days` | 90 | Below this the annualised export driving tiered terugleverkosten is too noisy ([§6.5](10-pricing.md#65-price-curves)); check 13, cost only. Defaults equal to `min_annualisation_days` but a distinct concern |
+| `gap_factor` | 1.5 | An interval wider than this × the series' native resolution is a gap ([§6.1](09-ingest-algorithms.md#61-cumulative-meter-register--interval-deltas)); check 3 |
+| `pv_yield_max_kwh_per_kwp` | 2000 | Implausible-PV-total warning bound; check 10. A user with an atypical install may raise it |
+| `load_max_kwh_per_year` | 30000 | Implausible-load-total warning bound (30 MWh/yr); check 10 |
+| `rte_min` | 0.5 | Lower bound on accepted round-trip efficiency; check 11. The 1.0 upper bound is physics, not configurable |
+| `pv_capacity_min_rel_step` | 0.20 | Minimum relative step in daily-peak PV for a capacity-change changepoint ([§6.15](13-configuration-epochs.md)) |
+| `overlap_warn_pct` | 2 | `overlap_pct` above which the resolution-damage diagnostic warns ([§7.1](14-diagnostics.md#71-the-overlap-diagnostic--measure-resolution-damage-directly)) |
+| `overlap_prominent_pct` | 10 | `overlap_pct` above which that warning is shown prominently |
+| `residual_mean_warn_pct` | 5 | Power-vs-energy mean residual warning threshold ([§6.17](14-diagnostics.md#617-timestamp-misalignment-detection)); check 17 |
+| `residual_diurnal_warn_pct` | 3 | Power-vs-energy diurnal residual warning threshold; check 17 |
+| `tariff_zone_mismatch_pct` | 5 | Tariff-zone-vs-register mismatch above which the configured dal window is flagged wrong ([§6.4](09-ingest-algorithms.md#3-which-zone-applies-to-a-simulated-interval)); check 8b |
+| `ha_fine_window_days` | 10 | Trailing window fetched at 5-minute resolution from Home Assistant ([§6.0](06-home-assistant-ingestion.md)); `statistics_short_term` retention |
+| `ha_chunk_days` | 90 | Max days per WebSocket fetch call, to avoid oversized frames |
+| `sse_poll_fallback_ms` | 750 | Polling interval when SSE is unavailable ([§4.1](04-state-machine.md)) |
+| `params_persist_debounce_ms` | 1000 | Debounce before persisting changed params to disk |
+| `result_cache_runs` | 5 | Number of recent run results retained in the result cache |
 | `feature_interest_url` | *(empty)* | Nothing is transmitted until someone sets it ([§7.5](15-data-quality-and-limits.md#75-operational-notes)) |
 | `installation_id` | *(generated)* | Random on first run; clear the line to get a new one |
 

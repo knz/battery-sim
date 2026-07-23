@@ -76,7 +76,7 @@
    **What would resolve it,** in the order it could plausibly arrive. First, the final
    Energieregeling text — the consultation is closed and the draft toelichting still
    carries a "[PM aantal]" placeholder, so publication is pending; this is the near-term
-   watch, recorded as [§8.21](#watch-items) below. Second, ACM guidance or a
+   watch, recorded as [§8.22](#watch-items) below. Second, ACM guidance or a
    model-contract revision that reaches dynamic contracts, which would require ACM to act
    outside the instrument it has chosen. Third, the first published post-2027 dynamic
    offers, expected Q4 2026 — but these resolve the question only if some supplier prices
@@ -94,12 +94,37 @@
    [E5.2](18-dutch-electricity-background.md#e52-the-rules-on-compensation),
    [experiment X1](19-prototype-experiments.md#x1--does-the-feed-in-floor-base-matter)
 
-2. **Should the perfect-foresight benchmark be allowed to export?** Currently it inherits
-   `allow_grid_export`. Inheriting makes the capture ratio a fair comparison of *policy
-   quality*; not inheriting makes it a comparison against the true physical maximum. Both
-   are defensible and they differ materially. Recommendation: inherit, and offer the
-   unconstrained bound as a secondary figure.
+2. **Should the perfect-foresight benchmark be allowed to export?** Inheriting
+   `allow_grid_export` makes the capture ratio a fair comparison of *policy quality*; not
+   inheriting makes it a comparison against the true physical maximum. Both are defensible,
+   and §8.2 previously asserted they "differ materially" without a number behind the claim.
+
+   **The spec no longer picks — it computes both.** When export is off, the DP runs twice,
+   once inheriting and once unconstrained, and both bounds land in the result object
+   (`perfect_foresight_*` and `perfect_foresight_*_unconstrained`,
+   [§4.5](07-internal-representation.md#45-result-object)); when export is on the two
+   coincide and only one runs
+   ([§6.12](12-metrics-and-benchmarks.md#612-perfect-foresight-benchmark)). The inheriting
+   bound is the primary capture ratio; the unconstrained bound appears as a secondary
+   benchmark row, shown only when the two diverge beyond
+   `benchmark_divergence_display_threshold`. This turns X10 from an experiment someone must
+   set up into a reading taken off ordinary export-off runs: the divergence accumulates in
+   every such result, and the answer arrives as data rather than as a guess.
+
+   **What is still open.** Computing both defers the *presentation* decision, it does not
+   dissolve it. Two things remain for the product owner, both answerable from the
+   accumulated data rather than in advance: whether the *primary* capture ratio should stay
+   the inheriting one (it is the one that means the same thing across users with different
+   export settings, which is the argument for keeping it primary), and what the divergence
+   threshold should be — 0.02 is a provisional cutoff that
+   [experiment X10](19-prototype-experiments.md#x10--does-the-benchmarks-export-permission-matter)
+   is meant to revisit. If the two bounds turn out to sit close on real data, the secondary
+   row is clutter that can be dropped and the threshold can be raised out of the way; if
+   they diverge widely, the row earns its place and the primary-figure label has to name
+   which bound it is.
    → [§6.12](12-metrics-and-benchmarks.md#612-perfect-foresight-benchmark),
+   [§4.5](07-internal-representation.md#45-result-object),
+   [§2.4](02-ux-wireframes.md#24-panel--results-expanded),
    [experiment X10](19-prototype-experiments.md#x10--does-the-benchmarks-export-permission-matter)
 
 3. **Cycle-life cost.** Currently reported as cycles only, with an optional
@@ -315,13 +340,51 @@
     [§4.4](07-internal-representation.md#44-internal-normalised-representation),
     [§7.3](15-data-quality-and-limits.md#73-data-quality-checks-in-execution-order)
 
+21. **Where does the list of Dutch public holidays come from, each year?** On dubbeltarief
+    meters the dal (low) tariff applies not only on weekday nights and weekends but also on
+    nationally recognised public holidays. `tariff_zone` and `detect_dal_register`
+    ([§6.3](09-ingest-algorithms.md#63-household-load-reconstruction)) currently model
+    weekday-hours and weekends only, so those ≈ 8–10 days a year are priced as `NORMAAL`
+    when they should be `DAL`. The error is small but real, and unlike a modelling choice it
+    cannot be closed by picking a number — it needs an actual list of dates, and that list
+    changes every year (the fixed-date holidays are stable, but Goede Vrijdag, Pasen,
+    Hemelvaart, Pinksteren and Koningsdag-when-it-falls-on-a-Sunday all move).
+
+    The decision owed is the **source and update model** for that list, and the options
+    trade freshness against the app's local-only, offline character:
+
+    - *Ship a static table, dated.* Bundle the recognised holidays for the years the app
+      supports, labelled with when it was compiled, and let the user edit it. Keeps the app
+      fully offline and predictable; goes stale silently once the simulator is used for a
+      year past the table, which for a retrospective tool may be acceptable since the years
+      being simulated are in the past.
+    - *Compute them.* The Dutch national holidays are algorithmically derivable (the moveable
+      feasts from the Easter computus, the rest fixed or simple rules), so a small function
+      generates any year with no data file and no network. More code, but never stale and
+      still offline. This is the most self-contained answer and is worth flagging as the
+      likely preference for a tool that otherwise touches no network by default.
+    - *Fetch from an external source.* A holiday API or dataset, refreshed periodically.
+      Always current, but introduces a network dependency and an external point of failure
+      into an app whose [§7.5](15-data-quality-and-limits.md#75-operational-notes) posture is
+      deliberately local-only — the same reason `feature_interest_url` is empty by default.
+
+    Two things bound how much rides on this. It is a retrospective simulator over past years,
+    so the moveable-feast dates for the simulated window are already settled history, which
+    weakens the freshness argument for the third option. And whether the correction reaches
+    the euro figure at all is unmeasured — 8–10 misclassified days out of 365, only for
+    dubbeltarief (fixed/variable) contracts and not for dynamic ones, may move the headline
+    negligibly; that is worth an experiment before the source decision is treated as urgent.
+    → [§6.3](09-ingest-algorithms.md#63-household-load-reconstruction),
+    [§6.5](10-pricing.md#65-price-curves),
+    [E1.3](18-dutch-electricity-background.md)
+
 ## Watch items
 
 External events that would change an answer above, with what to check and when. This is
 the only entry so far; the format is deliberately minimal — what, where, what to look for,
 when.
 
-21. **Watch item — final Wijzigingsregeling Energieregeling.**
+22. **Watch item — final Wijzigingsregeling Energieregeling.**
 
     *What.* Publication of the final text of the Wijzigingsregeling Energieregeling
     (presenteren en factureren terugleverkosten, plus the Regeling garanties van

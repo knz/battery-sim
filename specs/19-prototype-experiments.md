@@ -380,23 +380,36 @@ motivating §8.17 was unfounded and the option keeps its place without qualifica
 **Informs:** [§8.2](17-open-questions.md).
 
 **Question.** §8.2 asks whether the perfect-foresight benchmark should inherit
-`allow_grid_export`. Both readings are defensible and §8.2 states they "differ materially".
-By how much?
+`allow_grid_export`. Both readings are defensible and §8.2 once stated they "differ
+materially". By how much?
 
-**Method.** Run both benchmarks — inheriting and unconstrained — over one household-year at
-each of `allow_grid_export` on and off, and record the difference in the two capture ratios.
-The interesting case is `allow_grid_export = false`, its default, where the two readings
-diverge; with export permitted they should coincide, which serves as the control. Run the
-synthetic no-PV arbitrage case (fixture 16) first, where the unconstrained bound is
-analytically approachable.
+**This is now a reading, not an A/B.** As of the §8.2 revision the simulator computes both
+bounds whenever `allow_grid_export` is off — the inheriting one and the unconstrained one
+both land in `benchmarks.*` ([§4.5](07-internal-representation.md#45-result-object)). So the
+divergence is a by-product of ordinary export-off runs, not something a bespoke experiment
+has to generate. The experiment is therefore: **collect the two capture ratios across
+whatever export-off runs are available and characterise how far apart they sit.**
 
-**Decision it informs.** §8.2's choice, and how much presentation it needs. If the two
-bounds are close, inheriting is safe and the secondary unconstrained figure §8.2 recommends
-offering is clutter that can be dropped — one fewer number in a panel that has plenty. If
-they diverge widely, the capture ratio's meaning depends heavily on which was used, the
-label has to say which, and the secondary figure earns its place. A wide divergence would
-also mean the capture ratio is not comparable across users with different export settings,
-which is a claim the results panel currently makes implicitly.
+**Method.** Two measurements.
+
+1. *Synthetic bound.* Run the no-PV arbitrage case (fixture 16), where the unconstrained
+   bound is analytically approachable, and confirm the computed `*_unconstrained` figures
+   match the analytic maximum. This validates the second DP before its output is trusted.
+2. *Real spread.* Over each available household-year with `allow_grid_export = false`,
+   record `capture_ratio` versus `capture_ratio_unconstrained` in both the energy and cost
+   blocks, and report the distribution of the gap. With export permitted the two are equal
+   by construction (`*_unconstrained` is `null`), which is the trivial control.
+
+**Decision it informs.** §8.2's *remaining* questions — both now presentational, since the
+compute decision is settled by computing both. If the gap is consistently small, the
+"…if export allowed" row is clutter and `benchmark_divergence_display_threshold` can be
+raised until it effectively never fires; the primary inheriting ratio stands alone. If the
+gap is consistently wide, the row earns its place, the threshold stays low, and the
+primary-figure label has to name which bound it reports — because a wide gap means the
+capture ratio is not comparable across users with different export settings, a claim the
+results panel currently makes implicitly. The threshold's shipped default of 0.02 is a
+provisional guess this measurement is meant to replace with a value read off the observed
+distribution.
 
 ---
 

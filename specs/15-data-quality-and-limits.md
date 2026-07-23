@@ -79,7 +79,7 @@ ceiling cannot be modelled without per-phase data — is handled as a soft block
 |---|---|---|
 | 1 | Timestamps carry a UTC offset | Reject the file, explain DST ambiguity. On the CSV path this is per slot and recoverable — see below |
 | 2 | Series monotonic where `kind=cumulative` | [§6.1](09-ingest-algorithms.md#61-cumulative-meter-register--interval-deltas) reset handling, count and flag |
-| 3 | Gap detection at > 1.5× native resolution | Flag; exclude from sums; report hours |
+| 3 | Gap detection at > `gap_factor`× native resolution | Flag; exclude from sums; report hours |
 | 3b | Price series downsampled onto a coarser grid by a factor ≥ 2 ([§6.2](09-ingest-algorithms.md#62-simulation-grid-selection-and-resampling)) | Warn; set `diagnostics.price_granularity_lost`. Do not block |
 | 4 | Required series present: grid registers, spot price, **and solar per the declared PV state** | Block run, name the missing series |
 | 5 | Windows of the mapped series overlap | Restrict to intersection, report |
@@ -87,16 +87,16 @@ ceiling cannot be modelled without per-phase data — is handled as a soft block
 | 6b | *No PV declared:* sustained daytime export ([§6.15](13-configuration-epochs.md#undeclared-pv)) | Ask the user whether they have PV; do not change `has_pv` automatically |
 | 7 | `overlap_pct` ([§7.1](14-diagnostics.md#71-the-overlap-diagnostic--measure-resolution-damage-directly)) | Warn per the table there — *PV households only*; without PV route a nonzero value to 6b |
 | 8a | Both meter registers present and accruing ([§6.4](09-ingest-algorithms.md#1-register-availability)) | Warn: probable incomplete mapping or installation. Do not block |
-| 8b | *Cost only:* tariff zone rule vs registers ([§6.4](09-ingest-algorithms.md#3-which-zone-applies-to-a-simulated-interval)) | Warn above 5% mismatch |
+| 8b | *Cost only:* tariff zone rule vs registers ([§6.4](09-ingest-algorithms.md#3-which-zone-applies-to-a-simulated-interval)) | Warn above `tariff_zone_mismatch_pct` mismatch |
 | 9 | *PV only:* implausible PV: `pv > 0` at local solar midnight | Warn — likely a mismapped sensor |
-| 10 | Implausible totals: PV > 2000 kWh/kWp/yr, load > 30 MWh/yr | Warn, do not block |
-| 11 | Config: `soc_min < soc_max`, powers > 0, `0.5 < RTE ≤ 1.0` | Block with field errors |
+| 10 | Implausible totals: PV > `pv_yield_max_kwh_per_kwp`, load > `load_max_kwh_per_year` | Warn, do not block |
+| 11 | Config: `soc_min < soc_max`, powers > 0, `rte_min < RTE ≤ 1.0` | Block with field errors |
 | 12 | Config: charge band ∩ discharge band = ∅ | Warn, allow (netting handles it — [§6.7](11-policies-and-battery.md#67-discharge-policy)) |
-| 13 | Window ≥ 90 days for annualisation; *cost only:* also for tiered TLK | Disable those features, explain |
+| 13 | Window ≥ `min_annualisation_days` for annualisation; *cost only:* ≥ `min_tlk_tiering_days` for tiered TLK | Disable those features, explain |
 | 14 | Configuration epoch boundaries ([§6.15](13-configuration-epochs.md)) | Offer to restrict window; block annualisation if spanning |
 | 15 | Undeclared battery heuristics ([§6.15](13-configuration-epochs.md#undeclared-batteries)) | Ask the user; do not assert |
 | 16 | *PV only:* cross-correlation lag between PV and meter ([§6.17](14-diagnostics.md#617-timestamp-misalignment-detection)) | Offer a shift; never apply silently |
-| 17 | Power-vs-energy residual, where both mapped ([§6.17](14-diagnostics.md#617-timestamp-misalignment-detection)) | Warn above 5% mean or 3% diurnal |
+| 17 | Power-vs-energy residual, where both mapped ([§6.17](14-diagnostics.md#617-timestamp-misalignment-detection)) | Warn above `residual_mean_warn_pct` mean or `residual_diurnal_warn_pct` diurnal |
 | 18 | Unsupported phase topology selected ([§2.5](03-topology-selector.md)) | Soft block; set `topology.approximated` |
 
 **Where these checks run on the CSV path.** Checks 1 and 2 are per-file format checks and
@@ -155,14 +155,18 @@ produces a window that is partly empty and a savings figure that is quietly too 
 If the requested range exceeds available coverage, clamp to coverage and say so; never
 pad with zeros.
 
-Annualised projections are disabled below 90 days. Battery savings are strongly seasonal —
-a summer week has abundant surplus and a battery that saturates by noon, a winter week has
-almost no surplus and value comes only from price arbitrage. Scaling either to a year is
-wrong by a factor of roughly 2–3 in opposite directions.
+Annualised projections are disabled below `min_annualisation_days` (default 90). Battery
+savings are strongly seasonal — a summer week has abundant surplus and a battery that
+saturates by noon, a winter week has almost no surplus and value comes only from price
+arbitrage. Scaling either to a year is wrong by a factor of roughly 2–3 in opposite
+directions.
 
-The same 90-day floor gates tiered terugleverkosten, which must be resolved from
-annualised export — see [§6.5](10-pricing.md#65-price-curves). That half of the check
-applies only when cost simulation is on. Annualisation itself applies in both modes: an
+A separate floor, `min_tlk_tiering_days`, gates tiered terugleverkosten, which must be
+resolved from annualised export — see [§6.5](10-pricing.md#65-price-curves). That half of
+the check applies only when cost simulation is on. It defaults to the same 90 days but is a
+distinct concern — one bounds seasonal projection error, the other the noise in an
+annualised export total — so the two are separate constants that happen to share a default,
+not one value reused. Annualisation itself applies in both modes: an
 annualised kWh saving is projected from a short window with exactly the same seasonal error
 as an annualised euro saving, so the guard is not a cost feature. Annualisation is also
 disabled when the window spans a configuration-epoch boundary

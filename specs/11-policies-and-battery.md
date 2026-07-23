@@ -191,7 +191,7 @@ def battery_step(soc, req_pv, req_grid_chg, req_home_dis, req_grid_dis, st, i, c
 
     # ---- 7. integrate ----------------------------------------------------
     soc_new = soc + stored - withdrawn
-    assert cfg.soc_min_kwh - EPS <= soc_new <= cfg.soc_max_kwh + EPS
+    assert cfg.soc_min_kwh - SOC_COMPARE_EPS_KWH <= soc_new <= cfg.soc_max_kwh + SOC_COMPARE_EPS_KWH
 
     return soc_new, Flows(imp, exp, chg_pv, chg_grid, dis_home, dis_grid, stored,
                           withdrawn, curtailed)
@@ -215,6 +215,10 @@ item 1, which is easy to get wrong and must be asserted in tests.
 ## 6.9 Main simulation loop
 
 ```python
+# How often the loop polls the cancellation flag. A power of two large enough
+# that the check is free, small enough that cancellation feels prompt.
+CANCEL_CHECK_INTERVAL = 1024
+
 def simulate(frame, cfg, include_standby=True):
     n   = len(frame.index)
     soc = cfg.initial_soc_kwh
@@ -226,7 +230,7 @@ def simulate(frame, cfg, include_standby=True):
     st.load = frame.load + standby_kwh       # standby exists only with a battery
 
     for i in range(n):
-        if i % 1024 == 0 and cancel_event.is_set():
+        if i % CANCEL_CHECK_INTERVAL == 0 and cancel_event.is_set():
             raise Cancelled
 
         if isnan(st.load[i]) or isnan(st.pv[i]):

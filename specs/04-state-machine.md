@@ -68,7 +68,7 @@ re-parameterisation feel responsive.
 | `PARAMS_CHANGED` | Any field in panel ② | Validate; persist; if valid → `INPUT_CHANGED` |
 | `RANGE_CHANGED` | Period selector in panel ③ | Persist; → `INPUT_CHANGED` |
 | `INPUT_CHANGED` | From `PARAMS_CHANGED` / `RANGE_CHANGED` / `LOAD_SUCCEEDED` | → `RESULTS_STALE`, start debounce timer |
-| `DEBOUNCE_ELAPSED` | 400 ms after last `INPUT_CHANGED` | → `SIMULATING`, enqueue run |
+| `DEBOUNCE_ELAPSED` | `debounce_ms` (default 400) after last `INPUT_CHANGED` | → `SIMULATING`, enqueue run |
 | `RUN_REQUESTED` | Explicit **Calculate** button | Bypass debounce → `SIMULATING` |
 | `RUN_COMPLETED` | Worker finishes, `run_id` is current | → `RESULTS_FRESH` |
 | `RUN_SUPERSEDED` | Worker finishes, `run_id` is stale | Discard result silently, no state change |
@@ -109,7 +109,7 @@ A monotonically increasing `run_id` per workspace guards against out-of-order re
 on INPUT_CHANGED:
     session.run_id += 1
     cancel_pending_debounce()
-    schedule_debounce(400ms, run_id=session.run_id)
+    schedule_debounce(cfg.debounce_ms, run_id=session.run_id)
 
 on DEBOUNCE_ELAPSED(run_id):
     if run_id != session.run_id: return          # superseded during debounce
@@ -130,8 +130,8 @@ Cancellation is cooperative on the domain side: `simulate_core` checks a shared
 [§6.9](11-policies-and-battery.md#69-main-simulation-loop).
 
 Results are pushed to the browser over **SSE** on `/api/stream`. HTMX swaps the results
-fragment. Polling every 750 ms is an acceptable fallback if SSE proves troublesome behind
-a reverse proxy.
+fragment. Polling every `sse_poll_fallback_ms` (default 750) is an acceptable fallback if
+SSE proves troublesome behind a reverse proxy.
 
 ## 3.4 Panel focus model
 
@@ -145,7 +145,8 @@ detail in the app.
 ## 3.5 Persistence points
 
 State is written to disk on: `LOAD_SUCCEEDED` (dataset), `PARAMS_CHANGED` (debounced
-1 s), `RANGE_CHANGED`, and `RUN_COMPLETED` (result cache, last N=5 runs). On startup the
+`params_persist_debounce_ms`, default 1000), `RANGE_CHANGED`, and `RUN_COMPLETED` (result
+cache, last `result_cache_runs` = 5 runs). On startup the
 server restores the most recent workspace and lands the user in `RESULTS_STALE`, then
 immediately recalculates.
 
