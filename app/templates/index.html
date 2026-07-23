@@ -9,11 +9,11 @@
   <dialog>-based "not built yet" modal — no HTMX round-trips, no simulation.
 #}
 <!doctype html>
-<html lang="en" data-theme="light">
+<html lang="{{ lang.current }}" data-theme="light">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Home Battery Simulator</title>
+  <title>{{ _('Home Battery Simulator') }}</title>
   <link rel="stylesheet" href="/static/app.css">
 </head>
 <body class="min-h-screen bg-base-200 text-base-content">
@@ -21,11 +21,20 @@
   {# ── Header ─────────────────────────────────────────────────────────────────── #}
   <header class="navbar bg-base-100 border-b border-base-300 px-4 lg:px-8">
     <div class="flex-1">
-      <span class="text-lg font-semibold">Home Battery Simulator</span>
+      <span class="text-lg font-semibold">{{ _('Home Battery Simulator') }}</span>
     </div>
     <div class="flex-none items-center gap-2">
-      <span class="badge badge-ghost">workspace: local</span>
-      <button class="btn btn-ghost btn-square btn-sm" aria-label="Settings">⚙</button>
+      {# Language toggle: one button per supported locale; the active one is highlighted.
+         Each links to /lang/<code>, which sets the cookie and redirects back. #}
+      <div class="join" role="group" aria-label="{{ _('Language') }}">
+        {% for opt in lang.options %}
+        <a class="btn btn-xs join-item {% if opt.code == lang.current %}btn-active{% endif %}"
+           href="/lang/{{ opt.code }}"
+           {% if opt.code == lang.current %}aria-current="true"{% endif %}>{{ opt.label }}</a>
+        {% endfor %}
+      </div>
+      <span class="badge badge-ghost">{{ _('workspace: local') }}</span>
+      <button class="btn btn-ghost btn-square btn-sm" aria-label="{{ _('Settings') }}">⚙</button>
     </div>
   </header>
 
@@ -39,22 +48,20 @@
        control; the control name is filled in by the small script below. #}
   <dialog id="pending-dialog" class="modal">
     <div class="modal-box">
-      <h3 class="text-lg font-bold">Not built yet</h3>
+      <h3 class="text-lg font-bold">{{ _('Not built yet') }}</h3>
       <p class="py-2">
-        <span id="pending-control-name" class="font-medium">This control</span> is part of
-        the plan for this simulator, but it is not built yet. The app is being written one
-        feature at a time and this one has not been reached.
+        <span id="pending-control-name" class="font-medium">{{ _('This control') }}</span>
+        {{ _('is part of the plan for this simulator, but it is not built yet. The app is being written one feature at a time and this one has not been reached.') }}
       </p>
       <p class="pb-2 text-sm text-base-content/70">
-        If you would use it, say so. It tells us what to build next, and it is the only
-        signal we get.
+        {{ _('If you would use it, say so. It tells us what to build next, and it is the only signal we get.') }}
       </p>
       <div class="modal-action">
-        <button class="btn btn-primary btn-sm">👍 I want this</button>
-        <form method="dialog"><button class="btn btn-ghost btn-sm">close</button></form>
+        <button class="btn btn-primary btn-sm">{{ _('👍 I want this') }}</button>
+        <form method="dialog"><button class="btn btn-ghost btn-sm">{{ _('close') }}</button></form>
       </div>
     </div>
-    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+    <form method="dialog" class="modal-backdrop"><button>{{ _('close') }}</button></form>
   </dialog>
 
   <script>

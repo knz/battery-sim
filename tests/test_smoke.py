@@ -53,16 +53,36 @@ def base_url():
 
 
 @pytest.fixture(scope="module")
-def page(base_url):
+def browser():
+    # One Playwright/browser for the whole module — a second sync_playwright() context would
+    # collide with the running asyncio loop.
     with sync_playwright() as p:
-        browser = p.chromium.launch()
-        pg = browser.new_page()
-        pg.goto(base_url + "/", wait_until="networkidle")
-        # Expand both collapsed panels so their contents are queryable.
-        for cb in pg.locator("section.collapse > input[type=checkbox]").all():
-            cb.check()
-        yield pg
-        browser.close()
+        b = p.chromium.launch()
+        yield b
+        b.close()
+
+
+def _open(browser, base_url, lang):
+    """Open the page in a pinned language (cookie), panels expanded."""
+    context = browser.new_context()
+    context.add_cookies([{"name": "lang", "value": lang, "url": base_url}])
+    pg = context.new_page()
+    pg.goto(base_url + "/", wait_until="networkidle")
+    for cb in pg.locator("section.collapse > input[type=checkbox]").all():
+        cb.check()
+    return pg
+
+
+@pytest.fixture(scope="module")
+def page(browser, base_url):
+    # English is pinned so the structural assertions are stable regardless of the test
+    # environment's Accept-Language (the app itself auto-detects for real users).
+    return _open(browser, base_url, "en")
+
+
+@pytest.fixture(scope="module")
+def page_nl(browser, base_url):
+    return _open(browser, base_url, "nl")
 
 
 def test_three_panels_present(page):
@@ -101,3 +121,40 @@ def test_pending_dialog_opens(page):
 def test_chart_rendered(page):
     # Plotly draws an <svg> into the chart container.
     assert page.locator("#monthly-chart svg").count() >= 1
+
+
+# ── Bilingual ────────────────────────────────────────────────────────────────
+
+def test_dutch_renders(page_nl):
+    # Known Dutch translations appear when the lang cookie is 'nl'.
+    body = page_nl.locator("body").inner_text()
+    assert "ENERGIEBESPARING" in body          # ENERGY SAVINGS
+    assert "BESPAARDE NETAFNAME" in body        # GRID IMPORT SAVED
+    assert "Datakwaliteit" in body              # Data quality
+    # And the English headline is gone from the results tiles.
+    assert page_nl.get_by_text("GRID IMPORT SAVED", exact=True).count() == 0
+
+
+def test_language_toggle_present(page):
+    # Both language options render as links to the /lang/ route.
+    assert page.locator("a[href='/lang/en']").count() == 1
+    assert page.locator("a[href='/lang/nl']").count() == 1
+
+
+def test_lang_route_sets_cookie(base_url):
+    # GET /lang/nl sets the cookie and 303-redirects.
+    import urllib.request
+
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *a, **k):
+            return None
+
+    opener = urllib.request.build_opener(NoRedirect)
+    try:
+        opener.open(base_url + "/lang/nl")
+        code, cookie = None, ""
+    except urllib.error.HTTPError as e:
+        code = e.code
+        cookie = e.headers.get("set-cookie", "")
+    assert code == 303
+    assert "lang=nl" in cookie

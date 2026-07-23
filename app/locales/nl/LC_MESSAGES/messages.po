@@ -1,0 +1,485 @@
+# Dutch translations for PROJECT.
+# Copyright (C) 2026 ORGANIZATION
+# This file is distributed under the same license as the PROJECT project.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: PROJECT VERSION\n"
+"Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
+"POT-Creation-Date: 2026-07-23 20:42+0200\n"
+"PO-Revision-Date: 2026-07-23 20:30+0200\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: nl\n"
+"Language-Team: nl <LL@li.org>\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#, python-format
+msgid "%(n)s statistic IDs available"
+msgstr "%(n)s statistiek-ID's beschikbaar"
+
+msgid "0.41％ of intervals had negative reconstructed load (clamped to 0)."
+msgstr "0,41％ van de intervallen had negatief gereconstrueerd verbruik (afgekapt op 0)."
+
+msgid "0.66 / day"
+msgstr "0,66 / dag"
+
+msgid "1 month"
+msgstr "1 maand"
+
+msgid "1 week"
+msgstr "1 week"
+
+msgid "1 year"
+msgstr "1 jaar"
+
+msgid "1-phase"
+msgstr "1-fase"
+
+msgid "2,410 kWh throughput"
+msgstr "2.410 kWh doorzet"
+
+msgid "3 months"
+msgstr "3 maanden"
+
+msgid "3-phase"
+msgstr "3-fase"
+
+msgid "6 months"
+msgstr "6 maanden"
+
+#, python-format
+msgid "A → max import %(kw)s kW"
+msgstr "A → max. afname %(kw)s kW"
+
+msgid "AC-coupled"
+msgstr "AC-gekoppeld"
+
+msgid "AC-to-AC at the meter"
+msgstr "AC-naar-AC bij de meter"
+
+msgid "Allow export to grid"
+msgstr "Teruglevering aan net toestaan"
+
+msgid "Allow export to grid during D2/D3"
+msgstr "Teruglevering aan net toestaan tijdens D2/D3"
+
+msgid "Also simulate cost savings"
+msgstr "Ook kostenbesparing simuleren"
+
+msgid "Answering No hides the solar sensor mapping, the PV coupling choice, and the policies that act on solar surplus."
+msgstr "Nee verbergt de zonnesensor-toewijzing, de PV-koppelingskeuze en de strategieën die op zonne-overschot inspelen."
+
+msgid "B"
+msgstr "B"
+
+msgid "Band A"
+msgstr "Band A"
+
+msgid "Band C"
+msgstr "Band C"
+
+msgid "Base URL"
+msgstr "Basis-URL"
+
+msgid "Battery"
+msgstr "Batterij"
+
+msgid "Battery charge"
+msgstr "Batterij laden"
+
+msgid "Battery discharge"
+msgstr "Batterij ontladen"
+
+msgid "Benchmark: grid import avoided"
+msgstr "Benchmark: vermeden netafname"
+
+msgid "Both"
+msgstr "Beide"
+
+msgid "Calculate →"
+msgstr "Berekenen →"
+
+msgid "Caveats for this run"
+msgstr "Kanttekeningen bij deze berekening"
+
+msgid "Charge policy"
+msgstr "Laadstrategie"
+
+msgid "Charged into the battery"
+msgstr "In de batterij geladen"
+
+msgid "Connected"
+msgstr "Verbonden"
+
+msgid "Conversion losses"
+msgstr "Omzettingsverliezen"
+
+msgid "Counter resets"
+msgstr "Tellerresets"
+
+msgid "Coupling"
+msgstr "Koppeling"
+
+msgid "Coverage"
+msgstr "Dekking"
+
+msgid "D"
+msgstr "D"
+
+msgid "DATA"
+msgstr "DATA"
+
+msgid "DC / hybrid"
+msgstr "DC / hybride"
+
+msgid "DC-coupled / hybrid"
+msgstr "DC-gekoppeld / hybride"
+
+msgid "DC-coupled skips an inversion on the solar charging path — typically +3 to +5 percentage points on that path only. Grid charging is unaffected."
+msgstr "DC-gekoppeld slaat één omzetting op het zonne-laadpad over — doorgaans +3 tot +5 procentpunt, alleen op dat pad. Laden vanaf het net verandert niet."
+
+msgid "Data quality"
+msgstr "Datakwaliteit"
+
+msgid "Discharge policy"
+msgstr "Ontlaadstrategie"
+
+msgid "Discharged from the battery"
+msgstr "Uit de batterij ontladen"
+
+msgid "Do you have solar PV?"
+msgstr "Heb je zonnepanelen?"
+
+msgid "Do you have solar panels?"
+msgstr "Heb je zonnepanelen?"
+
+msgid "ENERGY SAVINGS"
+msgstr "ENERGIEBESPARING"
+
+msgid "EQUIVALENT FULL CYCLES"
+msgstr "EQUIVALENTE VOLLEDIGE CYCLI"
+
+msgid "Enable cost simulation"
+msgstr "Kostensimulatie inschakelen"
+
+msgid "Energy flows"
+msgstr "Energiestromen"
+
+msgid "Energy savings"
+msgstr "Energiebesparing"
+
+msgid "Entity / statistic ID"
+msgstr "Entiteit / statistiek-ID"
+
+msgid "Export CSV"
+msgstr "CSV exporteren"
+
+msgid "Export limit"
+msgstr "Invoedingslimiet"
+
+msgid "Fetch history"
+msgstr "Geschiedenis ophalen"
+
+msgid "Fuse rating"
+msgstr "Zekeringwaarde"
+
+msgid "GRID IMPORT SAVED"
+msgstr "BESPAARDE NETAFNAME"
+
+msgid "Gaps"
+msgstr "Gaten"
+
+msgid "Grid charge when spot price is in band"
+msgstr "Laden vanaf net wanneer de spotprijs binnen de band valt"
+
+msgid "Grid connection"
+msgstr "Netaansluiting"
+
+msgid "Grid export"
+msgstr "Netinvoeding"
+
+msgid "Grid export T1"
+msgstr "Netinvoeding T1"
+
+msgid "Grid export T2"
+msgstr "Netinvoeding T2"
+
+msgid "Grid import T1"
+msgstr "Netafname T1"
+
+msgid "Grid import T2"
+msgstr "Netafname T2"
+
+msgid "Grid import avoided"
+msgstr "Vermeden netafname"
+
+msgid "Grid import, no battery"
+msgstr "Netafname, zonder batterij"
+
+msgid "Grid import, with battery"
+msgstr "Netafname, met batterij"
+
+msgid "Home Assistant"
+msgstr "Home Assistant"
+
+msgid "Home Battery Simulator"
+msgstr "Thuisbatterij-simulator"
+
+msgid "How is your PV connected to the battery?"
+msgstr "Hoe zijn je zonnepanelen met de batterij verbonden?"
+
+msgid "If you would use it, say so. It tells us what to build next, and it is the only signal we get."
+msgstr "Als je dit zou gebruiken, laat het weten. Het vertelt ons wat we hierna moeten bouwen, en het is het enige signaal dat we krijgen."
+
+msgid "Initial SoC"
+msgstr "Begin-laadtoestand"
+
+msgid "Installation topology"
+msgstr "Installatietopologie"
+
+msgid "Intervals battery was full / empty"
+msgstr "Intervallen batterij vol / leeg"
+
+msgid "Language"
+msgstr "Taal"
+
+msgid "Max charge power"
+msgstr "Max. laadvermogen"
+
+msgid "Max discharge power"
+msgstr "Max. ontlaadvermogen"
+
+msgid "Max state of charge"
+msgstr "Max. laadtoestand"
+
+msgid "Maximise discharge when spot price is in band"
+msgstr "Ontladen maximaliseren wanneer de spotprijs binnen de band valt"
+
+msgid "Meter registers"
+msgstr "Meterstanden"
+
+msgid "Min state of charge"
+msgstr "Min. laadtoestand"
+
+msgid "Monthly savings"
+msgstr "Maandelijkse besparing"
+
+msgid "Needs your contract type, supply rates, energy tax, VAT and feed-in terms. Leave this off to see kWh saved only."
+msgstr "Vereist je contracttype, leveringstarieven, energiebelasting, btw en terugleververgoeding. Laat dit uit om alleen bespaarde kWh te zien."
+
+msgid "Next: parameters →"
+msgstr "Volgende: parameters →"
+
+msgid "No"
+msgstr "Nee"
+
+msgid "No battery"
+msgstr "Zonder batterij"
+
+msgid "Not built yet"
+msgstr "Nog niet gebouwd"
+
+msgid "One conversion PV→battery"
+msgstr "Eén omzetting PV→batterij"
+
+msgid "PARAMETERS"
+msgstr "PARAMETERS"
+
+msgid "PV only"
+msgstr "alleen met PV"
+
+msgid "Perfect foresight"
+msgstr "Perfecte vooruitblik"
+
+msgid "Phases"
+msgstr "Fasen"
+
+msgid "RESULTS"
+msgstr "RESULTATEN"
+
+msgid "Reconstructed load is negative in 41 intervals (0.41％). Usually means the solar sensor does not cover the whole house, or a clock offset between sensors."
+msgstr "Het gereconstrueerde verbruik is negatief in 41 intervallen (0,41％). Meestal betekent dit dat de zonnesensor niet het hele huis dekt, of dat er een klokverschil tussen sensoren is."
+
+msgid "Recorded at"
+msgstr "Vastgelegd op"
+
+msgid "Req"
+msgstr "Vereist"
+
+msgid "Role"
+msgstr "Rol"
+
+msgid "Round-trip efficiency"
+msgstr "Retourrendement"
+
+msgid "SELF-SUFFICIENCY"
+msgstr "ZELFVOORZIENING"
+
+msgid "Secondary metrics"
+msgstr "Aanvullende cijfers"
+
+msgid "Self-consumption ratio"
+msgstr "Zelfconsumptieratio"
+
+msgid "Series"
+msgstr "Reeks"
+
+msgid "Series mapping"
+msgstr "Reekstoewijzing"
+
+msgid "Serve house load when consumption exceeds solar"
+msgstr "Huisverbruik dekken wanneer het verbruik de opwek overtreft"
+
+msgid "Settings"
+msgstr "Instellingen"
+
+msgid "Simulate cost savings?"
+msgstr "Kostenbesparing simuleren?"
+
+msgid "Simulated at hourly resolution. A 5-minute re-run over the last 9 days gives 8.4％ lower savings — hourly buckets hide within-hour import/export overlap and flatter the battery. Treat the headline figure as an upper bound."
+msgstr "Gesimuleerd op uurresolutie. Een herberekening op 5-minutenresolutie over de laatste 9 dagen geeft 8,4％ lagere besparing — uurblokken verbergen afname/invoeding-overlap binnen het uur en vleien de batterij. Beschouw het hoofdcijfer als bovengrens."
+
+msgid "Simulation grid"
+msgstr "Simulatieraster"
+
+msgid "SoC + price"
+msgstr "Laadtoestand + prijs"
+
+msgid "Solar PV"
+msgstr "Zonnepanelen"
+
+msgid "Solar production"
+msgstr "Zonopwekking"
+
+msgid "Solar surplus only (net zero at the grid)"
+msgstr "Alleen zonne-overschot (netto nul op het net)"
+
+msgid "Source:"
+msgstr "Bron:"
+
+msgid "Spot price"
+msgstr "Spotprijs"
+
+msgid "Spot prices are quarter-hourly but the run is hourly, so the battery acted on an averaged price and could not chase within-hour swings."
+msgstr "Spotprijzen zijn per kwartier, maar de berekening is per uur, dus de batterij werkte op een gemiddelde prijs en kon schommelingen binnen het uur niet volgen."
+
+msgid "Standby consumption"
+msgstr "Sluipverbruik"
+
+msgid "Standby draw"
+msgstr "Sluipverbruik"
+
+msgid "Test connection"
+msgstr "Verbinding testen"
+
+msgid "The run uses"
+msgstr "De berekening gebruikt"
+
+msgid "This control"
+msgstr "Dit onderdeel"
+
+msgid "Toggle Data panel"
+msgstr "Datapaneel in-/uitklappen"
+
+msgid "Toggle Parameters panel"
+msgstr "Parameterpaneel in-/uitklappen"
+
+msgid "Token"
+msgstr "Token"
+
+msgid "Two conversions PV→battery"
+msgstr "Twee omzettingen PV→batterij"
+
+msgid "Upload CSV"
+msgstr "CSV uploaden"
+
+msgid "Usable capacity"
+msgstr "Bruikbare capaciteit"
+
+msgid "Want to know what this is worth in euros?"
+msgstr "Wil je weten wat dit in euro's waard is?"
+
+msgid "What to simulate"
+msgstr "Wat te simuleren"
+
+msgid "Where the energy comes from"
+msgstr "Waar de energie vandaan komt"
+
+msgid "Yes"
+msgstr "Ja"
+
+msgid "Your policy"
+msgstr "Jouw strategie"
+
+msgid "Your policy captures 71％ of the grid import a perfectly-informed battery could have avoided. Allowed to export, that ceiling rises to 2,311 kWh (a 61％ capture) — the extra is arbitrage your export setting currently forbids."
+msgstr "Jouw strategie benut 71％ van de netafname die een perfect geïnformeerde batterij had kunnen vermijden. Met teruglevering toegestaan stijgt dat plafond naar 2.311 kWh (61％ benut) — het extra is arbitrage die je invoedingsinstelling nu verbiedt."
+
+msgid "Your prices change every 15 minutes but your meter records hourly, so the run sees one averaged price per hour and cannot act on within-hour swings."
+msgstr "Je prijzen wijzigen elke 15 minuten, maar je meter registreert per uur. De berekening ziet dus één gemiddelde prijs per uur en kan niet inspelen op schommelingen binnen het uur."
+
+msgid "always"
+msgstr "altijd"
+
+msgid "close"
+msgstr "sluiten"
+
+msgid "days"
+msgstr "dagen"
+
+msgid "export CSV"
+msgstr "CSV exporteren"
+
+msgid "is part of the plan for this simulator, but it is not built yet. The app is being written one feature at a time and this one has not been reached."
+msgstr "maakt deel uit van het plan voor deze simulator, maar is nog niet gebouwd. De app wordt functie voor functie geschreven en aan dit onderdeel is de beurt nog niet."
+
+msgid "kWh"
+msgstr "kWh"
+
+msgid "not nameplate"
+msgstr "niet de nominale waarde"
+
+msgid "optional"
+msgstr "optioneel"
+
+msgid "required"
+msgstr "vereist"
+
+msgid "required if you have PV"
+msgstr "vereist als je zonnepanelen hebt"
+
+msgid "same as import"
+msgstr "gelijk aan afname"
+
+msgid "see §2.5"
+msgstr "zie §2.5"
+
+msgid "valid"
+msgstr "geldig"
+
+msgid "workspace: local"
+msgstr "werkruimte: lokaal"
+
+msgid "…if export allowed"
+msgstr "…als teruglevering toegestaan"
+
+msgid "← Back"
+msgstr "← Terug"
+
+msgid "≈260 kWh/yr"
+msgstr "≈260 kWh/jaar"
+
+msgid "● = required.  ○ = optional.  ◐ = required only if you have solar PV. Spot price drives the charge and discharge bands, so it is required whether or not you simulate costs."
+msgstr "● = vereist.  ○ = optioneel.  ◐ = alleen vereist als je zonnepanelen hebt. De spotprijs stuurt de laad- en ontlaadbanden aan en is dus vereist, of je nu kosten simuleert of niet."
+
+#, python-format
+msgid "⚠ Charge band [%(a)s, %(b)s] and discharge band [%(c)s, %(d)s] do not overlap. ✓"
+msgstr "⚠ Laadband [%(a)s, %(b)s] en ontlaadband [%(c)s, %(d)s] overlappen niet. ✓"
+
+msgid "👍 I want this"
+msgstr "👍 Ik wil dit"
+

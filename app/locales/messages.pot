@@ -1,0 +1,515 @@
+# Translations template for PROJECT.
+# Copyright (C) 2026 ORGANIZATION
+# This file is distributed under the same license as the PROJECT project.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: PROJECT VERSION\n"
+"Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
+"POT-Creation-Date: 2026-07-23 20:42+0200\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#, python-format
+msgid "%(n)s statistic IDs available"
+msgstr ""
+
+msgid "0.41％ of intervals had negative reconstructed load (clamped to 0)."
+msgstr ""
+
+msgid "0.66 / day"
+msgstr ""
+
+msgid "1 month"
+msgstr ""
+
+msgid "1 week"
+msgstr ""
+
+msgid "1 year"
+msgstr ""
+
+msgid "1-phase"
+msgstr ""
+
+msgid "2,410 kWh throughput"
+msgstr ""
+
+msgid "3 months"
+msgstr ""
+
+msgid "3-phase"
+msgstr ""
+
+msgid "6 months"
+msgstr ""
+
+#, python-format
+msgid "A → max import %(kw)s kW"
+msgstr ""
+
+msgid "AC-coupled"
+msgstr ""
+
+msgid "AC-to-AC at the meter"
+msgstr ""
+
+msgid "Allow export to grid"
+msgstr ""
+
+msgid "Allow export to grid during D2/D3"
+msgstr ""
+
+msgid "Also simulate cost savings"
+msgstr ""
+
+msgid ""
+"Answering No hides the solar sensor mapping, the PV coupling choice, and "
+"the policies that act on solar surplus."
+msgstr ""
+
+msgid "B"
+msgstr ""
+
+msgid "Band A"
+msgstr ""
+
+msgid "Band C"
+msgstr ""
+
+msgid "Base URL"
+msgstr ""
+
+msgid "Battery"
+msgstr ""
+
+msgid "Battery charge"
+msgstr ""
+
+msgid "Battery discharge"
+msgstr ""
+
+msgid "Benchmark: grid import avoided"
+msgstr ""
+
+msgid "Both"
+msgstr ""
+
+msgid "Calculate →"
+msgstr ""
+
+msgid "Caveats for this run"
+msgstr ""
+
+msgid "Charge policy"
+msgstr ""
+
+msgid "Charged into the battery"
+msgstr ""
+
+msgid "Connected"
+msgstr ""
+
+msgid "Conversion losses"
+msgstr ""
+
+msgid "Counter resets"
+msgstr ""
+
+msgid "Coupling"
+msgstr ""
+
+msgid "Coverage"
+msgstr ""
+
+msgid "D"
+msgstr ""
+
+msgid "DATA"
+msgstr ""
+
+msgid "DC / hybrid"
+msgstr ""
+
+msgid "DC-coupled / hybrid"
+msgstr ""
+
+msgid ""
+"DC-coupled skips an inversion on the solar charging path — typically +3 "
+"to +5 percentage points on that path only. Grid charging is unaffected."
+msgstr ""
+
+msgid "Data quality"
+msgstr ""
+
+msgid "Discharge policy"
+msgstr ""
+
+msgid "Discharged from the battery"
+msgstr ""
+
+msgid "Do you have solar PV?"
+msgstr ""
+
+msgid "Do you have solar panels?"
+msgstr ""
+
+msgid "ENERGY SAVINGS"
+msgstr ""
+
+msgid "EQUIVALENT FULL CYCLES"
+msgstr ""
+
+msgid "Enable cost simulation"
+msgstr ""
+
+msgid "Energy flows"
+msgstr ""
+
+msgid "Energy savings"
+msgstr ""
+
+msgid "Entity / statistic ID"
+msgstr ""
+
+msgid "Export CSV"
+msgstr ""
+
+msgid "Export limit"
+msgstr ""
+
+msgid "Fetch history"
+msgstr ""
+
+msgid "Fuse rating"
+msgstr ""
+
+msgid "GRID IMPORT SAVED"
+msgstr ""
+
+msgid "Gaps"
+msgstr ""
+
+msgid "Grid charge when spot price is in band"
+msgstr ""
+
+msgid "Grid connection"
+msgstr ""
+
+msgid "Grid export"
+msgstr ""
+
+msgid "Grid export T1"
+msgstr ""
+
+msgid "Grid export T2"
+msgstr ""
+
+msgid "Grid import T1"
+msgstr ""
+
+msgid "Grid import T2"
+msgstr ""
+
+msgid "Grid import avoided"
+msgstr ""
+
+msgid "Grid import, no battery"
+msgstr ""
+
+msgid "Grid import, with battery"
+msgstr ""
+
+msgid "Home Assistant"
+msgstr ""
+
+msgid "Home Battery Simulator"
+msgstr ""
+
+msgid "How is your PV connected to the battery?"
+msgstr ""
+
+msgid ""
+"If you would use it, say so. It tells us what to build next, and it is "
+"the only signal we get."
+msgstr ""
+
+msgid "Initial SoC"
+msgstr ""
+
+msgid "Installation topology"
+msgstr ""
+
+msgid "Intervals battery was full / empty"
+msgstr ""
+
+msgid "Language"
+msgstr ""
+
+msgid "Max charge power"
+msgstr ""
+
+msgid "Max discharge power"
+msgstr ""
+
+msgid "Max state of charge"
+msgstr ""
+
+msgid "Maximise discharge when spot price is in band"
+msgstr ""
+
+msgid "Meter registers"
+msgstr ""
+
+msgid "Min state of charge"
+msgstr ""
+
+msgid "Monthly savings"
+msgstr ""
+
+msgid ""
+"Needs your contract type, supply rates, energy tax, VAT and feed-in "
+"terms. Leave this off to see kWh saved only."
+msgstr ""
+
+msgid "Next: parameters →"
+msgstr ""
+
+msgid "No"
+msgstr ""
+
+msgid "No battery"
+msgstr ""
+
+msgid "Not built yet"
+msgstr ""
+
+msgid "One conversion PV→battery"
+msgstr ""
+
+msgid "PARAMETERS"
+msgstr ""
+
+msgid "PV only"
+msgstr ""
+
+msgid "Perfect foresight"
+msgstr ""
+
+msgid "Phases"
+msgstr ""
+
+msgid "RESULTS"
+msgstr ""
+
+msgid ""
+"Reconstructed load is negative in 41 intervals (0.41％). Usually means the"
+" solar sensor does not cover the whole house, or a clock offset between "
+"sensors."
+msgstr ""
+
+msgid "Recorded at"
+msgstr ""
+
+msgid "Req"
+msgstr ""
+
+msgid "Role"
+msgstr ""
+
+msgid "Round-trip efficiency"
+msgstr ""
+
+msgid "SELF-SUFFICIENCY"
+msgstr ""
+
+msgid "Secondary metrics"
+msgstr ""
+
+msgid "Self-consumption ratio"
+msgstr ""
+
+msgid "Series"
+msgstr ""
+
+msgid "Series mapping"
+msgstr ""
+
+msgid "Serve house load when consumption exceeds solar"
+msgstr ""
+
+msgid "Settings"
+msgstr ""
+
+msgid "Simulate cost savings?"
+msgstr ""
+
+msgid ""
+"Simulated at hourly resolution. A 5-minute re-run over the last 9 days "
+"gives 8.4％ lower savings — hourly buckets hide within-hour import/export "
+"overlap and flatter the battery. Treat the headline figure as an upper "
+"bound."
+msgstr ""
+
+msgid "Simulation grid"
+msgstr ""
+
+msgid "SoC + price"
+msgstr ""
+
+msgid "Solar PV"
+msgstr ""
+
+msgid "Solar production"
+msgstr ""
+
+msgid "Solar surplus only (net zero at the grid)"
+msgstr ""
+
+msgid "Source:"
+msgstr ""
+
+msgid "Spot price"
+msgstr ""
+
+msgid ""
+"Spot prices are quarter-hourly but the run is hourly, so the battery "
+"acted on an averaged price and could not chase within-hour swings."
+msgstr ""
+
+msgid "Standby consumption"
+msgstr ""
+
+msgid "Standby draw"
+msgstr ""
+
+msgid "Test connection"
+msgstr ""
+
+msgid "The run uses"
+msgstr ""
+
+msgid "This control"
+msgstr ""
+
+msgid "Toggle Data panel"
+msgstr ""
+
+msgid "Toggle Parameters panel"
+msgstr ""
+
+msgid "Token"
+msgstr ""
+
+msgid "Two conversions PV→battery"
+msgstr ""
+
+msgid "Upload CSV"
+msgstr ""
+
+msgid "Usable capacity"
+msgstr ""
+
+msgid "Want to know what this is worth in euros?"
+msgstr ""
+
+msgid "What to simulate"
+msgstr ""
+
+msgid "Where the energy comes from"
+msgstr ""
+
+msgid "Yes"
+msgstr ""
+
+msgid "Your policy"
+msgstr ""
+
+msgid ""
+"Your policy captures 71％ of the grid import a perfectly-informed battery "
+"could have avoided. Allowed to export, that ceiling rises to 2,311 kWh (a"
+" 61％ capture) — the extra is arbitrage your export setting currently "
+"forbids."
+msgstr ""
+
+msgid ""
+"Your prices change every 15 minutes but your meter records hourly, so the"
+" run sees one averaged price per hour and cannot act on within-hour "
+"swings."
+msgstr ""
+
+msgid "always"
+msgstr ""
+
+msgid "close"
+msgstr ""
+
+msgid "days"
+msgstr ""
+
+msgid "export CSV"
+msgstr ""
+
+msgid ""
+"is part of the plan for this simulator, but it is not built yet. The app "
+"is being written one feature at a time and this one has not been reached."
+msgstr ""
+
+msgid "kWh"
+msgstr ""
+
+msgid "not nameplate"
+msgstr ""
+
+msgid "optional"
+msgstr ""
+
+msgid "required"
+msgstr ""
+
+msgid "required if you have PV"
+msgstr ""
+
+msgid "same as import"
+msgstr ""
+
+msgid "see §2.5"
+msgstr ""
+
+msgid "valid"
+msgstr ""
+
+msgid "workspace: local"
+msgstr ""
+
+msgid "…if export allowed"
+msgstr ""
+
+msgid "← Back"
+msgstr ""
+
+msgid "≈260 kWh/yr"
+msgstr ""
+
+msgid ""
+"● = required.  ○ = optional.  ◐ = required only if you have solar PV. "
+"Spot price drives the charge and discharge bands, so it is required "
+"whether or not you simulate costs."
+msgstr ""
+
+#, python-format
+msgid ""
+"⚠ Charge band [%(a)s, %(b)s] and discharge band [%(c)s, %(d)s] do not "
+"overlap. ✓"
+msgstr ""
+
+msgid "👍 I want this"
+msgstr ""
+

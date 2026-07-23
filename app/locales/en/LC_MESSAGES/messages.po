@@ -1,0 +1,485 @@
+# English translations for PROJECT.
+# Copyright (C) 2026 ORGANIZATION
+# This file is distributed under the same license as the PROJECT project.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: PROJECT VERSION\n"
+"Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
+"POT-Creation-Date: 2026-07-23 20:42+0200\n"
+"PO-Revision-Date: 2026-07-23 20:40+0200\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: en\n"
+"Language-Team: en <LL@li.org>\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#, python-format
+msgid "%(n)s statistic IDs available"
+msgstr "%(n)s statistic IDs available"
+
+msgid "0.41％ of intervals had negative reconstructed load (clamped to 0)."
+msgstr "0.41％ of intervals had negative reconstructed load (clamped to 0)."
+
+msgid "0.66 / day"
+msgstr "0.66 / day"
+
+msgid "1 month"
+msgstr "1 month"
+
+msgid "1 week"
+msgstr "1 week"
+
+msgid "1 year"
+msgstr "1 year"
+
+msgid "1-phase"
+msgstr "1-phase"
+
+msgid "2,410 kWh throughput"
+msgstr "2,410 kWh throughput"
+
+msgid "3 months"
+msgstr "3 months"
+
+msgid "3-phase"
+msgstr "3-phase"
+
+msgid "6 months"
+msgstr "6 months"
+
+#, python-format
+msgid "A → max import %(kw)s kW"
+msgstr "A → max import %(kw)s kW"
+
+msgid "AC-coupled"
+msgstr "AC-coupled"
+
+msgid "AC-to-AC at the meter"
+msgstr "AC-to-AC at the meter"
+
+msgid "Allow export to grid"
+msgstr "Allow export to grid"
+
+msgid "Allow export to grid during D2/D3"
+msgstr "Allow export to grid during D2/D3"
+
+msgid "Also simulate cost savings"
+msgstr "Also simulate cost savings"
+
+msgid "Answering No hides the solar sensor mapping, the PV coupling choice, and the policies that act on solar surplus."
+msgstr "Answering No hides the solar sensor mapping, the PV coupling choice, and the policies that act on solar surplus."
+
+msgid "B"
+msgstr "B"
+
+msgid "Band A"
+msgstr "Band A"
+
+msgid "Band C"
+msgstr "Band C"
+
+msgid "Base URL"
+msgstr "Base URL"
+
+msgid "Battery"
+msgstr "Battery"
+
+msgid "Battery charge"
+msgstr "Battery charge"
+
+msgid "Battery discharge"
+msgstr "Battery discharge"
+
+msgid "Benchmark: grid import avoided"
+msgstr "Benchmark: grid import avoided"
+
+msgid "Both"
+msgstr "Both"
+
+msgid "Calculate →"
+msgstr "Calculate →"
+
+msgid "Caveats for this run"
+msgstr "Caveats for this run"
+
+msgid "Charge policy"
+msgstr "Charge policy"
+
+msgid "Charged into the battery"
+msgstr "Charged into the battery"
+
+msgid "Connected"
+msgstr "Connected"
+
+msgid "Conversion losses"
+msgstr "Conversion losses"
+
+msgid "Counter resets"
+msgstr "Counter resets"
+
+msgid "Coupling"
+msgstr "Coupling"
+
+msgid "Coverage"
+msgstr "Coverage"
+
+msgid "D"
+msgstr "D"
+
+msgid "DATA"
+msgstr "DATA"
+
+msgid "DC / hybrid"
+msgstr "DC / hybrid"
+
+msgid "DC-coupled / hybrid"
+msgstr "DC-coupled / hybrid"
+
+msgid "DC-coupled skips an inversion on the solar charging path — typically +3 to +5 percentage points on that path only. Grid charging is unaffected."
+msgstr "DC-coupled skips an inversion on the solar charging path — typically +3 to +5 percentage points on that path only. Grid charging is unaffected."
+
+msgid "Data quality"
+msgstr "Data quality"
+
+msgid "Discharge policy"
+msgstr "Discharge policy"
+
+msgid "Discharged from the battery"
+msgstr "Discharged from the battery"
+
+msgid "Do you have solar PV?"
+msgstr "Do you have solar PV?"
+
+msgid "Do you have solar panels?"
+msgstr "Do you have solar panels?"
+
+msgid "ENERGY SAVINGS"
+msgstr "ENERGY SAVINGS"
+
+msgid "EQUIVALENT FULL CYCLES"
+msgstr "EQUIVALENT FULL CYCLES"
+
+msgid "Enable cost simulation"
+msgstr "Enable cost simulation"
+
+msgid "Energy flows"
+msgstr "Energy flows"
+
+msgid "Energy savings"
+msgstr "Energy savings"
+
+msgid "Entity / statistic ID"
+msgstr "Entity / statistic ID"
+
+msgid "Export CSV"
+msgstr "Export CSV"
+
+msgid "Export limit"
+msgstr "Export limit"
+
+msgid "Fetch history"
+msgstr "Fetch history"
+
+msgid "Fuse rating"
+msgstr "Fuse rating"
+
+msgid "GRID IMPORT SAVED"
+msgstr "GRID IMPORT SAVED"
+
+msgid "Gaps"
+msgstr "Gaps"
+
+msgid "Grid charge when spot price is in band"
+msgstr "Grid charge when spot price is in band"
+
+msgid "Grid connection"
+msgstr "Grid connection"
+
+msgid "Grid export"
+msgstr "Grid export"
+
+msgid "Grid export T1"
+msgstr "Grid export T1"
+
+msgid "Grid export T2"
+msgstr "Grid export T2"
+
+msgid "Grid import T1"
+msgstr "Grid import T1"
+
+msgid "Grid import T2"
+msgstr "Grid import T2"
+
+msgid "Grid import avoided"
+msgstr "Grid import avoided"
+
+msgid "Grid import, no battery"
+msgstr "Grid import, no battery"
+
+msgid "Grid import, with battery"
+msgstr "Grid import, with battery"
+
+msgid "Home Assistant"
+msgstr "Home Assistant"
+
+msgid "Home Battery Simulator"
+msgstr "Home Battery Simulator"
+
+msgid "How is your PV connected to the battery?"
+msgstr "How is your PV connected to the battery?"
+
+msgid "If you would use it, say so. It tells us what to build next, and it is the only signal we get."
+msgstr "If you would use it, say so. It tells us what to build next, and it is the only signal we get."
+
+msgid "Initial SoC"
+msgstr "Initial SoC"
+
+msgid "Installation topology"
+msgstr "Installation topology"
+
+msgid "Intervals battery was full / empty"
+msgstr "Intervals battery was full / empty"
+
+msgid "Language"
+msgstr "Language"
+
+msgid "Max charge power"
+msgstr "Max charge power"
+
+msgid "Max discharge power"
+msgstr "Max discharge power"
+
+msgid "Max state of charge"
+msgstr "Max state of charge"
+
+msgid "Maximise discharge when spot price is in band"
+msgstr "Maximise discharge when spot price is in band"
+
+msgid "Meter registers"
+msgstr "Meter registers"
+
+msgid "Min state of charge"
+msgstr "Min state of charge"
+
+msgid "Monthly savings"
+msgstr "Monthly savings"
+
+msgid "Needs your contract type, supply rates, energy tax, VAT and feed-in terms. Leave this off to see kWh saved only."
+msgstr "Needs your contract type, supply rates, energy tax, VAT and feed-in terms. Leave this off to see kWh saved only."
+
+msgid "Next: parameters →"
+msgstr "Next: parameters →"
+
+msgid "No"
+msgstr "No"
+
+msgid "No battery"
+msgstr "No battery"
+
+msgid "Not built yet"
+msgstr "Not built yet"
+
+msgid "One conversion PV→battery"
+msgstr "One conversion PV→battery"
+
+msgid "PARAMETERS"
+msgstr "PARAMETERS"
+
+msgid "PV only"
+msgstr "PV only"
+
+msgid "Perfect foresight"
+msgstr "Perfect foresight"
+
+msgid "Phases"
+msgstr "Phases"
+
+msgid "RESULTS"
+msgstr "RESULTS"
+
+msgid "Reconstructed load is negative in 41 intervals (0.41％). Usually means the solar sensor does not cover the whole house, or a clock offset between sensors."
+msgstr "Reconstructed load is negative in 41 intervals (0.41％). Usually means the solar sensor does not cover the whole house, or a clock offset between sensors."
+
+msgid "Recorded at"
+msgstr "Recorded at"
+
+msgid "Req"
+msgstr "Req"
+
+msgid "Role"
+msgstr "Role"
+
+msgid "Round-trip efficiency"
+msgstr "Round-trip efficiency"
+
+msgid "SELF-SUFFICIENCY"
+msgstr "SELF-SUFFICIENCY"
+
+msgid "Secondary metrics"
+msgstr "Secondary metrics"
+
+msgid "Self-consumption ratio"
+msgstr "Self-consumption ratio"
+
+msgid "Series"
+msgstr "Series"
+
+msgid "Series mapping"
+msgstr "Series mapping"
+
+msgid "Serve house load when consumption exceeds solar"
+msgstr "Serve house load when consumption exceeds solar"
+
+msgid "Settings"
+msgstr "Settings"
+
+msgid "Simulate cost savings?"
+msgstr "Simulate cost savings?"
+
+msgid "Simulated at hourly resolution. A 5-minute re-run over the last 9 days gives 8.4％ lower savings — hourly buckets hide within-hour import/export overlap and flatter the battery. Treat the headline figure as an upper bound."
+msgstr "Simulated at hourly resolution. A 5-minute re-run over the last 9 days gives 8.4％ lower savings — hourly buckets hide within-hour import/export overlap and flatter the battery. Treat the headline figure as an upper bound."
+
+msgid "Simulation grid"
+msgstr "Simulation grid"
+
+msgid "SoC + price"
+msgstr "SoC + price"
+
+msgid "Solar PV"
+msgstr "Solar PV"
+
+msgid "Solar production"
+msgstr "Solar production"
+
+msgid "Solar surplus only (net zero at the grid)"
+msgstr "Solar surplus only (net zero at the grid)"
+
+msgid "Source:"
+msgstr "Source:"
+
+msgid "Spot price"
+msgstr "Spot price"
+
+msgid "Spot prices are quarter-hourly but the run is hourly, so the battery acted on an averaged price and could not chase within-hour swings."
+msgstr "Spot prices are quarter-hourly but the run is hourly, so the battery acted on an averaged price and could not chase within-hour swings."
+
+msgid "Standby consumption"
+msgstr "Standby consumption"
+
+msgid "Standby draw"
+msgstr "Standby draw"
+
+msgid "Test connection"
+msgstr "Test connection"
+
+msgid "The run uses"
+msgstr "The run uses"
+
+msgid "This control"
+msgstr "This control"
+
+msgid "Toggle Data panel"
+msgstr "Toggle Data panel"
+
+msgid "Toggle Parameters panel"
+msgstr "Toggle Parameters panel"
+
+msgid "Token"
+msgstr "Token"
+
+msgid "Two conversions PV→battery"
+msgstr "Two conversions PV→battery"
+
+msgid "Upload CSV"
+msgstr "Upload CSV"
+
+msgid "Usable capacity"
+msgstr "Usable capacity"
+
+msgid "Want to know what this is worth in euros?"
+msgstr "Want to know what this is worth in euros?"
+
+msgid "What to simulate"
+msgstr "What to simulate"
+
+msgid "Where the energy comes from"
+msgstr "Where the energy comes from"
+
+msgid "Yes"
+msgstr "Yes"
+
+msgid "Your policy"
+msgstr "Your policy"
+
+msgid "Your policy captures 71％ of the grid import a perfectly-informed battery could have avoided. Allowed to export, that ceiling rises to 2,311 kWh (a 61％ capture) — the extra is arbitrage your export setting currently forbids."
+msgstr "Your policy captures 71％ of the grid import a perfectly-informed battery could have avoided. Allowed to export, that ceiling rises to 2,311 kWh (a 61％ capture) — the extra is arbitrage your export setting currently forbids."
+
+msgid "Your prices change every 15 minutes but your meter records hourly, so the run sees one averaged price per hour and cannot act on within-hour swings."
+msgstr "Your prices change every 15 minutes but your meter records hourly, so the run sees one averaged price per hour and cannot act on within-hour swings."
+
+msgid "always"
+msgstr "always"
+
+msgid "close"
+msgstr "close"
+
+msgid "days"
+msgstr "days"
+
+msgid "export CSV"
+msgstr "export CSV"
+
+msgid "is part of the plan for this simulator, but it is not built yet. The app is being written one feature at a time and this one has not been reached."
+msgstr "is part of the plan for this simulator, but it is not built yet. The app is being written one feature at a time and this one has not been reached."
+
+msgid "kWh"
+msgstr "kWh"
+
+msgid "not nameplate"
+msgstr "not nameplate"
+
+msgid "optional"
+msgstr "optional"
+
+msgid "required"
+msgstr "required"
+
+msgid "required if you have PV"
+msgstr "required if you have PV"
+
+msgid "same as import"
+msgstr "same as import"
+
+msgid "see §2.5"
+msgstr "see §2.5"
+
+msgid "valid"
+msgstr "valid"
+
+msgid "workspace: local"
+msgstr "workspace: local"
+
+msgid "…if export allowed"
+msgstr "…if export allowed"
+
+msgid "← Back"
+msgstr "← Back"
+
+msgid "≈260 kWh/yr"
+msgstr "≈260 kWh/yr"
+
+msgid "● = required.  ○ = optional.  ◐ = required only if you have solar PV. Spot price drives the charge and discharge bands, so it is required whether or not you simulate costs."
+msgstr "● = required.  ○ = optional.  ◐ = required only if you have solar PV. Spot price drives the charge and discharge bands, so it is required whether or not you simulate costs."
+
+#, python-format
+msgid "⚠ Charge band [%(a)s, %(b)s] and discharge band [%(c)s, %(d)s] do not overlap. ✓"
+msgstr "⚠ Charge band [%(a)s, %(b)s] and discharge band [%(c)s, %(d)s] do not overlap. ✓"
+
+msgid "👍 I want this"
+msgstr "👍 I want this"
+

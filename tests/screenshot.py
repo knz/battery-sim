@@ -41,7 +41,12 @@ def _wait_until_up(url: str, timeout_s: float = 20.0) -> None:
     raise RuntimeError(f"server did not come up at {url}")
 
 
-def capture(out_path: Path, width: int = 1280, theme: str = "light") -> None:
+def capture(out_path: Path, width: int = 1280, lang: str = "en") -> None:
+    """Screenshot the page in a pinned language.
+
+    The app defaults its language from Accept-Language, which is non-deterministic across
+    environments; pinning the `lang` cookie here keeps the screenshot reproducible.
+    """
     port = _free_port()
     base = f"http://127.0.0.1:{port}"
     server = subprocess.Popen(
@@ -52,7 +57,9 @@ def capture(out_path: Path, width: int = 1280, theme: str = "light") -> None:
         _wait_until_up(base + "/")
         with sync_playwright() as p:
             browser = p.chromium.launch()
-            page = browser.new_page(viewport={"width": width, "height": 900})
+            context = browser.new_context(viewport={"width": width, "height": 900})
+            context.add_cookies([{"name": "lang", "value": lang, "url": base}])
+            page = context.new_page()
             page.goto(base + "/", wait_until="networkidle")
             # Expand the two collapsed stepper panels so the screenshot shows everything.
             for checkbox in page.locator("section.collapse > input[type=checkbox]").all():
@@ -71,5 +78,6 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("output", nargs="?", default=str(REPO_ROOT / "tests/artifacts/page.png"))
     ap.add_argument("--width", type=int, default=1280)
+    ap.add_argument("--lang", default="en", help="UI language to pin (en, nl)")
     args = ap.parse_args()
-    capture(Path(args.output), width=args.width)
+    capture(Path(args.output), width=args.width, lang=args.lang)

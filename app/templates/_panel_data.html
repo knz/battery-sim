@@ -6,14 +6,17 @@
   sample (app/sample_data.py `data`). The uploaded-CSV variant of the source sub-panel is
   not rendered in this increment — only the Home Assistant path is shown.
 
+  UI chrome is wrapped in _() for translation (English/Dutch); data values (entity IDs,
+  numbers, coverage strings) stay literal. Role labels come pre-translated from sample_data.
+
   The `req` → marker mapping: required ●, conditional ◐ (PV-only), optional ○.
 #}
 <section class="collapse collapse-arrow bg-base-100 border border-base-300 rounded-box">
-  <input type="checkbox" aria-label="Toggle Data panel" />
+  <input type="checkbox" aria-label="{{ _('Toggle Data panel') }}" />
   <div class="collapse-title flex flex-wrap items-center gap-x-3 gap-y-1">
     <span class="badge badge-neutral">①</span>
-    <span class="font-semibold">DATA</span>
-    <span class="text-success">✓ {{ data.days }} days</span>
+    <span class="font-semibold">{{ _('DATA') }}</span>
+    <span class="text-success">✓ {{ data.days }} {{ _('days') }}</span>
     <span class="text-base-content/60">{{ data.summary }}</span>
   </div>
 
@@ -22,34 +25,35 @@
 
       {# ── Source selector ─────────────────────────────────────────────── #}
       <div class="flex items-center gap-6">
-        <span class="font-medium">Source:</span>
+        <span class="font-medium">{{ _('Source:') }}</span>
         <label class="label cursor-pointer gap-2">
           <input type="radio" name="source" class="radio radio-sm" checked />
-          <span class="label-text">Home Assistant</span>
+          <span class="label-text">{{ _('Home Assistant') }}</span>
         </label>
         <label class="label cursor-pointer gap-2">
           <input type="radio" name="source" class="radio radio-sm" />
-          <span class="label-text">Upload CSV</span>
+          <span class="label-text">{{ _('Upload CSV') }}</span>
         </label>
       </div>
 
       {# ── Home Assistant connection ───────────────────────────────────── #}
       <div class="card bg-base-200 border border-base-300">
         <div class="card-body gap-3 p-4">
-          <h3 class="text-sm font-semibold text-base-content/70">Home Assistant</h3>
+          <h3 class="text-sm font-semibold text-base-content/70">{{ _('Home Assistant') }}</h3>
           <label class="form-control">
-            <span class="label-text mb-1">Base URL</span>
+            <span class="label-text mb-1">{{ _('Base URL') }}</span>
             <input type="text" class="input input-bordered input-sm" value="{{ data.ha.base_url }}" />
           </label>
           <label class="form-control">
-            <span class="label-text mb-1">Token</span>
+            <span class="label-text mb-1">{{ _('Token') }}</span>
             <input type="password" class="input input-bordered input-sm" value="placeholdertoken" />
           </label>
           <div class="flex flex-wrap items-center justify-between gap-2">
             <span class="text-success text-sm">
-              ✓ Connected · {{ data.ha.version }} · {{ data.ha.statistic_count }} statistic IDs available
+              ✓ {{ _('Connected') }} · {{ data.ha.version }} ·
+              {{ _('%(n)s statistic IDs available', n=data.ha.statistic_count) }}
             </span>
-            <button class="btn btn-outline btn-sm">Test connection</button>
+            <button class="btn btn-outline btn-sm">{{ _('Test connection') }}</button>
           </div>
         </div>
       </div>
@@ -57,34 +61,34 @@
       {# ── Series mapping ──────────────────────────────────────────────── #}
       <div class="card bg-base-200 border border-base-300">
         <div class="card-body gap-3 p-4">
-          <h3 class="text-sm font-semibold text-base-content/70">Series mapping</h3>
+          <h3 class="text-sm font-semibold text-base-content/70">{{ _('Series mapping') }}</h3>
 
           <div class="flex flex-wrap gap-x-8 gap-y-2">
             <div class="flex items-center gap-2">
-              <span class="label-text">Do you have solar PV?</span>
-              <span class="badge badge-primary badge-sm">Yes</span>
+              <span class="label-text">{{ _('Do you have solar PV?') }}</span>
+              <span class="badge badge-primary badge-sm">{{ _('Yes') }}</span>
             </div>
             <div class="flex items-center gap-2">
-              <span class="label-text">Simulate cost savings?</span>
-              <span class="badge badge-ghost badge-sm">No</span>
+              <span class="label-text">{{ _('Simulate cost savings?') }}</span>
+              <span class="badge badge-ghost badge-sm">{{ _('No') }}</span>
             </div>
           </div>
 
           <div class="overflow-x-auto">
             <table class="table table-sm">
               <thead>
-                <tr><th>Role</th><th class="text-center">Req</th><th>Entity / statistic ID</th></tr>
+                <tr><th>{{ _('Role') }}</th><th class="text-center">{{ _('Req') }}</th><th>{{ _('Entity / statistic ID') }}</th></tr>
               </thead>
               <tbody>
                 {% for row in data.mapping %}
                   {# Solar row is conditional on PV; hidden entirely when has_pv is false (§2.2). #}
                   {% if not row.pv_only or cfg.has_pv %}
                   <tr>
-                    <td>{{ row.role }}</td>
+                    <td>{{ _(row.role) }}</td>
                     <td class="text-center">
-                      {% if row.req == "required" %}<span title="required">●</span>
-                      {% elif row.req == "conditional" %}<span title="required if you have PV" class="text-primary">◐</span>
-                      {% else %}<span title="optional" class="text-base-content/40">○</span>{% endif %}
+                      {% if row.req == "required" %}<span title="{{ _('required') }}">●</span>
+                      {% elif row.req == "conditional" %}<span title="{{ _('required if you have PV') }}" class="text-primary">◐</span>
+                      {% else %}<span title="{{ _('optional') }}" class="text-base-content/40">○</span>{% endif %}
                     </td>
                     <td><span class="font-mono text-xs">{{ row.entity }}</span></td>
                   </tr>
@@ -95,13 +99,11 @@
           </div>
 
           <p class="text-xs text-base-content/60">
-            ● = required.  ○ = optional.  ◐ = required only if you have solar PV.
-            Spot price drives the charge and discharge bands, so it is required whether or
-            not you simulate costs.
+            {{ _('● = required.  ○ = optional.  ◐ = required only if you have solar PV. Spot price drives the charge and discharge bands, so it is required whether or not you simulate costs.') }}
           </p>
 
           <div class="flex justify-end">
-            <button class="btn btn-primary btn-sm">Fetch history</button>
+            <button class="btn btn-primary btn-sm">{{ _('Fetch history') }}</button>
           </div>
         </div>
       </div>
@@ -109,23 +111,23 @@
       {# ── Data quality ────────────────────────────────────────────────── #}
       <div class="card bg-base-200 border border-base-300">
         <div class="card-body gap-3 p-4">
-          <h3 class="text-sm font-semibold text-base-content/70">Data quality</h3>
+          <h3 class="text-sm font-semibold text-base-content/70">{{ _('Data quality') }}</h3>
 
           <div class="grid grid-cols-1 gap-1 sm:grid-cols-[auto_1fr] sm:gap-x-6">
-            <span class="text-base-content/60">Coverage</span><span>{{ data.quality.coverage }}</span>
-            <span class="text-base-content/60">Simulation grid</span><span>{{ data.quality.grid }}</span>
+            <span class="text-base-content/60">{{ _('Coverage') }}</span><span>{{ data.quality.coverage }}</span>
+            <span class="text-base-content/60">{{ _('Simulation grid') }}</span><span>{{ data.quality.grid }}</span>
           </div>
 
           {# Per-series granularity. Only the lossy (averaged) reconciliation is marked ⚠. #}
           <div class="overflow-x-auto">
             <table class="table table-sm">
               <thead>
-                <tr><th>Series</th><th>Recorded at</th><th>The run uses</th></tr>
+                <tr><th>{{ _('Series') }}</th><th>{{ _('Recorded at') }}</th><th>{{ _('The run uses') }}</th></tr>
               </thead>
               <tbody>
                 {% for s in data.quality.series %}
                 <tr>
-                  <td>{{ s.name }}</td>
+                  <td>{{ _(s.name) }}</td>
                   <td>{% for r in s.recorded %}<div class="text-xs">{{ r }}</div>{% endfor %}</td>
                   <td>
                     {% if s.warn %}<span class="text-warning">⚠ {{ s.uses }}</span>
@@ -138,23 +140,23 @@
           </div>
 
           <div role="alert" class="alert alert-warning py-2">
-            <span class="text-sm">⚠ {{ data.quality.price_warning }}</span>
+            <span class="text-sm">⚠ {{ _(data.quality.price_warning) }}</span>
           </div>
 
           <div class="grid grid-cols-1 gap-1 sm:grid-cols-[auto_1fr] sm:gap-x-6">
-            <span class="text-base-content/60">Gaps</span><span>{{ data.quality.gaps }}</span>
-            <span class="text-base-content/60">Counter resets</span><span>{{ data.quality.resets }}</span>
-            <span class="text-base-content/60">Meter registers</span><span>{{ data.quality.registers }}</span>
+            <span class="text-base-content/60">{{ _('Gaps') }}</span><span>{{ data.quality.gaps }}</span>
+            <span class="text-base-content/60">{{ _('Counter resets') }}</span><span>{{ data.quality.resets }}</span>
+            <span class="text-base-content/60">{{ _('Meter registers') }}</span><span>{{ data.quality.registers }}</span>
           </div>
 
           <div role="alert" class="alert alert-warning py-2">
-            <span class="text-sm">⚠ {{ data.quality.load_warning }}</span>
+            <span class="text-sm">⚠ {{ _(data.quality.load_warning) }}</span>
           </div>
         </div>
       </div>
 
       <div class="flex justify-end">
-        <button class="btn btn-primary btn-sm">Next: parameters →</button>
+        <button class="btn btn-primary btn-sm">{{ _('Next: parameters →') }}</button>
       </div>
     </div>
   </div>
