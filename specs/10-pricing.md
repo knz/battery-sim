@@ -159,6 +159,13 @@ What counts as the "bare supply price" for a *dynamic* contract's feed-in refere
 > stage between the flow simulation and the cost accounting, not changing these
 > functions. Keep `compute_costs` (§6.10 below) operating on flow arrays so that stage can
 > be inserted.
+>
+> Placing it there is what keeps the regime confined to the cost path. The flows the stage
+> consumes were produced without reference to any regime, which is why the no-mixing rule
+> in [§1.3](01-product-brief.md#13-regulatory-regime--fixed-decision) binds the euro figure
+> and not the kWh figure: one window, one regime, one cost — but the energy result is the
+> same whichever regime is selected, and a window spanning 1 January 2027 needs no special
+> handling.
 
 ## 6.10 Cost accounting
 

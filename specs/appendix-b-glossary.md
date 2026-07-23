@@ -27,7 +27,9 @@
 Where these terms carry a modelling consequence:
 
 - **Salderingsregeling** — the pre-2027 regime is out of scope, but the pricing engine
-  keeps an extension point for it ([§6.5](10-pricing.md#65-price-curves)).
+  keeps an extension point for it ([§6.5](10-pricing.md#65-price-curves)). The regime binds
+  the cost path only; energy flows and the kWh metrics derived from them are
+  regime-independent ([§1.3](01-product-brief.md#13-regulatory-regime--fixed-decision)).
 - **Terugleververgoeding / terugleverkosten** — the two halves of `export_price_net`,
   whose difference may be negative ([§6.5](10-pricing.md#65-price-curves)).
 - **Vastrecht** and **vermindering energiebelasting** — battery-invariant, therefore

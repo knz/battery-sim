@@ -56,10 +56,17 @@ little reason to shift load toward one's own solar
 Running that data under 2027 rules is the right question to ask and is what this tool is
 for. But two things follow:
 
-- **Regimes must never be mixed within one calculation.** Not per interval, not per epoch,
-  not as a blend. The pre-2027 extension point in
-  [§6.5](10-pricing.md#65-price-curves) is specified as a separate netting *stage* for
-  exactly this reason.
+- **Regimes must never be mixed within one cost calculation.** A cost figure is computed
+  under a single regime — not blended per interval, not blended per configuration epoch.
+  The pre-2027 extension point in [§6.5](10-pricing.md#65-price-curves) is specified as a
+  separate netting *stage*, sitting after the flow simulation, for exactly this reason.
+
+  The constraint is confined to money. **Energy-flow simulation is regime-independent:**
+  which kWh the battery stores, shifts and returns depends on the load, the generation and
+  the policy, not on how the resulting kWh are billed. A window may therefore span
+  1 January 2027 freely; it yields one energy result for the whole window, and one cost
+  result computed under the one selected regime. Metrics divide along the same line —
+  see [§6.11](12-metrics-and-benchmarks.md#611-metrics).
 - **The load profile is held fixed, and that is an assumption, not a measurement.** A
   household facing 2027 prices would over time shift consumption toward its own
   generation, which this simulator does not model and cannot infer. The effect biases

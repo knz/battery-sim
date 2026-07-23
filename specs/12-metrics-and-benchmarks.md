@@ -36,6 +36,16 @@ The reasoning is in
 mixing the two information sets produces a number that is wrong in a direction nobody can
 reason about.
 
+**Energy metrics and cost metrics carry different regime dependencies**, and the split is
+not obvious from the names. `saved_kwh`, `saved_pct`, `efc`, `self_consumption`,
+`self_sufficiency` and `conversion_loss` are functions of the flows alone: they do not
+change if the pricing regime changes, and they are valid over a window spanning
+1 January 2027. The waterfall decomposition ([§6.10](10-pricing.md#610-cost-accounting))
+and the perfect-foresight benchmark below are cost-bound — the benchmark optimises against
+prices even though its output is reported alongside energy figures — so both are computed
+under a single regime, per
+[§1.3](01-product-brief.md#13-regulatory-regime--fixed-decision).
+
 **SoC drift correction.** The battery does not end the window at its starting SoC. Report
 `soc_end − soc_start` and value it at the median import price; if it exceeds 2% of the
 headline saving, surface it. Without this, a policy that simply ends the year empty looks
