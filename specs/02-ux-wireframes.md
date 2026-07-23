@@ -19,7 +19,7 @@ discard results — it marks them stale and triggers a recalculation.
 │                                                                              │
 │  ┌────────────────────────────────────────────────────────────────────────┐  │
 │  │ ① DATA                                            ✓ 412 days  [edit ▾] │  │
-│  │    Home Assistant · 5 series · hourly (5-min for last 9 days)          │  │
+│  │    Home Assistant · 5 series · simulated hourly                        │  │
 │  └────────────────────────────────────────────────────────────────────────┘  │
 │                                                                              │
 │  ┌────────────────────────────────────────────────────────────────────────┐  │
@@ -35,6 +35,11 @@ discard results — it marks them stale and triggers a recalculation.
 │  └────────────────────────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
+
+The panel ① summary line reports the **simulation grid**, not any one series' native
+resolution — one line cannot carry a per-series fact, and the grid is the figure that
+applies to every number downstream. The per-series breakdown is in the expanded panel
+([§2.2](#granularity-per-series)).
 
 The panel ② summary line ends with the run's cost mode: the contract name
 (`dynamic`, `Dutch fixed`, `Dutch variable`) when cost simulation is on, and `energy only`
@@ -83,7 +88,26 @@ which of the two products they are looking at.
 │                                                                              │
 │  ┌─ Data quality ─────────────────────────────────────────────────────────┐  │
 │  │  Coverage        2025-06-01 → 2026-07-21   (416 days)                  │  │
-│  │  Resolution      hourly · 5-min available for last 9 days              │  │
+│  │                                                                        │  │
+│  │  Simulation grid   hourly  ·  8,760 intervals                          │  │
+│  │                                                                        │  │
+│  │  SERIES              RECORDED AT                THE RUN USES           │  │
+│  │  ────────────────────────────────────────────────────────────────      │  │
+│  │  Grid import T1      hourly (full)              hourly                 │  │
+│  │                      5-min (last 9 days)                               │  │
+│  │  Grid import T2      hourly (full)              hourly                 │  │
+│  │                      5-min (last 9 days)                               │  │
+│  │  Grid export T1      hourly (full)              hourly                 │  │
+│  │                      5-min (last 9 days)                               │  │
+│  │  Grid export T2      hourly (full)              hourly                 │  │
+│  │                      5-min (last 9 days)                               │  │
+│  │  Solar production    hourly (full)              hourly                 │  │
+│  │  Spot price          15-min (full)            ⚠ hourly, averaged       │  │
+│  │                                                                        │  │
+│  │  ⚠  Your prices change every 15 minutes but your meter records hourly, │  │
+│  │     so the run sees one averaged price per hour and cannot act on      │  │
+│  │     within-hour swings.                           [ what is this? ]    │  │
+│  │                                                                        │  │
 │  │  Gaps            3 gaps totalling 4.2 h  (0.04%)          [ details ]  │  │
 │  │  Counter resets  2 detected and corrected                 [ details ]  │  │
 │  │                                                                        │  │
@@ -120,6 +144,48 @@ The **Spot price** row is required in both cost modes, because the charge and di
 bands compare against it regardless of whether anything is converted to euros
 ([§1.4](01-product-brief.md#a-price-series-is-not-a-cost-model)). It is the one input a
 user might expect the cost toggle to remove and it does not.
+
+### Granularity, per series
+
+The granularity table exists because series arrive at genuinely different resolutions —
+hourly meter registers, 15-minute spot prices, 5-minute recent Home Assistant statistics —
+and a single "resolution: hourly" line hides which series contributed what. Two columns,
+because two different facts matter:
+
+- **Recorded at** — the series' *native* resolution, as it came from the source. Where a
+  finer copy exists over part of the window, both appear with their coverage; the Home
+  Assistant fetch deliberately retrieves 5-minute statistics for the trailing ten days on
+  top of the full-window hourly ones ([§4.3](06-home-assistant-ingestion.md)).
+- **The run uses** — the simulation grid, plus how this series was reconciled onto it:
+  nothing for a series already at the grid, `averaged` for a price averaged down, `held`
+  for a price forward-filled from a coarser spacing.
+
+Only `averaged` carries the ⚠ marker, and this is the point of the whole table. Summing
+energy deltas into a coarser bucket is exact, and holding a price across a finer grid is
+exact for a step function; averaging a price is the one reconciliation that destroys
+information the simulator would otherwise have used. Marking the harmless cases as well
+would leave the user with five warnings and no way to tell which one costs them anything.
+The same finding is check 3b in
+[§7.3](15-data-quality-and-limits.md#73-data-quality-checks-in-execution-order) and reaches
+the result object as `diagnostics.price_granularity_lost`. It is shown in both cost modes,
+because the spot series steers the battery whether or not euros are computed
+([§1.4](01-product-brief.md#a-price-series-is-not-a-cost-model)).
+
+**Why the grid is what it is.** The simulation grid is the *coarsest* native resolution
+among the energy series, so no energy series is ever coarser than the grid and every one of
+them downsamples exactly. Making it any finer would mean upsampling energy, which the
+simulator refuses to do: splitting an hourly total across twelve five-minute buckets means
+inventing a within-interval profile, and the invented profile — not the data — would decide
+what the battery did. The full rule is
+[§6.2](09-ingest-algorithms.md#62-simulation-grid-selection-and-resampling), and what the
+chosen grid costs in accuracy is measured rather than assumed, by
+[§7.1](14-diagnostics.md#71-the-overlap-diagnostic--measure-resolution-damage-directly) and
+[§6.13](14-diagnostics.md#613-resolution-bias-diagnostic).
+
+A series whose spacing is irregular is shown as `irregular` in the first column and
+`undefined` in the second. What the grid selector should do with such a series is
+[open question §8.20](17-open-questions.md); the table reports the fact without implying an
+answer.
 
 The data-quality box renders the diagnostics computed at ingest time. Their definitions
 live in [14-diagnostics.md](14-diagnostics.md); the ordered list of checks and their
@@ -162,7 +228,11 @@ CSV variant of the source sub-panel:
   └────────────────────────────────────────────────────────────────────────┘
 ```
 
-The two accepted CSV shapes are specified in [05-data-formats.md](05-data-formats.md).
+The two accepted CSV shapes are specified in [05-data-formats.md](05-data-formats.md). A
+long-format file may carry several series at different native resolutions and each is
+reported on its own row of the granularity table; a wide-format file shares one timestamp
+column across all of its columns, so every series it contributes has the same native
+resolution by construction.
 
 ## 2.3 Panel ② — Parameter configuration (expanded)
 
@@ -375,7 +445,7 @@ tariffs.
 ├──────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
 │  Period:  [ 1 week ] [ 1 month ] [ 3 months ] [ 6 months ] (•1 year•)        │
-│           2025-07-22 → 2026-07-21 · hourly · 8,760 intervals                 │
+│           2025-07-22 → 2026-07-21 · simulated hourly · 8,760 intervals       │
 │                                                       ⟳ recalculating…       │
 │                                                                              │
 │  ═══ ENERGY SAVINGS ═════════════════════════════════════════════════════    │
@@ -465,6 +535,9 @@ tariffs.
 │  │     9 days gives 8.4% lower savings — hourly buckets hide within-hour  │  │
 │  │     import/export overlap and flatter the battery. Treat the headline  │  │
 │  │     figure as an upper bound.                        [ what is this? ] │  │
+│  │  ⚠  Spot prices are quarter-hourly but the run is hourly, so the       │  │
+│  │     battery acted on an averaged price and could not chase within-     │  │
+│  │     hour swings.                                     [ what is this? ] │  │
 │  │  ⚠  0.41% of intervals had negative reconstructed load (clamped to 0). │  │
 │  └────────────────────────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────────────────────┘
@@ -503,7 +576,12 @@ Notes on the two sections:
   terugleverkosten — appear only with cost simulation on, because there is no euro figure to
   qualify. The resolution-bias caveat is stated in kWh in both modes and gains its euro
   percentage as a second sentence when costs are modelled
-  ([§6.13](14-diagnostics.md#613-resolution-bias-diagnostic)).
+  ([§6.13](14-diagnostics.md#613-resolution-bias-diagnostic)). The lost-price-granularity
+  caveat is likewise shown in both modes: it says the battery *dispatched* on an averaged
+  price, which happened either way
+  ([§6.2](09-ingest-algorithms.md#62-simulation-grid-selection-and-resampling)). Its
+  cost-only companion, the price bracket, quantifies what that averaging did to the euro
+  figure and appears beside it only when there is one.
 
 ### Panel ③ without cost simulation
 

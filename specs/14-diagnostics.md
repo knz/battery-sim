@@ -1,6 +1,6 @@
 # Diagnostics — §7.1, §6.13, §6.16, §6.17
 
-> **Purpose:** the four measurements that tell the user how much to trust the headline
+> **Purpose:** the measurements that tell the user how much to trust the headline
 > figure — how much information the recording resolution destroyed, how much that changes
 > the answer, how much pricing error the settlement mismatch introduces, and whether the
 > sensors' clocks agree.
@@ -11,27 +11,39 @@
 > [15-data-quality-and-limits.md](15-data-quality-and-limits.md) §7.3 for where each sits
 > in the check order.
 
-These four were numbered apart in the original document but reference each other
-continuously, so they are collected here. The distinctions worth holding on to:
+These reference each other continuously, so the distinctions are worth holding on to. Four
+are specified in this file; the granularity-loss finding belongs to
+[§6.2](09-ingest-algorithms.md#62-simulation-grid-selection-and-resampling), where the
+resampling that produces it is defined, and is listed here so the family can be compared in
+one place.
 
 | Diagnostic | Measures | Availability |
 |---|---|---|
 | §7.1 overlap | How much information the recording resolution destroyed | Always, full window |
 | §6.13 resolution bias | How much that loss changes the answer (*dispatch* error) | Only where 5-minute data exists; always in kWh, additionally in euros when costs are modelled |
+| §6.2 granularity loss | That a price series was averaged onto a coarser grid at all — a *dispatch* concern | Always, both cost modes, when a price series is downsampled by a factor ≥ 2 |
 | §6.16 price bracket | *Pricing* error from settling per 15 min but recording hourly | Cost simulation only, and only with `spot_min`/`spot_max` and quarter-hourly settlement |
 | §6.17 misalignment | Whether two sensors' clocks agree | Needs PV + export, or power + energy |
 
 §6.13 and §6.16 measure independent errors and both should be reported.
 
-**Without PV, only §6.17 changes.** The overlap diagnostic, the resolution-bias run and
-the price bracket are all computed from grid flows and prices and are unaffected by the
-absence of solar — overlap in particular remains the primary resolution gate. §6.17's
+The §6.2 granularity finding and the §6.16 bracket are easy to confuse, since both arise
+from quarter-hourly prices against hourly data. They are two halves of one mismatch. §6.2
+reports that the battery *dispatched* on an averaged price and so could not act on
+within-hour swings, which is true whether or not euros were computed. §6.16 bounds what the
+averaging did to the euro figure, and exists only when there is one. The first is a fact
+about the data, the second an interval around a result.
+
+**Without PV, only §6.17 changes.** The overlap diagnostic, the resolution-bias run, the
+granularity finding and the price bracket are all computed from grid flows and prices and
+are unaffected by the absence of solar — overlap in particular remains the primary
+resolution gate. §6.17's
 primary method needs a PV signal and is unavailable; see that section.
 
 **Without cost simulation, only §6.16 disappears.** It bounds a *pricing* error, and with
-no prices applied there is no such error to bound; `price_bracket` is `null`. The other
-three survive **with identical values**, because resolution damage and clock offsets are
-properties of the data rather than of the cost model. §6.13 in particular measures dispatch
+no prices applied there is no such error to bound; `price_bracket` is `null`. The others
+survive **with identical values**, because resolution damage, granularity loss and clock
+offsets are properties of the data rather than of the cost model. §6.13 in particular measures dispatch
 error against the kWh saving in both modes; enabling cost simulation adds a euro-basis
 percentage beside it and leaves the kWh one untouched.
 

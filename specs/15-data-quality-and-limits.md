@@ -79,7 +79,8 @@ ceiling cannot be modelled without per-phase data — is handled as a soft block
 |---|---|---|
 | 1 | Timestamps carry a UTC offset | Reject file, explain DST ambiguity |
 | 2 | Series monotonic where `kind=cumulative` | [§6.1](09-ingest-algorithms.md#61-cumulative-meter-register--interval-deltas) reset handling, count and flag |
-| 3 | Gap detection at > 1.5× nominal resolution | Flag; exclude from sums; report hours |
+| 3 | Gap detection at > 1.5× native resolution | Flag; exclude from sums; report hours |
+| 3b | Price series downsampled onto a coarser grid by a factor ≥ 2 ([§6.2](09-ingest-algorithms.md#62-simulation-grid-selection-and-resampling)) | Warn; set `diagnostics.price_granularity_lost`. Do not block |
 | 4 | Required series present: grid registers, spot price, **and solar per the declared PV state** | Block run, name the missing series |
 | 5 | Windows of the mapped series overlap | Restrict to intersection, report |
 | 6 | Reconstructed load ≥ 0 | Clamp, flag, warn with likely causes ([§6.3](09-ingest-algorithms.md#63-household-load-reconstruction)) |
@@ -113,6 +114,21 @@ resolve it. It is **not** two-sided on cost: `price_spot` is required in both co
 because the charge and discharge bands consume it
 ([§1.4](01-product-brief.md#a-price-series-is-not-a-cost-model)), so there is no cost mode
 in which its presence is a contradiction.
+
+Check 3b is deliberately narrow and deliberately not cost-gated. Narrow: only *price*
+series can be finer than the grid, since the grid is the coarsest energy series, and only
+averaging a price loses information — energy summed into a coarser bucket is exact and a
+price held across a finer one is exact for a step function
+([§6.2](09-ingest-algorithms.md#62-simulation-grid-selection-and-resampling)). The
+factor-of-2 threshold keeps it attached to the case that costs the user something, chiefly
+quarter-hourly prices against an hourly meter, rather than firing on a spacing that differs
+by rounding. Not cost-gated: the averaging happened before dispatch, and the charge and
+discharge bands compare against the spot series in both cost modes
+([§1.4](01-product-brief.md#a-price-series-is-not-a-cost-model)), so an energy-only run
+carries exactly the same error. What *is* cost-gated is
+[§6.16](14-diagnostics.md#616-price-bracketing-under-settlementresolution-mismatch), which
+bounds what the averaging did to the euro figure — a different question, asked only when
+there is a euro figure.
 
 Check 8 is split because its two halves ask different questions. **8a** asks whether the
 meter's two registers are both present and accruing — a fact about the installation and the

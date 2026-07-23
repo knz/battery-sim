@@ -176,3 +176,32 @@
     → [§6.12](12-metrics-and-benchmarks.md#612-perfect-foresight-benchmark),
     [§6.9](11-policies-and-battery.md#69-main-simulation-loop),
     [§2.4](02-ux-wireframes.md#24-panel--results-expanded)
+
+20. **Irregularly-spaced series.** `SeriesFrame.resolution_s` is `int | None`, `None`
+    meaning the series has no regular spacing, but three things about that case are
+    undefined. What makes a series irregular in the first place — a single missing row
+    already reads as a gap under check 3, so the threshold that separates "regular with
+    gaps" from "irregular" is unstated. Whether such a series blocks the run, is dropped, or
+    is accepted. And what `choose_grid` does with it: it computes `max(resolutions)` over
+    the energy series, which is undefined if the list contains `None`, so an irregular
+    energy series would currently either crash or be silently excluded from the vote
+    depending on how the list comprehension is written.
+
+    The options, roughly in increasing tolerance: reject an irregular series at ingest and
+    name it, which is simple and never produces a quietly wrong grid but refuses data a user
+    may have no way to regularise; exclude it from the grid vote and reconcile it onto the
+    chosen grid by its `kind` (energy summed into buckets, price forward-filled), which
+    accepts the data and keeps the grid decision resting on regular series; or infer a
+    nominal resolution from the modal spacing and let it vote, which is the most permissive
+    and the most likely to pick a grid that misrepresents the data.
+
+    Recorded rather than settled because it is **pre-existing** — the field has always been
+    nullable and `choose_grid` has always been undefined on it — and because the right answer
+    depends on how often real Home Assistant and CSV exports actually produce irregular
+    series, which is not yet known. The reporting half is specified regardless, so the
+    frontend is implementable while this stays open: panel ① shows such a series as
+    `irregular` with its reconciliation `undefined`, claiming nothing about what the run did
+    with it ([§2.2](02-ux-wireframes.md#granularity-per-series)).
+    → [§6.2](09-ingest-algorithms.md#62-simulation-grid-selection-and-resampling),
+    [§4.4](07-internal-representation.md#44-internal-normalised-representation),
+    [§7.3](15-data-quality-and-limits.md#73-data-quality-checks-in-execution-order)

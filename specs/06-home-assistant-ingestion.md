@@ -34,6 +34,13 @@ which gets used. The 5-minute copy exists to power the resolution-bias diagnosti
 ([§6.13](14-diagnostics.md#613-resolution-bias-diagnostic)) even when the main run is
 hourly.
 
+This is the one case where a single series has two native resolutions over different parts
+of the window. It stays **one series** in the granularity table and in the result object's
+`series` block: the hourly spacing with its full coverage, and the 5-minute spacing with the
+sub-window it covers, reported as `fine_resolution_s` and `fine_coverage`
+([§4.5](07-internal-representation.md#45-result-object)). Splitting it into two rows would
+double the table for a fact that applies uniformly to every energy series fetched this way.
+
 Chunk requests to ≤ 90 days per call to avoid oversized WebSocket frames on large
 instances.
 

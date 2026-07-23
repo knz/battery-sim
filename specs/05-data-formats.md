@@ -8,10 +8,15 @@
 
 ## 4.1 Canonical CSV — long format (preferred)
 
-Long format is canonical because series legitimately arrive at **different resolutions**
-(hourly meter data, 15-minute prices, 5-minute recent HA data). A wide format would force
-a common grid at ingestion time, which is precisely the wrong place to make that decision;
-the grid is chosen later, in [§6.2](09-ingest-algorithms.md#62-simulation-grid-selection-and-resampling).
+Long format is canonical because series legitimately arrive at **different native
+resolutions** (hourly meter data, 15-minute prices, 5-minute recent HA data). A wide format
+would force a common grid at ingestion time, which is precisely the wrong place to make that
+decision; the grid is chosen later, in
+[§6.2](09-ingest-algorithms.md#62-simulation-grid-selection-and-resampling). Each series'
+native resolution is inferred from the spacing of its own rows, retained, and reported back
+to the user per series in panel ①
+([§2.2](02-ux-wireframes.md#granularity-per-series)) — it is not collapsed into one figure
+for the file.
 
 ```csv
 timestamp,series,value,unit,kind
@@ -89,6 +94,12 @@ one series is rejected.
 Accepted when every column shares one timestamp grid. Column headers are series names;
 a `kind` is inferred per column (monotonic non-decreasing → `cumulative`, else `delta`)
 with the inference reported back to the user for confirmation.
+
+Because there is one timestamp column, every series in a wide file has the same native
+resolution by construction. That is a property of the file rather than of the data, and it
+is why long format is preferred: a household whose prices are quarter-hourly and whose meter
+is hourly cannot express both in one wide file without either discarding the finer prices or
+fabricating meter readings.
 
 ```csv
 timestamp,grid_import_t1,grid_export_t1,solar_production,price_spot

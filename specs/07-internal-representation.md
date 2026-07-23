@@ -25,6 +25,15 @@ SeriesFrame:
 `QualityFlags` bits: `OK`, `GAP_FILLED`, `RESET_CORRECTED`, `INTERPOLATED`,
 `RESAMPLED_DOWN`, `CLAMPED_NEGATIVE`.
 
+`resolution_s` is the series' **native** resolution — the spacing at which it was recorded,
+before any reconciliation with the simulation grid. It is the source of the per-series
+granularity table in panel ①
+([§2.2](02-ux-wireframes.md#22-panel--data-input-expanded)) and of the `series` block in
+§4.5, and it is persisted per series in `series_meta`
+([§5.1](08-architecture.md#51-layers)). `None` means the spacing is irregular; that series
+is reported as `irregular` and what the grid selector should do with it is
+[open question §8.20](17-open-questions.md).
+
 The simulation consumes a single `SimulationFrame` — all series on one uniform grid:
 
 ```python
@@ -75,9 +84,30 @@ Notes on the fields that are not simulation inputs:
 {
   "run_id": 47,
   "generated_at": "2026-07-22T09:14:02Z",
+  // `resolution` and `dt_hours` describe the SIMULATION GRID — the single spacing
+  // every series was reconciled onto. Per-series native resolutions are in
+  // `series` below (§6.2).
   "window": { "start": "2025-07-22T00:00:00Z", "end": "2026-07-21T23:00:00Z",
               "intervals": 8760, "dt_hours": 1.0, "resolution": "hour" },
   "config_hash": "sha256:9f2c…",
+
+  // One entry per ingested series, in mapping order. Describes the input data,
+  // so it is identical under both toggles — see the two shape sections below.
+  "series": [
+    { "name": "grid_import_t1", "kind": "energy",
+      "native_resolution_s": 3600,
+      "coverage": { "start": "2025-07-22T00:00:00Z", "end": "2026-07-21T23:00:00Z" },
+      // A finer copy of the same series over part of the window, when one was
+      // fetched (§4.3). Null when there is none.
+      "fine_resolution_s": 300,
+      "fine_coverage": { "start": "2026-07-12T00:00:00Z", "end": "2026-07-21T23:00:00Z" },
+      "reconciliation": "exact" },
+    { "name": "price_spot", "kind": "price",
+      "native_resolution_s": 900,
+      "coverage": { "start": "2025-07-22T00:00:00Z", "end": "2026-07-21T23:00:00Z" },
+      "fine_resolution_s": null, "fine_coverage": null,
+      "reconciliation": "averaged" }
+  ],
   // false ⇒ cost, benchmarks.cost and price_bracket are null; everything
   // else below is identical either way. See "Shape of the object without
   // cost simulation".
@@ -177,6 +207,11 @@ Notes on the fields that are not simulation inputs:
     "resolution_bias_pct": 8.4,
     "resolution_bias_pct_eur": 9.1,
     "resolution_bias_basis": "9 days at 5-minute vs hourly",
+    // Set when a price series was averaged down onto a coarser grid by a factor
+    // of 2 or more (§6.2, check 3b). Reported in both cost modes: the spot
+    // series is a dispatch signal either way.
+    "price_granularity_lost": true,
+    "price_native_resolution_s": 900,
     "negative_load_intervals": 41, "negative_load_pct": 0.41,
     "gaps_filled_hours": 4.2,
     "counter_resets": 2,
@@ -200,6 +235,7 @@ Where each block comes from:
 
 | Block | Defined in |
 |---|---|
+| `window`, `series` | [§6.2](09-ingest-algorithms.md#62-simulation-grid-selection-and-resampling) |
 | `energy`, `ratios`, `battery` | [§6.11](12-metrics-and-benchmarks.md#611-metrics) |
 | `cost.waterfall` | [§6.10](10-pricing.md#610-cost-accounting) |
 | `benchmarks.energy`, `benchmarks.cost` | [§6.12](12-metrics-and-benchmarks.md#612-perfect-foresight-benchmark) |
@@ -210,10 +246,11 @@ Where each block comes from:
 
 ### Shape of the object without cost simulation
 
-**Cost simulation is a strictly additive layer.** Every field of `energy`, `ratios`,
-`battery`, `benchmarks.energy`, `epochs`, `topology` and `diagnostics` that is not in the
-null list immediately below is **bit-identical between a run with `simulate_cost = false`
-and the same run with it `true`**, down to the per-interval SoC trace. Enabling the toggle
+**Cost simulation is a strictly additive layer.** Every field of `window`, `series`,
+`energy`, `ratios`, `battery`, `benchmarks.energy`, `epochs`, `topology` and `diagnostics`
+that is not in the null list immediately below is **bit-identical between a run with
+`simulate_cost = false` and the same run with it `true`**, down to the per-interval SoC
+trace. Enabling the toggle
 fills in the listed entries and changes nothing else: no field switches units, no field
 switches basis, and no figure already on screen moves. This is the central invariant of the
 optional-cost design and is pinned by fixture 18 in
@@ -239,6 +276,15 @@ What is `null` with `simulate_cost = false`, and populated when it is `true`:
 - `diagnostics.feedin_floor_partial_periods` and
   `diagnostics.feedin_floor_shorter_than_period` — `null`, since no floor was assessed.
 
+`series` and `window` are **not** on that list and never will be. They describe the input
+data and the grid it was reconciled onto, neither of which the cost model touches. In
+particular `diagnostics.price_granularity_lost` and `price_native_resolution_s` are
+populated in both modes: they report that intra-interval price movement was averaged away
+before dispatch, which is true whether or not euros were computed
+([§6.2](09-ingest-algorithms.md#62-simulation-grid-selection-and-resampling)). The
+cost-only companion is `price_bracket`, which bounds the *pricing* error rather than
+reporting the *dispatch* one, and that is `null` here.
+
 Nulling whole blocks rather than every leaf is a deliberate departure from the
 key-for-key rule below. The rule exists so consumers test for `null` instead of for
 existence; testing `result.cost === null` satisfies it just as well as testing
@@ -246,7 +292,10 @@ existence; testing `result.cost === null` satisfies it just as well as testing
 actually branches — the whole cost section is rendered or it is not.
 
 **Shape of the object without PV.** Every key above is still present — consumers never
-need to test for existence, only for `null`. What changes:
+need to test for existence, only for `null`. `series` and `window` are unaffected: `has_pv`
+changes which series are *required*, not what a supplied series' native resolution is, and
+a series that was never mapped is simply absent from the array rather than present with
+null fields. What changes:
 
 - `topology.has_pv` is `false` and `topology.pv_coupling` is `null`.
 - `ratios.self_consumption_baseline` and `ratios.self_consumption_battery` are `null`.

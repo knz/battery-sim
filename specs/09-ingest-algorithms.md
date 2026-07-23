@@ -46,13 +46,28 @@ def cumulative_to_delta(ts, values):
 # CSV input and to raw `state` series.
 ```
 
-Gap handling: if `ts[i+1] - ts[i]` exceeds 1.5× the nominal resolution, the interval is a
+Gap handling: if `ts[i+1] - ts[i]` exceeds 1.5× the series' native resolution, the interval is a
 **gap**. Gaps are *not* interpolated for energy; they are emitted as `NaN` and excluded
 from all sums, with their duration reported. Interpolating a 6-hour outage invents a load
 profile and quietly changes the answer. Prices, by contrast, are forward-filled (a price
 is a step function that genuinely persists).
 
 ## 6.2 Simulation grid selection and resampling
+
+Two distinct things are called "resolution" in ordinary speech and are kept apart
+throughout this package:
+
+- **Native resolution** — the spacing at which a series was actually recorded. It is a
+  property of one series, carried as `SeriesFrame.resolution_s`
+  ([§4.4](07-internal-representation.md#44-internal-normalised-representation)), and series
+  legitimately differ: hourly meter registers, 15-minute spot prices, 5-minute recent Home
+  Assistant statistics.
+- **Simulation grid** — the single uniform spacing every series is reconciled onto before
+  the run. There is exactly one per run.
+
+Both are reported per series in panel ①
+([§2.2](02-ux-wireframes.md#granularity-per-series)) and in the result object's `series`
+block, because the difference between them is where information is lost.
 
 ```python
 def choose_grid(series_frames, window):
@@ -76,18 +91,36 @@ def resample_price(frame, target_s):
     return frame.reindex(target_index).ffill()   # step function: safe to upsample
 ```
 
-> **Note on price downsampling.** Averaging 4×15-minute prices into an hourly price is
-> only exact if consumption within the hour is uniform. It is not. Where 15-minute prices
-> exist but energy is hourly, the correct move is to keep the *hourly* grid but flag that
-> price granularity has been lost — the simulator cannot exploit intra-hour spreads it
-> cannot observe in the energy data. Record this in `diagnostics`. The magnitude of the
-> resulting pricing error is bounded in
+Because the grid *is* the coarsest energy series, **no energy series is ever coarser than
+the grid**. Only a price series can sit on either side of it. That asymmetry is what makes
+the three possible outcomes of reconciling a series with the grid exhaustive, and each is
+named — these are the values reported per series in panel ① and in the result object:
+
+| Reconciliation | When | Information cost |
+|---|---|---|
+| `exact` | Energy summed from a finer native resolution into grid buckets, or native already equals the grid | None. Summing deltas is exact. |
+| `held` | A price coarser than the grid, forward-filled | None. A price is a step function that genuinely persists. |
+| `averaged` | A price finer than the grid, averaged into grid buckets | **Real.** See below. |
+
+> **Note on price downsampling.** Averaging 4×15-minute prices into an hourly price is only
+> exact if consumption within the hour is uniform. It is not. Where 15-minute prices exist
+> but energy is hourly, the correct move is to keep the *hourly* grid — nothing supports a
+> finer one — and to say that price granularity has been lost, because the simulator cannot
+> exploit intra-hour spreads it cannot observe in the energy data. Set
+> `diagnostics.price_granularity_lost` and record the price series' native spacing in
+> `diagnostics.price_native_resolution_s`
+> ([§4.5](07-internal-representation.md#45-result-object)); it is raised to the user as
+> check 3b in [§7.3](15-data-quality-and-limits.md#73-data-quality-checks-in-execution-order)
+> when the downsampling factor is 2 or more. This is a *dispatch* concern and is reported in
+> both cost modes: the battery compares against the spot series whether or not anything is
+> converted to euros ([§1.4](01-product-brief.md#a-price-series-is-not-a-cost-model)). The
+> *pricing* half of the same mismatch is bounded separately, and only when costs are
+> modelled, in
 > [§6.16](14-diagnostics.md#616-price-bracketing-under-settlementresolution-mismatch).
 
-In practice the coarsest resolution will almost always be hourly, because hourly is what
-survives: Home Assistant's long-term statistics are hourly and never purged, while
-5-minute short-term statistics default to about ten days' retention, and the P1 port
-carries no history at all
+In practice the grid will almost always be hourly, because hourly is what survives: Home
+Assistant's long-term statistics are hourly and never purged, while 5-minute short-term
+statistics default to about ten days' retention, and the P1 port carries no history at all
 ([background E1.5](18-dutch-electricity-background.md#e15-the-p1-port-and-data-resolution)).
 Design for hourly as the normal case and treat finer grids as the exception.
 
@@ -96,6 +129,12 @@ run would make the battery's behaviour resolution-dependent mid-run and the resu
 internally incomparable. How much the chosen grid costs in accuracy is measured by
 [§7.1](14-diagnostics.md#71-the-overlap-diagnostic--measure-resolution-damage-directly)
 and [§6.13](14-diagnostics.md#613-resolution-bias-diagnostic).
+
+A series whose native spacing is irregular carries `resolution_s = None`, and what
+`choose_grid` should do with it is **not settled** — see
+[open question §8.20](17-open-questions.md). The reporting is specified even though the
+ingest behaviour is not: such a series is shown as `irregular` with its reconciliation
+`undefined`, which commits the UI to nothing.
 
 ## 6.3 Household load reconstruction
 

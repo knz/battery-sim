@@ -92,10 +92,10 @@ clock.
 
 18. **Cost-invariance of the energy results** — the same input run twice, once with
     `simulate_cost = true` and a full contract configuration, once with
-    `simulate_cost = false`, produces **bit-identical** `energy`, `ratios`, `battery`
-    (excluding `soc_delta_value_eur`), `benchmarks.energy`, `epochs`, `topology` and
-    `diagnostics` (excluding the cost-only fields listed in §4.5) blocks, and an identical
-    per-interval SoC trace. This is the central invariant of the optional-cost design: the
+    `simulate_cost = false`, produces **bit-identical** `window`, `series`, `energy`,
+    `ratios`, `battery` (excluding `soc_delta_value_eur`), `benchmarks.energy`, `epochs`,
+    `topology` and `diagnostics` (excluding the cost-only fields listed in §4.5) blocks, and
+    an identical per-interval SoC trace. This is the central invariant of the optional-cost design: the
     cost model prices the flows, it never changes them, and it never changes what the flows
     are measured against either. Assert every block named above, not a sample — each of the
     three known ways to break this lands in a different one. A failure in `energy` or the
@@ -131,3 +131,19 @@ clock.
     to the same run with `simulate_cost = false`, which is what distinguishes "a cost
     benchmark was added" from "the benchmark was re-aimed".
     → [§6.12](12-metrics-and-benchmarks.md#612-perfect-foresight-benchmark)
+
+21. **Mixed native resolutions** — hourly energy series and a 15-minute `price_spot` over
+    the same window. Assert that the simulation grid is hourly (`window.dt_hours == 1.0`),
+    that `series` reports `native_resolution_s` of 3600 for the energy series and 900 for
+    the price series, that the price series' `reconciliation` is `"averaged"` while the
+    energy series' is `"exact"`, and that `diagnostics.price_granularity_lost` is `true`
+    with `price_native_resolution_s == 900`. The grid assertion is the load-bearing one: a
+    selector that let the price series vote would pick 900 s and then have to upsample
+    energy, which §6.2 forbids. Assert additionally that the hourly `spot` array holds the
+    arithmetic mean of each hour's four quarter-hourly prices, and that running the same
+    fixture with `simulate_cost = false` leaves both diagnostics fields populated and
+    unchanged — they report a dispatch fact, not a pricing one, and fixture 18's invariance
+    list covers them.
+    → [§6.2](09-ingest-algorithms.md#62-simulation-grid-selection-and-resampling),
+    [§4.5](07-internal-representation.md#45-result-object),
+    [§7.3](15-data-quality-and-limits.md#73-data-quality-checks-in-execution-order)
