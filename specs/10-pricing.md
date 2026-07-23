@@ -29,6 +29,11 @@ waterfall consumes the price arrays directly.
 All three contract types produce the same two arrays. This is deliberately a single code
 path with three rate sources, not three pricing engines.
 
+`DYNAMIC`, `FIXED` and `VARIABLE` are the vocabulary everywhere in this package, radio
+labels and result fields included: the user-facing name of a contract type is the enum
+value lower-cased, with no country qualifier. The three types are defined in
+[background E3.1](18-dutch-electricity-background.md#e31-the-three-forms).
+
 ```python
 def bare_supply_price(cfg, index, tariff_zone, spot):
     """[vectorisable] EUR/kWh, excl. energy tax and VAT."""

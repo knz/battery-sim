@@ -10,6 +10,9 @@
 
 | Term | Meaning |
 |---|---|
+| Dynamic (dynamisch) | Contract whose bare price follows the hourly EPEX day-ahead market. |
+| Fixed (vast) | Contract with one normaal and one dal rate, agreed for the term. |
+| Variable (variabel) | Contract whose rate the supplier sets and revises periodically, typically every six months. |
 | Salderingsregeling | Dutch net metering. Abolished 1 Jan 2027; out of scope. |
 | Terugleververgoeding | Feed-in compensation paid per exported kWh. |
 | Terugleverkosten | Feed-in *charge* levied by the supplier per exported kWh. |
@@ -28,6 +31,15 @@
 
 Where these terms carry a modelling consequence:
 
+- **Dynamic / fixed / variable** — the one-line entries above are summaries. The three
+  types are defined in full in
+  [background E3.1](18-dutch-electricity-background.md#e31-the-three-forms), which is the
+  single place to change if a definition needs revising; the
+  [§2.3 contract help popover](02-ux-wireframes.md#the-contract-type-help-affordance)
+  defers to it as well. These same three words are the user-facing labels and the
+  `DYNAMIC` / `FIXED` / `VARIABLE` values of `cfg.contract`
+  ([§6.5](10-pricing.md#65-price-curves)) — the package carries no country qualifier on
+  them, being single-jurisdiction throughout.
 - **Salderingsregeling** — the pre-2027 regime is out of scope, but the pricing engine
   keeps an extension point for it ([§6.5](10-pricing.md#65-price-curves)). The regime binds
   the cost path only; energy flows and the kWh metrics derived from them are

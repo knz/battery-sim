@@ -42,7 +42,7 @@ applies to every number downstream. The per-series breakdown is in the expanded 
 ([§2.2](#granularity-per-series)).
 
 The panel ② summary line ends with the run's cost mode: the contract name
-(`dynamic`, `Dutch fixed`, `Dutch variable`) when cost simulation is on, and `energy only`
+(`dynamic`, `fixed`, `variable`) when cost simulation is on, and `energy only`
 when it is off. That word is the fastest way for a user to see, from the collapsed state,
 which of the two products they are looking at.
 
@@ -352,7 +352,7 @@ The expected format for each series is in [05-data-formats.md](05-data-formats.m
 │  └────────────────────────────────────────────────────────────────────────┘  │
 │                                                                              │
 │  ┌─ Pricing ───────────────────────── [only when simulating costs] ──────┐  │
-│  │  Contract   ( • ) Dynamic   (   ) Dutch fixed   (   ) Dutch variable   │  │
+│  │  Contract ⓘ  ( • ) Dynamic     (   ) Fixed     (   ) Variable          │  │
 │  │                                                                        │  │
 │  │  ┌ Dynamic ──────────────────────────────────────────────────────────┐ │  │
 │  │  │  Spot source        ( • ) from mapped sensor  (  ) upload CSV     │ │  │
@@ -387,16 +387,16 @@ The expected format for each series is in [05-data-formats.md](05-data-formats.m
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-The **Dutch fixed** and **Dutch variable** sub-panels replace the Dynamic sub-panel:
+The **Fixed** and **Variable** sub-panels replace the Dynamic sub-panel:
 
 ```
-  ┌ Dutch fixed ──────────────────────────────────────────────────────────┐
+  ┌ Fixed ────────────────────────────────────────────────────────────────┐
   │  Supply rate normaal (T1)  [ 0.1350 ] €/kWh  excl. tax and VAT        │
   │  Supply rate dal     (T2)  [ 0.1180 ] €/kWh  excl. tax and VAT        │
   │  Contract runs from        [ 2025-01-01 ]  to  [ 2027-01-01 ]         │
   └───────────────────────────────────────────────────────────────────────┘
 
-  ┌ Dutch variable ───────────────────────────────────────────────────────┐
+  ┌ Variable ─────────────────────────────────────────────────────────────┐
   │  Rate schedule — supplier changes these, typically 1 Jan and 1 Jul.   │
   │                                                                       │
   │    FROM          NORMAAL (T1)   DAL (T2)                              │
@@ -407,6 +407,35 @@ The **Dutch fixed** and **Dutch variable** sub-panels replace the Dynamic sub-pa
   │  Rates excl. energy tax and VAT.                                      │
   └───────────────────────────────────────────────────────────────────────┘
 ```
+
+### The contract-type help affordance
+
+The three contract types are named by the single words the Dutch market uses —
+**dynamic**, **fixed**, **variable** — and the package is single-jurisdiction throughout,
+so no country qualifier appears on any of them. These are the same three names as the
+`DYNAMIC` / `FIXED` / `VARIABLE` values in
+[§6.5](10-pricing.md#65-price-curves); label and enum do not diverge.
+
+The bare words do not tell a user which one they hold, and *variable* and *dynamic* are
+the pair most easily confused: both describe a rate that moves. The `ⓘ` next to
+**Contract** exists for that, and opens a popover naming the one thing that separates each
+type from the others:
+
+- **Dynamic** — the price follows the EPEX day-ahead market and changes every hour.
+- **Fixed** — one normaal and one dal rate, agreed for the term of the contract.
+- **Variable** — the supplier sets the rate and revises it periodically, typically every
+  six months. Between revisions it behaves exactly like a fixed contract.
+
+It closes with a link to
+[background E3.1](18-dutch-electricity-background.md#e31-the-three-forms), which carries
+the full treatment including the Dutch names (*dynamisch*, *vast*, *variabel*) and what
+each means for a battery. E3.1 is the single normative definition of the three types: the
+popover text above and the glossary entries in
+[Appendix B](appendix-b-glossary.md) are deliberately one line each and defer to it, so
+that a change to the definitions is made in one place.
+
+The affordance is part of the Pricing box and is therefore absent when cost simulation is
+off, along with everything else in that box.
 
 ### Without PV
 

@@ -108,8 +108,10 @@ for. But two things follow:
   already-installed battery if its sensors are provided.
 - Mixed-resolution input data, normalised onto a single uniform simulation grid.
 - Three charge policies, three discharge policies, freely combinable.
-- Three pricing models: dynamic (spot-based), Dutch fixed, Dutch variable — used when cost
-  simulation is on.
+- Three pricing models, named as the Dutch market names them: **dynamic** (follows the
+  hourly EPEX spot price), **fixed** (one rate for the contract term) and **variable**
+  (supplier-set, revised periodically) — used when cost simulation is on. Defined in
+  [background E3.1](18-dutch-electricity-background.md#e31-the-three-forms).
 - Predefined time ranges: last week / month / 3 months / 6 months / year.
 - Results: energy saved (kWh and %), equivalent full cycles, self-consumption and
   self-sufficiency ratios, plus time-series and monthly breakdowns; and, with cost
