@@ -1,8 +1,7 @@
 # 6.6–6.9 Policies, battery step function and main loop
 
 > **Purpose:** the sequential core of the simulator — what the policies request, what the
-> battery and the connection actually allow, and how the four runs per request fit
-> together.
+> battery and the connection actually allow, and how the runs per request fit together.
 > **Audience:** backend, domain layer.
 > **Read with:** [10-pricing.md](10-pricing.md) (costs these flows),
 > [12-metrics-and-benchmarks.md](12-metrics-and-benchmarks.md) (summarises them),
@@ -46,6 +45,12 @@ nothing while P3 degenerates to P2. Neither is offered in the UI in that case
 ([§2.3](02-ux-wireframes.md#without-pv)); `charge_policy` is P2. The code above needs no
 branch on `has_pv` — it already computes the right answer — and should not acquire one.
 
+**Without cost simulation nothing here changes.** All three charge policies remain
+available and `st.spot` is populated as usual. The band comparison is a *dispatch*
+decision — it selects which intervals the battery charges in — and that decision changes
+the kWh answer whether or not anyone prices the result. This function takes no branch on
+`simulate_cost` and should not acquire one either.
+
 ## 6.7 Discharge policy
 
 ```python
@@ -63,6 +68,8 @@ def discharge_request(policy, i, st, cfg):
         if cfg.allow_grid_export:
             req_grid = full - req_home
 
+    # economic_guard requires a cost model: p_export_net does not exist
+    # without one. Forced off when cfg.simulate_cost is false.
     if cfg.economic_guard and st.p_export_net[i] <= 0:
         req_grid = 0.0        # never pay to export
 
@@ -88,6 +95,13 @@ is what the perfect-foresight benchmark in
 margin, because fixed bands are a poor approximation of a price signal that moves daily.
 Expect capture ratios well below the PV case, and do not treat that as a defect in the
 simulator.
+
+**Without cost simulation, D1/D2/D3 all remain available and behave identically.** The one
+change is that **`economic_guard` is unavailable and forced off**: "never discharge at a
+loss" is a claim about `p_export_net`, which is a cost-model output and does not exist. It
+is hidden in the UI ([§2.3](02-ux-wireframes.md#without-cost-simulation)) rather than
+offered and silently ignored. `allow_grid_export` is unaffected — it is a physical
+permission, not an economic one.
 
 `allow_grid_export` defaults **off**. Under the 2027 regime, a kWh discharged to the house
 displaces `p_import` (≈ €0.25 at €0.08 spot) while a kWh exported earns `p_export_net`
@@ -187,7 +201,7 @@ Efficiency split convention: `eta_c = eta_d = sqrt(roundtrip_efficiency)`. The u
 a single **AC-to-AC** round-trip figure. `eta_c_dc = sqrt(roundtrip_dc)` where
 `roundtrip_dc` defaults to `roundtrip + 0.04` for DC-coupled systems, overridable. Which
 of the two applies is set by the PV-coupling selector in
-[§2.5](03-topology-selector.md#a-pv-coupling--always-shown).
+[§2.5](03-topology-selector.md#a-pv-coupling--shown-when-the-household-has-pv).
 
 SoC bounds: `soc_min_kwh = usable_capacity * min_soc_pct/100`,
 `soc_max_kwh = usable_capacity * max_soc_pct/100`. "Usable capacity" is the full 0–100%
@@ -237,20 +251,28 @@ The `cancel_event` check implements the cooperative cancellation described in
 [§3.3](04-state-machine.md#33-concurrency-and-run-identity) and
 [§5.3](08-architecture.md#53-compute).
 
-**Four runs per request**, which together make the cost waterfall exact rather than
-approximate:
+**Four runs per request, five when cost is simulated.** Together they make the cost
+waterfall exact rather than approximate, and give each headline figure a ceiling optimised
+for the quantity that headline measures:
 
-| Run | Battery | Standby | Purpose |
-|---|---|---|---|
-| A | no | no | Baseline |
-| B | yes | no | Isolates flow effects |
-| C | yes | yes | The headline result |
-| D | perfect foresight | yes | Upper bound |
+| Run | Battery | Standby | Purpose | When |
+|---|---|---|---|---|
+| A | no | no | Baseline | Always |
+| B | yes | no | Isolates flow effects | Always |
+| C | yes | yes | The headline result | Always |
+| D | perfect foresight, minimising kWh imported | yes | Energy upper bound | Always |
+| E | perfect foresight, minimising EUR spent | yes | Cost upper bound | `simulate_cost` |
 
 `standby_cost ≡ cost(C) − cost(B)` exactly. Run A is vectorised, B and C are the
-sequential loop, D is the DP in
-[§6.12](12-metrics-and-benchmarks.md#612-perfect-foresight-benchmark). Total ≈ 1–3 s at
-hourly resolution.
+sequential loop, D and E are the same DP under different objectives
+([§6.12](12-metrics-and-benchmarks.md#612-perfect-foresight-benchmark)). Total ≈ 1–3 s at
+hourly resolution, ≈ 2–5 s with run E.
+
+Runs A through D are flow simulations or flow-objective optimisations and produce identical
+output in both cost modes; enabling `simulate_cost` adds run E and prices the results,
+changing no kWh figure anywhere. Run B exists to isolate standby, which without a cost model
+is reported as a kWh figure (`energy.standby_kwh`) rather than as a euro line; the run is
+needed either way to produce it.
 
 The battery state is **not** reset at configuration-epoch boundaries — it is one
 continuous simulation, and only the reporting is segmented. See

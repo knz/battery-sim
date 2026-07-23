@@ -22,6 +22,8 @@
 | RTE | Round-trip efficiency, AC-to-AC at the meter unless stated. |
 | Intern salderen | Internal netting across phases by the smart meter. Survives 2027. |
 | Configuration epoch | A span of the window with unchanged physical installation. |
+| Cost simulation | The optional half of a run that converts kWh to euros: contract, tax, VAT, feed-in. Off by default (`cfg.simulate_cost`). |
+| Dispatch signal | The spot price in its role of deciding *when* the battery charges and discharges, as opposed to its role as a cost input. Present in both cost modes. |
 | MTU15 | 15-minute market time unit; EPEX settlement since 1 October 2025. |
 
 Where these terms carry a modelling consequence:
@@ -34,8 +36,11 @@ Where these terms carry a modelling consequence:
   whose difference may be negative ([§6.5](10-pricing.md#65-price-curves)).
 - **Vastrecht** and **vermindering energiebelasting** — battery-invariant, therefore
   excluded from savings ([§6.10](10-pricing.md#610-cost-accounting)).
-- **Normaal / dal** — which register is which is detected from the data, not assumed
-  ([§6.4](09-ingest-algorithms.md#64-tariff-register-identification-and-zone-assignment)).
+- **Normaal / dal** — which register is which is detected from when each accrues, not
+  assumed from its label, and only when a bill is being computed
+  ([§6.4](09-ingest-algorithms.md#64-tariff-registers--availability-identification-and-use)).
+  Whether both registers are present at all is a separate question, about the meter
+  installation rather than the contract, and is checked in both cost modes.
 - **Intern salderen** — the reason the overlap diagnostic is a clean measure of temporal
   resolution loss ([§7.1](14-diagnostics.md#71-the-overlap-diagnostic--measure-resolution-damage-directly)).
 - **MTU15** — the reason a price bracket is needed when energy data is hourly

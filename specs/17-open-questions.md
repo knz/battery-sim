@@ -3,7 +3,7 @@
 > **Purpose:** decisions the specification does not make, ordered by how much rework the
 > answer causes if deferred.
 > **Audience:** product owner.
-> **Status:** all seventeen are open. Where the spec had to pick something to remain
+> **Status:** all are open. Where the spec had to pick something to remain
 > implementable, the choice it made is stated and marked as a choice, not a finding.
 
 1. **Feed-in reference for dynamic contracts.** The statutory floor is 50% of the "bare
@@ -124,6 +124,9 @@
     the daytime-export heuristic; or make it an unset radio group that must be answered
     before the run proceeds, which costs one click for everyone and removes the guess
     entirely. The third is the recommendation if panel ② can afford the friction.
+    **Decide together with §8.18** — these are the two toggles that shape what panel ②
+    asks for, and making both unset costs the user two clicks before any result appears,
+    which is a different friction calculation from making one unset.
     → [§2.3](02-ux-wireframes.md#23-panel--parameter-configuration-expanded),
     [appendix-a-defaults.md](appendix-a-defaults.md)
 
@@ -139,3 +142,37 @@
     [§1.7](01-product-brief.md#17-design-principles), keeping it is the recommendation.
     → [§6.7](11-policies-and-battery.md#67-discharge-policy),
     [§2.3](02-ux-wireframes.md#without-pv)
+
+18. **Default for `simulate_cost`.** Defaulted to `false`, so a first-time user reaches an
+    energy-only result without entering a single euro figure — which is what protects the
+    five-minute cold-start criterion in
+    [§1.6](01-product-brief.md#16-success-criteria), since the alternative asks a user who
+    has just connected Home Assistant to also know their supply rate, their feed-in terms
+    and the current energy tax. The cost of the default is that cost simulation is the more
+    compelling half of the product and some users will never find the toggle. The results
+    panel carries an explicit affordance for this reason
+    ([§2.4](02-ux-wireframes.md#panel--without-cost-simulation)), but an affordance is weaker than
+    a default. Options: keep `false`; default to `true` and accept the configuration
+    burden on first run; or leave it unset and require an answer, as
+    [§8.16](17-open-questions.md) contemplates for `has_pv`. Decide together with §8.16.
+    → [§2.3](02-ux-wireframes.md#23-panel--parameter-configuration-expanded),
+    [appendix-a-defaults.md](appendix-a-defaults.md)
+
+19. **Two perfect-foresight runs when cost is simulated.** The benchmark that bounds the
+    kWh headline minimises grid import; the one that bounds the euro headline minimises
+    euros ([§6.12](12-metrics-and-benchmarks.md#612-perfect-foresight-benchmark)). Both run
+    when cost simulation is on. This is **required**, not a convenience: the two objectives
+    have different optima, so a single DP retargeted by `simulate_cost` would move the
+    energy section's ceiling and capture ratio when the user asked for euros — a kWh figure
+    changing for a reason unrelated to the household's battery, which is precisely what the
+    additive-layer guarantee in
+    [§4.5](07-internal-representation.md#shape-of-the-object-without-cost-simulation)
+    forbids. The price is a second DP pass (a few seconds) and a second objective to test.
+    The only alternative that preserves the guarantee is to show no ceiling in the energy
+    section at all, which is cheaper but leaves "you saved 1,412 kWh" unanchored — the
+    condition §6.12 exists to prevent. Recorded here because the compute cost is a product
+    decision, not because the design is undecided: confirm the two-run cost is acceptable,
+    or accept an unanchored kWh headline.
+    → [§6.12](12-metrics-and-benchmarks.md#612-perfect-foresight-benchmark),
+    [§6.9](11-policies-and-battery.md#69-main-simulation-loop),
+    [§2.4](02-ux-wireframes.md#24-panel--results-expanded)

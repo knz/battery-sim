@@ -25,7 +25,13 @@ clock.
    indicates a clamping bug.
    → [§6.8](11-policies-and-battery.md#68-battery-step-function)
 6. **Bound** — perfect-foresight saving ≥ every policy saving, for every configuration.
-   This is a strong invariant and catches most policy and pricing errors.
+   This is a strong invariant and catches most policy and pricing errors. Assert it
+   **within** each benchmark block, in that block's own units:
+   `benchmarks.energy.perfect_foresight_saved_kwh ≥ policy_saved_kwh` in every run, and
+   `benchmarks.cost.perfect_foresight_eur ≥ policy_eur` whenever cost is simulated. Do not
+   compare across the two blocks — the cost-optimal dispatch routinely avoids *less* import
+   than the import-optimal one, so asserting the bound across them would fail
+   correctly-built code.
    → [§6.12](12-metrics-and-benchmarks.md#612-perfect-foresight-benchmark)
 7. **DST** — a window spanning both the March and October transitions has 8,760 ± 1 hourly
    intervals with no duplicated or dropped index entries.
@@ -58,10 +64,14 @@ clock.
     `MONTHLY`, and the shortfall appears in `feedin_floor_topup`, not in any other
     waterfall line. Fixture 4's closure must still hold to ±1e-6 with the top-up nonzero.
     → [§6.10](10-pricing.md#610-cost-accounting)
-15. **Single-tariff register** — a window in which T2 never increments is priced entirely
-    from the normaal rate, raises no gap or missing-series warning, and suppresses the
-    §6.4(b) zone-mismatch check rather than reporting 100% mismatch.
-    → [§6.4](09-ingest-algorithms.md#64-tariff-register-identification-and-zone-assignment)
+15. **Incomplete register set** — a window in which T2 never increments yields
+    availability `INCOMPLETE`, raises the check 8a installation warning, raises no gap or
+    missing-series warning, does **not** block the run, is priced entirely from the normaal
+    rate, and skips both `detect_dal_register` and the check 8b zone-mismatch test rather
+    than reporting `UNCERTAIN` or a 100% mismatch. Assert additionally that the energy
+    results are identical to the same data with the import split across two active
+    registers — register partitioning must not reach the flow simulation at all.
+    → [§6.4](09-ingest-algorithms.md#64-tariff-registers--availability-identification-and-use)
 16. **No-PV arbitrage** — `has_pv = false`, no `solar_production` series, flat 1 kW load,
     and a square-wave price alternating daily between a low inside band `[A,B]` and a high
     inside band `[C,D]`. With P2/D2 the battery performs exactly one full cycle per day and
@@ -79,3 +89,45 @@ clock.
     fields may differ. This pins the decision that the numeric core takes no `has_pv`
     branch ([§4.4](07-internal-representation.md#44-internal-normalised-representation)).
     → [§6.8](11-policies-and-battery.md#68-battery-step-function)
+
+18. **Cost-invariance of the energy results** — the same input run twice, once with
+    `simulate_cost = true` and a full contract configuration, once with
+    `simulate_cost = false`, produces **bit-identical** `energy`, `ratios`, `battery`
+    (excluding `soc_delta_value_eur`), `benchmarks.energy`, `epochs`, `topology` and
+    `diagnostics` (excluding the cost-only fields listed in §4.5) blocks, and an identical
+    per-interval SoC trace. This is the central invariant of the optional-cost design: the
+    cost model prices the flows, it never changes them, and it never changes what the flows
+    are measured against either. Assert every block named above, not a sample — each of the
+    three known ways to break this lands in a different one. A failure in `energy` or the
+    SoC trace means a cost term has leaked into the dispatch path, most likely
+    `economic_guard`, which must be forced off rather than left reading an absent
+    `p_export_net`. A failure in `benchmarks.energy` means the perfect-foresight DP is being
+    retargeted at euros instead of a second DP being added. A failure in `diagnostics` means
+    §6.13 is selecting its basis from `simulate_cost` instead of always measuring kWh.
+    → [§6.6–6.7](11-policies-and-battery.md#66-charge-policy),
+    [§6.12](12-metrics-and-benchmarks.md#612-perfect-foresight-benchmark),
+    [§6.13](14-diagnostics.md#613-resolution-bias-diagnostic),
+    [§4.5](07-internal-representation.md#shape-of-the-object-without-cost-simulation)
+
+19. **Energy-only result shape** — a run with `simulate_cost = false` yields `cost`,
+    `benchmarks.cost`, `price_bracket`, `battery.soc_delta_value_eur`,
+    `monthly[].saved_eur` and `diagnostics.resolution_bias_pct_eur` all `null` — never
+    `0.0` — while `benchmarks.energy` is fully populated. The exported per-interval CSV
+    omits `p_import_eur_kwh`, `p_export_net_eur_kwh`, `base_cost_eur` and `batt_cost_eur`
+    from its header entirely, and retains `spot_eur_kwh`. Assert the run raises no
+    missing-series warning for absent contract configuration, and that
+    `diagnostics.resolution_bias_pct` is populated rather than `None`.
+    → [§4.5](07-internal-representation.md#shape-of-the-object-without-cost-simulation),
+    [§4.6](07-internal-representation.md#46-per-interval-csv-export),
+    [§6.13](14-diagnostics.md#613-resolution-bias-diagnostic)
+
+20. **The cost-objective DP is a second run, not a retargeted one** — with
+    `simulate_cost = true`, a square-wave price alternating daily between a low inside band
+    `[A,B]` and a high inside band `[C,D]`, and a flat load: `benchmarks.cost` bounds the
+    policy run on euros, `benchmarks.energy` bounds it on kWh, and the two DP dispatch
+    traces are *not* identical. The last part is the point — if the two objectives produce
+    the same trace, only one DP is really running and `transition_cost` is returning euros
+    for both. Assert additionally that `benchmarks.energy` over this data is bit-identical
+    to the same run with `simulate_cost = false`, which is what distinguishes "a cost
+    benchmark was added" from "the benchmark was re-aimed".
+    → [§6.12](12-metrics-and-benchmarks.md#612-perfect-foresight-benchmark)

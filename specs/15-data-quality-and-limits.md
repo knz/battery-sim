@@ -54,6 +54,20 @@
    the battery saves nothing but its own standby draw, which the simulator will duly
    report as a negative saving. That is correct output, not a fault.
 
+   This is sharpest in the narrowest configuration — no PV and no cost simulation — where
+   the result is driven entirely by the user's own charge and discharge bands acting on the
+   spot series. The kWh figure is genuine, but it measures the band configuration at least
+   as much as it measures the battery, and the UI should not let it read as a
+   property of the hardware alone.
+
+10. **An energy-only run cannot tell the user whether the battery is worth buying.** It
+    reports kWh of grid import avoided, which is a real and correctly-measured quantity,
+    but grid import avoided at 3 a.m. and grid import avoided at 6 p.m. are worth very
+    different amounts and the energy figure weights them identically. Cost simulation is
+    what distinguishes them. Since it defaults off, the energy-only results panel must not
+    frame its output as an investment answer, and the affordance offering cost simulation
+    ([§2.4](02-ux-wireframes.md#panel--without-cost-simulation)) exists partly for this reason.
+
 A further known gap — a 1-phase battery on a 3-phase connection, where the per-phase power
 ceiling cannot be modelled without per-phase data — is handled as a soft block in
 [§2.5](03-topology-selector.md) and raised as
@@ -66,32 +80,46 @@ ceiling cannot be modelled without per-phase data — is handled as a soft block
 | 1 | Timestamps carry a UTC offset | Reject file, explain DST ambiguity |
 | 2 | Series monotonic where `kind=cumulative` | [§6.1](09-ingest-algorithms.md#61-cumulative-meter-register--interval-deltas) reset handling, count and flag |
 | 3 | Gap detection at > 1.5× nominal resolution | Flag; exclude from sums; report hours |
-| 4 | Required series present for chosen pricing **and for the declared PV state** | Block run, name the missing series |
+| 4 | Required series present: grid registers, spot price, **and solar per the declared PV state** | Block run, name the missing series |
 | 5 | Windows of the mapped series overlap | Restrict to intersection, report |
 | 6 | Reconstructed load ≥ 0 | Clamp, flag, warn with likely causes ([§6.3](09-ingest-algorithms.md#63-household-load-reconstruction)) |
 | 6b | *No PV declared:* sustained daytime export ([§6.15](13-configuration-epochs.md#undeclared-pv)) | Ask the user whether they have PV; do not change `has_pv` automatically |
 | 7 | `overlap_pct` ([§7.1](14-diagnostics.md#71-the-overlap-diagnostic--measure-resolution-damage-directly)) | Warn per the table there — *PV households only*; without PV route a nonzero value to 6b |
-| 8 | Tariff zone rule vs registers ([§6.4](09-ingest-algorithms.md#64-tariff-register-identification-and-zone-assignment)) | Warn above 5% mismatch |
+| 8a | Both meter registers present and accruing ([§6.4](09-ingest-algorithms.md#1-register-availability)) | Warn: probable incomplete mapping or installation. Do not block |
+| 8b | *Cost only:* tariff zone rule vs registers ([§6.4](09-ingest-algorithms.md#3-which-zone-applies-to-a-simulated-interval)) | Warn above 5% mismatch |
 | 9 | *PV only:* implausible PV: `pv > 0` at local solar midnight | Warn — likely a mismapped sensor |
 | 10 | Implausible totals: PV > 2000 kWh/kWp/yr, load > 30 MWh/yr | Warn, do not block |
 | 11 | Config: `soc_min < soc_max`, powers > 0, `0.5 < RTE ≤ 1.0` | Block with field errors |
 | 12 | Config: charge band ∩ discharge band = ∅ | Warn, allow (netting handles it — [§6.7](11-policies-and-battery.md#67-discharge-policy)) |
-| 13 | Window ≥ 90 days for annualisation, tiered TLK | Disable those features, explain |
+| 13 | Window ≥ 90 days for annualisation; *cost only:* also for tiered TLK | Disable those features, explain |
 | 14 | Configuration epoch boundaries ([§6.15](13-configuration-epochs.md)) | Offer to restrict window; block annualisation if spanning |
 | 15 | Undeclared battery heuristics ([§6.15](13-configuration-epochs.md#undeclared-batteries)) | Ask the user; do not assert |
 | 16 | *PV only:* cross-correlation lag between PV and meter ([§6.17](14-diagnostics.md#617-timestamp-misalignment-detection)) | Offer a shift; never apply silently |
 | 17 | Power-vs-energy residual, where both mapped ([§6.17](14-diagnostics.md#617-timestamp-misalignment-detection)) | Warn above 5% mean or 3% diurnal |
 | 18 | Unsupported phase topology selected ([§2.5](03-topology-selector.md)) | Soft block; set `topology.approximated` |
 
-Checks marked *PV only* are **skipped** when `has_pv = false`, and reported as skipped
-rather than as passed. A quality panel that shows a green tick beside "solar sensor
-plausibility" for a household with no solar sensor is telling the user something false
-about how much the data was checked.
+Checks marked *PV only* are **skipped** when `has_pv = false`, and those marked *cost only*
+are skipped when `simulate_cost = false`. In both cases they are reported as **skipped
+rather than as passed**. A quality panel that shows a green tick beside "solar sensor
+plausibility" for a household with no solar sensor, or beside "tariff zone rule" for a run
+that priced nothing, is telling the user something false about how much the data was
+checked.
 
-Check 4 is now two-sided. It blocks when `has_pv = true` and no `solar_production` series
-was mapped, and equally when a `solar_production` series was supplied while `has_pv =
-false` — the latter is a contradiction, not a harmless extra, since one of the two answers
-is wrong and the app cannot tell which. Name the conflict and let the user resolve it.
+Check 4 is two-sided on PV. It blocks when `has_pv = true` and no `solar_production`
+series was mapped, and equally when a `solar_production` series was supplied while
+`has_pv = false` — the latter is a contradiction, not a harmless extra, since one of the
+two answers is wrong and the app cannot tell which. Name the conflict and let the user
+resolve it. It is **not** two-sided on cost: `price_spot` is required in both cost modes
+because the charge and discharge bands consume it
+([§1.4](01-product-brief.md#a-price-series-is-not-a-cost-model)), so there is no cost mode
+in which its presence is a contradiction.
+
+Check 8 is split because its two halves ask different questions. **8a** asks whether the
+meter's two registers are both present and accruing — a fact about the installation and the
+mapping, independent of any contract, and therefore checked in both cost modes. **8b** asks
+whether the *configured day/night window* agrees with when those registers actually
+accrued, which matters only to a bill and is skipped without cost simulation. Running 8b
+without 8a passing is meaningless and it is skipped in that case too.
 
 ## 7.4 Window anchoring and short-window guard
 
@@ -109,11 +137,15 @@ almost no surplus and value comes only from price arbitrage. Scaling either to a
 wrong by a factor of roughly 2–3 in opposite directions.
 
 The same 90-day floor gates tiered terugleverkosten, which must be resolved from
-annualised export — see [§6.5](10-pricing.md#65-price-curves). Annualisation is also
+annualised export — see [§6.5](10-pricing.md#65-price-curves). That half of the check
+applies only when cost simulation is on. Annualisation itself applies in both modes: an
+annualised kWh saving is projected from a short window with exactly the same seasonal error
+as an annualised euro saving, so the guard is not a cost feature. Annualisation is also
 disabled when the window spans a configuration-epoch boundary
 ([§6.15](13-configuration-epochs.md#effects-on-the-rest-of-the-application)).
 
-**Partial assessment periods for the feed-in floor.** The statutory floor on feed-in
+**Partial assessment periods for the feed-in floor.** Applies to cost simulation only.
+The statutory floor on feed-in
 compensation is assessed over a calendar month by default, so an arbitrary window leaves a
 partial month at each end. Assess the floor over the partial period as it stands and
 record the count in `diagnostics.feedin_floor_partial_periods`; do not drop the partial

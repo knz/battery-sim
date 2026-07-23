@@ -56,9 +56,16 @@ Notes on the fields that are not simulation inputs:
   the overlap diagnostic in
   [§7.1](14-diagnostics.md#71-the-overlap-diagnostic--measure-resolution-damage-directly),
   which requires both. Keep them.
+- `spot` **is always present**, in both cost modes. It is the dispatch signal the charge
+  and discharge bands compare against, not only a cost input
+  ([§1.4](01-product-brief.md#a-price-series-is-not-a-cost-model)). Unlike `pv`, it has no
+  neutral value: an all-zero `spot` would not mean "no prices", it would mean "prices are
+  zero everywhere", and every band comparison would silently take a definite and wrong
+  branch. There is therefore no energy-only mode in which this field is absent.
 - `spot_min` / `spot_max` drive the price bracket in
   [§6.16](14-diagnostics.md#616-price-bracketing-under-settlementresolution-mismatch) and
-  are `None` when the source has no sub-interval price information.
+  are `None` when the source has no sub-interval price information, or when cost simulation
+  is off and the bracket will not be computed.
 - `epoch_id` lets metrics be grouped per configuration epoch without re-running the
   simulation — see [§6.15](13-configuration-epochs.md#615-configuration-epochs).
 
@@ -71,6 +78,10 @@ Notes on the fields that are not simulation inputs:
   "window": { "start": "2025-07-22T00:00:00Z", "end": "2026-07-21T23:00:00Z",
               "intervals": 8760, "dt_hours": 1.0, "resolution": "hour" },
   "config_hash": "sha256:9f2c…",
+  // false ⇒ cost, benchmarks.cost and price_bracket are null; everything
+  // else below is identical either way. See "Shape of the object without
+  // cost simulation".
+  "simulate_cost": true,
 
   "energy": {
     "baseline":  { "import_kwh": 4129.4, "export_kwh": 3180.2 },
@@ -115,11 +126,23 @@ Notes on the fields that are not simulation inputs:
     "self_sufficiency_baseline": 0.31, "self_sufficiency_battery": 0.52
   },
 
+  // One benchmark per headline figure, each from a DP optimised for its own
+  // quantity (§6.12). `energy` is always present; `cost` is null without cost
+  // simulation. The two are never derived from one another: the cost-optimal
+  // dispatch avoids less import than the import-optimal one.
   "benchmarks": {
-    "no_battery_eur": 0.0,
-    "policy_eur": 331.10,
-    "perfect_foresight_eur": 478.30,
-    "capture_ratio": 0.692
+    "energy": {
+      "no_battery_saved_kwh": 0.0,
+      "policy_saved_kwh": 1412.3,
+      "perfect_foresight_saved_kwh": 1988.0,
+      "capture_ratio": 0.710
+    },
+    "cost": {
+      "no_battery_eur": 0.0,
+      "policy_eur": 331.10,
+      "perfect_foresight_eur": 478.30,
+      "capture_ratio": 0.692
+    }
   },
 
   "epochs": [
@@ -149,7 +172,10 @@ Notes on the fields that are not simulation inputs:
     "overlap_kwh": 61.2, "overlap_pct": 1.5,
     "time_offset_s": 0, "time_offset_confidence": 0.94,
     "power_energy_residual_pct": 0.8,
+    // Always measured against the kWh saving, so it does not move with the
+    // cost toggle. The euro-basis figure beside it is an addition (§6.13).
     "resolution_bias_pct": 8.4,
+    "resolution_bias_pct_eur": 9.1,
     "resolution_bias_basis": "9 days at 5-minute vs hourly",
     "negative_load_intervals": 41, "negative_load_pct": 0.41,
     "gaps_filled_hours": 4.2,
@@ -176,11 +202,48 @@ Where each block comes from:
 |---|---|
 | `energy`, `ratios`, `battery` | [§6.11](12-metrics-and-benchmarks.md#611-metrics) |
 | `cost.waterfall` | [§6.10](10-pricing.md#610-cost-accounting) |
-| `benchmarks.perfect_foresight_eur` | [§6.12](12-metrics-and-benchmarks.md#612-perfect-foresight-benchmark) |
+| `benchmarks.energy`, `benchmarks.cost` | [§6.12](12-metrics-and-benchmarks.md#612-perfect-foresight-benchmark) |
 | `epochs`, `epoch_used`, `spans_epoch_boundary` | [§6.15](13-configuration-epochs.md#615-configuration-epochs) |
 | `price_bracket` | [§6.16](14-diagnostics.md#616-price-bracketing-under-settlementresolution-mismatch) |
 | `topology` | [§2.5](03-topology-selector.md) |
 | `diagnostics` | [14-diagnostics.md](14-diagnostics.md) and [§7.3](15-data-quality-and-limits.md#73-data-quality-checks-in-execution-order) |
+
+### Shape of the object without cost simulation
+
+**Cost simulation is a strictly additive layer.** Every field of `energy`, `ratios`,
+`battery`, `benchmarks.energy`, `epochs`, `topology` and `diagnostics` that is not in the
+null list immediately below is **bit-identical between a run with `simulate_cost = false`
+and the same run with it `true`**, down to the per-interval SoC trace. Enabling the toggle
+fills in the listed entries and changes nothing else: no field switches units, no field
+switches basis, and no figure already on screen moves. This is the central invariant of the
+optional-cost design and is pinned by fixture 18 in
+[16-validation-harness.md](16-validation-harness.md).
+
+What is `null` with `simulate_cost = false`, and populated when it is `true`:
+
+- `cost` — `null` **wholesale**. Not an object of null fields, and in particular not a
+  `waterfall` array of eight null-valued entries, which would invite a template to render
+  eight empty rows.
+- `benchmarks.cost` — `null` wholesale, for the same reason. `benchmarks.energy` is present
+  in both modes and carries the same numbers in both, because the DP behind it minimises
+  grid import regardless of what else is being computed
+  ([§6.12](12-metrics-and-benchmarks.md#612-perfect-foresight-benchmark)). If the DP could
+  not run at all, both blocks are `null`.
+- `price_bracket` — `null`. Bracketing exists to bound a *pricing* error.
+- `battery.soc_delta_value_eur` — `null`. Residual SoC is still reported in kWh as
+  `soc_end_kwh − soc_start_kwh`; only its valuation is unavailable.
+- `monthly[].saved_eur` — `null`. `saved_kwh` and `cycles` are unaffected.
+- `diagnostics.resolution_bias_pct_eur` — `null`. The kWh-basis
+  `diagnostics.resolution_bias_pct` beside it is computed in both modes and is one of the
+  invariant fields above ([§6.13](14-diagnostics.md#613-resolution-bias-diagnostic)).
+- `diagnostics.feedin_floor_partial_periods` and
+  `diagnostics.feedin_floor_shorter_than_period` — `null`, since no floor was assessed.
+
+Nulling whole blocks rather than every leaf is a deliberate departure from the
+key-for-key rule below. The rule exists so consumers test for `null` instead of for
+existence; testing `result.cost === null` satisfies it just as well as testing
+`result.cost.saved_eur === null`, and it does so at the granularity at which the UI
+actually branches — the whole cost section is rendered or it is not.
 
 **Shape of the object without PV.** Every key above is still present — consumers never
 need to test for existence, only for `null`. What changes:
@@ -218,5 +281,16 @@ soc_kwh,batt_import_kwh,batt_export_kwh,
 base_cost_eur,batt_cost_eur,quality_flags
 ```
 
-The `base_*` columns are run A and the `batt_*` columns are run C of the four runs in
+The `base_*` columns are run A and the `batt_*` columns are run C of the runs in
 [§6.9](11-policies-and-battery.md#69-main-simulation-loop).
+
+**Without cost simulation the cost columns are dropped from the file entirely** —
+`p_import_eur_kwh`, `p_export_net_eur_kwh`, `base_cost_eur` and `batt_cost_eur` are absent
+from both the header and the rows. `spot_eur_kwh` and `tariff_zone` remain: the first is a
+simulation input in both modes, the second is a property of the data.
+
+This is the opposite convention to the result JSON above, and the difference is
+intentional. A JSON consumer indexes by key and benefits from a stable shape, so absent
+values are `null`. A CSV is read by a spreadsheet or a human, its header is
+self-describing, and a column of blank cells is worse than an absent column — it looks like
+data that failed to compute rather than data that was never asked for.

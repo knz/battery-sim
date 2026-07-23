@@ -171,18 +171,72 @@ were never mapped in
 [§7.2](15-data-quality-and-limits.md#72-known-modelling-limitations--state-these-in-the-ui-not-just-here)
 item 2 for what goes wrong otherwise.
 
-## 6.4 Tariff register identification and zone assignment
+## 6.4 Tariff registers — availability, identification and use
 
-Two related but distinct problems.
+Three concerns are entangled here and the specification keeps them apart, because they have
+different inputs, different failure modes and different gating. In order:
 
-**(a) Which register is dal?** The near-universal convention is T1 = normaal and T2 = dal,
-but it is a convention rather than a guarantee and inverted installations exist
+1. **Availability** — are separate series present for both registers? A fact about the
+   meter installation and the sensor mapping. Established always.
+2. **Identification** — of the two, which carries the dal tariff and which the normaal?
+   Determined from *when* each series reports activity. Cost simulation only.
+3. **Use** — how the zones price a simulated interval. Cost simulation only.
+
+The distinction that matters most: **which registers exist is not a function of the
+household's contract.** Dutch households switch supplier freely and may move between
+single-rate and dual-rate offers without anything changing at the meter. The meter is
+required to measure the normaal and dal periods on separate registers regardless, so both
+should be present in the data. A missing or permanently flat second register therefore says
+something about the *installation or the mapping*, not about what the household is billed —
+which is why concern (1) is checked even when no bill is being computed.
+
+### (1) Register availability
+
+```python
+def register_availability(series):
+    """Always evaluated. Describes the meter installation, not the contract."""
+    present = {t: series.get(f"grid_import_{t}") is not None for t in ("t1", "t2")}
+    active  = {t: present[t] and span(series[f"grid_import_{t}"]) > EPS
+               for t in ("t1", "t2")}
+
+    if not any(present.values()):
+        return MISSING              # blocks the run; no meter data at all
+    if all(active.values()):
+        return COMPLETE             # the expected case
+    return INCOMPLETE               # mapped but flat, or never mapped
+```
+
+`span(s)` is `s.max() - s.min()` for a cumulative register, or `s.sum()` for deltas.
+
+`INCOMPLETE` is reported to the user as a probable installation or mapping problem —
+"only one of the two meter registers is reporting; check that both are mapped" — and never
+silently accepted. The likely causes, in order: only one register was mapped in Home
+Assistant; the export was taken from a source that merges the registers; or the meter is
+genuinely misconfigured. All three are worth a user's attention.
+
+`INCOMPLETE` does **not** block the run. Energy results are entirely unaffected — the
+simulation consumes total import, and `t1 + t2` is the same total however the meter split
+it. Cost results remain available too, priced from the normaal rate throughout, which is
+correct if the household is in fact billed a single rate and is the best available
+approximation if it is not. The user is told which assumption was made. This is check 8a in
+[§7.3](15-data-quality-and-limits.md#73-data-quality-checks-in-execution-order).
+
+### (2) Which register is dal?
+
+**Cost simulation only.** Which register carries which tariff class changes a bill and
+nothing else; with no bill being computed there is nothing to identify.
+
+The near-universal convention is T1 = normaal and T2 = dal, but it is a convention rather
+than a guarantee and inverted installations exist
 ([background E1.3](18-dutch-electricity-background.md#e13-t1-and-t2--do-not-assume-which-is-which)).
-Detect it from the data rather than trusting the labels:
+Identify it from when each register accrues, not from its label:
 
 ```python
 def detect_dal_register(import_t1, import_t2, index_local):
-    """Whichever register accrues predominantly at night is the dal register."""
+    """
+    The dal register is the one that accrues predominantly during the hours
+    the dal tariff applies. Requires both registers active (COMPLETE).
+    """
     night = (index_local.hour >= 23) | (index_local.hour < 7)
     share_t1 = import_t1[night].sum() / max(import_t1.sum(), EPS)
     share_t2 = import_t2[night].sum() / max(import_t2.sum(), EPS)
@@ -191,28 +245,14 @@ def detect_dal_register(import_t1, import_t2, index_local):
     return T2 if share_t2 > share_t1 else T1
 ```
 
-**Single-tariff contracts: a permanently empty second register is valid data.** The
-registers track the *tariff* clock, not the physical clock. A household on a single-tariff
-contract may accumulate everything in T1 regardless of time of day, leaving T2 at zero for
-the entire window. This must not be treated as a missing series, a stalled sensor or a gap:
+Run this only when availability is `COMPLETE`. With one register flat it returns
+`UNCERTAIN` by construction and would send the user to a question that has no answer.
 
-```python
-if import_t2 is not None and import_t2.max() - import_t2.min() < EPS:
-    single_tariff = True          # valid; not a data fault
-    # Do not run detect_dal_register: with no T2 accrual it returns UNCERTAIN
-    # and would send the user to a question that has no answer.
-    # Price the whole window from the normaal rate; suppress the §6.4(b)
-    # mismatch check, which is meaningless with one register.
-```
+### (3) Which zone applies to a simulated interval?
 
-Note this is distinct from the meter simply having one register, in which case T2 is
-absent rather than flat — see the `grid_import` alias in
-[§4.1](05-data-formats.md#series-names). Both end in the same place; only the diagnostic
-wording differs.
-
-**(b) Which zone applies to a *simulated* interval?** The baseline can be priced from the
-registers directly — that is what the supplier actually bills. But once a battery changes
-the flows, simulated import must be assigned to a zone by clock rule:
+**Cost simulation only.** The baseline could be priced from the registers directly — that
+is what the supplier actually bills — but once a battery changes the flows, simulated
+import must be assigned to a zone by clock rule:
 
 ```python
 def tariff_zone(index_local, cfg):
@@ -223,8 +263,8 @@ def tariff_zone(index_local, cfg):
 ```
 
 Default window: dal from 23:00 to 07:00 plus weekends. **This varies by grid operator**
-(21:00 in some areas), so it is user-configurable, and the app validates the rule against
-the observed registers:
+(21:00 in some areas), so it is user-configurable, and the app validates the configured
+rule against the observed registers:
 
 ```python
 mismatch = sum(import_t2[zone == NORMAAL]) + sum(import_t1[zone == DAL])
@@ -233,5 +273,11 @@ mismatch_pct = 100 * mismatch / total_import
 ```
 
 This check costs almost nothing and catches a whole class of silent mispricing under
-fixed/variable contracts. The resulting `tariff_zone` array is what
-[§6.5](10-pricing.md#65-price-curves) indexes for fixed and variable contracts.
+fixed/variable contracts. It requires `COMPLETE` availability and a resolved dal register;
+with either missing it is reported as skipped, not as passed. This is check 8b in
+[§7.3](15-data-quality-and-limits.md#73-data-quality-checks-in-execution-order).
+
+The resulting `tariff_zone` array is what
+[§6.5](10-pricing.md#65-price-curves) indexes for fixed and variable contracts. It is
+computed at ingest in both cost modes because it is cheap and depends only on the clock,
+but it has no consumer when cost simulation is off.

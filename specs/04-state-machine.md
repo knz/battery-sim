@@ -75,6 +75,20 @@ re-parameterisation feel responsive.
 | `RUN_FAILED` | Exception in domain layer | → `RUN_ERROR`, previous results retained |
 | `RELOAD_DATA` | User edits panel ① | → `DATA_LOADING` |
 
+Two fields in panel ② — `has_pv` and `simulate_cost` — change *which other fields exist*
+rather than only their values. They still emit an ordinary `PARAMS_CHANGED`; there is no
+separate event and no new state. What they additionally require is that validation runs
+against the field set implied by the new toggle value, not the old one: switching cost
+simulation off must clear any pending validation errors on contract fields that have just
+ceased to exist, or the panel reports itself invalid over fields the user can no longer
+see. Values already entered are **retained, not discarded**, so that switching the toggle
+back restores the previous configuration rather than resetting it to defaults.
+
+`RESULTS_STALE` keeps rendering the previous results while the recalculation runs, which
+means a run made with cost simulation on stays visible, dimmed, for the few hundred
+milliseconds after the user switches it off. That is acceptable and needs no special
+handling — the stale results are visibly dimmed and are replaced on `RUN_COMPLETED`.
+
 ## 3.3 Concurrency and run identity
 
 A monotonically increasing `run_id` per workspace guards against out-of-order results:

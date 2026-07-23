@@ -4,7 +4,7 @@ Whenever possible, it will be preferable to rewrite/simplify existing paragraphs
 
 - [x] PV is optional
 - [x] "regimes must never been mixed within one calculation" -> this only applies to pricing. For kWh usage and benefits of a battery, it's OK to mix pre-2027 and post-2027 data.
-- [ ] UX/wireframes and simulation structure: we want to clearly separate "energy savings" from "cost savings" in the results. The latter is optional. There should be a master checkbox "do you want to simulate cost savings as well". The UX items related to cost / billing / contracts should be hidden when cost simulation is disabled.
+- [x] UX/wireframes and simulation structure: we want to clearly separate "energy savings" from "cost savings" in the results. The latter is optional. There should be a master checkbox "do you want to simulate cost savings as well". The UX items related to cost / billing / contracts should be hidden when cost simulation is disabled.
 - [ ] UX/wireframes: the data overview may need to show different granularities for different data series.
 - [ ] UX/wireframes: when adding a CSV file, the user should be prompted to indicate what data series the CSV is for
 - [ ] UX/wireframes: the contract types should e just "dynamic", "fixed", "variable" (all are implicitely Dutch)

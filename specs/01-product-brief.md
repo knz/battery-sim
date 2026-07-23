@@ -11,9 +11,17 @@ A locally-run web application that answers one question with the household's own
 historical data:
 
 > *If I had owned a home battery over this period, operated under this policy, how much
-> grid electricity and how much money would I have saved?*
+> grid electricity — and, if I ask for it, how much money — would I have saved?*
 
 It is a **retrospective counterfactual simulator**, not a forecaster and not a controller.
+
+The two halves of that question are answered separately and the second is optional.
+**Energy savings** — how many kWh of grid import the battery displaced — depend only on
+the load, the generation and the policy. **Cost savings** depend on all of that plus a
+model of the household's electricity contract: supply rates, energy tax, VAT, feed-in
+compensation and feed-in charges. That model is a substantial amount of configuration and
+much of it rests on 2027 tariffs nobody has published yet, so the app does not require it.
+A user who wants only the kWh answer gets it without entering a single euro figure.
 
 ## 1.2 Target user
 
@@ -31,7 +39,15 @@ choices, but it is not zero, and whether it clears the cost of a battery is exac
 question this tool exists to answer. The app must therefore never treat a missing PV series
 as an error.
 
+**Cost simulation is optional.** Users are not assumed to know their contract terms, and
+2027 tariffs are not published, so the app does not demand them. It defaults to reporting
+energy alone and asks for contract details only when the user opts in.
+
 ## 1.3 Regulatory regime — fixed decision
+
+**This section applies only when cost simulation is enabled** (`cfg.simulate_cost`, §1.4).
+A regulatory regime is a statement about how kWh are billed; an energy-only run bills
+nothing and is regime-free. Everything below therefore describes the cost path.
 
 The simulator models the **post-1-January-2027 Dutch regime**:
 
@@ -66,7 +82,9 @@ for. But two things follow:
   the policy, not on how the resulting kWh are billed. A window may therefore span
   1 January 2027 freely; it yields one energy result for the whole window, and one cost
   result computed under the one selected regime. Metrics divide along the same line —
-  see [§6.11](12-metrics-and-benchmarks.md#611-metrics).
+  see [§6.11](12-metrics-and-benchmarks.md#611-metrics). This is the same line the
+  `simulate_cost` toggle cuts along: an energy-only run computes exactly the regime-free
+  half.
 - **The load profile is held fixed, and that is an assumption, not a measurement.** A
   household facing 2027 prices would over time shift consumption toward its own
   generation, which this simulator does not model and cannot infer. The effect biases
@@ -80,16 +98,25 @@ for. But two things follow:
 - **Households with and without solar PV.** PV series are optional; the household declares
   which case applies, and the requirements, policies, topology choices, metrics and
   diagnostics that depend on PV are adjusted accordingly.
+- **Cost simulation as an opt-in.** The household declares whether it wants money figures
+  as well as energy figures (`cfg.simulate_cost`, a master toggle in panel ②, default
+  **off**). With it off, the contract, tax, VAT and feed-in configuration is not asked
+  for, the money results are not produced, and the app is usable end to end without any
+  euro figure. See the note on what the toggle does and does not remove, below.
 - Reconstruction of the battery-free household load, including stripping out an
   already-installed battery if its sensors are provided.
 - Mixed-resolution input data, normalised onto a single uniform simulation grid.
 - Three charge policies, three discharge policies, freely combinable.
-- Three pricing models: dynamic (spot-based), Dutch fixed, Dutch variable.
+- Three pricing models: dynamic (spot-based), Dutch fixed, Dutch variable — used when cost
+  simulation is on.
 - Predefined time ranges: last week / month / 3 months / 6 months / year.
-- Results: energy saved (kWh and %), money saved (EUR), equivalent full cycles,
-  self-consumption and self-sufficiency ratios, plus time-series and monthly breakdowns.
+- Results: energy saved (kWh and %), equivalent full cycles, self-consumption and
+  self-sufficiency ratios, plus time-series and monthly breakdowns; and, with cost
+  simulation on, money saved (EUR) and its exact decomposition.
 - Two reference baselines so the headline number is interpretable:
-  **no battery** (the counterfactual floor) and **perfect foresight** (the ceiling).
+  **no battery** (the counterfactual floor) and **perfect foresight** (the ceiling). The
+  ceiling is computed against whichever quantity is being reported — euros saved, or kWh
+  of grid import avoided ([§6.12](12-metrics-and-benchmarks.md#612-perfect-foresight-benchmark)).
 - Server-side persistence of raw data, parameters and selected range, restored on restart.
 - **Configuration epochs**: detection of PV or battery commissioning part-way through the
   window, with the analysis made aware of it rather than silently averaging across it.
@@ -97,7 +124,48 @@ for. But two things follow:
   illustrated choices, since users reliably recognise a picture of their meter cupboard
   and reliably mis-answer the same question asked in words.
 - **Price uncertainty bracketing** where the supplier settles per 15 minutes but the
-  available energy data is hourly.
+  available energy data is hourly. Requires cost simulation.
+
+### A price series is not a cost model
+
+The `simulate_cost` toggle removes the **cost model** — the contract type, supply rates,
+energy tax, VAT, feed-in compensation and terugleverkosten, and every euro figure derived
+from them. It does **not** remove the **spot price series**, which stays a required input
+in both modes.
+
+The distinction matters because the spot price does two unrelated jobs. As a *dispatch
+signal* it tells the battery when to charge and when to discharge: policies P2, D2 and D3
+compare it against user-set bands, and that is a decision about which kWh move, not about
+what they cost. As a *cost input* it feeds the supply price. Only the second job depends on
+the cost model.
+
+Keeping the series in both modes is what makes an energy-only run worth running. Charging
+from the grid at cheap hours and discharging at expensive ones displaces grid import
+whether or not anyone converts the result to euros — and for a household without solar it
+is the *only* thing a battery does. Dropping the price series would leave such a household
+with no usable charge policy at all.
+
+### The two toggles together
+
+`has_pv` and `simulate_cost` are independent, so there are four configurations. The rest of
+this package describes each toggle's effect on its own; this table is the only place they
+are combined.
+
+| | **Cost simulation off** | **Cost simulation on** |
+|---|---|---|
+| **With PV** | kWh saved by storing surplus and by price-band arbitrage. No contract configuration. | The full product: kWh plus euros, waterfall, feed-in economics. |
+| **Without PV** | kWh of grid import shifted by arbitrage alone. The narrowest configuration, and still meaningful. | Whether arbitrage clears the round-trip loss in euros — the question a no-PV buyer actually has. |
+
+No combination is blocked. The narrowest cell — no PV, no cost — still produces a real
+answer: how many kWh of grid import a price-band-driven battery would have displaced.
+
+Moving right along a row **adds** results without changing any of them. Every kWh figure in
+the left column reappears unaltered in the right: the same saving, the same cycles, the same
+benchmark ceiling, the same kWh diagnostics. Cost simulation prices the flows; it does not
+decide them, and it does not change what they are measured against. That guarantee is what
+makes the toggle safe to switch on mid-session, and it is stated precisely in
+[§4.5](07-internal-representation.md#shape-of-the-object-without-cost-simulation) and
+enforced by fixture 18 in [16-validation-harness.md](16-validation-harness.md).
 
 ## 1.5 Explicitly out of scope (v1)
 
@@ -114,7 +182,9 @@ for. But two things follow:
 ## 1.6 Success criteria
 
 1. A user with a working HA instance can go from cold start to a result in under five
-   minutes without reading documentation.
+   minutes without reading documentation. Cost simulation defaults off precisely to protect
+   this: reaching a first result must not require the user to know their supply rate, their
+   feed-in terms or the current energy tax.
 2. Changing any parameter updates results automatically without a page reload.
 3. Restarting the server preserves all user state.
 4. The application refuses to produce misleading numbers: it surfaces data quality

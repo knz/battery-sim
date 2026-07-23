@@ -53,8 +53,12 @@ There is no intra-hour information to recover from it.
 Where min/max/mean *are* available and useful:
 
 - **Spot price sensors** are `measurement`, so an hourly row retains the min, max and mean
-  of the underlying 15-minute prices. This supports the bracketing in
-  [§6.16](14-diagnostics.md#616-price-bracketing-under-settlementresolution-mismatch).
+  of the underlying 15-minute prices. The mean is the price the simulation runs on and is
+  fetched always, since the charge and discharge bands compare against it in both cost
+  modes. The min and max support the bracketing in
+  [§6.16](14-diagnostics.md#616-price-bracketing-under-settlementresolution-mismatch),
+  which is a cost diagnostic; they are fetched regardless, because they cost nothing extra
+  in the same request and the user may enable cost simulation later without a refetch.
 - **Power sensors**, if the user has them, retain hourly min/max/mean power. These enable
   the consistency and misalignment checks in
   [§6.17](14-diagnostics.md#617-timestamp-misalignment-detection) and reveal inverter

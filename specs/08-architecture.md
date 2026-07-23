@@ -74,6 +74,20 @@ The `domain/` sub-packages map onto the specification files as follows:
 | `metrics/` | [§6.10](10-pricing.md#610-cost-accounting) waterfall, [§6.11](12-metrics-and-benchmarks.md#611-metrics) |
 | `benchmark/` | [§6.12](12-metrics-and-benchmarks.md#612-perfect-foresight-benchmark) |
 
+`cfg.simulate_cost` cuts across this table in one specific way: when it is false the
+`pricing/` package is **not called at all**, and the waterfall half of `metrics/` is
+skipped. They are not invoked with neutral parameters — there is no neutral tax rate, and a
+run priced at zero everywhere would report a confident €0.00 saving rather than no answer.
+`benchmark/` is called **once more** when the flag is set, not differently: the
+import-minimising run happens in both modes and the cost-minimising run is added
+([§6.12](12-metrics-and-benchmarks.md#612-perfect-foresight-benchmark)). The distinction is
+worth holding on to — a package that changes its objective on a flag produces different
+numbers under the same heading, which is the one thing the optional-cost design forbids.
+`policies/`, `battery/` and `simulate/` are unaffected and must stay that way: they consume
+the spot price as a dispatch signal, which exists in both modes. Fixture 18 in
+[16-validation-harness.md](16-validation-harness.md) asserts that everything except the
+added cost outputs is bit-identical across the flag.
+
 ## 5.2 Why this split
 
 The **domain layer is pure** — it takes arrays and a config object and returns arrays and

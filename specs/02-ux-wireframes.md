@@ -24,7 +24,7 @@ discard results — it marks them stale and triggers a recalculation.
 │                                                                              │
 │  ┌────────────────────────────────────────────────────────────────────────┐  │
 │  │ ② PARAMETERS                                      ✓ valid     [edit ▾] │  │
-│  │    10.0 kWh · 5.0/5.0 kW · 90% · charge P3 · discharge P1 · dynamic    │  │
+│  │    10.0 kWh · 5.0/5.0 kW · 90% · charge P3 · discharge P1 · energy only│  │
 │  └────────────────────────────────────────────────────────────────────────┘  │
 │                                                                              │
 │  ┌────────────────────────────────────────────────────────────────────────┐  │
@@ -35,6 +35,11 @@ discard results — it marks them stale and triggers a recalculation.
 │  └────────────────────────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
+
+The panel ② summary line ends with the run's cost mode: the contract name
+(`dynamic`, `Dutch fixed`, `Dutch variable`) when cost simulation is on, and `energy only`
+when it is off. That word is the fastest way for a user to see, from the collapsed state,
+which of the two products they are looking at.
 
 ## 2.2 Panel ① — Data input (expanded)
 
@@ -53,6 +58,8 @@ discard results — it marks them stale and triggers a recalculation.
 │  └────────────────────────────────────────────────────────────────────────┘  │
 │                                                                              │
 │  ┌─ Series mapping ───────────────────────────────────────────────────────┐  │
+│  │  Do you have solar PV?      ( • ) Yes    (   ) No                      │  │
+│  │  Simulate cost savings?     (   ) Yes    ( • ) No                      │  │
 │  │                                                                        │  │
 │  │  ROLE                REQ  ENTITY / STATISTIC ID                        │  │
 │  │  ──────────────────────────────────────────────────────────────────    │  │
@@ -63,11 +70,13 @@ discard results — it marks them stale and triggers a recalculation.
 │  │  Solar production     ◐   [ sensor.solar_total_production         ▾ ]  │  │
 │  │  Battery charge       ○   [ — none —                              ▾ ]  │  │
 │  │  Battery discharge    ○   [ — none —                              ▾ ]  │  │
-│  │  Spot price           ○   [ sensor.epex_spot_price                ▾ ]  │  │
+│  │  Spot price           ●   [ sensor.epex_spot_price                ▾ ]  │  │
 │  │                                                                        │  │
-│  │  ○ = optional.  Spot price required only for dynamic pricing.          │  │
+│  │  ● = required.  ○ = optional.                                          │  │
 │  │  ◐ = required only if you have solar PV (set in panel ②).              │  │
-│  │  If T1/T2 are not split, map "Grid import T1" and leave T2 empty.      │  │
+│  │  Spot price drives the charge and discharge bands, so it is required   │  │
+│  │  whether or not you simulate costs.                                    │  │
+│  │  Both meter registers should be mapped. See "Tariff registers" below.  │  │
 │  │                                                                        │  │
 │  │                                              [ Fetch history ]         │  │
 │  └────────────────────────────────────────────────────────────────────────┘  │
@@ -82,11 +91,13 @@ discard results — it marks them stale and triggers a recalculation.
 │  │     Usually means the solar sensor does not cover the whole house,     │  │
 │  │     or a clock offset between sensors.            [ what to check ]    │  │
 │  │                                                                        │  │
+│  │  Meter registers    T1 ✓ mapped    T2 ✓ mapped, active                 │  │
+│  │                                                                        │  │
 │  │  ⚠  T1/T2 register check: 2.1% of intervals disagree with the          │  │
 │  │     configured day/night window.                  [ adjust window ]    │  │
 │  │                                                                        │  │
 │  │  Tariff registers   T1 = normaal (day)   T2 = dal (night)  [ swap ]    │  │
-│  │                     auto-detected from increment timing                │  │
+│  │                     auto-detected from when each register increments   │  │
 │  └────────────────────────────────────────────────────────────────────────┘  │
 │                                                                              │
 │                                              [ Next: parameters →  ]         │
@@ -101,17 +112,36 @@ declared the row is hidden entirely rather than shown greyed, so there is no inv
 map a sensor the run will ignore.
 
 Panel ② is therefore the panel that decides what panel ① asks for. Since the natural order
-of use is ① then ②, the PV toggle is also mirrored at the head of the series-mapping box
-as a one-line question, and changing it in either place changes it in both.
+of use is ① then ②, both toggles — *do you have solar PV* and *simulate cost savings* — are
+mirrored at the head of the series-mapping box as one-line questions, and changing either
+in one place changes it in both.
+
+The **Spot price** row is required in both cost modes, because the charge and discharge
+bands compare against it regardless of whether anything is converted to euros
+([§1.4](01-product-brief.md#a-price-series-is-not-a-cost-model)). It is the one input a
+user might expect the cost toggle to remove and it does not.
 
 The data-quality box renders the diagnostics computed at ingest time. Their definitions
 live in [14-diagnostics.md](14-diagnostics.md); the ordered list of checks and their
 failure actions is in
-[§7.3](15-data-quality-and-limits.md#73-data-quality-checks-in-execution-order). Several
-of those checks are PV-dependent and are simply not run without PV — the box omits them
-rather than reporting them as passed. The epoch timeline strip described in
+[§7.3](15-data-quality-and-limits.md#73-data-quality-checks-in-execution-order). Some of
+those checks depend on PV and some on cost simulation; the ones that do not apply are
+simply not run, and the box omits them rather than reporting them as passed. The epoch
+timeline strip described in
 [§6.15](13-configuration-epochs.md#615-configuration-epochs) is rendered above the
 coverage summary.
+
+Two rows in that box behave differently under the cost toggle, and the split follows
+[§6.4](09-ingest-algorithms.md#64-tariff-registers--availability-identification-and-use):
+
+- **Meter registers** — whether T1 and T2 are both mapped and both accruing — is a
+  statement about the meter installation, not about a contract. It is shown always. A
+  register that is absent or permanently flat points at an incomplete mapping or an
+  incorrect installation and is worth telling the user about whatever they asked to
+  simulate.
+- **Tariff registers** — which register is dal and which is normaal — and the day/night
+  window check below it are shown **only when cost simulation is on**. Which register
+  carries which *tariff* matters only to a bill.
 
 CSV variant of the source sub-panel:
 
@@ -140,6 +170,13 @@ The two accepted CSV shapes are specified in [05-data-formats.md](05-data-format
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │ ② PARAMETERS                                                      [collapse] │
 ├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ┌─ What to simulate ─────────────────────────────────────────────────────┐  │
+│  │  Energy savings          ✓ always                                      │  │
+│  │  [ ] Also simulate cost savings                                        │  │
+│  │      ⓘ Needs your contract type, supply rates, energy tax, VAT and     │  │
+│  │        feed-in terms. Leave this off to see kWh saved only.            │  │
+│  └────────────────────────────────────────────────────────────────────────┘  │
 │                                                                              │
 │  ┌─ Battery ──────────────────────────────────────────────────────────────┐  │
 │  │  Usable capacity        [  10.0 ] kWh    ⓘ not nameplate               │  │
@@ -194,7 +231,7 @@ The two accepted CSV shapes are specified in [05-data-formats.md](05-data-format
 │  │     do not overlap.  ✓                                                 │  │
 │  └────────────────────────────────────────────────────────────────────────┘  │
 │                                                                              │
-│  ┌─ Pricing ──────────────────────────────────────────────────────────────┐  │
+│  ┌─ Pricing ───────────────────────── [only when simulating costs] ──────┐  │
 │  │  Contract   ( • ) Dynamic   (   ) Dutch fixed   (   ) Dutch variable   │  │
 │  │                                                                        │  │
 │  │  ┌ Dynamic ──────────────────────────────────────────────────────────┐ │  │
@@ -221,6 +258,10 @@ The two accepted CSV shapes are specified in [05-data-formats.md](05-data-format
 │  │  │  not change with a battery and are excluded from savings.         │ │  │
 │  │  └───────────────────────────────────────────────────────────────────┘ │  │
 │  └────────────────────────────────────────────────────────────────────────┘  │
+│                                                                              │
+│  ⓘ The whole Pricing box above, Advanced included, is hidden when cost       │
+│    simulation is off. Every field in it — contract, rates, tax, VAT,         │
+│    feed-in, degradation cost, day/night window — feeds a euro figure only.   │
 │                                                                              │
 │                              [ ← Back ]          [ Calculate →  ]            │
 └──────────────────────────────────────────────────────────────────────────────┘
@@ -285,6 +326,31 @@ The `[PV only]` markers above are not rendered; those options are **absent**. Wi
   not render it. See [§2.5](03-topology-selector.md), which specifies the illustrated
   grid-only topology shown in its place.
 
+### Without cost simulation
+
+With `simulate_cost = false` — the default — the panel loses everything that exists to
+turn kWh into euros, and keeps everything that decides which kWh move:
+
+- **The entire Pricing box is absent**: contract type, all three contract sub-panels, the
+  supplier markup, energy tax, VAT, the Feed-in box, and the Advanced box with its
+  degradation cost and day/night window. Absent, not greyed — there is nothing here the
+  user can usefully look at without opting in.
+- **The charge and discharge price bands stay.** `Band A/B` and `Band C/D` are dispatch
+  parameters: they decide when the battery charges and discharges, which changes the kWh
+  answer. They keep their €/kWh units and stay compared against the bare EPEX spot, because
+  that is the signal a real controller would use. See
+  [§1.4](01-product-brief.md#a-price-series-is-not-a-cost-model), which sets out why the
+  price series and the cost model are separable.
+- **The band-overlap warning stays**, for the same reason: overlapping bands make the
+  battery fight itself, which is an energy problem before it is a money problem.
+- **`Economic guard` is absent.** "Never discharge at a loss" is a statement about
+  `p_export_net`, which does not exist without a cost model. It is forced off.
+- **The Battery, Grid connection, Solar PV and Installation topology boxes are unchanged.**
+  All four describe physical hardware.
+
+Everything else about the panel — validation, the Calculate button, the collapsed summary —
+behaves identically; only the summary's final clause reads `energy only`.
+
 Field semantics and the formulas behind them: policies in
 [11-policies-and-battery.md](11-policies-and-battery.md), pricing in
 [10-pricing.md](10-pricing.md), every default value in
@@ -293,6 +359,15 @@ these fields are checks 11–13 in
 [§7.3](15-data-quality-and-limits.md#73-data-quality-checks-in-execution-order).
 
 ## 2.4 Panel ③ — Results (expanded)
+
+The panel is organised into two clearly separated result sections. **Energy savings** are
+always present. **Cost savings** are a distinct section below them, rendered only when
+`simulate_cost` is on. The separation is structural, not cosmetic: the two rest on
+different inputs and carry different confidence, and interleaving kWh and euro figures — as
+an earlier draft of this panel did — invited users to read a euro figure as being as
+well-grounded as the kWh figure beside it. It is not: the kWh figure comes from measured
+data, the euro figure from that data plus a contract model assembled from unpublished 2027
+tariffs.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
@@ -303,13 +378,64 @@ these fields are checks 11–13 in
 │           2025-07-22 → 2026-07-21 · hourly · 8,760 intervals                 │
 │                                                       ⟳ recalculating…       │
 │                                                                              │
+│  ═══ ENERGY SAVINGS ═════════════════════════════════════════════════════    │
+│                                                                              │
 │  ┌───────────────────────┬───────────────────────┬──────────────────────────┐│
-│  │ GRID IMPORT SAVED     │ MONEY SAVED           │ EQUIVALENT FULL CYCLES   ││
+│  │ GRID IMPORT SAVED     │ SELF-SUFFICIENCY      │ EQUIVALENT FULL CYCLES   ││
 │  │                       │                       │                          ││
-│  │      1,412 kWh        │      € 331            │        241               ││
-│  │      −34.2 %          │      −28.7 %          │    0.66 / day            ││
+│  │      1,412 kWh        │    31% → 52%          │        241               ││
+│  │      −34.2 %          │      +21 pp           │    0.66 / day            ││
 │  │                       │                       │    2,410 kWh throughput  ││
 │  └───────────────────────┴───────────────────────┴──────────────────────────┘│
+│                                                                              │
+│  ┌─ Where the energy comes from ──────────────────────────────────────────┐  │
+│  │  Grid import, no battery                        4,129 kWh              │  │
+│  │  Grid import, with battery                      2,717 kWh              │  │
+│  │  ─────────────────────────────────────────────────────────────         │  │
+│  │  Grid import avoided                            1,412 kWh              │  │
+│  │                                                                        │  │
+│  │  Charged into the battery                       2,664 kWh              │  │
+│  │  Discharged from the battery                    2,410 kWh              │  │
+│  │  Conversion losses                                254 kWh              │  │
+│  │  Standby consumption                              263 kWh              │  │
+│  └────────────────────────────────────────────────────────────────────────┘  │
+│                                                                              │
+│  ┌─ Benchmark: grid import avoided ───────────────────────────────────────┐  │
+│  │                                                                        │  │
+│  │  No battery            0 kWh   ├────────────────────────────────────┤  │  │
+│  │  Your policy       1,412 kWh   ├──────────────────────●─────────────┤  │  │
+│  │  Perfect foresight 1,988 kWh   ├────────────────────────────────●───┤  │  │
+│  │                                                                        │  │
+│  │  Your policy captures 71% of the grid import a perfectly-informed      │  │
+│  │  battery could have avoided.                                           │  │
+│  └────────────────────────────────────────────────────────────────────────┘  │
+│                                                                              │
+│  ┌─ Secondary metrics ────────────────────────────────────────────────────┐  │
+│  │  Self-consumption ratio     58% → 81%                                  │  │
+│  │  Grid export               3,180 → 1,742 kWh                           │  │
+│  │  Intervals battery was full / empty   1,204 / 2,988                    │  │
+│  └────────────────────────────────────────────────────────────────────────┘  │
+│                                                                              │
+│  ═══ COST SAVINGS ═══════════════════ [only when simulating costs] ══════    │
+│                                                                              │
+│  ┌───────────────────────┬──────────────────────────────────────────────────┐│
+│  │ MONEY SAVED           │  € 1,153 without a battery → € 822 with one      ││
+│  │                       │                                                  ││
+│  │      € 331            │  Priced under the 2027 regime from the contract  ││
+│  │      −28.7 %          │  you entered. See the caveats below.             ││
+│  └───────────────────────┴──────────────────────────────────────────────────┘│
+│                                                                              │
+│  ┌─ Benchmark: money saved ───────────────────────────────────────────────┐  │
+│  │                                                                        │  │
+│  │  No battery            € 0     ├────────────────────────────────────┤  │  │
+│  │  Your policy           € 331   ├─────────────────────●──────────────┤  │  │
+│  │  Perfect foresight     € 478   ├────────────────────────────────●───┤  │  │
+│  │                                                                        │  │
+│  │  Your policy captures 69% of the money a perfectly-informed battery    │  │
+│  │  could have saved. A different ceiling from the energy benchmark, and  │  │
+│  │  a different dispatch behind it: buying cheaply is not the same as     │  │
+│  │  importing little.                                    [ what is this? ]│  │
+│  └────────────────────────────────────────────────────────────────────────┘  │
 │                                                                              │
 │  ┌─ Where the money comes from ───────────────────────────────────────────┐  │
 │  │  Avoided grid import                              + € 402              │  │
@@ -322,33 +448,16 @@ these fields are checks 11–13 in
 │  │  Net saving                                       + € 331              │  │
 │  └────────────────────────────────────────────────────────────────────────┘  │
 │                                                                              │
-│  ┌─ Benchmarks ───────────────────────────────────────────────────────────┐  │
-│  │                                                                        │  │
-│  │  No battery          €0        ├────────────────────────────────────┤  │  │
-│  │  Your policy         €331      ├──────────────────────●─────────────┤  │  │
-│  │  Perfect foresight   €478      ├────────────────────────────────●───┤  │  │
-│  │                                                                        │  │
-│  │  Your policy captures 69% of the theoretical maximum.                  │  │
-│  └────────────────────────────────────────────────────────────────────────┘  │
-│                                                                              │
 │  ┌─ Charts ───────────────────────────────────────────── [ ⤓ export CSV ] ┐  │
 │  │  ( • ) Monthly savings   (   ) SoC + price   (   ) Energy flows        │  │
 │  │                                                                        │  │
-│  │   €                                                                    │  │
-│  │  60│                        ▄▄  ▄▄  ▄▄                                 │  │
-│  │  40│              ▄▄  ▄▄  ██  ██  ██  ▄▄                               │  │
-│  │  20│      ▄▄  ▄▄  ██  ██  ██  ██  ██  ██  ▄▄  ▄▄                       │  │
+│  │   kWh                                                                  │  │
+│  │ 200│                        ▄▄  ▄▄  ▄▄                                 │  │
+│  │ 150│              ▄▄  ▄▄  ██  ██  ██  ▄▄                               │  │
+│  │ 100│      ▄▄  ▄▄  ██  ██  ██  ██  ██  ██  ▄▄  ▄▄                       │  │
 │  │   0│  ▄▄  ██  ██  ██  ██  ██  ██  ██  ██  ██  ██  ▄▄                   │  │
 │  │     └───────────────────────────────────────────────────────           │  │
 │  │      Aug Sep Oct Nov Dec Jan Feb Mar Apr May Jun Jul                   │  │
-│  └────────────────────────────────────────────────────────────────────────┘  │
-│                                                                              │
-│  ┌─ Secondary metrics ────────────────────────────────────────────────────┐  │
-│  │  Self-consumption ratio     58% → 81%                                  │  │
-│  │  Self-sufficiency ratio     31% → 52%                                  │  │
-│  │  Grid export               3,180 → 1,742 kWh                           │  │
-│  │  Conversion losses          254 kWh                                    │  │
-│  │  Intervals battery was full / empty   1,204 / 2,988                    │  │
 │  └────────────────────────────────────────────────────────────────────────┘  │
 │                                                                              │
 │  ┌─ Caveats for this run ─────────────────────────────────────────────────┐  │
@@ -362,13 +471,58 @@ these fields are checks 11–13 in
 ```
 
 The panel renders the result object in
-[§4.5](07-internal-representation.md#45-result-object) field for field; the waterfall box
-is `cost.waterfall`, the benchmark bar is `benchmarks`, the caveats box is `warnings`.
-The **⤓ export CSV** link serves
+[§4.5](07-internal-representation.md#45-result-object) field for field; the energy
+breakdown box is `energy`, the money waterfall is `cost.waterfall`, the two benchmark boxes
+are `benchmarks.energy` and `benchmarks.cost`, the caveats box is `warnings`. The
+**⤓ export CSV** link serves
 [§4.6](07-internal-representation.md#46-per-interval-csv-export).
 
-**Without PV**, three of the rendered figures have no meaning and are omitted rather than
-shown as zero:
+Notes on the two sections:
+
+- **Enabling cost simulation adds the second section and changes nothing in the first.**
+  Every figure above the `COST SAVINGS` divider — the three KPI tiles, the energy breakdown,
+  the energy benchmark and its capture ratio, the secondary metrics, the kWh caveats — is
+  identical to what an energy-only run shows over the same data. A user who ticks the box
+  should see their kWh numbers stay exactly where they were, because a question about money
+  is not a question about kilowatt-hours.
+- **Each benchmark is optimised for its own quantity.** The energy box is bounded by a
+  perfect-foresight run that minimises grid import; the money box by one that minimises
+  euros ([§6.12](12-metrics-and-benchmarks.md#612-perfect-foresight-benchmark)). The two
+  ceilings come from genuinely different dispatches and the two capture ratios will differ,
+  usually by a few points. That is information, not an inconsistency, and the money box says
+  so in one line: a battery that buys cheaply imports more, not less.
+- **The Charts box gains options rather than swapping them.** *Monthly savings* always
+  offers kWh and shows it by default; with cost simulation on it gains a *Monthly savings
+  (€)* option beside it. The two are separate views, not a dual axis — a euro series moves
+  with tariff structure as well as with kWh, and overlaying them invites exactly the
+  reading this panel's two-section split exists to prevent. *SoC + price* keeps the bare
+  spot price on its secondary axis in both modes, since the spot series is present either
+  way. *Energy flows* is unaffected.
+- **Caveats are shown in both modes**, with the kWh ones identical across the toggle. The
+  caveats that qualify a euro figure — price bracketing, the feed-in floor, tiered
+  terugleverkosten — appear only with cost simulation on, because there is no euro figure to
+  qualify. The resolution-bias caveat is stated in kWh in both modes and gains its euro
+  percentage as a second sentence when costs are modelled
+  ([§6.13](14-diagnostics.md#613-resolution-bias-diagnostic)).
+
+### Panel ③ without cost simulation
+
+The `COST SAVINGS` section and everything in it is absent — the money KPI tile, the money
+waterfall, the money benchmark. The `ENERGY SAVINGS` section is **identical**, figure for
+figure, to what the same data produces with cost simulation on, and the panel is complete
+without the second half rather than looking truncated. Two smaller consequences:
+
+- The `MONEY SAVED` tile is not replaced by a placeholder or a zero. A blank where a
+  headline number would go reads as a failed calculation; an absent section reads as a
+  choice the user made, which is what it is.
+- A short affordance sits at the foot of the energy section: *"Want to know what this is
+  worth in euros? [ Enable cost simulation ]"*, linking back to the panel ② toggle. Since
+  the toggle defaults off, some users will otherwise never discover that the app can do
+  this at all.
+
+### Panel ③ without PV
+
+Three of the rendered figures have no meaning and are omitted rather than shown as zero:
 
 - **Self-consumption ratio** is `1 − export/pv` and has PV in its denominator. It arrives
   as `null` ([§6.11](12-metrics-and-benchmarks.md#611-metrics)); omit the row. Rendering

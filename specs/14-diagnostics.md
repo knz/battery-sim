@@ -17,8 +17,8 @@ continuously, so they are collected here. The distinctions worth holding on to:
 | Diagnostic | Measures | Availability |
 |---|---|---|
 | §7.1 overlap | How much information the recording resolution destroyed | Always, full window |
-| §6.13 resolution bias | How much that loss changes the answer (*dispatch* error) | Only where 5-minute data exists |
-| §6.16 price bracket | *Pricing* error from settling per 15 min but recording hourly | Only with `spot_min`/`spot_max` and quarter-hourly settlement |
+| §6.13 resolution bias | How much that loss changes the answer (*dispatch* error) | Only where 5-minute data exists; always in kWh, additionally in euros when costs are modelled |
+| §6.16 price bracket | *Pricing* error from settling per 15 min but recording hourly | Cost simulation only, and only with `spot_min`/`spot_max` and quarter-hourly settlement |
 | §6.17 misalignment | Whether two sensors' clocks agree | Needs PV + export, or power + energy |
 
 §6.13 and §6.16 measure independent errors and both should be reported.
@@ -27,6 +27,13 @@ continuously, so they are collected here. The distinctions worth holding on to:
 the price bracket are all computed from grid flows and prices and are unaffected by the
 absence of solar — overlap in particular remains the primary resolution gate. §6.17's
 primary method needs a PV signal and is unavailable; see that section.
+
+**Without cost simulation, only §6.16 disappears.** It bounds a *pricing* error, and with
+no prices applied there is no such error to bound; `price_bracket` is `null`. The other
+three survive **with identical values**, because resolution damage and clock offsets are
+properties of the data rather than of the cost model. §6.13 in particular measures dispatch
+error against the kWh saving in both modes; enabling cost simulation adds a euro-basis
+percentage beside it and leaves the kWh one untouched.
 
 ---
 
@@ -107,14 +114,37 @@ def resolution_bias(dataset, cfg):
     r_fine   = run_all(dataset.frame(fine_window, grid_s=300),  cfg)
     r_coarse = run_all(dataset.frame(fine_window, grid_s=3600), cfg)
 
-    if abs(r_fine.saved_eur) < 1.0:
-        return None                                      # too small to be meaningful
+    def bias(fine, coarse, floor):
+        # Below the floor the ratio is numerically unstable and carries no
+        # information; report nothing rather than a large meaningless percentage.
+        return 100 * (coarse - fine) / fine if abs(fine) >= floor else None
 
-    return {
-      "bias_pct": 100 * (r_coarse.saved_eur - r_fine.saved_eur) / r_fine.saved_eur,
+    # The kWh basis is computed always. This diagnostic measures dispatch error,
+    # dispatch does not depend on the cost model, and so neither does this number.
+    out = {
+      "bias_pct": bias(r_fine.saved_kwh, r_coarse.saved_kwh, 5.0),
       "basis":    f"{fine_window.days} days at 5-minute vs hourly",
+      "bias_pct_eur": None,
     }
+
+    # With a cost model, the same resolution error also displaces euros, by a
+    # different percentage: the intervals it distorts are not equally priced.
+    # Reported alongside, never instead of, the kWh figure.
+    if cfg.simulate_cost:
+        out["bias_pct_eur"] = bias(r_fine.saved_eur, r_coarse.saved_eur, 1.0)
+
+    return out if out["bias_pct"] is not None else None
 ```
+
+The 5 kWh and €1 floors are not the same number in different units. Each is the level below
+which the ratio becomes numerically unstable in that quantity — both roughly "less than a
+day's worth of effect over a ten-day window".
+
+Computing the kWh figure unconditionally is what keeps `diagnostics.resolution_bias_pct`
+identical whether or not the user asked for euros. Selecting the basis from
+`cfg.simulate_cost` instead would make an energy diagnostic move for a pricing reason, and
+would have to be excluded from the invariance guarantee in
+[§4.5](07-internal-representation.md#shape-of-the-object-without-cost-simulation).
 
 The trailing 5-minute window it needs is fetched deliberately for this purpose — see
 [§4.3](06-home-assistant-ingestion.md).
@@ -141,6 +171,8 @@ That is enough to *bound* the pricing error rather than ignore it:
 
 ```python
 def price_bracket_runs(frame, cfg):
+    if not cfg.simulate_cost:
+        return None            # bounds a pricing error; no prices are applied
     if cfg.supplier_settlement == HOURLY:
         return None            # supplier bills the hourly average: min/max irrelevant
     if frame.spot_min is None:

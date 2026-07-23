@@ -1,7 +1,7 @@
 # 6.11–6.12 Metrics and the perfect-foresight benchmark
 
-> **Purpose:** the headline figures derived from the four runs, and the upper bound that
-> makes them interpretable.
+> **Purpose:** the headline figures derived from the simulation runs, and the upper bounds
+> that make them interpretable.
 > **Audience:** backend, domain layer.
 > **Read with:** [11-policies-and-battery.md](11-policies-and-battery.md) for the runs
 > `A`/`B`/`C`/`D` referenced throughout, [10-pricing.md](10-pricing.md) §6.10 for the
@@ -36,26 +36,75 @@ The reasoning is in
 mixing the two information sets produces a number that is wrong in a direction nobody can
 reason about.
 
-**Energy metrics and cost metrics carry different regime dependencies**, and the split is
-not obvious from the names. `saved_kwh`, `saved_pct`, `efc`, `self_consumption`,
-`self_sufficiency` and `conversion_loss` are functions of the flows alone: they do not
-change if the pricing regime changes, and they are valid over a window spanning
-1 January 2027. The waterfall decomposition ([§6.10](10-pricing.md#610-cost-accounting))
-and the perfect-foresight benchmark below are cost-bound — the benchmark optimises against
-prices even though its output is reported alongside energy figures — so both are computed
-under a single regime, per
-[§1.3](01-product-brief.md#13-regulatory-regime--fixed-decision).
+**Energy metrics and cost metrics divide cleanly**, and the split is not obvious from the
+names. It is the same line twice over: it determines which metrics are regime-dependent,
+and it determines which survive when cost simulation is off.
+
+| | Metrics | Regime-dependent? | Present without cost simulation? |
+|---|---|---|---|
+| **Energy** | `saved_kwh`, `saved_pct`, `efc`, `self_consumption`, `self_sufficiency`, `conversion_loss`, the energy benchmark in §6.12 | No | Yes |
+| **Cost** | the waterfall ([§6.10](10-pricing.md#610-cost-accounting)), `soc_delta_value_eur`, the cost benchmark in §6.12 | Yes | No |
+
+The energy metrics are functions of the flows alone: they do not change if the pricing
+regime changes, they are valid over a window spanning 1 January 2027, and they are computed
+identically whether or not costs are modelled. The cost metrics are computed under a single
+regime, per [§1.3](01-product-brief.md#13-regulatory-regime--fixed-decision), and are not
+computed at all when `cfg.simulate_cost` is false.
+
+**Cost simulation only ever adds.** Every metric in the energy row is bit-identical between
+a run with `simulate_cost` off and the same run with it on; enabling the toggle appends the
+cost row and touches nothing above it. This is the invariant the whole optional-cost design
+rests on, and the reason §6.12 below runs *two* dynamic programs rather than retargeting
+one. It is pinned by fixture 18 in
+[16-validation-harness.md](16-validation-harness.md).
 
 **SoC drift correction.** The battery does not end the window at its starting SoC. Report
-`soc_end − soc_start` and value it at the median import price; if it exceeds 2% of the
-headline saving, surface it. Without this, a policy that simply ends the year empty looks
-better than it is.
+`soc_end − soc_start` always, and surface the drift when it exceeds 2% of the energy
+saving. With cost simulation on, also value it at the median import price and surface it
+additionally when that value exceeds 2% of the euro saving. The two tests are a union, so
+enabling cost simulation can only raise the drift caveat where it was previously silent,
+never withdraw it: whether the user sees the warning at all does not depend on the toggle.
+Without a cost model there is no median import price, so `soc_delta_value_eur` is `null`;
+the kWh figure is unaffected. The point of the correction holds in both modes — without it,
+a policy that simply ends the year empty looks better than it is.
 
 ## 6.12 Perfect-foresight benchmark
 
 An upper bound obtained by dynamic programming over discretised SoC. Its only purpose is
 to make the headline number interpretable: "€331" means little; "€331 of a theoretical
-€478" means a great deal.
+€478" means a great deal. The same applies to the energy figure — "1,412 kWh saved" is
+uninterpretable until it is "1,412 kWh of a possible 1,988".
+
+**There is one benchmark per headline figure, and each is optimised for its own quantity.**
+A headline is compared against the best that could have been done *at the thing the
+headline measures*, which means two objectives:
+
+| Benchmark | `transition_cost` returns | Bounds | Runs |
+|---|---|---|---|
+| Energy | kWh of grid import in the interval | `saved_kwh`; capture ratio in kWh | Always |
+| Cost | EUR spent in the interval | `saved_eur`; capture ratio in euros | Only when `cfg.simulate_cost` |
+
+Both are well-formed minimisation problems over the same state space, the same action set
+and the same feasibility constraints, so the DP below, its terminal constraint and its
+interpolation serve both unchanged — only `transition_cost` differs. They land in the
+result object as two sibling blocks, `benchmarks.energy` and `benchmarks.cost`, the latter
+`null` in an energy-only run
+([§4.5](07-internal-representation.md#45-result-object)).
+
+**Why two runs rather than one retargeted run.** The two objectives generally have
+*different* optima: a cost-optimal dispatch does not minimise import, because it will
+happily import more during cheap hours. A single DP whose objective followed
+`cfg.simulate_cost` would therefore hand the energy section a different ceiling — and a
+different capture ratio — depending on whether the user had asked for euros, which would
+make a kWh figure move for a reason that has nothing to do with the household's battery.
+Running both keeps the energy benchmark identical across the toggle and gives the cost
+benchmark a ceiling that is actually optimal for euros. The second DP costs a few seconds
+([§6.9](11-policies-and-battery.md#69-main-simulation-loop), run E) and buys the invariant.
+
+The energy objective is not a degraded substitute for the cost one. Minimising grid import
+is a coherent goal in its own right — it is what a household optimising for
+self-sufficiency rather than for money would want — and the capture ratio it produces is a
+real measurement in every run, not a placeholder for the euro figure.
 
 ```python
 def perfect_foresight(frame, cfg, n_soc=101, n_actions=41):
@@ -94,7 +143,11 @@ point. Whether it should also inherit `allow_grid_export` is
 
 `perfect_foresight_saving ≥ policy_saving` for every configuration is a strong invariant
 and catches most policy and pricing errors — fixture 6 in
-[16-validation-harness.md](16-validation-harness.md). Note also
+[16-validation-harness.md](16-validation-harness.md). Assert it **within** each benchmark
+block, in that block's own units: the energy DP cannot be beaten on kWh of import avoided,
+and the cost DP cannot be beaten on euros. Asserting it across the two blocks is
+meaningless and will fail correctly-built code, since the cost-optimal dispatch routinely
+avoids less import than the import-optimal one. Note also
 [§7.2](15-data-quality-and-limits.md#72-known-modelling-limitations--state-these-in-the-ui-not-just-here)
 item 6: the capture ratio is a floor on achievable improvement, not a target, because no
 real controller knows every future price.

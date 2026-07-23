@@ -16,6 +16,7 @@
 | `standby_w` | 30 | ≈ 260 kWh/yr — material, routinely omitted |
 | `coupling` | `ac` | |
 | `has_pv` | `true` | The common case among likely users; asked explicitly, never inferred — see [§8.16](17-open-questions.md) |
+| `simulate_cost` | `false` | Energy-only by default, so a first result needs no contract knowledge — see [§8.18](17-open-questions.md) |
 | `initial_soc_pct` | 50 | |
 | `phases` | 1 | |
 | `fuse_a` | 25 | → 5.75 kW (1×25 A) / 17.3 kW (3×25 A) |
@@ -44,16 +45,32 @@
 | `time_offset_max_lag` | 12 intervals | ±12 h hourly, ±1 h at 5-minute |
 | `time_offset_autocorrect` | off | Always offered, never applied silently |
 | `debounce_ms` | 400 | |
-| `dp_soc_levels` | 101 | |
-| `dp_action_levels` | 41 | |
+| `dp_soc_levels` | 101 | Shared by both perfect-foresight runs ([§6.9](11-policies-and-battery.md#69-main-simulation-loop), runs D and E) |
+| `dp_action_levels` | 41 | Likewise; the two objectives differ only in `transition_cost` |
 
 Tax and tariff constants must be editable in the UI and are stamped with the year they
 were taken from. They will change on 1 January 2027.
 
-Five of these defaults are themselves open questions: `degradation_eur_per_kwh`
+**Which defaults are inert when `simulate_cost = false`.** The following parameters feed
+the cost model only, are not asked for in energy-only mode, and are retained at their
+stored values so that enabling cost simulation later restores the user's configuration
+rather than resetting it: `energy_tax_excl_vat`, `vat_rate`, `supplier_markup`,
+`feedin_alpha`, `feedin_beta`, `feedin_floor_mode`, `feedin_floor_period`,
+`tlk_eur_per_kwh`, `dal_start_hour`, `dal_end_hour`, `dal_weekends`,
+`degradation_eur_per_kwh` and `supplier_settlement`. `economic_guard` is additionally
+**forced** off rather than merely hidden, because it reads a cost-model output
+([§6.7](11-policies-and-battery.md#67-discharge-policy)).
+
+Everything not in that list applies in both modes. The band parameters in particular
+(`band_a` through `band_d`, not tabulated above because they have no fixed default — see
+[§2.3](02-ux-wireframes.md#23-panel--parameter-configuration-expanded)) are dispatch
+parameters and are asked for in both modes, as is the spot price series itself.
+
+Six of these defaults are themselves open questions: `degradation_eur_per_kwh`
 ([§8.3](17-open-questions.md)), `supplier_settlement` ([§8.12](17-open-questions.md)),
 `pv_capacity_change_detection` ([§8.13](17-open-questions.md)), `feedin_floor_period`
-([§8.14](17-open-questions.md)) and `has_pv` ([§8.16](17-open-questions.md)).
+([§8.14](17-open-questions.md)), `has_pv` ([§8.16](17-open-questions.md)) and
+`simulate_cost` ([§8.18](17-open-questions.md)).
 
 The 2026 constants above are drawn from
 [background E-A](18-dutch-electricity-background.md#appendix-e-a--quick-reference-2026),

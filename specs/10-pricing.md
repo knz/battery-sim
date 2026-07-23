@@ -10,6 +10,20 @@
 §6.5 and §6.10 are kept together because they are two halves of one calculation: the
 waterfall consumes the price arrays directly.
 
+> **This entire file is gated on `cfg.simulate_cost`.** When cost simulation is off none of
+> it runs: no price arrays are built, no costs are accumulated, no waterfall is produced,
+> and `cost`, `benchmarks` and `price_bracket` in the result object are `null`
+> ([§4.5](07-internal-representation.md#shape-of-the-object-without-cost-simulation)). The
+> implementation should skip the `pricing/` package outright rather than call it with
+> neutral parameters — there is no neutral tax rate or neutral feed-in term, and a run
+> costed at zero everywhere would produce a confident €0.00 saving rather than no answer.
+>
+> Note what is *not* gated: the bare EPEX **spot series** itself. It is an input to the
+> charge and discharge bands in
+> [§6.6–6.7](11-policies-and-battery.md#66-charge-policy) and is present in both modes.
+> `bare_supply_price` below consumes it; the policies consume it directly and separately.
+> See [§1.4](01-product-brief.md#a-price-series-is-not-a-cost-model).
+
 ## 6.5 Price curves
 
 All three contract types produce the same two arrays. This is deliberately a single code
@@ -188,7 +202,7 @@ through here rather than dropped, so that the waterfall below closes exactly.
 
 **Waterfall decomposition** (exact, because per interval
 `Δcost = Δimp·p_imp − Δexp·p_exp_net` and splitting by sign is lossless). `A`, `B` and `C`
-are the first three of the four runs defined in
+are the first three of the runs defined in
 [§6.9](11-policies-and-battery.md#69-main-simulation-loop):
 
 ```python

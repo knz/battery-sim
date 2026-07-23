@@ -92,14 +92,23 @@ The dal window itself is set by the grid operator and **varies by region**. The 
 common is 23:00–07:00 on weekdays plus all weekend, but 21:00–07:00 occurs in some areas.
 Do not hard-code it.
 
-A subtlety worth internalising: the registers reflect the **tariff clock**, not the
-physical clock. If a household is on a single-tariff contract, everything may accumulate
-in T1 regardless of time of day, with T2 permanently at zero. Software must handle a
-never-incrementing second register without treating it as missing data.
+A subtlety worth internalising: **which registers exist is a property of the meter, not of
+the contract.** The meter measures the normaal and dal periods on separate registers, and
+that does not change when the household switches supplier or moves between a single-rate
+and a dual-rate offer — which Dutch households do freely. A single-rate contract is
+applied when the *bill* is computed, by charging both registers at the same rate; it does
+not merge them at the meter.
+
+The practical consequence for software: a second register that is absent, or present but
+permanently at zero, is evidence of an **incomplete or incorrect installation, or an
+incomplete sensor mapping** — not evidence about the household's contract. It should be
+surfaced as such rather than silently accepted, and it must not be treated as missing data
+that blocks the run.
 
 > **In the specification:**
-> [§6.4](09-ingest-algorithms.md#64-tariff-register-identification-and-zone-assignment)
-> implements the detection, the configurable dal window and the single-tariff case.
+> [§6.4](09-ingest-algorithms.md#64-tariff-registers--availability-identification-and-use)
+> separates register availability, dal identification and tariff-zone pricing, and gates
+> the last two on cost simulation.
 
 ### E1.4 Internal phase netting — the meter nets across L1, L2, L3
 

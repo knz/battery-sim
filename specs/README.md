@@ -21,12 +21,14 @@ diagnostic reinterpreted in light of smart-meter phase netting
 
 A locally-run web application that answers one question with a household's own historical
 data: *if I had owned a home battery over this period, operated under this policy, how
-much grid electricity and how much money would I have saved?*
+much grid electricity — and, if I ask for it, how much money — would I have saved?*
 
 It is a **retrospective counterfactual simulator**, not a forecaster and not a controller.
 It serves households **with or without solar PV** — PV data is optional throughout, and a
-battery bought purely for price arbitrage is a supported case. Start with
-[01-product-brief.md](01-product-brief.md).
+battery bought purely for price arbitrage is a supported case. **Cost simulation is
+likewise optional and defaults off**: energy savings are always reported, and the contract,
+tax and feed-in configuration needed for euro figures is asked for only when the user opts
+in. Start with [01-product-brief.md](01-product-brief.md).
 
 ---
 
@@ -58,8 +60,8 @@ These apply to every file in this package and are not restated in full elsewhere
 | [07-internal-representation.md](07-internal-representation.md) | `SeriesFrame`, `SimulationFrame`, result JSON, per-interval CSV export | Backend |
 | [08-architecture.md](08-architecture.md) | Layer diagram, why the split, compute model, configuration, multi-user readiness | Backend |
 | [09-ingest-algorithms.md](09-ingest-algorithms.md) | Counter deltas and resets, grid selection, load reconstruction, tariff registers | Backend (domain) |
-| [10-pricing.md](10-pricing.md) | Price curves for all three contract types, feed-in, cost accounting, waterfall | Backend (domain) |
-| [11-policies-and-battery.md](11-policies-and-battery.md) | Charge and discharge policies, battery step function, main loop, the four runs | Backend (domain) |
+| [10-pricing.md](10-pricing.md) | Price curves for all three contract types, feed-in, cost accounting, waterfall. Entirely gated on cost simulation | Backend (domain) |
+| [11-policies-and-battery.md](11-policies-and-battery.md) | Charge and discharge policies, battery step function, main loop, the simulation runs | Backend (domain) |
 | [12-metrics-and-benchmarks.md](12-metrics-and-benchmarks.md) | KPIs, SoC drift correction, perfect-foresight dynamic program | Backend (domain) |
 | [13-configuration-epochs.md](13-configuration-epochs.md) | Detecting PV/battery commissioning mid-window, undeclared-battery heuristics | Backend + frontend |
 | [14-diagnostics.md](14-diagnostics.md) | Overlap, resolution bias, price bracketing, timestamp misalignment | Backend + frontend |
