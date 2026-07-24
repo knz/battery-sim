@@ -174,33 +174,44 @@ meaning makes every historical row a lie.
 
 ## 2.2 Panel ① — Data input (expanded)
 
+The panel is **slot-first**: it leads with the roster of data slots
+([§4.1](05-data-formats.md#41-the-series-vocabulary)) and lets the user choose, *per slot*,
+where that slot's data comes from. This is the inverse of an earlier draft that asked for the
+source once and applied it to the whole panel. The reason for the flip is that different slots
+have genuinely different sources available: an energy meter can only come from the user's own
+records (Home Assistant today, an uploaded CSV later), but the spot price can come from Home
+Assistant *or* from a preset historical dataset the app ships. Asking "what is the source"
+before the slot is known forces a single answer onto a set of slots that do not share one.
+
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │ ① DATA                                                            [collapse] │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  Source:  ( • ) Home Assistant      (   ) Upload CSV                         │
+│  Pick where each series comes from. Choose a source per slot; Home           │
+│  Assistant is connected once below and reused by every slot that uses it.    │
 │                                                                              │
-│  ┌─ Home Assistant ───────────────────────────────────────────────────────┐  │
+│  ┌─ Home Assistant connection ──────────── shared across HA slots ───────┐  │
 │  │  Base URL   [ http://homeassistant.local:8123               ]          │  │
 │  │  Token      [ ●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●● ]          │  │
 │  │                                                     [ Test connection ] │  │
 │  │  ✓ Connected · HA 2026.6.2 · 1,284 statistic IDs available             │  │
 │  └────────────────────────────────────────────────────────────────────────┘  │
 │                                                                              │
-│  ┌─ Series mapping ───────────────────────────────────────────────────────┐  │
-│  │  ROLE                REQ  ENTITY / STATISTIC ID                        │  │
+│  ┌─ Series slots ─────────────────────────────────────────────────────────┐  │
+│  │  ROLE              REQ  SOURCE                ENTITY / STATISTIC ID     │  │
 │  │  ──────────────────────────────────────────────────────────────────    │  │
-│  │  Grid import T1       ●   [ sensor.electricity_meter_import_t1    ▾ ]  │  │
-│  │  Grid import T2       ●   [ sensor.electricity_meter_import_t2    ▾ ]  │  │
-│  │  Grid export T1       ●   [ sensor.electricity_meter_export_t1    ▾ ]  │  │
-│  │  Grid export T2       ●   [ sensor.electricity_meter_export_t2    ▾ ]  │  │
-│  │  Solar production     ◐   [ sensor.solar_total_production         ▾ ]  │  │
-│  │  Battery charge       ○   [ — none —                              ▾ ]  │  │
-│  │  Battery discharge    ○   [ — none —                              ▾ ]  │  │
-│  │  Spot price           ●   [ sensor.epex_spot_price                ▾ ]  │  │
-│  │  Spot price (min)     ◒   [ — none —                              ▾ ]  │  │
-│  │  Spot price (max)     ◒   [ — none —                              ▾ ]  │  │
+│  │  Grid import T1     ●  [ Home Assistant  ▸ ] [ sensor.…import_t1   ▾ ]  │  │
+│  │  Grid import T2     ●  [ Home Assistant  ▸ ] [ sensor.…import_t2   ▾ ]  │  │
+│  │  Grid export T1     ●  [ Home Assistant  ▸ ] [ sensor.…export_t1   ▾ ]  │  │
+│  │  Grid export T2     ●  [ Home Assistant  ▸ ] [ sensor.…export_t2   ▾ ]  │  │
+│  │  Solar production   ◐  [ Home Assistant  ▸ ] [ sensor.solar_total  ▾ ]  │  │
+│  │  Battery charge     ○  [ Choose source…  ▸ ]                           │  │
+│  │  Battery discharge  ○  [ Choose source…  ▸ ]                           │  │
+│  │  Spot price         ●  [ Preset (Energy- ▸ ] Energy-Charts NL, on disk │  │
+│  │                          Charts NL)          + bridged to today        │  │
+│  │  Spot price (min)   ◒  [ Home Assistant  ▸ ] [ — none —           ▾ ]  │  │
+│  │  Spot price (max)   ◒  [ Home Assistant  ▸ ] [ — none —           ▾ ]  │  │
 │  │                                                                        │  │
 │  │  ● = required.  ○ = optional.                                          │  │
 │  │  ◐ = required only if you have solar PV.                               │  │
@@ -210,6 +221,7 @@ meaning makes every historical row a lie.
 │  │  whether or not you simulate costs.                                    │  │
 │  │  Both meter registers should be mapped. See "Tariff registers" below.  │  │
 │  │                                                                        │  │
+│  │  The ▸ on a row opens the source drawer (right) for that slot.         │  │
 │  │                                              [ Fetch history ]         │  │
 │  └────────────────────────────────────────────────────────────────────────┘  │
 │                                                                              │
@@ -255,16 +267,74 @@ meaning makes every historical row a lie.
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**The connection runs in the browser.** *Test connection* and *Fetch history* are performed
-by the browser against the user's own Home Assistant, not by the backend
-([§4.3](06-home-assistant-ingestion.md)). The token entered here stays in the browser and is
-sent only to that instance — it is never transmitted to the application backend
-([§7.5](15-data-quality-and-limits.md#75-operational-notes)), and the UI says so beneath the
-token field. *Test connection* lists the available statistic ids and fills the mapping
-dropdowns; *Fetch history* fetches the statistics, streams them to the backend, and the panel
-re-renders from the persisted dataset.
+### The per-slot source drawer
 
-**The setup band decides which slots this box asks for.** The two choices in the band above
+The `▸` on a slot row opens a right-side drawer listing the sources available **for that
+slot** — different slots offer different sets, decided by each source's `available_for` rule
+([§5.1](08-architecture.md#51-diagram)). The user picks one and, for a backend-loaded source,
+confirms with a *Use this source* action; the choice is persisted with the slot and shown back
+on the row. The drawer is one shared component: it opens for whichever slot's `▸` was clicked.
+
+```
+  ┌─ Source for: Spot price ───────────────────────────────────────────────┐
+  │                                                                        │
+  │  ( • ) Home Assistant                                                  │
+  │        Fetched from your Home Assistant in your browser; the token     │
+  │        never reaches this app.                                         │
+  │                                                                        │
+  │  (   ) Preset historical (Energy-Charts NL)                           │
+  │        NL day-ahead spot prices from 2023 to today: committed on disk  │
+  │        and bridged live to the end of your selected range.            │
+  │                                                                        │
+  │  (   ) Upload CSV                                              [?]      │
+  │        Provide a price file yourself.  — not built yet —              │
+  │                                                                        │
+  │                                       [ Use this source ]   [ close ]  │
+  └────────────────────────────────────────────────────────────────────────┘
+```
+
+Each source shows a **label and a one-line blurb** as a radio option
+([§5.1](08-architecture.md#51-diagram) `SourceDescriptor`). Which slots offer which sources:
+
+- **Energy slots** (grid import/export, solar, battery charge/discharge) offer **Home
+  Assistant**, and — pending — **Upload CSV**. These are the user's own records, so there is no
+  preset dataset to offer.
+- **The Spot price slot** additionally offers the **preset Energy-Charts NL** historical
+  source. It is the one slot the app can fill from shipped data rather than the user's own,
+  because a day-ahead spot price is a public market series, not a household measurement.
+- The **Spot price (min)** and **Spot price (max)** bracket slots offer Home Assistant only:
+  they carry an HA measurement statistic's own intra-interval min/max, which the price API does
+  not provide.
+
+**Home Assistant is a browser fetch; the preset source is a backend load.** The two families
+differ in *where the frame is produced*, and the drawer reflects it. Picking Home Assistant
+arms the browser fetch (below); picking the preset source triggers a backend load with no
+browser round-trip.
+
+**The Home Assistant connection is shared.** There is one connection card for the whole panel,
+not one per slot. *Test connection* is performed once; every slot whose source is Home
+Assistant then reuses that connection, and its mapping dropdown is filled from the same
+statistic-id listing. A user with five HA slots enters the URL and token once. *Test
+connection* and *Fetch history* are performed by the browser against the user's own Home
+Assistant, not by the backend ([§4.3](06-home-assistant-ingestion.md)). The token entered here
+stays in the browser and is sent only to that instance — it is never transmitted to the
+application backend ([§7.5](15-data-quality-and-limits.md#75-operational-notes)), and the UI
+says so beneath the token field. *Test connection* lists the available statistic ids and fills
+the mapping dropdowns of every HA slot; *Fetch history* fetches the statistics for the mapped
+HA slots, streams them to the backend, and the panel re-renders from the persisted dataset.
+
+**The preset spot-price source is loaded by the backend.** When the user picks it for the Spot
+price slot, the backend reads the committed on-disk NL day-ahead dataset (2023 → a recent tail)
+and bridges any gap to the end of the selected range with a call to the public Energy-Charts
+API, with no browser involvement. It is the **one source the backend fetches directly**, and
+the reason it can is that the price API is a public cloud endpoint the backend can reach —
+unlike a user's LAN-only Home Assistant. The mechanics are in
+[§4.3](06-home-assistant-ingestion.md), and the outbound-request note in
+[§7.5](15-data-quality-and-limits.md#75-operational-notes). A backend load has no per-entity
+mapping dropdown: the slot identity *is* the mapping, so the row shows a static indication of
+the source rather than a `▾` selector.
+
+**The setup band decides which slots the roster asks for.** The two choices in the band above
 panel ① ([§2.1](#the-setup-band)) determine the slot roster here, and this is the reason
 they are asked first:
 
@@ -358,16 +428,24 @@ Two rows in that box behave differently under the cost toggle, and the split fol
   window check below it are shown **only when cost simulation is on**. Which register
   carries which *tariff* matters only to a bill.
 
-### CSV variant of the source sub-panel
+### The CSV source (pending)
 
-A user on this path does not own their data and does not control its shape. They will be
-downloading exports from an energy supplier, a grid operator's portal, or a PV installer,
-and a first-time user typically does not know which of those files they need before they
-start. The sub-panel is therefore built around a **checklist of the series to go and
-collect**, presented before any upload, with one upload slot per series.
+**Upload CSV** is one source among those offered in the drawer, not a whole-panel mode. It is
+offered for every energy slot and for the spot-price slots, and it is **pending**
+([§2.1](#the-four-availability-states)): it renders as a disabled radio with the `[?]`
+affordance (feature key `data_source_csv`) until the machinery ships. What follows describes
+what the CSV source *will do* when built, so the intent is on record; a reader must not read
+its pending state as the feature having been cut.
+
+A user picking CSV does not own their data in the shape the app wants it. They will be
+downloading exports from an energy supplier, a grid operator's portal, or a PV installer, and a
+first-time user typically does not know which of those files they need before they start.
+Choosing CSV for a slot therefore opens an upload flow built around a **checklist of the series
+to go and collect** — the same slot roster the panel already shows, but read as "what do I need
+to download", with one upload slot per series and a pointer to where each file comes from.
 
 ```
-  ┌─ Upload CSV ───────────────────────────────────────────────────────────┐
+  ┌─ Upload CSV — files to collect ────────────────────────────────────────┐
   │                                                                        │
   │  Collect one file per row below. Most of these come from your energy   │
   │  supplier's website; solar production usually comes from your          │
@@ -409,20 +487,17 @@ collect**, presented before any upload, with one upload slot per series.
 
 **The slot supplies the series identity.** Nothing inside an uploaded file says which
 series it is — not a column header, not a name column, not the filename. The user declares
-what they are providing by choosing where to put it, which is the one thing they reliably
-know and the one thing a supplier's export cannot get wrong. The consequence worth stating
-plainly: the series names in
+what they are providing by choosing the slot to drop it into, which is the one thing they
+reliably know and the one thing a supplier's export cannot get wrong. The consequence worth
+stating plainly: the series names in
 [§4.1](05-data-formats.md#41-the-series-vocabulary) are internal identifiers used
 downstream and in the result object; a user's file is never required to contain them.
 
-**Which rows appear** follows the same rules as the Home Assistant mapping table above,
-driven by the same two answers in the setup band ([§2.1](#the-setup-band)): `Solar
-production` is rendered only when `cfg.has_pv` is set, the `Spot price (min)` / `Spot price
-(max)` slots are offered only when `cfg.simulate_cost` is on, and `Spot price` itself is
+**Which rows appear** follows the same setup-band rules as the roster above
+([§2.1](#the-setup-band)): `Solar production` only when `cfg.has_pv` is set, the `Spot price
+(min)` / `Spot price (max)` slots only when `cfg.simulate_cost` is on, and `Spot price` itself
 required in both cost modes. Neither choice is asked here — the band is the single source of
-truth for both — and editing it in the band re-derives this checklist in place. The list is
-not a mirror of that table, though: it answers "what do I need to go and download", so it
-leads with where the files come from rather than with sensor names.
+truth for both.
 
 **Validation is per slot and recoverable.** A file is checked against the expected format
 for the series it was dropped into, and a failure is reported on that row alone: what was

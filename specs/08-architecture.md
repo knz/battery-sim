@@ -26,6 +26,7 @@
 ┌──────▼─────────────────────────────────────────────────────────────────────┐
 │  WEB LAYER — FastAPI                                                      │
 │    routes/data.py     WS /data/ingest/ws   (browser-fetched rows in)      │
+│                       POST /data/slot/{name}/load  (backend-load a slot)  │
 │    routes/params.py   PATCH /params                                       │
 │    routes/results.py  GET  /results  /results/export.csv                  │
 │    routes/stream.py   GET  /api/stream           (SSE)                    │
@@ -49,7 +50,9 @@
 │    CsvLoader                │   │    normalize/  grid selection, resample│
 │    DatasetStore (persist)   │   │    quality/    checks, flags           │
 │    InterestReporter         │   │    pricing/    import/export curves    │
-│    (future) EntsoeClient    │   │                                        │
+│    sources/  DataSource     │   │                                        │
+│      HomeAssistantSource    │   │                                        │
+│      EnergyChartsSource     │   │                                        │
 └──────┬──────────────────────┘   │    policies/   charge + discharge      │
        │                          │    battery/    step function, limits   │
        │      NB: the HA fetch is  │    simulate/   main loop               │
@@ -62,7 +65,7 @@
 │      workspaces(id, owner_id, name, created_at)                           │
 │      datasets(id, workspace_id, source_type, fetched_at, coverage, qa)    │
 │      series_meta(id, dataset_id, name, kind, resolution_s, path,          │
-│                  fine_resolution_s, fine_coverage)                        │
+│                  fine_resolution_s, fine_coverage, source_type)           │
 │      params(workspace_id, json, updated_at)          -- current config    │
 │      runs(id, workspace_id, run_id, config_hash, result_json, created_at) │
 │      feature_interest(workspace_id, feature_key, count, last_clicked_at)  │
@@ -79,6 +82,39 @@
 > increment rather than Parquet, to avoid a pandas dependency for a store the domain layer
 > reads back into plain arrays. The on-disk format is an implementation detail behind
 > `DatasetStore`; a move to Parquet is a later change if columnar tooling is wanted.
+
+### The data-source abstraction (`app/sources/`)
+
+Which source fills which slot lives in an `app/sources/` package: a `SourceDescriptor` (the
+drawer-facing metadata — key, label, kind, blurb), a `DataSource` protocol (`descriptor`,
+`available_for(slot)`, `load(slot, window)`), and a registry that answers, for a given slot,
+which sources may fill it. It has two implementations:
+
+- **`HomeAssistantSource`** — kind `browser_fetch`, available for every slot. Its `load` does
+  not run: an HA frame is produced by the browser→WS ingest path
+  ([§4.3](06-home-assistant-ingestion.md)), not backend-side. The source object exists as the
+  descriptor the drawer shows and the `available_for` rule.
+- **`EnergyChartsSource`** — kind `backend_load`, available only for the `price_spot` slot. Its
+  `load` reads the committed on-disk NL day-ahead prices and bridges the recent tail from the
+  public API ([§4.3](06-home-assistant-ingestion.md)). This is the only source the backend
+  fetches directly. The committed dataset lives at `app/data/spot_prices/` — **shipped content
+  versioned with the app, not per-workspace runtime data** — so it sits beside the code rather
+  than under `<data_dir>/<workspace_id>/`.
+
+`POST /data/slot/{name}/load` is the route that loads a `backend_load` source for one slot and
+merges the frame into the current dataset; a `browser_fetch` source is rejected there, because
+its frame arrives over the ingest WS instead. Per-series provenance is persisted in
+`series_meta.source_type` (the descriptor key of the source that produced each series), so a
+dataset assembled from more than one source — an HA-fetched set of energy meters with an
+Energy-Charts spot price merged in — records where each series came from.
+
+**`app/sources/` is an adapter, not domain.** It does I/O — network, file, wall-clock — and
+deciding *where data comes from* is precisely that. It therefore sits in the adapter layer, not
+under `domain/`, and the domain-is-pure invariant (§5.2) is intact: nothing in `domain/`
+reaches for a source. The protocol depends on domain *types* (`SeriesFrame`, `SlotSpec`), which
+is the correct direction — an adapter may depend on the domain, not the reverse. A reader
+expecting a thing called a "source" to live in `domain/` should read it as an adapter that
+feeds the domain, the same way `CsvLoader` and `DatasetStore` do.
 
 The `domain/` sub-packages map onto the specification files as follows:
 
@@ -176,6 +212,10 @@ packager or a user who wants the reports to reach someone sets it deliberately. 
 `installation_id` holds the random identifier described in §7.5; it is generated on first
 run, written back to `config.toml`, and clearing the line generates a fresh one on the next
 start.
+
+The Energy-Charts spot-price source needs **no configuration**: the endpoint is a fixed public
+URL, the NL bidding zone is hardcoded for now, and there is **no API key** — the API is open.
+Nothing about this source appears in `config.toml`.
 
 Default parameter values shipped in `config.toml` are listed in
 [appendix-a-defaults.md](appendix-a-defaults.md).

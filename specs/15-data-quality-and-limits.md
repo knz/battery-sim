@@ -197,12 +197,22 @@ different windows can differ by more than the difference in their data.
 - **Never log the token.** It is not present server-side to log; the browser fetch code must
   likewise keep it out of any console/debug output.
 - **What the app sends out, and when.** From the browser: Home Assistant requests, to the URL
-  the user entered. From the backend: price fetches, to the source the user selected (a later
-  increment). The rows the browser forwards to the backend over `WS /data/ingest/ws` are
-  energy/price statistics the user asked to import — they stay on the backend and are never
-  onward-transmitted; the HA token is not among them. Parameters, results and the contents of
-  the database are never transmitted anywhere. There is one exception, described next, and it
-  is inert unless configured.
+  the user entered. From the backend: spot-price fetches to `api.energy-charts.info`, and
+  feature-interest reports (below). The rows the browser forwards to the backend over
+  `WS /data/ingest/ws` are energy/price statistics the user asked to import — they stay on the
+  backend and are never onward-transmitted; the HA token is not among them. Parameters, results
+  and the contents of the database are never transmitted anywhere. The two backend egress cases
+  are named next.
+- **Backend spot-price fetch, only when the preset source is selected.** When the user picks the
+  preset Energy-Charts NL source for the spot-price slot
+  ([§2.2](02-ux-wireframes.md#22-panel--data-input-expanded),
+  [§4.3](06-home-assistant-ingestion.md)), the backend fetches NL day-ahead prices from
+  `api.energy-charts.info` to bridge the committed on-disk data to the end of the requested
+  range. This is one of the two things the backend sends out. What is sent is a **bidding zone
+  (`NL`) and a date range, and nothing else** — no user data, no energy data, no parameters, no
+  identifier. It fires **only** when the user selects that source, and not at all if the
+  spot-price slot is filled from Home Assistant instead. The endpoint is a fixed public URL that
+  needs no key ([§5.4](08-architecture.md#54-configuration)).
 - **Feature-interest reports are off unless an endpoint is configured.** Clicking the
   thumbs-up on a not-built-yet control ([§2.1](02-ux-wireframes.md#the-pending-affordance))
   always increments a local counter. It additionally POSTs to `feature_interest_url`, which

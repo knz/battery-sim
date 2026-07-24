@@ -230,6 +230,47 @@ one transaction (no duplicate rows possible); `.npz` overwrite by deterministic 
 orphan; `workspace_id` on every row; migration idempotent with legacy NULL → dataset-source
 fallback; the endpoint's error gates (404/400/502) and `asyncio.to_thread` off-loading.
 
+## Spec rewrites (Phase D) — canonical prose brought in line with the build (2026-07-24)
+
+Edited only the four spec markdown files below to describe the slot-first data-input reshape, the
+per-slot `DataSource` abstraction, and the Energy-Charts backend spot-price source as the
+specification (timeless prose), not as a change log. No code touched.
+
+- **specs/02-ux-wireframes.md §2.2** — reshaped Panel ① from source-first to slot-first. The
+  panel now leads with the slot roster; each slot row carries a per-slot source chosen in a
+  right-side drawer that lists the sources available for that slot (energy slots → HA; the Spot
+  price slot → HA or the preset Energy-Charts NL source). Replaced the single per-panel HA card
+  framing with a shared HA connection (tested once, reused by every HA slot). Documented the
+  preset backend-loaded spot-price source. Recast the CSV-variant section as one pending source
+  offered per slot (feature key `data_source_csv`) rather than a whole-panel mode, keeping its
+  substance (collect-the-files checklist, per-slot validation, slot supplies identity). Updated
+  the ASCII wireframes to the slot-first layout with a Source column plus the drawer. Setup-band
+  gating rules (has_pv, simulate_cost, Spot price required in both modes) and the four
+  availability states are unchanged.
+- **specs/06-home-assistant-ingestion.md** — added a "The spot-price slot has a second source"
+  section: the preset Energy-Charts NL dataset is fetched by the backend (committed on-disk
+  2023→today + live bridge via api.energy-charts.info), the one backend-initiated outbound data
+  fetch, with the EUR/MWh→EUR/kWh conversion and the mixed hourly/15-min resolution caveat
+  (grid selector owns resampling). Cross-linked to §5.1 and §7.5.
+- **specs/08-architecture.md §5.1, §5.4** — added the `app/sources/` adapter package
+  (SourceDescriptor + DataSource protocol + registry), HomeAssistantSource (browser_fetch) and
+  EnergyChartsSource (backend_load) to the ADAPTERS column with a note on why a "source" is an
+  adapter not domain; added POST /data/slot/{name}/load to the routes; added `source_type` to
+  the series_meta schema line; noted the committed dataset at app/data/spot_prices/. §5.4 notes
+  the Energy-Charts source needs no configuration and no API key.
+- **specs/15-data-quality-and-limits.md §7.5** — promoted backend price egress from "a later
+  increment" to a current, named egress case: a bidding zone + date range to
+  api.energy-charts.info, no user or energy data, only when the user picks the preset source.
+
+Reconciliations where the new feature met stale prose:
+- §2.3 Pricing box "Spot source (•) from mapped sensor ( ) upload CSV" radio referred to the old
+  whole-panel CSV mode; left the dispatch-signal wording intact but this is now consistent with
+  the slot-first framing since "mapped sensor" is one slot source. No edit was required there —
+  the radio names the price origin for the cost model, not the data-input mode — but noted for
+  the reader.
+- §7.5 previously said backend price fetch was "a later increment"; now current (fixed).
+- §5.1 series_meta schema omitted the per-series `source_type`; added.
+
 ## Current status
 
 Phase A (source abstraction + Energy-Charts source) and Phase B (per-series persistence,

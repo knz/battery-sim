@@ -36,6 +36,54 @@ It performs no HA I/O. This keeps the numerics in the pure domain layer and the 
 client-side computation" rule intact ([§5.1](08-architecture.md#51-diagram)): the browser is
 a fetch-and-forward pipe, not a place where deltas or diagnostics are computed.
 
+## The spot-price slot has a second source, loaded by the backend
+
+Home Assistant is not the only source the spot-price slot can be filled from. The slot also
+offers a **preset historical dataset — NL day-ahead spot prices from Energy-Charts** — and,
+unlike everything else in this file, that source is fetched by the **backend**, not the
+browser. It is the one deliberate exception to "the fetch runs in the browser", and the
+exception is justified by the same reasoning that put the HA fetch in the browser in the first
+place: the Energy-Charts price API is a **public cloud endpoint** the backend can reach
+directly, whereas a user's Home Assistant is LAN-only and can be reached only from the browser.
+There is no LAN, no user token, and no self-signed certificate in the way, so nothing forces
+this fetch into the browser and the backend can serve it more simply. The source abstraction
+that carries this distinction is [§5.1](08-architecture.md#51-diagram): Home Assistant is a
+`browser_fetch` source, the Energy-Charts source is a `backend_load` source.
+
+How the backend serves it:
+
+- **Committed on disk, bridged live.** The repository ships NL day-ahead prices from 2023 up to
+  a recent tail as committed CSVs (`app/data/spot_prices/NL-YYYY.csv`,
+  [§5.1](08-architecture.md#51-diagram)). At load time the source reads the committed points
+  for the requested window and, when the window extends past the last committed interval,
+  bridges the gap by calling the public API (`api.energy-charts.info/price?bzn=NL&start=…&end=…`)
+  for just those trailing days. On-disk data is authoritative where the two overlap: the
+  committed CSVs are the reviewable source of truth, and the bridge only extends them forward.
+- **Units.** The API returns prices in **EUR/MWh**; the price kind the series vocabulary uses is
+  **EUR/kWh** ([§4.1](05-data-formats.md#41-the-series-vocabulary)), so every value is divided
+  by 1000 on the way in — both when the committed files are seeded and when the live tail is
+  bridged.
+- **Mixed native resolution.** The NL series is **hourly for older years and 15-minute** once
+  the market moved to quarter-hourly (around 2025-09-30). The source preserves whatever spacing
+  each interval was recorded at and does **not** resample. A window straddling that change
+  therefore carries two native resolutions; reconciling them onto one simulation grid is the
+  job of the grid selector
+  ([§6.2](09-ingest-algorithms.md#62-simulation-grid-selection-and-resampling)), exactly as it
+  is for the two-resolution HA case below, and not of this source.
+- **Same normaliser as the HA price path.** The merged points are fed through the same price
+  normaliser the HA price series uses, so the resulting `SeriesFrame` — its shape, resolution
+  inference, and price kind — matches the HA path. This source decides only *where the points
+  come from*, not how a price frame is built.
+
+The one outbound request this makes is a bidding zone (`NL`) and a date range, with no user or
+energy data attached, and it fires only when the user selects this source. That egress is
+described in [§7.5](15-data-quality-and-limits.md#75-operational-notes) alongside the HA
+requests and the feature-interest POST.
+
+The min/max price bracket slots are **not** served by this source: `price_spot_min` and
+`price_spot_max` carry an HA measurement statistic's own intra-interval min/max (below), which
+the price API does not provide. Those slots remain Home Assistant only.
+
 ## Which HA API, and why
 
 Use the **WebSocket API**, endpoint `recorder/statistics_during_period`, not the REST
