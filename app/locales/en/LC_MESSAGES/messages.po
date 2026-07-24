@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-24 17:47+0200\n"
+"POT-Creation-Date: 2026-07-24 18:21+0200\n"
 "PO-Revision-Date: 2026-07-23 20:40+0200\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: en\n"
@@ -89,6 +89,9 @@ msgstr "Allow export to grid"
 
 msgid "Allow export to grid during D2/D3"
 msgstr "Allow export to grid during D2/D3"
+
+msgid "Apply"
+msgstr "Apply"
 
 msgid "Average"
 msgstr "Average"
@@ -244,6 +247,9 @@ msgid ""
 msgstr ""
 "Fetched from your Home Assistant in your browser; the token never reaches"
 " this app."
+
+msgid "From"
+msgstr "From"
 
 msgid "Fuse rating"
 msgstr "Fuse rating"
@@ -576,7 +582,10 @@ msgid ""
 "kWh came from the grid; higher means more was covered by your own solar "
 "(and existing battery). It uses the reconstructed consumption above."
 msgstr ""
-"The share of your household consumption met without drawing from the grid: self-sufficiency = 1 − grid import ÷ consumption. 0％ means every kWh came from the grid; higher means more was covered by your own solar (and existing battery). It uses the reconstructed consumption above."
+"The share of your household consumption met without drawing from the "
+"grid: self-sufficiency = 1 − grid import ÷ consumption. 0％ means every "
+"kWh came from the grid; higher means more was covered by your own solar "
+"(and existing battery). It uses the reconstructed consumption above."
 
 msgid ""
 "The share of your solar production you used yourself rather than "
@@ -584,7 +593,10 @@ msgid ""
 "over the period your solar data covers. 100％ means none of your "
 "production was exported; lower means more went back to the grid."
 msgstr ""
-"The share of your solar production you used yourself rather than exporting: self-consumption = 1 − grid export ÷ solar produced, measured over the period your solar data covers. 100％ means none of your production was exported; lower means more went back to the grid."
+"The share of your solar production you used yourself rather than "
+"exporting: self-consumption = 1 − grid export ÷ solar produced, measured "
+"over the period your solar data covers. 100％ means none of your "
+"production was exported; lower means more went back to the grid."
 
 msgid ""
 "These come from the battery you already own. The consumption and self-"
@@ -600,6 +612,9 @@ msgstr ""
 
 msgid "This control"
 msgstr "This control"
+
+msgid "To"
+msgstr "To"
 
 msgid "Toggle Data panel"
 msgstr "Toggle Data panel"
@@ -723,6 +738,21 @@ msgstr ""
 msgid "kWh"
 msgstr "kWh"
 
+msgid "last 1 week"
+msgstr "last 1 week"
+
+msgid "last 1 year"
+msgstr "last 1 year"
+
+msgid "last 3 months"
+msgstr "last 3 months"
+
+msgid "last 30 days"
+msgstr "last 30 days"
+
+msgid "last 6 months"
+msgstr "last 6 months"
+
 msgid "long-lived access token"
 msgstr ""
 
@@ -740,6 +770,9 @@ msgstr ""
 
 msgid "optional"
 msgstr "optional"
+
+msgid "recalculating…"
+msgstr "recalculating…"
 
 msgid "required"
 msgstr "required"

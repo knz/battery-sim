@@ -133,20 +133,44 @@ Cleanup applied after review: dropped the misleading unused `cfg=CONFIG` from th
 - `_monthly_import` repeats month labels across a multi-year window (two "Jan" bars); values are
   correct. Add year disambiguation if multi-year ranges become common.
 - Coverage line pluralisation ("1 intervals"). Cosmetic.
-- No route tests for `POST /results` yet (deferred with the i18n phase).
+- **Dynamic caveat strings render in English under NL.** The panel-③ caveats and the annualisation
+  message are built in `results_view.py` as f-strings with interpolated kWh values, so their gettext
+  msgid is the whole runtime string — it cannot be a static catalog entry, and `_(c)` in the
+  template falls back to the English source. Fixing this properly means restructuring those strings
+  as `_N`-marked templates with `%(...)s` placeholders (as the sample's caveats already are). The
+  static UI chrome ("last N", From/To, Apply, recalculating…) IS translated. Deferred.
+
+### Phase 3 — i18n + route tests (done)
+- **Modified `app/locales/{nl,en}/LC_MESSAGES/messages.{po,mo}`** — extracted the new template
+  msgids; translated the static chrome to NL ("last 1 week" → "laatste week", … , From/To → Van/Tot,
+  Apply → Toepassen, recalculating… → opnieuw berekenen…), cleared the fuzzy flags pybabel raised
+  from the old preset labels, filled the EN source catalog, and recompiled the committed `.mo`s.
+  Verified both locales render the new strings.
+- **New `tests/test_results_route.py`** — 9 tests over `POST /results` through the FastAPI app
+  against a seeded temp-data-dir dataset: preset + default + explicit-range → 200 HTML fragment; the
+  zero-battery headline (equal import both sides); and the clean-4xx/409 error paths.
 
 ## Current status
 
-Phase 1 (backend) complete, reviewed, tests green. **Phase 2 (route wiring + template/JS) complete:**
-`POST /results` and `index()` wiring in `main.py`, period + date-range pickers and benchmark /
-short-window guards in `_panel_results.html`, delegated fetch/swap + chart-redraw JS in
-`index.html`. Full suite green (113 passed, 2 skipped — unchanged from Phase 1); smoke test's
-`test_chart_rendered` still passes with the moved chart-draw. Manual render checks pass: GET /
-(empty state = sample, with-dataset = computed), POST /results for presets + explicit range (200,
-fragment rooted at `#panel-results`), error paths (unknown preset / both / bad date → 400; no
-dataset → 409), short-window guard box shown for `last_1_week`, benchmark card absent for the
-computed (benchmark-less) view-model and present for the sample. Not committed — awaiting review.
+**All three phases complete, each reviewed, committed per phase.** Full suite green: **122 passed,
+2 skipped** (Phase 1 added 16 view-model tests; Phase 3 added 9 route tests). The panel-③ increment
+is functional end-to-end:
 
-Follow-ups deferred to a later phase: no route tests added (per Phase 2 scope); new UI strings
-(`last 1 week`…, `From`/`To`, `Apply`, `recalculating…`, the guard message) are marked `_()` but
-not extracted/compiled, so they degrade to English until a later i18n phase.
+- GET / renders computed panel-③ energy figures from the persisted dataset (sample fallback when
+  empty or no simulatable grid);
+- the period presets ("last 1 week" … "last 1 year", coverage-anchored) and the explicit From/To
+  date range POST to `/results` and swap the panel in place via a delegated fetch handler, with the
+  monthly chart redrawn from the swapped fragment;
+- every savings figure is honestly 0 (zero-battery), every measured figure is real, and a caveat
+  states the battery is not configured yet;
+- the benchmark box is absent (its DP is unbuilt) and the §7.4 short-window guard shows for ranges
+  under 90 days;
+- the static UI chrome is translated EN/NL.
+
+Reviews: Phase 1 MINOR ISSUES (presentation-only, no correctness defect); Phase 2 CLEAN. The
+follow-ups above (shared-env locale race, dynamic-caveat translation, month-label disambiguation,
+`_period_selected_for` clamp quirk) are deferred and non-blocking.
+
+Natural next increments: panel ② (battery parameters) — once it lands, the zero-battery caveat and
+the `benchmark`-absent guard retire and run C diverges from A; the §6.12 perfect-foresight DP for the
+benchmark box; and the debounce/SSE run-identity machinery (§3.3) for continuous re-parameterisation.

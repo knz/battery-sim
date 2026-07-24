@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-24 17:47+0200\n"
+"POT-Creation-Date: 2026-07-24 18:21+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -79,6 +79,9 @@ msgid "Allow export to grid"
 msgstr ""
 
 msgid "Allow export to grid during D2/D3"
+msgstr ""
+
+msgid "Apply"
 msgstr ""
 
 msgid "Average"
@@ -230,6 +233,9 @@ msgstr ""
 msgid ""
 "Fetched from your Home Assistant in your browser; the token never reaches"
 " this app."
+msgstr ""
+
+msgid "From"
 msgstr ""
 
 msgid "Fuse rating"
@@ -555,6 +561,9 @@ msgstr ""
 msgid "This control"
 msgstr ""
 
+msgid "To"
+msgstr ""
+
 msgid "Toggle Data panel"
 msgstr ""
 
@@ -656,6 +665,21 @@ msgstr ""
 msgid "kWh"
 msgstr ""
 
+msgid "last 1 week"
+msgstr ""
+
+msgid "last 1 year"
+msgstr ""
+
+msgid "last 3 months"
+msgstr ""
+
+msgid "last 30 days"
+msgstr ""
+
+msgid "last 6 months"
+msgstr ""
+
 msgid "long-lived access token"
 msgstr ""
 
@@ -672,6 +696,9 @@ msgid "offered if you simulate costs"
 msgstr ""
 
 msgid "optional"
+msgstr ""
+
+msgid "recalculating…"
 msgstr ""
 
 msgid "required"

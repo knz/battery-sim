@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-24 17:47+0200\n"
+"POT-Creation-Date: 2026-07-24 18:21+0200\n"
 "PO-Revision-Date: 2026-07-23 20:30+0200\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: nl\n"
@@ -92,6 +92,9 @@ msgstr "Teruglevering aan net toestaan"
 
 msgid "Allow export to grid during D2/D3"
 msgstr "Teruglevering aan net toestaan tijdens D2/D3"
+
+msgid "Apply"
+msgstr "Toepassen"
 
 msgid "Average"
 msgstr "Gemiddeld"
@@ -248,6 +251,9 @@ msgid ""
 msgstr ""
 "Opgehaald uit je Home Assistant in je browser; het token bereikt deze app"
 " nooit."
+
+msgid "From"
+msgstr "Van"
 
 msgid "Fuse rating"
 msgstr "Zekeringwaarde"
@@ -583,7 +589,11 @@ msgid ""
 "kWh came from the grid; higher means more was covered by your own solar "
 "(and existing battery). It uses the reconstructed consumption above."
 msgstr ""
-"Het deel van uw huishoudelijk verbruik dat werd gedekt zonder afname van het net: zelfvoorziening = 1 − netafname ÷ verbruik. 0％ betekent dat elke kWh van het net kwam; hoger betekent dat meer werd gedekt door uw eigen zon (en bestaande batterij). Dit gebruikt het gereconstrueerde verbruik hierboven."
+"Het deel van uw huishoudelijk verbruik dat werd gedekt zonder afname van "
+"het net: zelfvoorziening = 1 − netafname ÷ verbruik. 0％ betekent dat elke"
+" kWh van het net kwam; hoger betekent dat meer werd gedekt door uw eigen "
+"zon (en bestaande batterij). Dit gebruikt het gereconstrueerde verbruik "
+"hierboven."
 
 msgid ""
 "The share of your solar production you used yourself rather than "
@@ -591,7 +601,11 @@ msgid ""
 "over the period your solar data covers. 100％ means none of your "
 "production was exported; lower means more went back to the grid."
 msgstr ""
-"Het deel van uw zonne-opwekking dat u zelf gebruikte in plaats van terug te leveren: zelfconsumptie = 1 − teruglevering ÷ opgewekte zonne-energie, gemeten over de periode die uw zonnegegevens dekken. 100％ betekent dat niets van uw opwekking is teruggeleverd; lager betekent dat er meer naar het net ging."
+"Het deel van uw zonne-opwekking dat u zelf gebruikte in plaats van terug "
+"te leveren: zelfconsumptie = 1 − teruglevering ÷ opgewekte zonne-energie,"
+" gemeten over de periode die uw zonnegegevens dekken. 100％ betekent dat "
+"niets van uw opwekking is teruggeleverd; lager betekent dat er meer naar "
+"het net ging."
 
 msgid ""
 "These come from the battery you already own. The consumption and self-"
@@ -607,6 +621,9 @@ msgstr "Deze twee antwoorden bepalen wat de app hieronder van je vraagt."
 
 msgid "This control"
 msgstr "Dit onderdeel"
+
+msgid "To"
+msgstr "Tot"
 
 msgid "Toggle Data panel"
 msgstr "Datapaneel in-/uitklappen"
@@ -733,6 +750,21 @@ msgstr ""
 msgid "kWh"
 msgstr "kWh"
 
+msgid "last 1 week"
+msgstr "laatste week"
+
+msgid "last 1 year"
+msgstr "laatste jaar"
+
+msgid "last 3 months"
+msgstr "laatste 3 maanden"
+
+msgid "last 30 days"
+msgstr "laatste 30 dagen"
+
+msgid "last 6 months"
+msgstr "laatste 6 maanden"
+
 msgid "long-lived access token"
 msgstr "long-lived access token (langlevend toegangstoken)"
 
@@ -750,6 +782,9 @@ msgstr "aangeboden als je kosten simuleert"
 
 msgid "optional"
 msgstr "optioneel"
+
+msgid "recalculating…"
+msgstr "opnieuw berekenen…"
 
 msgid "required"
 msgstr "vereist"
