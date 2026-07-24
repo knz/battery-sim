@@ -128,8 +128,111 @@ Package now at `app/sources/`: `base.py`, `home_assistant.py`, `energy_charts.py
 
 Post-fix: `pytest tests/test_sources.py tests/test_ingest.py tests/test_ingest_ws.py` → 38 passed.
 
+## Backend wiring (Phase B) — persistence + load endpoint (2026-07-24)
+
+Wires the Phase A source layer into persistence and a load route, without touching templates or
+.js (that is Phase C).
+
+### Files touched
+
+- `app/dataset.py` — per-series provenance + the merge/upsert:
+  - Added a `source_type TEXT` column to `series_meta` (both in `_SCHEMA` for fresh DBs and in
+    `_SERIES_META_ADDED_COLUMNS` so a stale local DB gets it via the existing idempotent
+    `_migrate`; no destructive migration).
+  - `save_dataset(...)` gained an optional `sources: dict[str,str] | None` param (series name →
+    source descriptor key). None / absent → the series falls back to the dataset-level
+    `source_type`, so the WS ingest path (which passes only a whole-dataset source) is unchanged.
+    Series_meta writing factored into `_insert_series_meta` and shared with the upsert path.
+  - `LoadedDataset` gained `series_sources: dict[str,str]`; `load_latest` reads the per-series
+    `source_type` back (falling back to the dataset source for legacy NULL rows).
+  - New `upsert_series(frame, source_key, window=None, workspace_id=…)` — merges one frame into
+    the latest dataset (see design below) or creates a standalone dataset if none exists.
+- `app/main.py` — new `POST /data/slot/{slot_name}/load` route (see below). Added imports
+  (`datetime`, `Body`, `JSONResponse`, `SLOT_BY_NAME`, `registry`, `SourceKind`) and a
+  `_parse_window` helper mirroring `ingest_ws.on_header`. Routes list in the module docstring
+  updated.
+- `app/data_view.py` — each mapping row now carries `name`, `source` (from
+  `LoadedDataset.series_sources`, else None), and `sources` (the list of available
+  `{key,label,kind,blurb}` descriptors from `registry.sources_for(slot)`). Existing keys
+  (role/req/entity/pv_only/cost_only + `data.*`) are unchanged — a superset, so the current
+  template keeps working; Phase C's drawer will read the new keys. (`name` was previously missing
+  from the real-data mapping rows though the template referenced it — added now.)
+- `tests/test_slot_load.py` — new; 12 tests (migration, per-series sources round-trip,
+  upsert replace/standalone, endpoint happy path + merge, endpoint error paths).
+
+### upsert_series — window/coverage design
+
+- **Merge into existing dataset:** replaces any `series_meta` row of the same name (and overwrites
+  the deterministic `<name>.npz` via `_frame_path`, so no orphan file) and leaves the other series
+  intact. Returns the same dataset id. This is what lets an Energy-Charts spot price attach to an
+  HA-fetched energy dataset.
+- **Standalone:** if no dataset exists, creates one containing just this series, with `source_type`
+  = the source key and window = the supplied window (else the frame's own coverage).
+- **Window semantics (chosen, documented in the docstring):** when merging with a `window`, the
+  dataset's stored window is **widened to the union** of the existing and supplied windows — never
+  shrunk. When `window` is None the window is left unchanged. Rationale: the stored window is only
+  the advertised fetch span; the coverage the simulation grid actually uses is recomputed from the
+  frames' own indices at read time (`normalize.grid_report`, §6.2), so a slightly-wide stored
+  window is harmless and a union avoids clipping either series' advertised span.
+
+### Endpoint — POST /data/slot/{slot_name}/load
+
+- Body `{"source": "<key>", "window": {"start","end"}}`. Validates slot (404 unknown), source
+  (404 unknown), availability (`available_for`, 400), and kind — a `browser_fetch` source (HA) is
+  rejected 400 with a message pointing at the ingest WS. Window parsed like the WS header (400 on
+  malformed / end≤start).
+- `source.load` and `dataset.upsert_series` both run via `asyncio.to_thread` (file + possible
+  network I/O off the event loop). A `load` exception maps to a clean **502** with a message
+  ("could not load … from …: …"), not a stack trace.
+- **Response shape:** JSON `{dataset_id, series, resolution_s, intervals, grid}` where `grid` is the
+  same `normalize.grid_report` payload the WS `result` frame returns (built over just the loaded
+  frame). Minimal + enough for Phase C to re-render or trigger a reload.
+
+### Test results
+
+`uv run pytest tests/test_ingest_ws.py tests/test_slot_load.py tests/test_sources.py
+tests/test_ingest.py -q` → **50 passed**. Full suite minus the known-flaky smoke test:
+**56 passed, 2 skipped**. No network hit: the endpoint test uses a 2024-03 historical window that
+is fully on-disk (last_on_disk is 2026-07, so `bridge_date_range` returns None → no API call).
+
+### For a reviewer to scrutinise
+
+- **Merge correctness:** `upsert_series` DELETEs then re-INSERTs the same-named series_meta row in
+  one transaction and overwrites the deterministic .npz. Confirmed by a test asserting exactly one
+  price_spot row after upsert and the other series surviving. The FK `series_meta.dataset_id` and
+  `workspace_id` on every row are preserved.
+- **Datasets-window when merging different coverage:** the union widening is a deliberate,
+  possibly-surprising choice — flagged above. It means a dataset's stored window can exceed any
+  single series' coverage; nothing downstream trusts it for coverage (grid_report recomputes), but
+  worth a second look if a later increment starts treating the stored window as authoritative.
+### Review + fixes applied (2026-07-24)
+
+A sub-agent review found one **blocker**, reproduced end-to-end, plus nits. Resolved:
+
+- **Blocker — naive/aware datetime crash (HTTP 500).** `upsert_series`' union-window widening did
+  `min(cur_start, window[0])` where `cur_start` (stored window, aware if written by the HA WS path)
+  and `window[0]` (from `_parse_window`) could differ in tz-awareness — a request window without a
+  UTC offset is naive, and `min()`/`max()` across naive and aware raises `TypeError`, surfacing as a
+  500 (the exact outcome the endpoint claims to avoid, specs §3.2). Fix: `_parse_window` now
+  normalises to tz-aware UTC (a naive instant is read as UTC — the one boundary where the tz
+  decision is made, specs §4.4), via a shared `_as_utc`; `upsert_series` also normalises both sides
+  defensively (a window stored naive by an older build). This also removes the `energy_charts.load`
+  local-tz-promotion smell, since the window now arrives already-aware. The earlier changelog note
+  that called naive windows "matches existing behaviour; not tightened here" was wrong — it was a
+  live crash on the normal HA-then-price flow.
+- **Test coverage (should-fix).** Added: an endpoint regression sending an offset-less window into a
+  pre-seeded aware dataset (was the 500); a unit-level naive-window `upsert_series` test; and the
+  three-series A,B → C → B′ survival sequence (A and C survive, B replaced, no duplicate rows).
+  Now 53 tests across the slot-load/ingest/sources suites.
+
+Verified-correct (no change): the DELETE-then-INSERT merge is scoped by `dataset_id` AND `name` in
+one transaction (no duplicate rows possible); `.npz` overwrite by deterministic path leaves no
+orphan; `workspace_id` on every row; migration idempotent with legacy NULL → dataset-source
+fallback; the endpoint's error gates (404/400/502) and `asyncio.to_thread` off-loading.
+
 ## Current status
 
-Backend DataSource abstraction + Energy-Charts source implemented, reviewed, and tested (Phase A
-complete). Frontend (slot-first drawer, reusable HA connection), spec rewrites, main.py wiring,
-and CSV source remain for later phases.
+Phase A (source abstraction + Energy-Charts source) and Phase B (per-series persistence,
+upsert/merge, load endpoint, data_view provenance) complete, reviewed, and tested. Remaining:
+Phase C frontend (slot-first drawer, reusable HA connection, rendering the new `source`/`sources`
+row fields), spec rewrites, and the CSV source.

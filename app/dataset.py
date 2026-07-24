@@ -16,8 +16,16 @@ Two homes, mirroring §5.1:
 Multi-user readiness (§5.5): every row carries workspace_id; there is one workspace for now
 (db.WORKSPACE_ID). No module-level mutable state.
 
+Per-series provenance (slot-first sources): a dataset's series may come from different sources
+now — the energy meters from Home Assistant, the spot price from the preset Energy-Charts source
+(specs §2.2 slot-first source picker). So provenance is recorded PER SERIES in series_meta
+(`source_type` column), not only per dataset. `upsert_series` merges one freshly-loaded frame
+into the latest dataset, replacing any series of the same name and leaving the others intact —
+this is what lets a backend-loaded price attach to an existing HA-fetched energy dataset (§4.3).
+
 Main items:
-    save_dataset(frames, window, source, warnings, workspace_id) -> int   persist; returns id.
+    save_dataset(frames, window, source, warnings, sources, workspace_id) -> int  persist; id.
+    upsert_series(frame, source_key, window, workspace_id) -> int          merge one series in.
     load_latest(workspace_id) -> LoadedDataset | None                     restore on startup.
     LoadedDataset                                                         frames + window + meta.
 """
@@ -53,14 +61,22 @@ CREATE TABLE IF NOT EXISTS series_meta (
     path              TEXT    NOT NULL,
     fine_resolution_s INTEGER,
     fine_start        TEXT,
-    fine_end          TEXT
+    fine_end          TEXT,
+    source_type       TEXT
 );
 """
 
 
 @dataclass
 class LoadedDataset:
-    """A restored dataset: the normalised frames plus its window and provenance."""
+    """A restored dataset: the normalised frames plus its window and provenance.
+
+    `source_type` is the dataset-level provenance (the source that created the dataset, kept for
+    backward compatibility). `series_sources` is the per-series provenance (specs §2.2): series
+    name → the descriptor key of the source that produced it, populated from series_meta. A series
+    with no recorded per-series source falls back to `source_type` when written, so the mapping
+    always has an entry per persisted series.
+    """
 
     id: int
     source_type: str
@@ -68,6 +84,7 @@ class LoadedDataset:
     fetched_at: datetime
     frames: list[SeriesFrame]
     warnings: list[dict]
+    series_sources: dict[str, str]
 
 
 # Columns added to series_meta after its first release. `CREATE TABLE IF NOT EXISTS` never
@@ -79,7 +96,23 @@ _SERIES_META_ADDED_COLUMNS = (
     ("fine_resolution_s", "INTEGER"),
     ("fine_start", "TEXT"),
     ("fine_end", "TEXT"),
+    # Per-series provenance (slot-first sources, specs §2.2): the descriptor key of the source
+    # that produced this series (e.g. "home_assistant", "energy_charts"). Added after series_meta
+    # first shipped, so a stale local DB gets it here rather than crashing. NULL on rows written
+    # before per-series provenance existed; readers fall back to the dataset-level source_type.
+    ("source_type", "TEXT"),
 )
+
+
+def _as_utc(dt: datetime) -> datetime:
+    """Normalise a datetime to tz-aware UTC (naive is read as UTC, per the §4.4 UTC pipeline).
+
+    Used before comparing a window read back from storage — which may be naive if an older build
+    wrote it — with an aware one, since min()/max() across the two raises TypeError.
+    """
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
 
 
 def _connect():
@@ -141,11 +174,42 @@ def _load_frame(path: Path, name: str, kind: str, resolution_s: int | None) -> S
     )
 
 
+def _insert_series_meta(
+    conn, dataset_id: int, workspace_id: str, frame: SeriesFrame, source_type: str | None
+) -> None:
+    """Write one series_meta row for `frame` (its .npz is written separately by _save_frame).
+
+    `source_type` is the per-series provenance (the source's descriptor key), or None when a
+    caller did not record one — readers then fall back to the dataset-level source_type.
+    """
+    fine_start = frame.fine_coverage[0].isoformat() if frame.fine_coverage else None
+    fine_end = frame.fine_coverage[1].isoformat() if frame.fine_coverage else None
+    conn.execute(
+        """INSERT INTO series_meta
+           (dataset_id, workspace_id, name, kind, resolution_s, path,
+            fine_resolution_s, fine_start, fine_end, source_type)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            dataset_id,
+            workspace_id,
+            frame.name,
+            frame.kind,
+            frame.resolution_s,
+            str(_frame_path(workspace_id, frame.name)),
+            frame.fine_resolution_s,
+            fine_start,
+            fine_end,
+            source_type,
+        ),
+    )
+
+
 def save_dataset(
     frames: list[SeriesFrame],
     window: tuple[datetime, datetime],
     source_type: str,
     warnings: list[dict],
+    sources: dict[str, str] | None = None,
     workspace_id: str = db.WORKSPACE_ID,
 ) -> int:
     """Persist frames + metadata; return the new dataset id (specs §3.5 LOAD_SUCCEEDED).
@@ -153,9 +217,16 @@ def save_dataset(
     Frames are written to `.npz` first, then a single SQLite transaction records the dataset and
     its series_meta rows. `warnings` (e.g. ambiguous register decreases from ingest) are stored
     as JSON on the dataset row so panel ① can show them after a restart.
+
+    `sources` maps a series name to the descriptor key of the source that produced it (specs §2.2
+    per-series provenance). A series absent from the mapping (or the whole mapping being None,
+    which the existing WS ingest path passes) falls back to the dataset-level `source_type` — so
+    the single-source ingest path keeps working unchanged while a mixed-source dataset records
+    where each series came from.
     """
     import json
 
+    sources = sources or {}
     now = datetime.now(timezone.utc).isoformat()
     for f in frames:
         _save_frame(_frame_path(workspace_id, f.name), f)
@@ -176,26 +247,92 @@ def save_dataset(
         )
         dataset_id = cur.lastrowid
         for f in frames:
-            fine_start = f.fine_coverage[0].isoformat() if f.fine_coverage else None
-            fine_end = f.fine_coverage[1].isoformat() if f.fine_coverage else None
-            conn.execute(
-                """INSERT INTO series_meta
-                   (dataset_id, workspace_id, name, kind, resolution_s, path,
-                    fine_resolution_s, fine_start, fine_end)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    dataset_id,
-                    workspace_id,
-                    f.name,
-                    f.kind,
-                    f.resolution_s,
-                    str(_frame_path(workspace_id, f.name)),
-                    f.fine_resolution_s,
-                    fine_start,
-                    fine_end,
-                ),
+            _insert_series_meta(
+                conn, dataset_id, workspace_id, f, sources.get(f.name, source_type)
             )
     return int(dataset_id)
+
+
+def upsert_series(
+    frame: SeriesFrame,
+    source_key: str,
+    window: tuple[datetime, datetime] | None = None,
+    workspace_id: str = db.WORKSPACE_ID,
+) -> int:
+    """Merge one freshly-loaded `frame` into the latest dataset, or create one for it alone.
+
+    This is the slot-first merge (specs §2.2): a backend_load source (e.g. the Energy-Charts spot
+    price) is loaded for a single slot and attached to whatever dataset already exists — without
+    discarding the other series. Returns the id of the dataset the series now lives in.
+
+    Behaviour:
+
+      * If a latest dataset exists for `workspace_id`, this series is added to it, REPLACING any
+        existing series_meta row of the same name (and overwriting its `.npz`). The other series
+        are untouched. Because `_frame_path` is deterministic by name, overwriting the same file
+        is the natural replace — no orphaned .npz is left behind.
+      * If no dataset exists yet, a new dataset is created containing just this series. Its window
+        is `window` when supplied, else the frame's own coverage (falling back to a zero-length
+        window at epoch only for an empty frame — an edge case a real load does not hit).
+
+    Window/coverage policy (documented so it is not surprising): when merging into an existing
+    dataset and `window` is supplied, the dataset's stored window is widened to the UNION of the
+    existing window and `window` (a spot price loaded past the existing energy coverage extends
+    the dataset's advertised span; loading a subset never shrinks it). When `window` is None the
+    dataset window is left as-is. The stored window is the advertised fetch span only; the actual
+    per-series coverage that the simulation grid uses is recomputed from the frames' own indices
+    at read time (normalize.grid_report, specs §6.2), so a slightly wide window here is harmless.
+    """
+    _save_frame(_frame_path(workspace_id, frame.name), frame)
+
+    with _connect() as conn:
+        row = conn.execute(
+            """SELECT id, window_start, window_end FROM datasets
+               WHERE workspace_id = ? ORDER BY id DESC LIMIT 1""",
+            (workspace_id,),
+        ).fetchone()
+
+        if row is None:
+            # No dataset yet: create one holding just this series. Its window is the supplied one,
+            # else the frame's own coverage, else a degenerate window (empty frame only).
+            win = window or frame.coverage()
+            if win is None:
+                win = (datetime.fromtimestamp(0, timezone.utc),) * 2
+            now = datetime.now(timezone.utc).isoformat()
+            cur = conn.execute(
+                """INSERT INTO datasets
+                   (workspace_id, source_type, window_start, window_end, fetched_at, warnings_json)
+                   VALUES (?, ?, ?, ?, ?, '[]')""",
+                (workspace_id, source_key, win[0].isoformat(), win[1].isoformat(), now),
+            )
+            dataset_id = int(cur.lastrowid)
+            _insert_series_meta(conn, dataset_id, workspace_id, frame, source_key)
+            return dataset_id
+
+        dataset_id, w_start, w_end = int(row[0]), row[1], row[2]
+        # Replace any existing series of this name, then insert the fresh one.
+        conn.execute(
+            "DELETE FROM series_meta WHERE dataset_id = ? AND name = ?",
+            (dataset_id, frame.name),
+        )
+        _insert_series_meta(conn, dataset_id, workspace_id, frame, source_key)
+
+        if window is not None:
+            # Widen the dataset window to the union of the stored window and the loaded window.
+            # Both sides are normalised to tz-aware UTC before comparison: a window stored by an
+            # older build (or a naive caller) could be naive, and min()/max() across a naive and
+            # an aware datetime raises TypeError. The pipeline holds UTC (specs §4.4), so a naive
+            # stored instant is read as UTC.
+            cur_start = _as_utc(datetime.fromisoformat(w_start))
+            cur_end = _as_utc(datetime.fromisoformat(w_end))
+            new_start = min(cur_start, _as_utc(window[0]))
+            new_end = max(cur_end, _as_utc(window[1]))
+            if (new_start, new_end) != (cur_start, cur_end):
+                conn.execute(
+                    "UPDATE datasets SET window_start = ?, window_end = ? WHERE id = ?",
+                    (new_start.isoformat(), new_end.isoformat(), dataset_id),
+                )
+        return dataset_id
 
 
 def load_latest(workspace_id: str = db.WORKSPACE_ID) -> LoadedDataset | None:
@@ -212,13 +349,15 @@ def load_latest(workspace_id: str = db.WORKSPACE_ID) -> LoadedDataset | None:
             return None
         dataset_id, source_type, w_start, w_end, fetched_at, warnings_json = row
         metas = conn.execute(
-            """SELECT name, kind, resolution_s, path, fine_resolution_s, fine_start, fine_end
+            """SELECT name, kind, resolution_s, path, fine_resolution_s, fine_start, fine_end,
+                      source_type
                FROM series_meta WHERE dataset_id = ?""",
             (dataset_id,),
         ).fetchall()
 
     frames = []
-    for name, kind, resolution_s, path, fine_res, fine_start, fine_end in metas:
+    series_sources: dict[str, str] = {}
+    for name, kind, resolution_s, path, fine_res, fine_start, fine_end, s_source in metas:
         p = Path(path)
         if p.exists():
             frame = _load_frame(p, name, kind, resolution_s)
@@ -229,6 +368,9 @@ def load_latest(workspace_id: str = db.WORKSPACE_ID) -> LoadedDataset | None:
                     datetime.fromisoformat(fine_end),
                 )
             frames.append(frame)
+            # Per-series provenance, falling back to the dataset-level source for rows written
+            # before per-series source_type existed (specs §2.2).
+            series_sources[name] = s_source if s_source is not None else source_type
     return LoadedDataset(
         id=int(dataset_id),
         source_type=source_type,
@@ -236,4 +378,5 @@ def load_latest(workspace_id: str = db.WORKSPACE_ID) -> LoadedDataset | None:
         fetched_at=datetime.fromisoformat(fetched_at),
         frames=frames,
         warnings=json.loads(warnings_json),
+        series_sources=series_sources,
     )

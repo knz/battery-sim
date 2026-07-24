@@ -22,27 +22,39 @@ from the user's own HA instance directly and streams the raw rows to `WS /data/i
 backend normalises them into SeriesFrames (app/domain) and persists them (app/dataset.py) so
 they survive a restart. No HA token ever reaches this backend — it stays in the browser.
 
+Beyond the browser-fetch path, this layer serves the slot-first **backend_load** sources
+(specs/02-ux-wireframes.md §2.2, specs/06-home-assistant-ingestion.md §4.3): POST
+/data/slot/{slot_name}/load loads one slot from a backend source (e.g. the preset Energy-Charts
+spot price) and merges the resulting series into the latest dataset via dataset.upsert_series —
+without a browser round-trip and without discarding the other series. browser_fetch sources
+(Home Assistant) are NOT loaded here; their frames still arrive over WS /data/ingest/ws.
+
 Routes:
     GET  /                          → the full page (index.html)
     GET  /lang/{code}               → set the language cookie, redirect back
     POST /feature-interest/{key}    → record interest in a pending control; 204 on success
     WS   /data/ingest/ws            → stream browser-fetched HA rows in; persist SeriesFrames
+    POST /data/slot/{name}/load     → load one slot from a backend_load source; merge + report
     /static/*                       → CSS, generated stylesheet, Plotly, topology SVGs
 
 Run:  uv run uvicorn app.main:app --reload
 """
 
 import asyncio
+from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi import Body, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from app import config, data_view, dataset, db, features, i18n, ingest_ws, interest
 from app.domain import normalize
+from app.domain.series_vocab import SLOT_BY_NAME
 from app.sample_data import sample_view
+from app.sources import registry
+from app.sources.base import SourceKind
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -161,6 +173,112 @@ def _jsonable_grid(report: dict) -> dict:
     # normalize.grid_report already emits plain ints/strings/None; this is a pass-through guard
     # kept explicit so a future numpy leak is caught here rather than at ws.send_json.
     return report
+
+
+# The one source kind this endpoint loads. browser_fetch sources (Home Assistant) are shown in
+# the drawer but their frames arrive over WS /data/ingest/ws — asking to load one here is a
+# client error, not something the backend can do (the HA token stays in the browser, specs §7.5).
+_BACKEND_LOAD: SourceKind = "backend_load"
+
+
+@app.post("/data/slot/{slot_name}/load")
+async def load_slot(slot_name: str, body: dict = Body(...)):
+    """Load one slot from a backend_load source and merge its series into the latest dataset.
+
+    Body: {"source": "<source_key>", "window": {"start": "<iso>", "end": "<iso>"}}. The window is
+    parsed like the WS ingest header (tz-aware ISO, end > start). The source is looked up in the
+    registry, must offer this slot, and must be a backend_load source — a browser_fetch source
+    (Home Assistant) is rejected here because its frame arrives over the ingest WS, not this call.
+
+    The source's `load` and the `upsert_series` merge both do file/network I/O, so they run off the
+    event loop (asyncio.to_thread). On success the response reports the dataset id, the series name,
+    its resolution and interval count, and the panel-① grid report (the same shape the WS path
+    returns) so the caller can re-render without a full reload. Unknown slot/source, an unavailable
+    or wrong-kind source, and a load/network failure all return a clean 4xx/5xx JSON error rather
+    than a 500 stack trace (specs §3.2 LOAD_FAILED).
+    """
+    # 1. Validate the slot against the closed vocabulary (specs §4.1).
+    slot = SLOT_BY_NAME.get(slot_name)
+    if slot is None:
+        raise HTTPException(status_code=404, detail=f"unknown slot: {slot_name!r}")
+
+    # 2. Resolve the source key.
+    source_key = body.get("source")
+    if not source_key:
+        raise HTTPException(status_code=400, detail="missing 'source' in request body")
+    try:
+        source = registry.get_source(source_key)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    # 3. The source must offer this slot and be loadable here (backend_load, not browser_fetch).
+    if not source.available_for(slot):
+        raise HTTPException(
+            status_code=400,
+            detail=f"source {source_key!r} is not available for slot {slot_name!r}",
+        )
+    if source.descriptor.kind != _BACKEND_LOAD:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"source {source_key!r} is a {source.descriptor.kind!r} source; its data arrives "
+                "over the ingest WebSocket, not this endpoint"
+            ),
+        )
+
+    # 4. Parse the window (same shape as ingest_ws.on_header: tz-aware ISO, end > start).
+    window = _parse_window(body.get("window"))
+
+    # 5. Load off the event loop (file + possible network I/O), then merge off the event loop.
+    try:
+        frame = await asyncio.to_thread(source.load, slot, window)
+    except HTTPException:
+        raise
+    except Exception as exc:  # network down / rate-limited / parse failure → clean 502
+        raise HTTPException(
+            status_code=502,
+            detail=f"could not load {slot_name!r} from {source_key!r}: {exc}",
+        ) from exc
+
+    dataset_id = await asyncio.to_thread(dataset.upsert_series, frame, source_key, window)
+    report = normalize.grid_report([frame], window)
+    return JSONResponse(
+        {
+            "dataset_id": dataset_id,
+            "series": frame.name,
+            "resolution_s": frame.resolution_s,
+            "intervals": int(len(frame.values)),
+            "grid": _jsonable_grid(report),
+        }
+    )
+
+
+def _parse_window(raw) -> tuple[datetime, datetime]:
+    """Parse a {"start","end"} ISO window; always tz-aware UTC; HTTPException(400) on error.
+
+    A client may send an ISO instant with or without an offset. `datetime.fromisoformat` returns
+    naive-or-aware faithfully, but the whole pipeline holds UTC (specs §4.4) and downstream code
+    mixes this window with tz-aware datetimes read back from storage (dataset.upsert_series widens
+    the stored window with min/max). Comparing a naive with an aware datetime raises TypeError, so
+    a bare-offset window must not reach that code — normalise here: a naive instant is assumed UTC,
+    an aware one is converted to UTC. This is the one boundary where the tz decision is made.
+    """
+    raw = raw or {}
+    try:
+        start = _as_utc(datetime.fromisoformat(raw["start"]))
+        end = _as_utc(datetime.fromisoformat(raw["end"]))
+    except (KeyError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=f"invalid window: {exc}") from exc
+    if end <= start:
+        raise HTTPException(status_code=400, detail="window end must be after start")
+    return start, end
+
+
+def _as_utc(dt: datetime) -> datetime:
+    """Attach UTC to a naive datetime, or convert an aware one to UTC (specs §4.4 UTC pipeline)."""
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
 
 
 @app.get("/lang/{code}")

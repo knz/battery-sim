@@ -14,6 +14,12 @@ renders these blocks conditionally, so a real dataset simply omits the ones not 
 
 The role labels mirror the sample's, keyed by series name, so the same translation msgids apply.
 
+Each mapping row now also carries per-slot source provenance (specs §2.2 slot-first sources):
+`source` (the descriptor key of the source that produced the series, or None) and `sources` (the
+sources the drawer may offer for that slot, as small {key,label,kind,blurb} dicts). Phase C's
+source-picker drawer renders these; the current template ignores the extra keys, so the shape
+stays a superset and nothing breaks between phases.
+
 Main items:
     ROLE_LABEL                 series name → human role label (translation msgid).
     panel_data_from(dataset)   the panel-① dict; shape-compatible with sample_data._panel_data.
@@ -26,6 +32,7 @@ import numpy as np
 from app.dataset import LoadedDataset
 from app.domain import normalize
 from app.domain.frames import QualityFlags, SeriesFrame
+from app.sources import registry
 
 # Human role labels, keyed by internal series name (specs §4.1). These are the same English
 # msgids the static sample uses, so the existing catalog covers them.
@@ -87,6 +94,7 @@ def panel_data_from(dataset: LoadedDataset) -> dict:
     from app.domain.series_vocab import SERIES_SLOTS
 
     present = {f.name: f for f in frames}
+    series_sources = getattr(dataset, "series_sources", {}) or {}
     mapping = []
     for slot in SERIES_SLOTS:
         f = present.get(slot.name)
@@ -94,11 +102,20 @@ def panel_data_from(dataset: LoadedDataset) -> dict:
             continue
         mapping.append(
             {
+                "name": slot.name,
                 "role": ROLE_LABEL.get(slot.name, slot.name),
                 "req": slot.requirement,
                 "entity": f"({_fmt_res(f.resolution_s)}, {len(f.values)} intervals)",
                 "pv_only": slot.pv_only,
                 "cost_only": slot.cost_only,
+                # Slot-first provenance (specs §2.2): the source that produced this series (its
+                # descriptor key, or None), and the sources the drawer may offer for this slot.
+                # Phase C's source-picker drawer renders these; the current template ignores them.
+                "source": series_sources.get(slot.name),
+                "sources": [
+                    {"key": d.key, "label": d.label, "kind": d.kind, "blurb": d.blurb}
+                    for d in registry.sources_for(slot)
+                ],
             }
         )
 
