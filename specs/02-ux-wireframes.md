@@ -188,15 +188,9 @@ before the slot is known forces a single answer onto a set of slots that do not 
 │ ① DATA                                                            [collapse] │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  Pick where each series comes from. Choose a source per slot; Home           │
-│  Assistant is connected once below and reused by every slot that uses it.    │
-│                                                                              │
-│  ┌─ Home Assistant connection ──────────── shared across HA slots ───────┐  │
-│  │  Base URL   [ http://homeassistant.local:8123               ]          │  │
-│  │  Token      [ ●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●● ]          │  │
-│  │                                                     [ Test connection ] │  │
-│  │  ✓ Connected · HA 2026.6.2 · 1,284 statistic IDs available             │  │
-│  └────────────────────────────────────────────────────────────────────────┘  │
+│  Pick where each series comes from. Choose a source per slot; for Home       │
+│  Assistant, connect once from the source drawer (Configure) and that         │
+│  connection is reused by every slot that uses it.                            │
 │                                                                              │
 │  ┌─ Series slots ─────────────────────────────────────────────────────────┐  │
 │  │  ROLE              REQ  SOURCE                                          │  │
@@ -279,7 +273,7 @@ one shared component: it opens for whichever slot's `▸` was clicked.
 ```
   ┌─ Source for: Grid import T1 ───────────────────────────────────────────┐
   │                                                                        │
-  │  ( • ) Home Assistant                                                  │
+  │  ( • ) Home Assistant                              [ ✓ Connected ]     │
   │        Fetched from your Home Assistant in your browser; the token     │
   │        never reaches this app.                                         │
   │        Entity  [ sensor.electricity_meter_import_t1            ▾ ]     │
@@ -288,6 +282,18 @@ one shared component: it opens for whichever slot's `▸` was clicked.
   │        Provide a file yourself.  — not built yet —                    │
   │                                                                        │
   │                                          [ Confirm ]   [ Cancel ]      │
+  └────────────────────────────────────────────────────────────────────────┘
+
+  The [ Configure… / ✓ Connected ] button beside Home Assistant opens the
+  shared connection modal (one for the whole app, not per slot):
+
+  ┌─ Home Assistant connection ──────────── shared across HA slots ────────┐
+  │  Base URL   [ http://homeassistant.local:8123               ]          │
+  │  Token      [ ●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●● ]          │
+  │             Stays in your browser; sent only to your Home Assistant.   │
+  │                                                     [ Test connection ] │
+  │  ✓ Connected · HA 2026.6.2 · 1,284 statistic IDs available             │
+  │                                                             [ close ]   │
   └────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -299,15 +305,17 @@ entity in the drawer stages the change but does not touch the roster row or the 
 **Confirm** commits it — for Home Assistant it binds the source and entity to the slot; for the
 preset spot-price source it runs the backend load. **Cancel** (and closing the drawer with `✕`,
 the backdrop, or `Esc`) discards the staged change and leaves the slot exactly as it was. This
-keeps a half-made choice from silently altering what the run will use.
+keeps a half-made choice from silently altering what the run will use. For a Home Assistant
+slot, **Confirm is enabled only once the connection has been tested and an entity is chosen** —
+so a committed HA slot is always fetchable; until then Confirm stays disabled.
 
 **The Home Assistant entity is chosen here, in the drawer, not on the row.** When Home
 Assistant is the selected source the drawer shows an **Entity** dropdown of the statistic ids
 the shared connection listed (energy `sum` ids for an energy slot, `mean` ids for a price
 slot), so the one place a slot's HA binding is made is the same place its source is chosen —
 there is no separate mapping column on the main roster. The dropdown is populated from the
-shared connection ([§2.1](#the-setup-band)); until *Test connection* has run it shows a prompt
-to connect first. The chosen id is shown back on the roster row beside the source
+shared connection; until the connection has been tested it is disabled and shows a prompt to
+configure it first. The chosen id is shown back on the roster row beside the source
 (`Home Assistant · sensor.…import_t1`). A source with no entity to pick — the preset
 Energy-Charts price, a future CSV upload — shows no dropdown, because there is nothing to bind.
 
@@ -328,17 +336,21 @@ differ in *where the frame is produced*, and the drawer reflects it. Picking Hom
 arms the browser fetch (below); picking the preset source triggers a backend load with no
 browser round-trip.
 
-**The Home Assistant connection is shared.** There is one connection card for the whole panel,
-not one per slot. *Test connection* is performed once; every slot whose source is Home
-Assistant then reuses that connection, and its mapping dropdown is filled from the same
-statistic-id listing. A user with five HA slots enters the URL and token once. *Test
-connection* and *Fetch history* are performed by the browser against the user's own Home
-Assistant, not by the backend ([§4.3](06-home-assistant-ingestion.md)). The token entered here
-stays in the browser and is sent only to that instance — it is never transmitted to the
-application backend ([§7.5](15-data-quality-and-limits.md#75-operational-notes)), and the UI
-says so beneath the token field. *Test connection* lists the available statistic ids and fills
-the mapping dropdowns of every HA slot; *Fetch history* fetches the statistics for the mapped
-HA slots, streams them to the backend, and the panel re-renders from the persisted dataset.
+**The Home Assistant connection is shared, and lives in a modal.** There is one connection for
+the whole app, not one per slot. It is entered in a **connection modal** opened by the
+**Configure** button beside the Home Assistant option in the drawer — not a standing card on
+the panel, so a user who never touches Home Assistant never sees the connection fields. The
+button reflects the shared state: *Configure…* until a test succeeds, *✓ Connected* after. Once
+tested, every slot whose source is Home Assistant reuses that connection, and its entity
+dropdown is filled from the same statistic-id listing — a user with five HA slots enters the URL
+and token once, from whichever slot's drawer they configure first. *Test connection* and *Fetch
+history* are performed by the browser against the user's own Home Assistant, not by the backend
+([§4.3](06-home-assistant-ingestion.md)). The token entered here stays in the browser and is
+sent only to that instance — it is never transmitted to the application backend
+([§7.5](15-data-quality-and-limits.md#75-operational-notes)), and the modal says so beneath the
+token field. *Test connection* lists the available statistic ids and fills the entity dropdown
+of every HA slot; *Fetch history* fetches the statistics for the mapped HA slots, streams them
+to the backend, and the panel re-renders from the persisted dataset.
 
 **The preset spot-price source is loaded by the backend.** When the user picks it for the Spot
 price slot, the backend reads the committed on-disk NL day-ahead dataset (2023 → a recent tail)

@@ -1,9 +1,9 @@
 {#
   _panel_data.html — Panel ① Data input, slot-first (specs/02-ux-wireframes.md §2.2, §2.1).
 
-  Collapsed to a one-line summary; expands to the slot-first body: a short intro, the shared
-  Home Assistant connection card, the slot roster, and the data-quality box. The values are
-  either the static sample (app/sample_data.py `data`) or a real persisted dataset's view-model
+  Collapsed to a one-line summary; expands to the slot-first body: a short intro, the slot
+  roster, and the data-quality box. The values are either the static sample
+  (app/sample_data.py `data`) or a real persisted dataset's view-model
   (app/data_view.py `panel_data_from`) — the two share this shape.
 
   Slot-first design: the panel leads with the roster of data slots (roles + requirement markers).
@@ -20,10 +20,11 @@
   statistic id, only a "(res, N intervals)" coverage summary, so a persisted HA slot shows just
   the source label until re-picked). The roster table has three columns: Role, Req, Source.
 
-  The Home Assistant CONNECTION is SHARED: the user tests/connects once here (URL + token + Test
-  connection), and every HA-source slot then reuses that connection — the drawer's single entity
-  <select> is filled by ha_fetch.js from that connection when a slot's drawer is opened. That is
-  why the connection card is a single panel-level card, not per-slot.
+  The Home Assistant CONNECTION is SHARED and lives in a MODAL (#ha-config-dialog in index.html),
+  opened by a "Configure" button beside the Home Assistant radio in the drawer — not a panel-level
+  card. The user tests/connects once (URL + token + Test connection); every HA-source slot then
+  reuses that connection — the drawer's single entity <select> is filled by ha_fetch.js from that
+  connection, and Confirm for an HA slot needs both a tested connection and a chosen entity.
 
   The slot roster is gated by the setup band (§2.2, §2.1): the solar row shows only when
   cfg.has_pv, and the two Spot price (min/max) rows are offered only when cfg.simulate_cost.
@@ -50,45 +51,14 @@
 
       {# ── Intro ───────────────────────────────────────────────────────────── #}
       <p class="text-sm text-base-content/70">
-        {{ _('Pick where each series comes from. Choose a source per slot; Home Assistant is connected once below and reused across every slot that uses it.') }}
+        {{ _('Pick where each series comes from. Choose a source per slot; for Home Assistant, connect once from the source drawer (Configure) and that connection is reused across every slot that uses it.') }}
       </p>
 
-      {# ── Shared Home Assistant connection ────────────────────────────────── #}
-      {# This is the ONE place Home Assistant is connected. The connection is driven client-side
-         by ha_fetch.js: the browser fetches statistics from the user's HA directly (the token
-         never reaches our backend, §7.5), so the URL/token inputs, Test-connection, and status
-         line are managed in JS. After a successful test the connection is shared: every HA-source
-         slot's mapping <select> is filled from the same listing. Keep every element ID below —
-         ha_fetch.js depends on them (#ha-connection, #ha-base-url, #ha-token, #ha-test-btn,
-         #ha-status, the data-ingest-ws attr). #}
-      <div class="card bg-base-200 border border-base-300" id="ha-connection"
-           data-ingest-ws="/data/ingest/ws">
-        <div class="card-body gap-3 p-4">
-          <div class="flex flex-wrap items-baseline justify-between gap-2">
-            <h3 class="text-sm font-semibold text-base-content/70">{{ _('Home Assistant connection') }}</h3>
-            <span class="text-xs text-base-content/50">{{ _('Shared across all slots that use Home Assistant') }}</span>
-          </div>
-          <label class="form-control">
-            <span class="label-text mb-1">{{ _('Base URL') }}</span>
-            <input type="text" id="ha-base-url" class="input input-bordered input-sm"
-                   placeholder="https://homeassistant.local:8123" />
-          </label>
-          <label class="form-control">
-            <span class="label-text mb-1">{{ _('Token') }}</span>
-            <input type="password" id="ha-token" class="input input-bordered input-sm"
-                   autocomplete="off" placeholder="{{ _('long-lived access token') }}" />
-            <span class="label-text-alt mt-1 text-base-content/50">
-              {{ _('Stays in your browser. It is sent only to your Home Assistant, never to this app.') }}
-            </span>
-          </label>
-          <div class="flex flex-wrap items-center justify-between gap-2">
-            <span class="text-sm text-base-content/60" id="ha-status">{{ _('Not connected') }}</span>
-            <button type="button" class="btn btn-outline btn-sm" id="ha-test-btn">{{ _('Test connection') }}</button>
-          </div>
-        </div>
-      </div>
-
       {# ── Slot roster ─────────────────────────────────────────────────────── #}
+      {# The #slot-roster card carries data-ingest-ws: ha_fetch.js reads it to open the backend
+         ingest WebSocket (§7.5). It used to live on the now-removed #ha-connection card; the
+         Home Assistant connection UI moved into the drawer's configuration modal (#ha-config-
+         dialog in index.html), opened by a "Configure" button beside the HA source radio. #}
       {# One row per data.mapping entry (the full slot roster from data_view/sample_data), gated
          by the setup band (§2.2): the solar row shows only with has_pv; the two price-bracketing
          rows only with simulate_cost. Each row shows role, requirement marker, and the chosen
@@ -96,7 +66,8 @@
          the source button's label carries the chosen HA entity inline (ha_fetch.js). The
          "Choose source…" button opens the shared drawer, carrying the slot name + its source
          list (as JSON) for JS to render. #}
-      <div class="card bg-base-200 border border-base-300" id="slot-roster">
+      <div class="card bg-base-200 border border-base-300" id="slot-roster"
+           data-ingest-ws="/data/ingest/ws">
         <div class="card-body gap-3 p-4">
           <h3 class="text-sm font-semibold text-base-content/70">{{ _('Series slots') }}</h3>
 

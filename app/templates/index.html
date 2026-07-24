@@ -74,6 +74,46 @@
     <form method="dialog" class="modal-backdrop"><button>{{ _('close') }}</button></form>
   </dialog>
 
+  {# ── Home Assistant connection modal (§2.2). The ONE place Home Assistant is connected, opened
+       by the "Configure" button beside the Home Assistant radio in the source drawer. The
+       connection is driven client-side by ha_fetch.js: the browser fetches statistics from the
+       user's HA directly (the token never reaches our backend, §7.5), so the URL/token inputs,
+       Test-connection, and status line are managed in JS. After a successful test the connection
+       is SHARED: every HA-source slot's entity <select> is filled from the same listing, and the
+       drawer's Configure button reflects the connected state. Keep every element ID below —
+       ha_fetch.js depends on them (#ha-base-url, #ha-token, #ha-test-btn, #ha-status). #}
+  <dialog id="ha-config-dialog" class="modal">
+    <div class="modal-box">
+      <div class="flex flex-wrap items-baseline justify-between gap-2">
+        <h3 class="text-lg font-bold">{{ _('Home Assistant connection') }}</h3>
+        <span class="text-xs text-base-content/50">{{ _('Shared across all slots that use Home Assistant') }}</span>
+      </div>
+      <div class="flex flex-col gap-3 py-3">
+        <label class="form-control">
+          <span class="label-text mb-1">{{ _('Base URL') }}</span>
+          <input type="text" id="ha-base-url" class="input input-bordered input-sm"
+                 placeholder="https://homeassistant.local:8123" />
+        </label>
+        <label class="form-control">
+          <span class="label-text mb-1">{{ _('Token') }}</span>
+          <input type="password" id="ha-token" class="input input-bordered input-sm"
+                 autocomplete="off" placeholder="{{ _('long-lived access token') }}" />
+          <span class="label-text-alt mt-1 text-base-content/50">
+            {{ _('Stays in your browser. It is sent only to your Home Assistant, never to this app.') }}
+          </span>
+        </label>
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <span class="text-sm text-base-content/60" id="ha-status">{{ _('Not connected') }}</span>
+          <button type="button" class="btn btn-outline btn-sm" id="ha-test-btn">{{ _('Test connection') }}</button>
+        </div>
+      </div>
+      <div class="modal-action">
+        <form method="dialog"><button class="btn btn-ghost btn-sm">{{ _('close') }}</button></form>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>{{ _('close') }}</button></form>
+  </dialog>
+
   {# ── Source-picker drawer (§2.2 slot-first). A single right-side panel, shared by every slot
        row's "Choose source…" button. Opened by ha_fetch.js, which fills #drawer-slot-title and
        #drawer-source-list for the clicked slot. Hidden by default (aria-hidden + off-canvas);
@@ -128,7 +168,7 @@
 
         {# Notes shown depending on the selected option's kind (toggled by JS). #}
         <p id="drawer-ha-note" class="text-xs text-base-content/60 hidden">
-          {{ _('Uses the shared Home Assistant connection above — connect once, then fetch history for all Home Assistant slots together.') }}
+          {{ _('Uses the shared Home Assistant connection — configure it once (the button above), then fetch history for all Home Assistant slots together.') }}
         </p>
         {# Backend-source status line (shown only for a backend_load source; carries the
            load-in-progress / error text). The action itself is the shared Confirm button below. #}
@@ -162,10 +202,12 @@
       "pending_hint": _("Not built yet"),
       "upload_csv": _("Upload CSV"),
       "choose_entity": _("choose entity…"),
-      "connect_first": _("Connect Home Assistant above first"),
+      "connect_first": _("Configure the connection first"),
       "ha_source": _("Home Assistant"),
       "choose_source": _("Choose source…"),
-      "none": _("— none —")
+      "none": _("— none —"),
+      "configure": _("Configure…"),
+      "ha_connected": _("✓ Connected")
     } | tojson }}
   </script>
 

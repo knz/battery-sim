@@ -8,17 +8,22 @@
  *     browser, not the backend: the user's browser is the only thing that can reach their (often
  *     LAN-only, self-signed) HA instance, and keeping the fetch here means the long-lived access
  *     token never leaves the browser (specs §7.5). The token is held in localStorage and sent
- *     only to the user's own HA. The connection is SHARED across slots: the user tests once
- *     (URL + token + Test connection), and the listed statistic ids are then reused for every
- *     HA-source slot. Fetched rows stream to our backend over WS /data/ingest/ws
- *     (app/ingest_ws.py), which normalises and persists them.
+ *     only to the user's own HA. The connection is SHARED across slots: the user configures it
+ *     once (URL + token + Test connection) in the #ha-config-dialog MODAL, opened by a "Configure"
+ *     button beside the Home Assistant radio in the drawer — there is no panel-level connection
+ *     card any more. The listed statistic ids are then reused for every HA-source slot. Fetched
+ *     rows stream to our backend over WS /data/ingest/ws (app/ingest_ws.py), which normalises and
+ *     persists them.
  *
  *  2. The slot-first source-picker drawer. Each slot row (templates/_panel_data.html) has a
  *     "Choose source…" button carrying the slot name, its kind (energy/price), and its source
  *     list (data-slot-sources). A click opens the shared right-side drawer (#source-drawer in
  *     index.html) listing those sources as radios. Picking a source:
  *       * home_assistant (browser_fetch) → the drawer reveals a single entity <select>
- *         (#drawer-entity-select), populated for THIS slot from the shared connection's listing.
+ *         (#drawer-entity-select), populated for THIS slot from the shared connection's listing,
+ *         plus a "Configure" button that opens the shared connection modal. The entity picker is
+ *         disabled and Confirm is blocked until the connection tests OK; Confirm then needs a
+ *         chosen entity too, so a committed HA slot is always fetchable.
  *       * energy_charts (backend_load)   → Confirm POSTs /data/slot/{slot}/load {source, window}
  *         and reloads so panel ① re-renders from the persisted dataset (specs §3.5).
  *       * data_source_csv (pending)      → the shared "not built yet" dialog (#pending-dialog).
@@ -58,9 +63,15 @@
   var LS_URL = "ha.base_url";
   var LS_TOKEN = "ha.token";
 
-  var conn = document.getElementById("ha-connection");
+  // The slot roster carries data-ingest-ws (it used to live on the removed #ha-connection card).
+  // Its presence also gates the whole module: no roster → panel not on this page.
+  var conn = document.getElementById("slot-roster");
   if (!conn) return;  // panel not on this page
 
+  // The Home Assistant connection UI now lives in the #ha-config-dialog modal (index.html),
+  // opened by the drawer's "Configure" button. The field IDs are unchanged, so these bindings
+  // resolve exactly as before — only their host node moved from the panel card into the modal.
+  var haConfigDialog = document.getElementById("ha-config-dialog");
   var urlInput = document.getElementById("ha-base-url");
   var tokenInput = document.getElementById("ha-token");
   var testBtn = document.getElementById("ha-test-btn");
@@ -209,11 +220,14 @@
       statIds.price = means.map(function (s) { return s.statistic_id; }).sort();
       haConnected = true;
       // If the drawer is open with HA staged in the draft, its entity select was showing the
-      // "connect first" hint; repopulate it now. Otherwise the ids are just stored for the next
-      // drawer open.
+      // "configure first" hint; repopulate it now, refresh the Configure button, and re-evaluate
+      // Confirm (now unlockable once an entity is chosen). Otherwise the ids are just stored for
+      // the next drawer open. The connection is shared, so this state carries to every HA slot.
       if (draft.slot && draft.source === "home_assistant") {
         fillDrawerEntitySelect(draft.slot);
       }
+      updateHaConfigButton();
+      updateConfirmEnabled();
       setStatus(statusEl, "✓ Connected · " + statIds.energy.length + " energy + "
         + statIds.price.length + " measurement statistics", "text-success");
       fetchBtn.disabled = false;
@@ -241,7 +255,7 @@
     if (!haConnected) {
       var hint = document.createElement("option");
       hint.value = "";
-      hint.textContent = t("connect_first", "Connect Home Assistant above first");
+      hint.textContent = t("connect_first", "Configure the connection first");
       sel.appendChild(hint);
       sel.disabled = true;
       return;
@@ -461,6 +475,11 @@
   var drawerConfirmBtn = document.getElementById("drawer-confirm");
   var drawerCancelBtn = document.getElementById("drawer-cancel");
 
+  // The "Configure" button rendered beside the Home Assistant radio (created in renderSourceList).
+  // Held here so testConnection / drawer opens can refresh its label to reflect the shared
+  // connection state ("Configure…" vs "✓ Connected").
+  var haConfigBtn = null;
+
   // Drawer-local staging. `draft` is the ONLY thing the in-drawer controls write to while the
   // drawer is open; it is seeded from the committed slotState on open and applied to slotState
   // only on Confirm. `sources` holds the current slot's source descriptors (for Confirm to read
@@ -533,6 +552,7 @@
   // Render the radio list for the current slot's sources, plus the pending "Upload CSV" option.
   function renderSourceList(sources) {
     drawerList.textContent = "";
+    haConfigBtn = null;
 
     sources.forEach(function (s) {
       var label = document.createElement("label");
@@ -546,7 +566,7 @@
       radio.checked = (s.key === draft.source);
       radio.addEventListener("change", function () { onSelectSource(s); });
       var text = document.createElement("div");
-      text.className = "flex flex-col";
+      text.className = "flex flex-1 flex-col";
       var name = document.createElement("span");
       name.className = "font-medium";
       name.textContent = s.label;
@@ -555,9 +575,24 @@
       blurb.textContent = s.blurb || "";
       text.appendChild(name); text.appendChild(blurb);
       label.appendChild(radio); label.appendChild(text);
+      // Home Assistant (browser_fetch) carries a "Configure" button that opens the shared
+      // connection modal (#ha-config-dialog). Its label reflects the shared connection state.
+      if (s.kind === "browser_fetch") {
+        var cfg = document.createElement("button");
+        cfg.type = "button";
+        cfg.className = "btn btn-outline btn-xs self-center shrink-0";
+        cfg.addEventListener("click", function (ev) {
+          ev.preventDefault();   // the button sits inside the <label>; don't toggle the radio
+          ev.stopPropagation();
+          openHaConfig();
+        });
+        haConfigBtn = cfg;
+        label.appendChild(cfg);
+      }
       drawerList.appendChild(label);
       if (radio.checked) onSelectSource(s);
     });
+    updateHaConfigButton();
 
     // Pending "Upload CSV" option — disabled, with the [?] affordance that opens the shared
     // pending dialog (index.html #pending-dialog, feature key data_source_csv).
@@ -625,13 +660,35 @@
     fillDrawerEntitySelect(slotName);
   }
 
-  // Enable Confirm when the draft has a source selected and no backend load is in flight. A
-  // backend source can Confirm as soon as it is picked; an HA source can Confirm with or without
-  // an entity (committing HA with an empty id shows "· choose entity…" on the row and leaves the
-  // slot un-fetchable — a deliberate, reversible state).
+  // Open the shared HA connection modal. The connection state it produces (haConnected, statIds)
+  // is shared across every slot, so configuring from any slot's drawer connects them all.
+  function openHaConfig() {
+    if (!haConfigDialog) return;
+    if (typeof haConfigDialog.showModal === "function") haConfigDialog.showModal();
+    else haConfigDialog.setAttribute("open", "");
+  }
+
+  // Reflect the shared connection state on the Configure button beside the HA radio:
+  // "✓ Connected" once a Test has succeeded, "Configure…" otherwise.
+  function updateHaConfigButton() {
+    if (!haConfigBtn) return;
+    haConfigBtn.textContent = haConnected
+      ? t("ha_connected", "✓ Connected")
+      : t("configure", "Configure…");
+    haConfigBtn.classList.toggle("btn-success", haConnected);
+  }
+
+  // Enable Confirm when the draft is committable and no backend load is in flight. A backend
+  // source can Confirm as soon as it is picked. A Home Assistant source requires BOTH a tested
+  // connection (haConnected) AND a chosen entity (draft.statId) — so every committed HA slot is
+  // immediately fetchable. Until the connection is configured, the entity picker stays disabled
+  // and Confirm is blocked; the Configure button beside the radio opens the connection modal.
   function updateConfirmEnabled() {
     if (!drawerConfirmBtn) return;
-    drawerConfirmBtn.disabled = loading || !draft.source;
+    var ok;
+    if (draft.source === "home_assistant") ok = haConnected && !!draft.statId;
+    else ok = !!draft.source;
+    drawerConfirmBtn.disabled = loading || !ok;
   }
 
   // The descriptor for the draft's currently-selected source (or null), from the slot's list.
@@ -685,8 +742,8 @@
 
   // Confirm — the single primary action. Commits whatever is staged in the draft:
   //   * HA (browser_fetch): write draft → committed slotState, refresh the row label, close. No
-  //     round-trip; the fetch picks the slot up via mappedSlots(). Committing with an empty entity
-  //     is allowed (row shows "· choose entity…", slot not yet fetchable).
+  //     round-trip; the fetch picks the slot up via mappedSlots(). The Confirm gate guarantees a
+  //     tested connection and a non-empty entity here, so a committed HA slot is always fetchable.
   //   * backend (backend_load): POST the slot load and reload on success (as "Use this source"
   //     did). On error the message stays in the drawer and nothing is committed/closed.
   // The pending CSV option's radio is disabled, so draft.source can never be it here.
