@@ -131,9 +131,10 @@ def test_pending_dialog_opens(page):
 def test_new_pending_controls_marked(page):
     # The two controls marked pending in this increment render disabled with a [?] affordance.
     assert page.locator("input[name=source][disabled]").count() >= 1  # Upload CSV radio
-    # "Also simulate cost savings" checkbox is disabled (cost machinery not built yet).
-    cost_row = page.get_by_text("Also simulate cost savings")
-    assert cost_row.count() >= 1
+    # "Simulate cost savings?" — the "Yes" answer is disabled with a [?] pending marker
+    # (cost machinery not built yet; lives in the setup band since c8f3254).
+    assert page.locator("input[name=setup_cost][disabled]").count() >= 1
+    assert page.locator("[data-feature-key=simulate_cost]").count() >= 1
 
 
 def test_thumbsup_acknowledges_in_place(page):
