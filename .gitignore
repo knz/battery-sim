@@ -12,5 +12,7 @@ tests/artifacts/
 # uv
 .uv/
 
-# Local runtime data: SQLite DB + config.toml (installation_id, feature_interest_url)
-data/
+# Local runtime data: SQLite DB + config.toml (installation_id, feature_interest_url).
+# Anchored to the repo root so it does NOT match app/data/, which holds committed shipped
+# datasets (app/data/spot_prices/*.csv — the seeded Energy-Charts spot prices).
+/data/
