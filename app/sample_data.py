@@ -13,7 +13,10 @@ field names deliberately mirror that eventual structure.
 `sample_view()` includes `data_summary` (specs §2.3a) unconditionally so a demo render shows the
 band. The real page hides it in the empty/pre-fetch state: app/main.py drops `data_summary` from
 the context when no dataset is loaded, since the band has nothing to summarise until data exists
-(§3.4). The template itself guards on `data_summary` being present.
+(§3.4). Once a dataset IS loaded, main.py replaces this sample with the COMPUTED band from
+app/summary_view.py (the real §6.3/§6.11 figures over the persisted frames); the sample here is the
+empty-state-free demo shape and the shared shape contract in tests/test_data_summary.py. The
+template itself guards on `data_summary` being present.
 
 Current variant: the app default — has_pv=True, simulate_cost=False (energy only). These two
 choices are the setup band (specs/02-ux-wireframes.md §2.1); they drive which series/slots
@@ -187,9 +190,19 @@ def _data_summary():
         "grid": {"imported": "4,129 kWh", "exported": "3,180 kWh"},
         # Always present. `net_battery` flags that the reconstruction stripped an existing
         # battery (§6.3), so the template labels this (and Solar) "net of your existing battery".
-        "household": {"consumption": "6,540 kWh", "self_sufficiency": "31%", "net_battery": True},
-        # PV present (CONFIG.has_pv). Omitted (None) for a no-PV dataset.
-        "solar": {"produced": "4,820 kWh", "self_consumption": "58%"},
+        # `self_sufficiency_clamped` marks a negative self-sufficiency the display clamped to ≥ 0%
+        # (import > load over the window — an existing battery net-charging; §2.3a); False here.
+        "household": {
+            "consumption": "6,540 kWh", "self_sufficiency": "31%", "net_battery": True,
+            "self_sufficiency_clamped": False,
+        },
+        # PV present (CONFIG.has_pv). Omitted (None) for a no-PV dataset. `partial` False here
+        # (the sample PV spans the whole window); a real short-coverage PV series sets it True and
+        # carries its own coverage/days so "Produced" is not read against the full window.
+        "solar": {
+            "produced": "4,820 kWh", "self_consumption": "58%",
+            "coverage": "2025-06-01 → 2026-07-21", "days": 416, "partial": False,
+        },
         # Existing battery present: its measured charge-in / discharge-out over the window. This
         # is the battery the household ALREADY owns, not the one panel ② will simulate. Omitted
         # (None) when no battery_charge/battery_discharge series was mapped.
@@ -197,6 +210,9 @@ def _data_summary():
         # Spot price context over the window (battery-free: the price is an input, §1.4). Omitted
         # (None) when no price series was loaded.
         "price": {"avg": "0.142 €/kWh", "min": "−0.021 €/kWh", "max": "0.487 €/kWh"},
+        # Data-quality caveats (specs §2.3a): empty in this clean sample. The computed path
+        # (app/summary_view.py) fills e.g. {"key": "load_unreliable", ...} or {"key": "solar_empty"}.
+        "notes": [],
     }
 
 

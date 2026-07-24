@@ -49,7 +49,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from app import config, data_view, dataset, db, features, i18n, ingest_ws, interest
+from app import config, data_view, dataset, db, features, i18n, ingest_ws, interest, summary_view
 from app.domain import normalize
 from app.domain.frames import SeriesFrame
 from app.domain.series_vocab import SLOT_BY_NAME
@@ -85,15 +85,17 @@ def index(request: Request):
     #
     # The data summary band (§2.3a) is shown ONLY once data has loaded: before the first fetch
     # there is nothing to summarise, so it is absent (§3.4). sample_view() always carries a
-    # `data_summary`, so drop it here in the empty state and keep it once a dataset exists. Its
-    # numbers stay the sample view-model this increment — the real §6.3/§6.11 battery-free
-    # computation over the persisted frames is a later increment (as with panels ②/③).
+    # `data_summary`, so drop it here in the empty state and replace it with the COMPUTED band
+    # once a dataset exists — the real §6.3/§6.11 battery-free figures over the persisted frames
+    # (app/summary_view.py), no longer the sample. data_summary_from returns None when the frames
+    # yield no simulatable grid, in which case the band is omitted exactly as in the empty state.
     has_dataset = False
     try:
         loaded = dataset.load_latest()
         if loaded is not None and loaded.frames:
             ctx["data"] = data_view.panel_data_from(loaded)
-            has_dataset = True
+            ctx["data_summary"] = summary_view.data_summary_from(loaded)
+            has_dataset = ctx["data_summary"] is not None
     except Exception:  # pragma: no cover - defensive: a corrupt dataset must not break the page
         pass
     if not has_dataset:

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-24 16:57+0200\n"
+"POT-Creation-Date: 2026-07-24 17:36+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -16,6 +16,15 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.18.0\n"
+
+#, python-format
+msgid ""
+"%(export)s was exported to the grid but your solar (and battery) data "
+"does not account for it, so the household consumption and self-"
+"sufficiency could not be reconstructed reliably and are hidden. This "
+"usually means a solar sensor is not reporting all of your production, or "
+"a battery is not mapped. Check your data sources."
+msgstr ""
 
 msgid "0.41％ of intervals had negative reconstructed load (clamped to 0)."
 msgstr ""
@@ -45,6 +54,12 @@ msgid "3-phase"
 msgstr ""
 
 msgid "6 months"
+msgstr ""
+
+msgid ""
+"A solar sensor is mapped but reported almost no production over this "
+"period, so the Solar figures are hidden. It may not be wired up "
+"correctly."
 msgstr ""
 
 #, python-format
@@ -251,6 +266,12 @@ msgid "Grid import T2"
 msgstr ""
 
 msgid "Grid import avoided"
+msgstr ""
+
+msgid ""
+"Grid import exceeded household load over this window — your existing "
+"battery ended it more charged than it started. This evens out over full "
+"charge/discharge cycles."
 msgstr ""
 
 msgid "Grid import, no battery"
@@ -583,6 +604,11 @@ msgstr ""
 msgid "close"
 msgstr ""
 
+msgid "day"
+msgid_plural "days"
+msgstr[0] ""
+msgstr[1] ""
+
 msgid "days"
 msgstr ""
 
@@ -628,6 +654,9 @@ msgid "same as import"
 msgstr ""
 
 msgid "see §2.5"
+msgstr ""
+
+msgid "since"
 msgstr ""
 
 msgid "valid"

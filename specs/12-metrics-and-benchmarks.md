@@ -63,7 +63,15 @@ simulated battery is `efc`, which counts *its* cycles; and `saved_kwh` / `saved_
 battery, note that `self_consumption` and the reconstructed `load` are net of it — the summary
 band labels them so ([§2.3a](02-ux-wireframes.md#the-pre-existing-battery-and-what-net-of-your-battery-means)),
 since [§6.3](09-ingest-algorithms.md#63-household-load-reconstruction) strips the existing
-battery when reconstructing load.
+battery when reconstructing load. In that same existing-battery case `self_sufficiency` can be
+negative over a finite window — import exceeds load when the battery ends more charged than it
+started, or through round-trip losses — so the band **display-clamps** it to `max(0, ·)` and shows
+a caveat; the metric itself is unchanged, only its presentation
+([§2.3a](02-ux-wireframes.md#23a-the-data-summary-band--your-data-at-a-glance)). When instead the
+§6.3 negative-load clamp has discarded a *large* share of the load — export the reconstruction
+cannot account for, usually an under-reporting PV sensor or an unmapped battery — `load` and hence
+`self_sufficiency` and `consumption` are not trustworthy; the band suppresses those two and warns,
+keeping only the measured grid/price figures ([§2.3a](02-ux-wireframes.md#when-an-input-is-empty-or-the-reconstruction-is-unreliable-say-so)).
 
 **Cost simulation only ever adds.** Every metric in the energy row is bit-identical between
 a run with `simulate_cost` off and the same run with it on; enabling the toggle appends the

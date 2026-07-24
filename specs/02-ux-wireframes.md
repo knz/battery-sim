@@ -628,6 +628,48 @@ data cannot support, the same discipline panel ③ uses
 ([§2.4](#panel--without-pv)). Self-sufficiency is always well defined and always shown; without
 PV it measures purely the meter, and (see below) net of any existing battery.
 
+**Self-sufficiency is display-clamped to ≥ 0 %.** The metric `1 − import/load`
+([§6.11](12-metrics-and-benchmarks.md#611-metrics)) can go negative when grid import exceeds the
+reconstructed load over the window — which happens when an existing battery ends the window more
+charged than it started (net SoC drift) or through round-trip losses: some imported energy went
+into the battery and was not discharged to the load within the window. The quantity is honest —
+that energy *was* imported, not self-supplied — but a negative percentage reads as broken. So the
+band clamps the *displayed* value to `max(0, ·)` and, when it clamps, shows a one-line caveat
+noting the battery ended more charged than it started and that this evens out over full
+charge/discharge cycles. The underlying metric is unchanged; only the presentation is clamped.
+This case does not arise for a household without an existing battery (import cannot exceed
+`import − export + pv`), so it is specific to the existing-battery variant below.
+
+### Coverage: the grid meter drives the window; each group keeps its own span
+
+The band's window is the **grid meter** coverage, not the intersection of every mapped series. A
+household may map a series that covers only part of the meter history — solar panels or a battery
+installed part-way through a two-year record. Intersecting all series would collapse the window to
+that short span and clip the grid totals to it (a two-year import reading as a few hundred kWh). So
+the Grid and Household figures span the meter window, and each optional group (Solar, existing
+battery, price) is summed over **its own coverage** within that window and reports that span
+("since &lt;date&gt; · N days") when it is materially shorter. Self-consumption compares PV against
+export over the **PV's** window, not the whole window — comparing six months of production against
+two years of export would be meaningless.
+
+### When an input is empty or the reconstruction is unreliable, say so
+
+Two data problems the band must surface rather than present as clean numbers, in the spirit of
+[§6.3](09-ingest-algorithms.md#63-household-load-reconstruction) ("say what happened"):
+
+- **A mapped PV series that reports almost nothing** (total production below a small floor) is
+  treated as *empty*, not as zero production: the Solar group is omitted and a note explains the
+  sensor may not be wired up correctly. This also avoids `self_consumption = 1 − export/pv` dividing
+  by a near-zero PV total, which otherwise produces an absurd percentage.
+- **A load reconstruction the negative-load clamp has badly damaged.** When
+  [§6.3](09-ingest-algorithms.md#63-household-load-reconstruction) clamps a large share of the load
+  to zero — export the reconstruction cannot explain from import + PV + battery, typically real PV
+  the solar sensor under-reports or an unmapped battery discharging to the grid — the clamp silently
+  *inflates* consumption and drives self-sufficiency toward 0. Past a threshold the band treats
+  consumption and self-sufficiency as **unreliable**: it hides both and shows a prominent warning
+  naming the unexplained export and pointing the user at their solar/battery sensors. The measured
+  figures (grid import/export, price) are unaffected and still shown.
+
 ### The pre-existing battery, and what "net of your battery" means
 
 The user **may already own a battery**. When they do, its charge/discharge sensors are mapped into

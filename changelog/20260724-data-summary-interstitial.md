@@ -155,11 +155,190 @@ Tests:
 
 ## Current Status
 
-Complete for this increment. Specs updated; band implemented as a spec + UI shell driven by the
-sample view-model; hidden pre-fetch, shown once data loads; bilingual. Full test suite passes
-(83 passed, HA-live test skipped — needs a real instance).
+Increment 1 (spec + UI shell) complete. Specs updated; band implemented as a spec + UI shell
+driven by the sample view-model; hidden pre-fetch, shown once data loads; bilingual. Full test
+suite passed (83 passed, HA-live test skipped — needs a real instance).
 
-**Deferred (next increment):** the real battery-free computation — a §6.3 load reconstruction +
-§6.11 metrics slice over the persisted frames — feeding real numbers into `data_summary` via
-`app/data_view.py`, replacing the sample. `tests/test_data_summary.py` is written to become the
-contract that computed view-model must also satisfy.
+## Increment 2 — the real computation (2026-07-24)
+
+**User's prompt (verbatim):**
+
+> now let's actually implement the corresponding computations
+
+Wire real, computed numbers into `data_summary` from the persisted frames, replacing the sample in
+the loaded state. `tests/test_data_summary.py`'s shape assertions become the contract the computed
+view-model must also satisfy.
+
+### Decisions (confirmed with the user 2026-07-24)
+
+1. **Reconstruction fidelity — per-interval align + clamp (§6.3).** Reconcile the grid energy
+   series (import/export/pv/battery) onto the effective-window common grid per interval, apply the
+   §6.3 balance `load = imp − exp + pv + batt_dis − batt_chg` per interval, clamp negatives to 0
+   (counting them for a caveat), then sum. `self_sufficiency = 1 − import.sum()/load.sum()` uses the
+   clamped load, matching §6.11. This is more faithful than sum-then-combine and the per-interval
+   reconstruction is reusable when the full simulation lands.
+2. **Partial coverage — sum over each series' own coverage.** Each total is computed over the
+   intervals that series actually has within the effective window (matches how panel ① already
+   derives the effective window via `normalize.effective_window`). Rationale for the mixed policy:
+   the per-interval load reconstruction still needs the grid series on ONE aligned grid, so those
+   are reconciled onto the effective window; the price aggregates (avg/min/max) and an optional
+   short-coverage series use their own coverage rather than shrinking the whole window (an existing
+   battery added mid-window must not truncate the grid totals — open question §8.6).
+
+### Approach
+
+- **New `app/summary_view.py`** — `data_summary_from(dataset) -> dict | None`, producing the exact
+  shape `_data_summary()` returns (grid / household / solar / battery / price groups, `net_battery`
+  flag, coverage/days), computed from the frames. Returns None when there is no simulatable grid
+  (no covering energy series), so `main.py` omits the band as in the empty state.
+- **Reconciliation helper** to sum an energy frame onto the effective-window grid (downsample =
+  sum deltas per §6.2; a series already at/finer than the grid sums exactly; irregular → skip with
+  a caveat). Reuses `normalize.effective_window` / `choose_grid`.
+- **Formatting** kept in the view layer: thousands-separated kWh, integer-percent, €/kWh to 3 dp,
+  matching the sample's presentation so the template is unchanged.
+- **`main.py`** — in the loaded branch, replace the sample `data_summary` with
+  `summary_view.data_summary_from(loaded)`; keep the empty-state drop.
+- **Tests** — extend `tests/test_data_summary.py` with computed-view cases over synthetic frames
+  (known totals, the existing-battery net-of variant, no-PV/no-battery/no-price omission, the
+  negative-load clamp). The existing sample-shape tests stay as the shared contract.
+
+### Files (planned)
+
+- `app/summary_view.py` — new.
+- `app/main.py` — call `summary_view.data_summary_from` in the loaded branch.
+- `tests/test_data_summary.py` — add computed-view tests over synthetic datasets.
+- `app/sample_data.py` — `_data_summary()` retained as the empty-state-free demo shape and the
+  test contract; docstring notes the computed path now supplies real numbers when a dataset exists.
+
+### Negative self-sufficiency — surfaced during implementation (2026-07-24)
+
+Wiring real numbers exposed an edge the sample never hit: `self_sufficiency = 1 − import/load`
+(§6.11) goes **negative** when grid import exceeds the reconstructed load over the window. With an
+existing battery this is normal — a battery that ends the window more charged than it started (net
+SoC drift), plus round-trip losses, means some imported energy went into the battery and was never
+discharged to the load within the window.
+
+Discussion with the user (verbatim prompts):
+
+> let's take a step backward here. what does "self sufficiency" really mean? if there's a battery
+> and it charges from the grid, that does not count as "self sufficiency"
+
+> i'm tempted by option 3 -- it seems to me that even though the load may appear negative during
+> one interval, the battery will later discharge and contribute to self sufficiency, such that over
+> multiple charge/discharge cycles it balances out.
+
+**Decision — option 3: keep the spec metric, clamp the display.** The user's balancing argument is
+correct for a *cycle-balanced* window: charge returns as discharge, and `1 − import/load` lands in
+a sane range. The residuals that keep it from fully cancelling — net SoC drift (§6.11 already flags
+this) and round-trip losses — are genuine grid dependence and *should* count against
+self-sufficiency, so the metric stays `1 − import/load`, unchanged. Only the **displayed** value is
+clamped to `max(0, ·)`; when it clamps, the band shows a caveat explaining the battery ended more
+charged than it started and that it evens out over full cycles. The negative I first saw came from
+a 24-hour test window with a pure net-charging battery — a test artifact, rare in a real
+multi-month dataset. Considered and rejected: redefining self-sufficiency to subtract
+`battery_charge` from the numerator (over-counts an owned battery as "self", and needs a
+flow decomposition the pre-simulation band does not have).
+
+**Also fixed (pre-existing template gap the short window exposed):** the coverage line rendered
+"1 days" / "1 dagen". Switched to `ngettext('day', 'days', days)` with a `day`/`days` plural pair
+in both catalogs (nl: `dag`/`dagen`).
+
+### Files modified (increment 2, actual)
+
+- `app/summary_view.py` — **new**. `data_summary_from(dataset) -> dict | None`: the §6.3
+  per-interval load reconstruction (grid series reconciled onto the effective-window grid, clamp
+  negatives) + §6.11 battery-free metrics, with own-coverage price aggregates. Formats to the
+  sample's presentation. Returns None when no covering energy series → band omitted.
+- `app/main.py` — loaded branch now sets `data_summary = summary_view.data_summary_from(loaded)`;
+  `has_dataset` gates on it being non-None; empty-state drop kept. Import + docstring updated.
+- `app/sample_data.py` — `_data_summary()` gains `self_sufficiency_clamped: False`; docstrings note
+  the computed path supplies real numbers once a dataset loads.
+- `app/templates/_panel_summary.html` — `ngettext` for day/days; the self-sufficiency-clamped
+  caveat (ⓘ line, shown only when `self_sufficiency_clamped`); shape comment updated.
+- `specs/02-ux-wireframes.md` §2.3a — documented the display clamp + caveat and why it is specific
+  to the existing-battery variant.
+- `specs/12-metrics-and-benchmarks.md` §6.11 — note that the band display-clamps `self_sufficiency`
+  to ≥ 0 % (metric unchanged, presentation only).
+- `app/locales/messages.pot`, `nl` + `en` `.po`/`.mo` — the `day`/`days` plural pair and the
+  clamp-caveat sentence; Dutch translated, en identity; catalogs fuzzy-free (re-extracted with
+  `-k _N`, updated `--no-fuzzy-matching`).
+- `tests/test_data_summary.py` — computed-view tests over synthetic frames: base totals,
+  self-sufficiency with PV, tariff-register fold, existing-battery net-of variant, negative-load
+  clamp, negative-self-sufficiency display clamp (+ not-clamped case), price stats, no-grid → None,
+  and a computed-view shape-contract check. Sample-shape tests retained as the shared contract.
+
+**Status:** increment 2 complete. Full suite passes (93 passed, 2 skipped — the HA-live tests need
+a real instance). Band renders real computed numbers in both languages; negative-self-sufficiency
+clamp + caveat and singular "1 day"/"1 dag" verified end-to-end through the real route.
+
+## Increment 3 — anomalies found on real imported data (2026-07-24)
+
+The user imported a real 2-year dataset (grid meters + spot price, solar mapped part-way) and
+reported three anomalies in the band. Investigating the persisted frames (`data/local/series`)
+found two real bugs in `summary_view.py` and one data problem the band was hiding.
+
+**User's report (verbatim):**
+
+> okay so I have imported some data ... I'm seeing two anomalies:
+> - grid import seems very low. ... FWIW the meter was reset at some point ... was this taken into account?
+> - solar produced is computed to be zero, which doesn't match reality ...
+> - self consumption has an abnormal value of "-1001532%"
+
+Root causes (from the persisted frames):
+
+1. **"Grid import very low" — effective-window clipping bug (mine).** The solar series covered only
+   ~140 days (panels mapped recently) while the meters covered 2 years. `data_summary_from` built
+   the window via `normalize.effective_window(ALL frames)`, whose intersection collapsed to solar's
+   140 days, clipping grid import from ~8,765 kWh to ~637 kWh. This contradicted the agreed
+   "sum over each series' own coverage" policy. **The meter reset was NOT the cause** — HA
+   reset-corrects the `sum` register upstream, the deltas were all non-negative, 0 RESET_CORRECTED
+   flags, ~8,765 kWh over 2 years is trustworthy.
+2. **"−1001532% self-consumption" — near-zero PV divide (mine).** The solar sensor summed to 0.2 kWh
+   (a broken import), which passed the tiny `DIV_GUARD_EPS = 1e-6` guard, so
+   `self_consumption = 1 − export/pv` divided by ~0.2 against a large export.
+3. **"Solar zero" — data problem, surfaced honestly.** The solar frame genuinely held near-zero
+   values; the band should say so, not show 0.
+
+A THIRD bug surfaced while fixing: with the broken solar, the §6.3 negative-load clamp discarded
+~2,036 kWh (23% of load) of unexplained export, silently **inflating consumption** back to ~import
+and forcing self-sufficiency to 0%.
+
+### Decisions (confirmed with the user 2026-07-24)
+
+- **Grid-driven window; each short series keeps its own span.** The window is the grid meters'
+  coverage; solar/battery/price sum over their own coverage within it. Solar reports its own span
+  ("since <date> · N days", `partial` flag). Context from the user: panels were installed ~6 months
+  ago, so the 140-day solar span is real, not an error.
+- **Near-zero PV → omit + note.** A PV series below `PV_PRESENT_FLOOR_KWH` (1 kWh) is treated as
+  empty: the Solar group is omitted and a `solar_empty` data-quality note shown. Fixes the divide.
+- **Compromised reconstruction → warn + suppress.** When the clamp discards more than
+  `CLAMP_UNRELIABLE_FRAC` (5%) of the reconstructed energy, consumption and self-sufficiency are
+  UNRELIABLE: both suppressed (rendered "—") and a prominent `load_unreliable` warning naming the
+  unexplained export is shown. Grid import/export and price (measured, not reconstructed) stay.
+  The user chose this over showing the (inflated) numbers with a caveat.
+
+### Files modified (increment 3)
+
+- `app/summary_view.py` — window/grid from `_WINDOW_SLOTS` (grid meters) only, not all frames;
+  `_add_solar` helper computes produced + self-consumption over the PV's OWN coverage window
+  (export restricted to it), applies the empty-PV floor, and reports the PV span + `partial`;
+  reliability gate (`CLAMP_UNRELIABLE_FRAC`) suppresses consumption/self-sufficiency and emits a
+  `load_unreliable` note; `notes` list added. Clamp fraction denominator is `load + clamped` so a
+  total clamp reads as maximally unreliable rather than a swallowed divide-by-zero.
+- `app/templates/_panel_summary.html` — render "—" for suppressed household figures; the
+  `since <date> · N days` partial-solar label; a `notes` loop rendering the `load_unreliable`
+  warning (alert) and `solar_empty` note; gettext printf interpolation `_(msgid, export=...)`
+  (NOT `|format`, which double-interpolates the already-`%`-bearing string); shape comment updated.
+- `app/sample_data.py` — solar sample gains `coverage`/`days`/`partial`; `notes: []` added.
+- `app/locales/*` — three new strings (the `load_unreliable` warning with `%(export)s`, the
+  `solar_empty` note, and `since`); Dutch translated, en identity; catalogs fuzzy-free.
+- `tests/test_data_summary.py` — new/updated computed-view tests: short-solar-doesn't-clip-grid
+  totals, near-zero-PV omit+note, self-consumption over the PV window, heavy-clamp → unreliable +
+  suppression + note, small-clamp stays reliable. Old "negative-load → 0 kWh" test replaced by the
+  unreliable-gate test.
+- Specs: §2.3a and §6.11 to follow (grid-driven window, near-zero-PV omission, reliability gate).
+
+**Status:** increment 3 code complete. Full suite passes (97 passed, 2 skipped). All three reported
+anomalies resolved; verified end-to-end on the live dataset (import 8,765 kWh, solar "since
+2026-02-12", no false warnings) and on a synthetic broken-solar dataset (warning + suppression +
+solar_empty note, both languages).
