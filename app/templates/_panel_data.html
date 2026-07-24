@@ -36,6 +36,11 @@
 
   The `req` → marker mapping: required ●, conditional ◐ (PV-only), cost_optional ◒
   (cost-simulation-only), optional ○.
+
+  A row whose view-model carries an `info` blurb (SlotSpec.info, specs §4.1) also renders an ⓘ
+  button next to its role label; clicking opens the shared #slot-info-dialog (filled by
+  ha_fetch.js from the button's data-info-title/body). Rows without `info` render no icon, so
+  the affordance is generic — a new series gets one by populating that field, not by editing here.
 #}
 <section class="collapse collapse-arrow bg-base-100 border border-base-300 rounded-box">
   <input type="checkbox" aria-label="{{ _('Toggle Data panel') }}" />
@@ -84,7 +89,21 @@
                 {% for row in data.mapping %}
                   {% if (not row.pv_only or cfg.has_pv) and (not row.cost_only or cfg.simulate_cost) %}
                   <tr>
-                    <td>{{ _(row.role) }}</td>
+                    {# Role label, plus an optional ⓘ info affordance. The icon renders only when
+                       the slot's view-model carries an `info` blurb (specs §4.1), so the roster
+                       is generic: a future series gets an icon by populating SlotSpec.info, with
+                       no change here. Clicking opens the shared #slot-info-dialog below; the
+                       button carries the (translated) title + body as data-* for ha_fetch.js. #}
+                    <td>
+                      <span class="align-middle">{{ _(row.role) }}</span>
+                      {% if row.info %}
+                      <button type="button"
+                              class="btn btn-ghost btn-xs btn-circle align-middle slot-info-btn"
+                              aria-label="{{ _('About') }} {{ _(row.role) }}"
+                              data-info-title="{{ _(row.role) }}"
+                              data-info-body="{{ _(row.info) }}">ⓘ</button>
+                      {% endif %}
+                    </td>
                     <td class="text-center">
                       {% if row.req == "required" %}<span title="{{ _('required') }}">●</span>
                       {% elif row.req == "conditional" %}<span title="{{ _('required if you have PV') }}" class="text-primary">◐</span>
@@ -153,6 +172,21 @@
           </div>
         </div>
       </div>
+
+      {# ── Slot info dialog ────────────────────────────────────────────────── #}
+      {# One shared modal for every row's ⓘ affordance. ha_fetch.js fills the title + body from
+         the clicked .slot-info-btn's data-* (already translated server-side) and calls
+         showModal(). A single dialog keeps the roster free of per-row markup. #}
+      <dialog id="slot-info-dialog" class="modal">
+        <div class="modal-box">
+          <h3 class="text-lg font-bold" id="slot-info-title"></h3>
+          <p class="py-3 text-sm text-base-content/80" id="slot-info-body"></p>
+          <div class="modal-action">
+            <form method="dialog"><button class="btn btn-ghost btn-sm">{{ _('close') }}</button></form>
+          </div>
+        </div>
+        <form method="dialog" class="modal-backdrop"><button>{{ _('close') }}</button></form>
+      </dialog>
 
       {# ── Data quality ────────────────────────────────────────────────────── #}
       <div class="card bg-base-200 border border-base-300">

@@ -28,6 +28,11 @@
  *         and reloads so panel ① re-renders from the persisted dataset (specs §3.5).
  *       * data_source_csv (pending)      → the shared "not built yet" dialog (#pending-dialog).
  *
+ *     A row may also carry an ⓘ info affordance (SlotSpec.info, specs §4.1). A delegated click on
+ *     any .slot-info-btn fills the shared #slot-info-dialog from the button's data-info-title/body
+ *     (rendered and translated server-side) and opens it — the same shared-dialog pattern as
+ *     #pending-dialog, with no per-slot wiring.
+ *
  * Staged-then-confirm model (the crux). The drawer is TRANSACTIONAL: nothing commits on mere
  * selection or on closing. While the drawer is open, all in-drawer controls (source radios, entity
  * <select>) write ONLY to a drawer-local `draft = { slot, source, statId }`. The committed per-slot
@@ -116,6 +121,25 @@
   var fetchBtn = document.getElementById("ha-fetch-btn");
   var fetchStatus = document.getElementById("ha-fetch-status");
   var progressEl = document.getElementById("ha-fetch-progress");
+
+  // Slot info ⓘ affordance (specs §4.1). A single #slot-info-dialog (in _panel_data.html) serves
+  // every row's ⓘ button; a delegated click reads the (server-side, already-translated) title and
+  // body off the clicked .slot-info-btn's data-* and opens the modal — same shared-dialog pattern
+  // as #pending-dialog. Generic: any row whose view-model carries `info` renders a button, so no
+  // per-slot wiring is needed here.
+  var infoDialog = document.getElementById("slot-info-dialog");
+  var infoTitle = document.getElementById("slot-info-title");
+  var infoBody = document.getElementById("slot-info-body");
+  if (infoDialog && infoTitle && infoBody) {
+    document.addEventListener("click", function (ev) {
+      var btn = ev.target.closest && ev.target.closest(".slot-info-btn");
+      if (!btn) return;
+      infoTitle.textContent = btn.getAttribute("data-info-title") || "";
+      infoBody.textContent = btn.getAttribute("data-info-body") || "";
+      if (typeof infoDialog.showModal === "function") infoDialog.showModal();
+      else infoDialog.setAttribute("open", "");
+    });
+  }
 
   // Per-slot state, seeded from each slot's source button (no per-row DOM select any more).
   //   slotState[name] = { source: <key|null>, statId: <string>, kind: "energy"|"price" }

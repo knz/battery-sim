@@ -106,6 +106,9 @@ def panel_data_from(dataset: LoadedDataset) -> dict:
                 "name": slot.name,
                 "role": ROLE_LABEL.get(slot.name, slot.name),
                 "req": slot.requirement,
+                # Optional per-series explanation for the picker's ⓘ affordance (specs §4.1);
+                # None for slots that carry no blurb, so the template renders no icon.
+                "info": slot.info,
                 # Present: the "(res, N intervals)" coverage string. Absent: None (no data yet).
                 "entity": (
                     f"({_fmt_res(f.resolution_s)}, {len(f.values)} intervals)"

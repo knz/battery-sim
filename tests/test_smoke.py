@@ -122,6 +122,18 @@ def test_solar_row_present(page):
     assert page.get_by_text("How is your PV connected to the battery?").count() >= 1
 
 
+def test_slot_info_affordance(page):
+    # The two corroboration slots (Grid power, House load) carry an `info` blurb, so the demo
+    # renders an ⓘ button next to each. Clicking one fills and opens the shared #slot-info-dialog.
+    info_btns = page.locator(".slot-info-btn")
+    assert info_btns.count() == 2  # exactly the two rows with a blurb; no icon on the others
+    page.get_by_role("button", name="About House load").click()
+    dialog = page.locator("#slot-info-dialog")
+    assert dialog.get_by_text("House load", exact=True).is_visible()
+    assert "reconstructs household load" in dialog.locator("#slot-info-body").inner_text()
+    page.keyboard.press("Escape")
+
+
 def test_pending_dialog_opens(page):
     page.get_by_role("button", name="Export CSV").click()
     assert page.get_by_text("Not built yet").first.is_visible()
