@@ -191,6 +191,15 @@ def test_page_reflects_persisted_dataset_after_ingest(client):
     assert "sensor.meter_import_t1" in html
     assert 'data-slot-stat-id="sensor.meter_import_t1"' in html
 
+    # The data summary band (§2.3a) renders from the same dataset, and each DERIVED metric carries
+    # an ⓘ .slot-info-btn explaining its computation (shared #slot-info-dialog, wired by ha_fetch.js).
+    # This ingest has no solar, so the Household metrics get buttons but Solar does not exist.
+    assert 'data-info-title="Consumption"' in html
+    assert 'data-info-title="Self-sufficiency"' in html
+    # The Consumption blurb is the no-existing-battery variant (no battery series was ingested).
+    assert "load = grid import − grid export + solar produced." in html
+    assert "battery discharged − battery charged" not in html
+
 
 def test_fetch_bumps_source_generation(client):
     """A persisted fetch advances the source generation and reports it (specs §2.2).

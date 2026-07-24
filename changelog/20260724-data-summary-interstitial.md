@@ -342,3 +342,43 @@ and forcing self-sufficiency to 0%.
 anomalies resolved; verified end-to-end on the live dataset (import 8,765 kWh, solar "since
 2026-02-12", no false warnings) and on a synthetic broken-solar dataset (warning + suppression +
 solar_empty note, both languages).
+
+## Increment 4 — ⓘ info buttons on the derived metrics (2026-07-24)
+
+**User's prompt (verbatim):**
+
+> in the "at a glance" panel, please also introduce an info button next to the derived metrics
+> that explains how they are computed in a popup
+
+### Decisions (confirmed with the user 2026-07-24)
+
+- **Which metrics:** the three *derived* ones — Consumption (§6.3 reconstruction), Self-sufficiency
+  (1 − import/load), Self-consumption (1 − export/pv). Grid import/export and price avg/min/max are
+  raw measured sums, so no button (matches "derived metrics").
+- **Placement:** one ⓘ per metric row, each opening a popup specific to that metric.
+
+### Approach
+
+Reused the existing shared-dialog pattern: a `.slot-info-btn` with `data-info-title` /
+`data-info-body` (both translated server-side) opens `#slot-info-dialog` (defined in
+_panel_data.html), wired by the delegated document-level click handler already in ha_fetch.js — so
+**no JS change** was needed, and the dialog is always in the DOM when the band is (both are
+data-gated, _panel_data before _panel_summary). The Consumption blurb varies with the
+existing-battery case (§6.3 then strips that battery), chosen in-template on `net_battery`.
+
+### Files modified (increment 4)
+
+- `app/templates/_panel_summary.html` — ⓘ buttons on Consumption, Self-sufficiency,
+  Self-consumption with per-metric explanation blurbs; header docstring updated.
+- `app/locales/*` — four new blurbs (two Consumption variants + the two ratios); Dutch translated,
+  en identity. Literal percents use U+FF05 (％), not ASCII %, so the gettext printf-checker does not
+  treat "0% means"/"100% means" as a format placeholder (the ASCII form raised ValueError:
+  unsupported format character at render — same rule as the README i18n note). Obsolete `#~`
+  entries pruned; catalogs fuzzy-free; nl/en/pot all 210 msgids.
+- `tests/test_ingest_ws.py` — `test_reload_renders_from_persisted_dataset` now asserts the
+  Consumption + Self-sufficiency ⓘ buttons render (no-battery consumption variant, since that
+  ingest has no battery series).
+
+**Status:** increment 4 complete. Full suite passes (97 passed, 2 skipped). All three ⓘ buttons
+render with translated title + body in both languages and open the shared explanation dialog;
+verified end-to-end.

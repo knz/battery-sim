@@ -39,6 +39,12 @@
       notes:     [{key, ...params}],                         # data-quality caveats (may be empty)
     }
 
+  Each DERIVED metric (Consumption, Self-sufficiency, Self-consumption) carries an ⓘ .slot-info-btn
+  that opens the shared #slot-info-dialog (defined in _panel_data.html, wired by the delegated
+  handler in ha_fetch.js) with a plain-language explanation of its formula. The raw measured sums
+  (grid import/export, price) carry no ⓘ. The Consumption blurb varies with the existing-battery
+  case, since §6.3 then strips that battery from the reconstruction.
+
   UI chrome is wrapped in _() for translation (English/Dutch); data values (numbers, coverage
   strings) stay literal.
 #}
@@ -69,9 +75,28 @@
          printing an inflated consumption the user might trust. #}
       <div class="rounded-box border border-base-300 bg-base-200/40 p-3">
         <h3 class="text-xs font-semibold uppercase tracking-wide text-base-content/60">{{ _('Household') }}</h3>
+        {# ⓘ next to each DERIVED metric explains its computation in the shared #slot-info-dialog
+           (defined in _panel_data.html; wired by the delegated .slot-info-btn handler in
+           ha_fetch.js — no per-metric JS). The Consumption blurb adapts to the existing-battery
+           case, since §6.3 then strips that battery from the reconstruction. Grid import/export are
+           raw measured sums, so they carry no ⓘ. #}
         <dl class="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-sm">
-          <dt class="text-base-content/60">{{ _('Consumption') }}</dt><dd class="text-right font-medium">{{ data_summary.household.consumption or '—' }}</dd>
-          <dt class="text-base-content/60">{{ _('Self-sufficiency') }}</dt><dd class="text-right font-medium">{{ data_summary.household.self_sufficiency or '—' }}</dd>
+          <dt class="text-base-content/60">
+            {{ _('Consumption') }}
+            <button type="button" class="btn btn-ghost btn-xs btn-circle align-middle slot-info-btn"
+                    aria-label="{{ _('About') }} {{ _('Consumption') }}"
+                    data-info-title="{{ _('Consumption') }}"
+                    data-info-body="{% if data_summary.household.net_battery %}{{ _('Your smart meter only sees energy crossing the grid connection, so household consumption is reconstructed: load = grid import − grid export + solar produced + battery discharged − battery charged. Because you have an existing battery, its charge and discharge are included, so this is your consumption net of that battery. Intervals where the result is negative (a data problem) are clamped to zero.') }}{% else %}{{ _('Your smart meter only sees energy crossing the grid connection, so household consumption is reconstructed: load = grid import − grid export + solar produced. Intervals where the result is negative (a data problem) are clamped to zero.') }}{% endif %}">ⓘ</button>
+          </dt>
+          <dd class="text-right font-medium">{{ data_summary.household.consumption or '—' }}</dd>
+          <dt class="text-base-content/60">
+            {{ _('Self-sufficiency') }}
+            <button type="button" class="btn btn-ghost btn-xs btn-circle align-middle slot-info-btn"
+                    aria-label="{{ _('About') }} {{ _('Self-sufficiency') }}"
+                    data-info-title="{{ _('Self-sufficiency') }}"
+                    data-info-body="{{ _('The share of your household consumption met without drawing from the grid: self-sufficiency = 1 − grid import ÷ consumption. 0％ means every kWh came from the grid; higher means more was covered by your own solar (and existing battery). It uses the reconstructed consumption above.') }}">ⓘ</button>
+          </dt>
+          <dd class="text-right font-medium">{{ data_summary.household.self_sufficiency or '—' }}</dd>
         </dl>
         {% if data_summary.household.net_battery %}
         <p class="mt-1 text-xs text-base-content/50">{{ _('net of your existing battery') }}</p>
@@ -94,7 +119,14 @@
         <dl class="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-sm">
           <dt class="text-base-content/60">{{ _('Produced') }}</dt><dd class="text-right font-medium">{{ data_summary.solar.produced }}</dd>
           {% if data_summary.solar.self_consumption %}
-          <dt class="text-base-content/60">{{ _('Self-consumption') }}</dt><dd class="text-right font-medium">{{ data_summary.solar.self_consumption }}</dd>
+          <dt class="text-base-content/60">
+            {{ _('Self-consumption') }}
+            <button type="button" class="btn btn-ghost btn-xs btn-circle align-middle slot-info-btn"
+                    aria-label="{{ _('About') }} {{ _('Self-consumption') }}"
+                    data-info-title="{{ _('Self-consumption') }}"
+                    data-info-body="{{ _('The share of your solar production you used yourself rather than exporting: self-consumption = 1 − grid export ÷ solar produced, measured over the period your solar data covers. 100％ means none of your production was exported; lower means more went back to the grid.') }}">ⓘ</button>
+          </dt>
+          <dd class="text-right font-medium">{{ data_summary.solar.self_consumption }}</dd>
           {% endif %}
         </dl>
         {# The PV series can cover only part of the (grid-driven) window — panels installed
