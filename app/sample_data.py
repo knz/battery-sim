@@ -33,6 +33,39 @@ def _N(s: str) -> str:
     """
     return s
 
+
+def _sources_for(name: str) -> list[dict]:
+    """The drawer's source list for the slot named `name` (specs §2.2 slot-first sources).
+
+    Built from the same registry the real view-model (app/data_view.py) reads, so the empty-state
+    sample offers exactly the sources a live dataset would. Returns the small {key,label,kind,
+    blurb} dicts the drawer renders. Descriptor labels/blurbs are English source strings; they
+    are marked for extraction in _SOURCE_STRINGS below and translated in the template via _().
+    """
+    from app.domain.series_vocab import SLOT_BY_NAME
+    from app.sources import registry
+
+    slot = SLOT_BY_NAME.get(name)
+    if slot is None:
+        return []
+    return [
+        {"key": d.key, "label": d.label, "kind": d.kind, "blurb": d.blurb}
+        for d in registry.sources_for(slot)
+    ]
+
+
+# Source descriptor labels/blurbs live in app/sources/*.py (not string literals here), so
+# pybabel would not otherwise discover them as msgids. Mark them for extraction once, so the
+# template's _(source.label) / _(source.blurb) calls have catalog entries to look up. Keep this
+# list in step with the SourceDescriptor labels/blurbs in app/sources/.
+_SOURCE_STRINGS = [
+    _N("Home Assistant"),
+    _N("Fetched from your Home Assistant in your browser; the token never reaches this app."),
+    _N("Preset historical (Energy-Charts NL)"),
+    _N("NL day-ahead spot prices from 2023 to today: committed on disk and bridged live "
+       "to the end of your selected range."),
+]
+
 # --- Session-level configuration this sample represents -------------------------------
 # Mirrors cfg fields from the spec. Drives which rows/boxes the templates show.
 CONFIG = {
@@ -62,17 +95,22 @@ def _panel_data():
         # only when cfg.has_pv; rows flagged `cost_only` show only when cfg.simulate_cost.
         # The two price-bracketing rows below are cost_only, so with this sample's
         # simulate_cost=False they are absent; they appear when cost simulation is enabled.
+        # Each row carries its per-slot source provenance (specs §2.2 slot-first): `source` is
+        # the descriptor key of the chosen source (or None for an unfilled slot), and `sources`
+        # is the drawer's option list for that slot (built from the registry via _sources_for).
+        # This sample shows a populated look: the grid/solar rows are Home Assistant, price_spot
+        # is the preset Energy-Charts source, and the optional/bracket rows are still unchosen.
         "mapping": [
-            {"name": "grid_import_t1", "role": _N("Grid import T1"), "req": "required", "entity": "sensor.electricity_meter_import_t1"},
-            {"name": "grid_import_t2", "role": _N("Grid import T2"), "req": "required", "entity": "sensor.electricity_meter_import_t2"},
-            {"name": "grid_export_t1", "role": _N("Grid export T1"), "req": "required", "entity": "sensor.electricity_meter_export_t1"},
-            {"name": "grid_export_t2", "role": _N("Grid export T2"), "req": "required", "entity": "sensor.electricity_meter_export_t2"},
-            {"name": "solar_production", "role": _N("Solar production"), "req": "conditional", "entity": "sensor.solar_total_production", "pv_only": True},
-            {"name": "battery_charge", "role": _N("Battery charge"), "req": "optional", "entity": "— none —"},
-            {"name": "battery_discharge", "role": _N("Battery discharge"), "req": "optional", "entity": "— none —"},
-            {"name": "price_spot", "role": _N("Spot price"), "req": "required", "entity": "sensor.epex_spot_price"},
-            {"name": "price_spot_min", "role": _N("Spot price (min)"), "req": "cost_optional", "entity": "— none —", "cost_only": True},
-            {"name": "price_spot_max", "role": _N("Spot price (max)"), "req": "cost_optional", "entity": "— none —", "cost_only": True},
+            {"name": "grid_import_t1", "role": _N("Grid import T1"), "req": "required", "entity": "sensor.electricity_meter_import_t1", "source": "home_assistant", "sources": _sources_for("grid_import_t1")},
+            {"name": "grid_import_t2", "role": _N("Grid import T2"), "req": "required", "entity": "sensor.electricity_meter_import_t2", "source": "home_assistant", "sources": _sources_for("grid_import_t2")},
+            {"name": "grid_export_t1", "role": _N("Grid export T1"), "req": "required", "entity": "sensor.electricity_meter_export_t1", "source": "home_assistant", "sources": _sources_for("grid_export_t1")},
+            {"name": "grid_export_t2", "role": _N("Grid export T2"), "req": "required", "entity": "sensor.electricity_meter_export_t2", "source": "home_assistant", "sources": _sources_for("grid_export_t2")},
+            {"name": "solar_production", "role": _N("Solar production"), "req": "conditional", "entity": "sensor.solar_total_production", "pv_only": True, "source": "home_assistant", "sources": _sources_for("solar_production")},
+            {"name": "battery_charge", "role": _N("Battery charge"), "req": "optional", "entity": None, "source": None, "sources": _sources_for("battery_charge")},
+            {"name": "battery_discharge", "role": _N("Battery discharge"), "req": "optional", "entity": None, "source": None, "sources": _sources_for("battery_discharge")},
+            {"name": "price_spot", "role": _N("Spot price"), "req": "required", "entity": "sensor.epex_spot_price", "source": "energy_charts", "sources": _sources_for("price_spot")},
+            {"name": "price_spot_min", "role": _N("Spot price (min)"), "req": "cost_optional", "entity": None, "cost_only": True, "source": None, "sources": _sources_for("price_spot_min")},
+            {"name": "price_spot_max", "role": _N("Spot price (max)"), "req": "cost_optional", "entity": None, "cost_only": True, "source": None, "sources": _sources_for("price_spot_max")},
         ],
         "quality": {
             "coverage": "2025-06-01 → 2026-07-21   (416 days)",

@@ -1,19 +1,36 @@
 /*
- * ha_fetch.js — browser-side Home Assistant fetch and hand-off (specs/06-home-assistant-ingestion.md).
+ * ha_fetch.js — browser-side Home Assistant fetch + the slot-first source-picker drawer
+ * (specs/06-home-assistant-ingestion.md, specs/02-ux-wireframes.md §2.2).
  *
- * The data import runs in the browser, not the backend: the end user's browser is the only thing
- * that can reach their (often LAN-only, self-signed) Home Assistant instance, and keeping the fetch
- * here means the long-lived access token never leaves the browser (specs §7.5). The token is held
- * in localStorage and sent only to the user's own HA. The rows we fetch are streamed to our backend
- * over a WebSocket (WS /data/ingest/ws), which normalises and persists them (app/ingest_ws.py).
+ * Two responsibilities live here now:
  *
- * Two user actions, wired to the panel-① controls (templates/_panel_data.html):
- *   Test connection  — open wss://<ha>/api/websocket, auth, recorder/list_statistic_ids, and fill
- *                       the mapping <select>s (energy ids for energy slots, mean ids for price).
- *   Fetch history    — for each mapped slot, recorder/statistics_during_period over the full window
- *                       at period "hour", plus period "5minute" over the trailing HA_FINE_WINDOW_DAYS
- *                       (specs §4.3). Stream the rows to the backend, then reload so the server
- *                       re-renders panel ① from the persisted dataset (specs §3.5 LOAD_SUCCEEDED).
+ *  1. The shared Home Assistant connection and browser-side fetch. The data import runs in the
+ *     browser, not the backend: the user's browser is the only thing that can reach their (often
+ *     LAN-only, self-signed) HA instance, and keeping the fetch here means the long-lived access
+ *     token never leaves the browser (specs §7.5). The token is held in localStorage and sent
+ *     only to the user's own HA. The connection is SHARED across slots: the user tests once
+ *     (URL + token + Test connection), and every HA-source slot's mapping <select> is then filled
+ *     from the same listing. Fetched rows stream to our backend over WS /data/ingest/ws
+ *     (app/ingest_ws.py), which normalises and persists them.
+ *
+ *  2. The slot-first source-picker drawer. Each slot row (templates/_panel_data.html) has a
+ *     "Choose source…" button carrying the slot name and its source list (data-slot-sources). A
+ *     click opens the shared right-side drawer (#source-drawer in index.html) listing those
+ *     sources as radios. Picking a source:
+ *       * home_assistant (browser_fetch) → the slot uses the shared connection + its <select>;
+ *         the row is re-rendered to show HA selected. No round-trip.
+ *       * energy_charts (backend_load)   → POST /data/slot/{slot}/load {source, window}; on
+ *         success reload so panel ① re-renders from the persisted dataset (specs §3.5).
+ *       * data_source_csv (pending)      → the shared "not built yet" dialog (#pending-dialog).
+ *
+ * User actions on the connection card:
+ *   Test connection  — open wss://<ha>/api/websocket, auth, recorder/list_statistic_ids, fill
+ *                       every HA slot's mapping <select> (energy ids for energy slots, mean ids
+ *                       for price). Enables Fetch history.
+ *   Fetch history    — for each slot whose chosen source is HA (an ha-map-select with a value),
+ *                       recorder/statistics_during_period over the full window at period "hour",
+ *                       plus period "5minute" over the trailing HA_FINE_WINDOW_DAYS (specs §4.3).
+ *                       Stream to the backend, then reload (specs §3.5 LOAD_SUCCEEDED).
  *
  * No build step, no framework — plain DOM, matching the app's frontend posture (specs §5.1).
  */
@@ -38,6 +55,14 @@
   var fetchStatus = document.getElementById("ha-fetch-status");
   var progressEl = document.getElementById("ha-fetch-progress");
   var selects = Array.prototype.slice.call(document.querySelectorAll(".ha-map-select"));
+
+  // Runtime i18n (rendered server-side into #drawer-i18n so gettext extracts the msgids).
+  var I18N = {};
+  try {
+    var i18nEl = document.getElementById("drawer-i18n");
+    if (i18nEl) I18N = JSON.parse(i18nEl.textContent);
+  } catch (e) { I18N = {}; }
+  function t(key, fallback) { return I18N[key] || fallback; }
 
   // Restore the last URL/token from localStorage (browser-local; never server-side, §7.5).
   urlInput.value = localStorage.getItem(LS_URL) || urlInput.value || "";
@@ -118,9 +143,11 @@
   };
 
   // -----------------------------------------------------------------------------------------
-  // Test connection: list ids, fill the mapping selects.
+  // Test connection: list ids, fill every HA slot's mapping select. The connected state is
+  // conceptually shared: one successful test fills all HA-source selects at once.
   // -----------------------------------------------------------------------------------------
   var statIds = { energy: [], price: [] };  // populated by testConnection
+  var haConnected = false;                  // set true after a successful test
 
   function setStatus(el, text, cls) {
     el.textContent = text;
@@ -146,6 +173,7 @@
       var means = await client.call({ type: "recorder/list_statistic_ids", statistic_type: "mean" });
       statIds.energy = sums.map(function (s) { return s.statistic_id; }).sort();
       statIds.price = means.map(function (s) { return s.statistic_id; }).sort();
+      haConnected = true;
       fillSelects();
       setStatus(statusEl, "✓ Connected · " + statIds.energy.length + " energy + "
         + statIds.price.length + " measurement statistics", "text-success");
@@ -159,8 +187,11 @@
     }
   }
 
+  // Fill every HA-mappable slot's select from the listed ids. Selects whose slot is NOT using HA
+  // (data-inactive) are left with only the "— none —" option so they are never fetched.
   function fillSelects() {
     selects.forEach(function (sel) {
+      if (sel.getAttribute("data-inactive") === "1") return;  // slot's source isn't HA
       var kind = sel.getAttribute("data-kind") === "price" ? "price" : "energy";
       var current = sel.value;
       // Keep the "— none —" first option, replace the rest.
@@ -203,7 +234,7 @@
   }
 
   // -----------------------------------------------------------------------------------------
-  // Fetch history: pull statistics per mapped slot, stream to the backend.
+  // Fetch history: pull statistics for the HA slots only, stream to the backend.
   // -----------------------------------------------------------------------------------------
   function isoDaysAgo(days) {
     var d = new Date(Date.now() - days * 86400000);
@@ -220,9 +251,22 @@
     return out;
   }
 
+  // The HA history window (also reused for the energy_charts backend load, so both request the
+  // same span; the backend clamps to what it can serve).
+  function historyWindow() {
+    var endMs = Date.now();
+    var startMs = endMs - HISTORY_DAYS * 86400000;
+    return {
+      startMs: startMs, endMs: endMs,
+      start: new Date(startMs).toISOString(), end: new Date(endMs).toISOString()
+    };
+  }
+
+  // Slots whose chosen source is Home Assistant: an active ha-map-select with a value. Selects
+  // for non-HA slots are marked data-inactive and skipped.
   function mappedSlots() {
     return selects
-      .filter(function (sel) { return sel.value; })
+      .filter(function (sel) { return sel.getAttribute("data-inactive") !== "1" && sel.value; })
       .map(function (sel) {
         return {
           name: sel.getAttribute("data-series"),
@@ -236,7 +280,7 @@
     var base = urlInput.value.trim(), token = tokenInput.value.trim();
     var slots = mappedSlots();
     if (!slots.length) {
-      setStatus(fetchStatus, "Map at least one series first.", "text-warning");
+      setStatus(fetchStatus, "Map at least one Home Assistant series first.", "text-warning");
       return;
     }
     fetchBtn.disabled = true;
@@ -250,9 +294,8 @@
       await ha.connect();
       backend = await openBackend();
 
-      var endMs = Date.now();
-      var startMs = endMs - HISTORY_DAYS * 86400000;
-      var win = { start: new Date(startMs).toISOString(), end: new Date(endMs).toISOString() };
+      var w = historyWindow();
+      var win = { start: w.start, end: w.end };
       backend.send(JSON.stringify({ type: "header", source: "home_assistant", window: win }));
 
       var total = slots.length, done = 0;
@@ -263,13 +306,13 @@
         backend.send(JSON.stringify({ type: "series", name: slot.name, kind: slot.kind }));
 
         // Hourly over the full window, chunked.
-        var chunks = chunkWindows(startMs, endMs, HA_CHUNK_DAYS);
+        var chunks = chunkWindows(w.startMs, w.endMs, HA_CHUNK_DAYS);
         for (var c = 0; c < chunks.length; c++) {
           await fetchAndForward(ha, backend, slot, chunks[c][0], chunks[c][1], "hour");
         }
         // 5-minute over the trailing fine window (§4.3), for the resolution-bias diagnostic.
         await fetchAndForward(ha, backend, slot, isoDaysAgo(HA_FINE_WINDOW_DAYS),
-          new Date(endMs).toISOString(), "5minute");
+          new Date(w.endMs).toISOString(), "5minute");
 
         done += 1;
         progressEl.value = Math.round((done / total) * 100);
@@ -348,7 +391,184 @@
     });
   }
 
+  // -----------------------------------------------------------------------------------------
+  // Source-picker drawer (§2.2 slot-first). One shared right-side panel, opened per slot.
+  // -----------------------------------------------------------------------------------------
+  var drawer = document.getElementById("source-drawer");
+  var drawerBackdrop = document.getElementById("source-drawer-backdrop");
+  var drawerClose = document.getElementById("drawer-close");
+  var drawerTitle = document.getElementById("drawer-slot-title");
+  var drawerList = document.getElementById("drawer-source-list");
+  var drawerHaNote = document.getElementById("drawer-ha-note");
+  var drawerBackendAction = document.getElementById("drawer-backend-action");
+  var drawerBackendStatus = document.getElementById("drawer-backend-status");
+  var drawerUseBtn = document.getElementById("drawer-use-source");
+
+  var drawerState = { slot: null, source: null, selected: null };
+  var lastFocus = null;
+
+  function openDrawer(btn) {
+    if (!drawer) return;
+    drawerState.slot = btn.getAttribute("data-slot");
+    drawerState.source = btn.getAttribute("data-slot-source") || null;
+    var role = btn.getAttribute("data-slot-role") || drawerState.slot;
+    var sources = [];
+    try { sources = JSON.parse(btn.getAttribute("data-slot-sources") || "[]"); } catch (e) { sources = []; }
+
+    // The heading is static ("Choose a source"); this subtitle names the slot's role.
+    drawerTitle.textContent = role;
+    renderSourceList(sources);
+
+    lastFocus = btn;
+    drawer.classList.remove("hidden");
+    drawer.setAttribute("aria-hidden", "false");
+    if (drawerClose) drawerClose.focus();
+  }
+
+  function closeDrawer() {
+    if (!drawer) return;
+    drawer.classList.add("hidden");
+    drawer.setAttribute("aria-hidden", "true");
+    drawerBackendAction.classList.add("hidden");
+    drawerHaNote.classList.add("hidden");
+    drawerBackendStatus.textContent = "";
+    if (lastFocus) { try { lastFocus.focus(); } catch (e) { /* ignore */ } }
+  }
+
+  // Render the radio list for the current slot's sources, plus the pending "Upload CSV" option.
+  function renderSourceList(sources) {
+    drawerList.textContent = "";
+    drawerState.selected = null;
+
+    sources.forEach(function (s) {
+      var label = document.createElement("label");
+      label.className = "flex cursor-pointer items-start gap-3 rounded-box border border-base-300 "
+        + "bg-base-100 p-3 hover:border-base-content/30";
+      var radio = document.createElement("input");
+      radio.type = "radio";
+      radio.name = "drawer-source";
+      radio.className = "radio radio-sm mt-0.5";
+      radio.value = s.key;
+      radio.checked = (s.key === drawerState.source);
+      radio.addEventListener("change", function () { onSelectSource(s); });
+      var text = document.createElement("div");
+      text.className = "flex flex-col";
+      var name = document.createElement("span");
+      name.className = "font-medium";
+      name.textContent = s.label;
+      var blurb = document.createElement("span");
+      blurb.className = "text-xs text-base-content/60";
+      blurb.textContent = s.blurb || "";
+      text.appendChild(name); text.appendChild(blurb);
+      label.appendChild(radio); label.appendChild(text);
+      drawerList.appendChild(label);
+      if (radio.checked) onSelectSource(s);
+    });
+
+    // Pending "Upload CSV" option — disabled, with the [?] affordance that opens the shared
+    // pending dialog (index.html #pending-dialog, feature key data_source_csv).
+    drawerList.appendChild(csvPendingOption());
+  }
+
+  function csvPendingOption() {
+    var wrap = document.createElement("label");
+    wrap.className = "flex items-start gap-3 rounded-box border border-base-300 bg-base-100 "
+      + "p-3 opacity-60";
+    var radio = document.createElement("input");
+    radio.type = "radio";
+    radio.name = "drawer-source";
+    radio.className = "radio radio-sm mt-0.5";
+    radio.disabled = true;
+    var text = document.createElement("div");
+    text.className = "flex flex-col";
+    var row = document.createElement("span");
+    row.className = "flex items-center gap-2 font-medium";
+    var name = document.createElement("span");
+    name.textContent = t("upload_csv", "Upload CSV");
+    var help = document.createElement("button");
+    help.type = "button";
+    help.className = "btn btn-ghost btn-xs";
+    help.textContent = "[?]";
+    // The shared pending dialog (index.html) binds these attributes via a delegated click
+    // listener, so this dynamically-created button opens it with no wiring here (§2.1).
+    help.setAttribute("data-pending-name", t("upload_csv", "Upload CSV"));
+    help.setAttribute("data-feature-key", "data_source_csv");
+    row.appendChild(name); row.appendChild(help);
+    var blurb = document.createElement("span");
+    blurb.className = "text-xs text-base-content/60";
+    blurb.textContent = t("pending_hint", "Not built yet");
+    text.appendChild(row); text.appendChild(blurb);
+    wrap.appendChild(radio); wrap.appendChild(text);
+    return wrap;
+  }
+
+  // React to a source radio choice: show the HA note / backend action as appropriate.
+  function onSelectSource(s) {
+    drawerState.selected = s;
+    var isHa = s.kind === "browser_fetch";
+    var isBackend = s.kind === "backend_load";
+    drawerHaNote.classList.toggle("hidden", !isHa);
+    drawerBackendAction.classList.toggle("hidden", !isBackend);
+    drawerBackendAction.classList.toggle("flex", isBackend);
+    drawerBackendStatus.textContent = "";
+
+    // Picking HA is applied immediately in the UI (no round-trip): mark this slot's source HA so
+    // the shared connection fills its select. The page's persisted state updates on the next
+    // fetch/reload; here we just reflect the choice in the current DOM.
+    if (isHa) applyHaChoice(drawerState.slot);
+  }
+
+  // Make the slot use the shared HA connection: activate its mapping select and, if already
+  // connected, fill it now.
+  function applyHaChoice(slotName) {
+    var sel = selects.filter(function (x) { return x.getAttribute("data-series") === slotName; })[0];
+    if (sel) {
+      sel.removeAttribute("data-inactive");
+      if (haConnected) fillSelects();
+    }
+  }
+
+  // "Use this source" for a backend_load source (energy_charts): POST the slot load, then reload.
+  async function useBackendSource() {
+    var s = drawerState.selected;
+    if (!s || s.kind !== "backend_load") return;
+    var w = historyWindow();
+    drawerUseBtn.disabled = true;
+    drawerBackendStatus.textContent = t("loading", "Loading…");
+    drawerBackendStatus.className = "text-sm text-base-content/60";
+    try {
+      var resp = await fetch("/data/slot/" + encodeURIComponent(drawerState.slot) + "/load", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source: s.key, window: { start: w.start, end: w.end } })
+      });
+      if (!resp.ok) {
+        var detail = "";
+        try { detail = (await resp.json()).detail || ""; } catch (e) { /* non-JSON error */ }
+        throw new Error(detail || (resp.status + " " + resp.statusText));
+      }
+      drawerBackendStatus.textContent = t("loaded_ok", "Loaded. Reloading…");
+      drawerBackendStatus.className = "text-sm text-success";
+      // The server persisted the slot; reload so panel ① re-renders from the dataset (§3.5).
+      setTimeout(function () { window.location.reload(); }, 500);
+    } catch (e) {
+      drawerBackendStatus.textContent = "✗ " + (e.message || t("load_failed", "Could not load."));
+      drawerBackendStatus.className = "text-sm text-error";
+      drawerUseBtn.disabled = false;
+    }
+  }
+
   // --- wiring ------------------------------------------------------------------------------
   testBtn.addEventListener("click", testConnection);
   fetchBtn.addEventListener("click", fetchHistory);
+
+  Array.prototype.slice.call(document.querySelectorAll(".slot-source-btn")).forEach(function (btn) {
+    btn.addEventListener("click", function () { openDrawer(btn); });
+  });
+  if (drawerClose) drawerClose.addEventListener("click", closeDrawer);
+  if (drawerBackdrop) drawerBackdrop.addEventListener("click", closeDrawer);
+  if (drawerUseBtn) drawerUseBtn.addEventListener("click", useBackendSource);
+  document.addEventListener("keydown", function (ev) {
+    if (ev.key === "Escape" && drawer && !drawer.classList.contains("hidden")) closeDrawer();
+  });
 })();

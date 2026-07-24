@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-23 22:04+0200\n"
+"POT-Creation-Date: 2026-07-24 11:17+0200\n"
 "PO-Revision-Date: 2026-07-23 20:30+0200\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: nl\n"
@@ -19,9 +19,10 @@ msgstr ""
 "Generated-By: Babel 2.18.0\n"
 
 msgid "0.41％ of intervals had negative reconstructed load (clamped to 0)."
-msgstr "0.41％ van de intervallen had een negatieve gereconstrueerde belasting (afgekapt naar 0)."
-"0,41％ van de intervallen had negatief gereconstrueerd verbruik (afgekapt "
-"op 0)."
+msgstr ""
+"0.41％ van de intervallen had een negatieve gereconstrueerde belasting "
+"(afgekapt naar 0).0,41％ van de intervallen had negatief gereconstrueerd "
+"verbruik (afgekapt op 0)."
 
 msgid "0.66 / day"
 msgstr "0,66 / dag"
@@ -108,8 +109,20 @@ msgstr "Laadstrategie"
 msgid "Charged into the battery"
 msgstr "In de batterij geladen"
 
+msgid "Choose a source"
+msgstr "Kies een bron"
+
+msgid "Choose source…"
+msgstr "Kies bron…"
+
+msgid "Close"
+msgstr "Sluiten"
+
 msgid "Conversion losses"
 msgstr "Omzettingsverliezen"
+
+msgid "Could not load. Please try again."
+msgstr "Laden mislukt. Probeer het opnieuw."
 
 msgid "Counter resets"
 msgstr "Tellerresets"
@@ -176,6 +189,13 @@ msgstr "Invoedingslimiet"
 msgid "Fetch history"
 msgstr "Geschiedenis ophalen"
 
+msgid ""
+"Fetched from your Home Assistant in your browser; the token never reaches"
+" this app."
+msgstr ""
+"Opgehaald uit je Home Assistant in je browser; het token bereikt deze app "
+"nooit."
+
 msgid "Fuse rating"
 msgstr "Zekeringwaarde"
 
@@ -218,6 +238,9 @@ msgstr "Netafname, met batterij"
 msgid "Home Assistant"
 msgstr "Home Assistant"
 
+msgid "Home Assistant connection"
+msgstr "Home Assistant-verbinding"
+
 msgid "Home Battery Simulator"
 msgstr "Thuisbatterij-simulator"
 
@@ -243,6 +266,12 @@ msgstr "Intervallen batterij vol / leeg"
 msgid "Language"
 msgstr "Taal"
 
+msgid "Loaded. Reloading…"
+msgstr "Geladen. Opnieuw laden…"
+
+msgid "Loading…"
+msgstr "Laden…"
+
 msgid "Max charge power"
 msgstr "Max. laadvermogen"
 
@@ -264,6 +293,13 @@ msgstr "Min. laadtoestand"
 msgid "Monthly savings"
 msgstr "Maandelijkse besparing"
 
+msgid ""
+"NL day-ahead spot prices from 2023 to today: committed on disk and "
+"bridged live to the end of your selected range."
+msgstr ""
+"NL day-ahead spotprijzen van 2023 tot nu: vast op schijf opgeslagen en live "
+"aangevuld tot het einde van je gekozen periode."
+
 msgid "Next: parameters →"
 msgstr "Volgende: parameters →"
 
@@ -276,9 +312,8 @@ msgstr "Zonder batterij"
 msgid "Not built yet"
 msgstr "Nog niet gebouwd"
 
-#, fuzzy
 msgid "Not connected"
-msgstr "Verbonden"
+msgstr "Niet verbonden"
 
 msgid "One conversion PV→battery"
 msgstr "Eén omzetting PV→batterij"
@@ -294,6 +329,18 @@ msgstr "Perfecte vooruitblik"
 
 msgid "Phases"
 msgstr "Fasen"
+
+msgid ""
+"Pick where each series comes from. Choose a source per slot; Home "
+"Assistant is connected once below and reused across every slot that uses "
+"it."
+msgstr ""
+"Kies waar elke reeks vandaan komt. Kies een bron per plaats; Home Assistant "
+"wordt hieronder één keer verbonden en hergebruikt voor elke plaats die het "
+"gebruikt."
+
+msgid "Preset historical (Energy-Charts NL)"
+msgstr "Vaste historische reeks (Energy-Charts NL)"
 
 msgid "RESULTS"
 msgstr "RESULTATEN"
@@ -331,14 +378,17 @@ msgstr "Zelfconsumptieratio"
 msgid "Series"
 msgstr "Reeks"
 
-msgid "Series mapping"
-msgstr "Reekstoewijzing"
+msgid "Series slots"
+msgstr "Reeksplaatsen"
 
 msgid "Serve house load when consumption exceeds solar"
 msgstr "Huisverbruik dekken wanneer het verbruik de opwek overtreft"
 
 msgid "Settings"
 msgstr "Instellingen"
+
+msgid "Shared across all slots that use Home Assistant"
+msgstr "Gedeeld door alle plaatsen die Home Assistant gebruiken"
 
 msgid "Simulate cost savings"
 msgstr "Kostenbesparing simuleren"
@@ -369,8 +419,8 @@ msgstr "Zonopwekking"
 msgid "Solar surplus only (net zero at the grid)"
 msgstr "Alleen zonne-overschot (netto nul op het net)"
 
-msgid "Source:"
-msgstr "Bron:"
+msgid "Source"
+msgstr "Bron"
 
 msgid "Spot price"
 msgstr "Spotprijs"
@@ -399,8 +449,8 @@ msgid ""
 "Stays in your browser. It is sent only to your Home Assistant, never to "
 "this app."
 msgstr ""
-"Blijft in je browser. Wordt alleen naar je Home Assistant gestuurd, nooit "
-"naar deze app."
+"Blijft in je browser. Wordt alleen naar je Home Assistant gestuurd, nooit"
+" naar deze app."
 
 msgid "Test connection"
 msgstr "Verbinding testen"
@@ -435,6 +485,16 @@ msgstr "CSV uploaden"
 msgid "Usable capacity"
 msgstr "Bruikbare capaciteit"
 
+msgid "Use this source"
+msgstr "Deze bron gebruiken"
+
+msgid ""
+"Uses the shared Home Assistant connection above — connect once, then "
+"fetch history for all Home Assistant slots together."
+msgstr ""
+"Gebruikt de gedeelde Home Assistant-verbinding hierboven — verbind één keer "
+"en haal daarna de historie voor alle Home Assistant-plaatsen samen op."
+
 msgid "Want to know what this is worth in euros?"
 msgstr "Wil je weten wat dit in euro's waard is?"
 
@@ -466,6 +526,9 @@ msgstr ""
 "Je prijzen wijzigen elke 15 minuten, maar je meter registreert per uur. "
 "De berekening ziet dus één gemiddelde prijs per uur en kan niet inspelen "
 "op schommelingen binnen het uur."
+
+msgid "change"
+msgstr "wijzigen"
 
 msgid "close"
 msgstr "sluiten"
@@ -553,6 +616,9 @@ msgstr "✓ Genoteerd"
 msgid "👍 I want this"
 msgstr "👍 Ik wil dit"
 
+#~ msgid "%(n)s statistic IDs available"
+#~ msgstr "%(n)s statistiek-ID's beschikbaar"
+
 #~ msgid "Also simulate cost savings"
 #~ msgstr "Ook kostenbesparing simuleren"
 
@@ -583,6 +649,9 @@ msgstr "👍 Ik wil dit"
 #~ "Laat dit uit om alleen bespaarde "
 #~ "kWh te zien."
 
+#~ msgid "Series mapping"
+#~ msgstr "Reekstoewijzing"
+
 #~ msgid "Solar PV"
 #~ msgstr "Zonnepanelen"
 
@@ -591,7 +660,4 @@ msgstr "👍 Ik wil dit"
 
 #~ msgid "always"
 #~ msgstr "altijd"
-
-#~ msgid "%(n)s statistic IDs available"
-#~ msgstr "%(n)s statistiek-ID's beschikbaar"
 

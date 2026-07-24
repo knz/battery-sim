@@ -90,7 +90,10 @@ def panel_data_from(dataset: LoadedDataset) -> dict:
     win_end = _dt.fromisoformat(report["window"]["end"])
     window = (win_start, win_end)
 
-    # Mapping table: one row per persisted series, in vocabulary order where possible.
+    # Mapping table: the FULL slot roster (specs §2.2 slot-first). One row per SERIES_SLOTS
+    # entry whether or not a series is present, so the user can pick a source for a slot that has
+    # no data yet. A present slot carries its fetched entity string and persisted source; an
+    # absent slot carries entity=None and source=None. The template gates pv_only/cost_only rows.
     from app.domain.series_vocab import SERIES_SLOTS
 
     present = {f.name: f for f in frames}
@@ -98,19 +101,22 @@ def panel_data_from(dataset: LoadedDataset) -> dict:
     mapping = []
     for slot in SERIES_SLOTS:
         f = present.get(slot.name)
-        if f is None:
-            continue
         mapping.append(
             {
                 "name": slot.name,
                 "role": ROLE_LABEL.get(slot.name, slot.name),
                 "req": slot.requirement,
-                "entity": f"({_fmt_res(f.resolution_s)}, {len(f.values)} intervals)",
+                # Present: the "(res, N intervals)" coverage string. Absent: None (no data yet).
+                "entity": (
+                    f"({_fmt_res(f.resolution_s)}, {len(f.values)} intervals)"
+                    if f is not None
+                    else None
+                ),
                 "pv_only": slot.pv_only,
                 "cost_only": slot.cost_only,
                 # Slot-first provenance (specs §2.2): the source that produced this series (its
-                # descriptor key, or None), and the sources the drawer may offer for this slot.
-                # Phase C's source-picker drawer renders these; the current template ignores them.
+                # descriptor key, or None when the slot is unfilled), and the sources the drawer
+                # may offer for this slot. Phase C's source-picker drawer renders these.
                 "source": series_sources.get(slot.name),
                 "sources": [
                     {"key": d.key, "label": d.label, "kind": d.kind, "blurb": d.blurb}

@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-23 22:04+0200\n"
+"POT-Creation-Date: 2026-07-24 11:17+0200\n"
 "PO-Revision-Date: 2026-07-23 20:40+0200\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: en\n"
@@ -106,8 +106,20 @@ msgstr "Charge policy"
 msgid "Charged into the battery"
 msgstr "Charged into the battery"
 
+msgid "Choose a source"
+msgstr "Choose a source"
+
+msgid "Choose source…"
+msgstr "Choose source…"
+
+msgid "Close"
+msgstr "Close"
+
 msgid "Conversion losses"
 msgstr "Conversion losses"
+
+msgid "Could not load. Please try again."
+msgstr "Could not load. Please try again."
 
 msgid "Counter resets"
 msgstr "Counter resets"
@@ -173,6 +185,13 @@ msgstr "Export limit"
 msgid "Fetch history"
 msgstr "Fetch history"
 
+msgid ""
+"Fetched from your Home Assistant in your browser; the token never reaches"
+" this app."
+msgstr ""
+"Fetched from your Home Assistant in your browser; the token never reaches"
+" this app."
+
 msgid "Fuse rating"
 msgstr "Fuse rating"
 
@@ -215,6 +234,9 @@ msgstr "Grid import, with battery"
 msgid "Home Assistant"
 msgstr "Home Assistant"
 
+msgid "Home Assistant connection"
+msgstr "Home Assistant connection"
+
 msgid "Home Battery Simulator"
 msgstr "Home Battery Simulator"
 
@@ -240,6 +262,12 @@ msgstr "Intervals battery was full / empty"
 msgid "Language"
 msgstr "Language"
 
+msgid "Loaded. Reloading…"
+msgstr "Loaded. Reloading…"
+
+msgid "Loading…"
+msgstr "Loading…"
+
 msgid "Max charge power"
 msgstr "Max charge power"
 
@@ -261,6 +289,13 @@ msgstr "Min state of charge"
 msgid "Monthly savings"
 msgstr "Monthly savings"
 
+msgid ""
+"NL day-ahead spot prices from 2023 to today: committed on disk and "
+"bridged live to the end of your selected range."
+msgstr ""
+"NL day-ahead spot prices from 2023 to today: committed on disk and "
+"bridged live to the end of your selected range."
+
 msgid "Next: parameters →"
 msgstr "Next: parameters →"
 
@@ -273,9 +308,8 @@ msgstr "No battery"
 msgid "Not built yet"
 msgstr "Not built yet"
 
-#, fuzzy
 msgid "Not connected"
-msgstr "Connected"
+msgstr "Not connected"
 
 msgid "One conversion PV→battery"
 msgstr "One conversion PV→battery"
@@ -291,6 +325,18 @@ msgstr "Perfect foresight"
 
 msgid "Phases"
 msgstr "Phases"
+
+msgid ""
+"Pick where each series comes from. Choose a source per slot; Home "
+"Assistant is connected once below and reused across every slot that uses "
+"it."
+msgstr ""
+"Pick where each series comes from. Choose a source per slot; Home "
+"Assistant is connected once below and reused across every slot that uses "
+"it."
+
+msgid "Preset historical (Energy-Charts NL)"
+msgstr "Preset historical (Energy-Charts NL)"
 
 msgid "RESULTS"
 msgstr "RESULTS"
@@ -328,14 +374,17 @@ msgstr "Self-consumption ratio"
 msgid "Series"
 msgstr "Series"
 
-msgid "Series mapping"
-msgstr "Series mapping"
+msgid "Series slots"
+msgstr "Series slots"
 
 msgid "Serve house load when consumption exceeds solar"
 msgstr "Serve house load when consumption exceeds solar"
 
 msgid "Settings"
 msgstr "Settings"
+
+msgid "Shared across all slots that use Home Assistant"
+msgstr "Shared across all slots that use Home Assistant"
 
 msgid "Simulate cost savings"
 msgstr "Simulate cost savings"
@@ -366,8 +415,8 @@ msgstr "Solar production"
 msgid "Solar surplus only (net zero at the grid)"
 msgstr "Solar surplus only (net zero at the grid)"
 
-msgid "Source:"
-msgstr "Source:"
+msgid "Source"
+msgstr "Source"
 
 msgid "Spot price"
 msgstr "Spot price"
@@ -431,6 +480,16 @@ msgstr "Upload CSV"
 msgid "Usable capacity"
 msgstr "Usable capacity"
 
+msgid "Use this source"
+msgstr "Use this source"
+
+msgid ""
+"Uses the shared Home Assistant connection above — connect once, then "
+"fetch history for all Home Assistant slots together."
+msgstr ""
+"Uses the shared Home Assistant connection above — connect once, then "
+"fetch history for all Home Assistant slots together."
+
 msgid "Want to know what this is worth in euros?"
 msgstr "Want to know what this is worth in euros?"
 
@@ -462,6 +521,9 @@ msgstr ""
 "Your prices change every 15 minutes but your meter records hourly, so the"
 " run sees one averaged price per hour and cannot act on within-hour "
 "swings."
+
+msgid "change"
+msgstr "change"
 
 msgid "close"
 msgstr "close"
@@ -549,6 +611,9 @@ msgstr "✓ Noted"
 msgid "👍 I want this"
 msgstr "👍 I want this"
 
+#~ msgid "%(n)s statistic IDs available"
+#~ msgstr "%(n)s statistic IDs available"
+
 #~ msgid "Also simulate cost savings"
 #~ msgstr "Also simulate cost savings"
 
@@ -580,6 +645,9 @@ msgstr "👍 I want this"
 #~ "terms. Leave this off to see kWh"
 #~ " saved only."
 
+#~ msgid "Series mapping"
+#~ msgstr "Series mapping"
+
 #~ msgid "Solar PV"
 #~ msgstr "Solar PV"
 
@@ -588,7 +656,4 @@ msgstr "👍 I want this"
 
 #~ msgid "always"
 #~ msgstr "always"
-
-#~ msgid "%(n)s statistic IDs available"
-#~ msgstr "%(n)s statistic IDs available"
 

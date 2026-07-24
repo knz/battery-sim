@@ -6,8 +6,10 @@
   panel ③ (Results) is expanded. Content comes from the static sample view-model
   (app/sample_data.py); nothing here is wired to feature logic yet.
 
-  Interactivity in this increment is limited to native <details> expand/collapse and the
-  <dialog>-based "not built yet" modal — no HTMX round-trips, no simulation.
+  Interactivity: native collapse expand/collapse, the <dialog>-based "not built yet" modal (the
+  pending affordance), and the slot-first source-picker drawer (#source-drawer) — a shared
+  right-side panel opened by panel ①'s per-slot "Choose source…" buttons and driven by
+  ha_fetch.js. No HTMX round-trips, no simulation.
 #}
 <!doctype html>
 <html lang="{{ lang.current }}" data-theme="light">
@@ -72,6 +74,57 @@
     <form method="dialog" class="modal-backdrop"><button>{{ _('close') }}</button></form>
   </dialog>
 
+  {# ── Source-picker drawer (§2.2 slot-first). A single right-side panel, shared by every slot
+       row's "Choose source…" button. Opened by ha_fetch.js, which fills #drawer-slot-title and
+       #drawer-source-list for the clicked slot. Hidden by default (aria-hidden + off-canvas);
+       closable via the ✕ control, the backdrop, and Escape. The source options and the CSV
+       pending option are rendered into #drawer-source-list by JS from the row's data-* payload;
+       the pending [?] reuses the shared #pending-dialog above (data-feature-key="data_source_csv").
+       Static chrome strings are translated here; per-source label/blurb text arrives pre-translated
+       in the row payload. #}
+  <div id="source-drawer" class="fixed inset-0 z-40 hidden" aria-hidden="true">
+    <div id="source-drawer-backdrop" class="absolute inset-0 bg-black/40"></div>
+    <aside class="absolute right-0 top-0 h-full w-full max-w-md bg-base-100 shadow-xl
+                  border-l border-base-300 overflow-y-auto"
+           role="dialog" aria-modal="true" aria-labelledby="drawer-slot-title" tabindex="-1">
+      <div class="flex flex-col gap-4 p-5">
+        <div class="flex items-start justify-between gap-2">
+          <div>
+            <h2 class="text-base font-semibold">{{ _('Choose a source') }}</h2>
+            <p id="drawer-slot-title" class="text-sm text-base-content/60"></p>
+          </div>
+          <button type="button" id="drawer-close" class="btn btn-ghost btn-sm btn-square"
+                  aria-label="{{ _('Close') }}">✕</button>
+        </div>
+
+        {# The source options for the current slot, rendered by ha_fetch.js. #}
+        <div id="drawer-source-list" class="flex flex-col gap-2"></div>
+
+        {# Notes shown depending on the selected option's kind (toggled by JS). #}
+        <p id="drawer-ha-note" class="text-xs text-base-content/60 hidden">
+          {{ _('Uses the shared Home Assistant connection above — connect once, then fetch history for all Home Assistant slots together.') }}
+        </p>
+        <div id="drawer-backend-action" class="hidden flex-col gap-2">
+          <span id="drawer-backend-status" class="text-sm text-base-content/60"></span>
+          <button type="button" id="drawer-use-source" class="btn btn-primary btn-sm">
+            {{ _('Use this source') }}
+          </button>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  {# i18n strings the drawer's JS needs at runtime (rendered here so gettext extracts them). #}
+  <script id="drawer-i18n" type="application/json">
+    {{ {
+      "loading": _("Loading…"),
+      "load_failed": _("Could not load. Please try again."),
+      "loaded_ok": _("Loaded. Reloading…"),
+      "pending_hint": _("Not built yet"),
+      "upload_csv": _("Upload CSV")
+    } | tojson }}
+  </script>
+
   <script>
     // The pending affordance (§2.1, §5.1). A [?] button opens the shared dialog for its
     // control; the thumbs-up POSTs to /feature-interest/{key} and acknowledges in place. Keys
@@ -94,13 +147,15 @@
         thanksEl.classList.toggle('hidden', !noted);
       }
 
-      document.querySelectorAll('[data-pending-name]').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-          nameEl.textContent = btn.getAttribute('data-pending-name');
-          dialog.setAttribute('data-feature-key', btn.getAttribute('data-feature-key') || '');
-          renderState(dialog.getAttribute('data-feature-key'));
-          dialog.showModal();
-        });
+      // Delegated so [?] buttons added after load (the drawer's dynamically-created CSV option,
+      // ha_fetch.js) open the dialog too, without any wiring on that side.
+      document.addEventListener('click', function (ev) {
+        var btn = ev.target.closest && ev.target.closest('[data-pending-name]');
+        if (!btn) return;
+        nameEl.textContent = btn.getAttribute('data-pending-name') || '';
+        dialog.setAttribute('data-feature-key', btn.getAttribute('data-feature-key') || '');
+        renderState(dialog.getAttribute('data-feature-key'));
+        dialog.showModal();
       });
 
       thumbsBtn.addEventListener('click', function () {

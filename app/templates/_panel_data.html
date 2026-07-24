@@ -1,17 +1,29 @@
 {#
-  _panel_data.html — Panel ① Data input (specs/02-ux-wireframes.md §2.2).
+  _panel_data.html — Panel ① Data input, slot-first (specs/02-ux-wireframes.md §2.2, §2.1).
 
-  Collapsed to a one-line summary; expands to the source sub-panel, the series-mapping table,
-  and the data-quality box. All values are the static sample (app/sample_data.py `data`). The
-  uploaded-CSV variant of the source sub-panel is not rendered in this increment — only the
-  Home Assistant path is shown.
+  Collapsed to a one-line summary; expands to the slot-first body: a short intro, the shared
+  Home Assistant connection card, the slot roster, and the data-quality box. The values are
+  either the static sample (app/sample_data.py `data`) or a real persisted dataset's view-model
+  (app/data_view.py `panel_data_from`) — the two share this shape.
 
-  The slot roster is derived from the setup band (§2.2, §2.1): the solar row shows only when
+  Slot-first design: the panel leads with the roster of data slots (roles + requirement markers).
+  Each slot ROW shows its chosen source (row.source) or a "Choose source…" affordance; clicking
+  the affordance opens the shared right-side source-picker DRAWER (mounted in index.html), which
+  lists that slot's available sources (row.sources) and their config. The drawer is opened by JS
+  reading data-* attributes off the row's button (ha_fetch.js).
+
+  The Home Assistant CONNECTION is SHARED: the user tests/connects once here (URL + token + Test
+  connection), and every HA-source slot then reuses that connection — its mapping <select> is
+  filled by ha_fetch.js after a successful test. That is why the connection card is a single
+  panel-level card, not per-slot.
+
+  The slot roster is gated by the setup band (§2.2, §2.1): the solar row shows only when
   cfg.has_pv, and the two Spot price (min/max) rows are offered only when cfg.simulate_cost.
-  Those two choices live in the band above panel ① (_setup_band.html), not here.
+  Those choices live in the band above panel ① (_setup_band.html), not here.
 
-  UI chrome is wrapped in _() for translation (English/Dutch); data values (entity IDs,
-  numbers, coverage strings) stay literal. Role labels come pre-translated from sample_data.
+  UI chrome is wrapped in _() for translation (English/Dutch); data values (entity IDs, numbers,
+  coverage strings) stay literal. Role labels and source labels/blurbs are English source strings
+  translated here via _(); their msgids come from sample_data.py's _N markers.
 
   The `req` → marker mapping: required ●, conditional ◐ (PV-only), cost_optional ◒
   (cost-simulation-only), optional ○.
@@ -28,33 +40,26 @@
   <div class="collapse-content">
     <div class="flex flex-col gap-4 pt-2">
 
-      {# ── Source selector ─────────────────────────────────────────────── #}
-      <div class="flex items-center gap-6">
-        <span class="font-medium">{{ _('Source:') }}</span>
-        <label class="label cursor-pointer gap-2">
-          <input type="radio" name="source" class="radio radio-sm" checked />
-          <span class="label-text">{{ _('Home Assistant') }}</span>
-        </label>
-        {# Pending (§2.1): CSV upload is not built yet, so this source option renders disabled
-           with a [?] affordance. Remove this markup when CSV upload lands; keep the feature
-           key (see app/features.py). #}
-        <label class="label gap-2">
-          <input type="radio" name="source" class="radio radio-sm" disabled />
-          <span class="label-text text-base-content/50">{{ _('Upload CSV') }}</span>
-          <button type="button" class="btn btn-ghost btn-xs" data-pending-name="{{ _('Upload CSV') }}" data-feature-key="data_source_csv">[?]</button>
-        </label>
-      </div>
+      {# ── Intro ───────────────────────────────────────────────────────────── #}
+      <p class="text-sm text-base-content/70">
+        {{ _('Pick where each series comes from. Choose a source per slot; Home Assistant is connected once below and reused across every slot that uses it.') }}
+      </p>
 
-      {# ── Home Assistant connection ───────────────────────────────────── #}
-      {# The connection is driven client-side by ha_fetch.js: the browser fetches statistics
-         from the user's HA directly (the token never reaches our backend, §7.5), so the URL and
-         token inputs, Test-connection, and the status line are all managed in JS. Server-side we
-         only pre-fill the Base URL when a previous fetch stored one; the token is browser-local
-         (localStorage) and is never rendered from the server. #}
+      {# ── Shared Home Assistant connection ────────────────────────────────── #}
+      {# This is the ONE place Home Assistant is connected. The connection is driven client-side
+         by ha_fetch.js: the browser fetches statistics from the user's HA directly (the token
+         never reaches our backend, §7.5), so the URL/token inputs, Test-connection, and status
+         line are managed in JS. After a successful test the connection is shared: every HA-source
+         slot's mapping <select> is filled from the same listing. Keep every element ID below —
+         ha_fetch.js depends on them (#ha-connection, #ha-base-url, #ha-token, #ha-test-btn,
+         #ha-status, the data-ingest-ws attr). #}
       <div class="card bg-base-200 border border-base-300" id="ha-connection"
            data-ingest-ws="/data/ingest/ws">
         <div class="card-body gap-3 p-4">
-          <h3 class="text-sm font-semibold text-base-content/70">{{ _('Home Assistant') }}</h3>
+          <div class="flex flex-wrap items-baseline justify-between gap-2">
+            <h3 class="text-sm font-semibold text-base-content/70">{{ _('Home Assistant connection') }}</h3>
+            <span class="text-xs text-base-content/50">{{ _('Shared across all slots that use Home Assistant') }}</span>
+          </div>
           <label class="form-control">
             <span class="label-text mb-1">{{ _('Base URL') }}</span>
             <input type="text" id="ha-base-url" class="input input-bordered input-sm"
@@ -75,25 +80,29 @@
         </div>
       </div>
 
-      {# ── Series mapping ──────────────────────────────────────────────── #}
-      {# The mapping binds each series slot (§4.1) to one HA statistic id. The <select> options
-         are populated client-side after Test connection lists the ids (ha_fetch.js reads
-         data-series/data-kind). When a persisted dataset exists, `row.entity` shows what was
-         fetched; the select still lets the user remap and re-fetch. #}
-      <div class="card bg-base-200 border border-base-300" id="ha-mapping">
+      {# ── Slot roster ─────────────────────────────────────────────────────── #}
+      {# One row per data.mapping entry (the full slot roster from data_view/sample_data), gated
+         by the setup band (§2.2): the solar row shows only with has_pv; the two price-bracketing
+         rows only with simulate_cost. Each row shows role, requirement marker, and the chosen
+         source — with, for an HA slot, the mapping <select> ha_fetch.js fills after Test
+         connection (data-series/data-kind hooks preserved). The "Choose source…" button opens
+         the shared drawer, carrying the slot name + its source list (as JSON) for JS to render. #}
+      <div class="card bg-base-200 border border-base-300" id="slot-roster">
         <div class="card-body gap-3 p-4">
-          <h3 class="text-sm font-semibold text-base-content/70">{{ _('Series mapping') }}</h3>
+          <h3 class="text-sm font-semibold text-base-content/70">{{ _('Series slots') }}</h3>
 
           <div class="overflow-x-auto">
             <table class="table table-sm">
               <thead>
-                <tr><th>{{ _('Role') }}</th><th class="text-center">{{ _('Req') }}</th><th>{{ _('Entity / statistic ID') }}</th></tr>
+                <tr>
+                  <th>{{ _('Role') }}</th>
+                  <th class="text-center">{{ _('Req') }}</th>
+                  <th>{{ _('Source') }}</th>
+                  <th>{{ _('Entity / statistic ID') }}</th>
+                </tr>
               </thead>
               <tbody>
                 {% for row in data.mapping %}
-                  {# Slot roster is derived from the setup band (§2.2): the solar row shows only
-                     with has_pv; the two price-bracketing rows are offered only with
-                     simulate_cost. Both conditions read cfg.*, set in the band above panel ①. #}
                   {% if (not row.pv_only or cfg.has_pv) and (not row.cost_only or cfg.simulate_cost) %}
                   <tr>
                     <td>{{ _(row.role) }}</td>
@@ -104,11 +113,44 @@
                       {% else %}<span title="{{ _('optional') }}" class="text-base-content/40">○</span>{% endif %}
                     </td>
                     <td>
+                      {# The chosen source's label, or a "Choose source…" affordance. Either way
+                         the button opens the drawer for this slot; when a source is chosen the
+                         button also lets the user change it. #}
+                      {% set chosen = namespace(label=None) %}
+                      {% for s in row.sources %}
+                        {% if s.key == row.source %}{% set chosen.label = s.label %}{% endif %}
+                      {% endfor %}
+                      {# The source list carried to the drawer, with labels/blurbs translated
+                         here (their msgids come from sample_data.py). "pending" flags the CSV
+                         option so JS renders it disabled with the [?] affordance. #}
+                      {% set src_list = [] %}
+                      {% for s in row.sources %}
+                        {% set _ = src_list.append({"key": s.key, "kind": s.kind, "label": _(s.label), "blurb": _(s.blurb)}) %}
+                      {% endfor %}
+                      <button type="button"
+                              class="btn btn-sm {% if chosen.label %}btn-ghost{% else %}btn-outline btn-primary{% endif %} slot-source-btn"
+                              data-slot="{{ row.name }}"
+                              data-slot-role="{{ _(row.role) }}"
+                              data-slot-source="{{ row.source or '' }}"
+                              data-slot-sources="{{ src_list | tojson | forceescape }}">
+                        {% if chosen.label %}{{ _(chosen.label) }} <span class="text-xs opacity-60">{{ _('change') }}</span>
+                        {% else %}{{ _('Choose source…') }}{% endif %}
+                      </button>
+                    </td>
+                    <td>
+                      {# When the chosen source is Home Assistant, show the mapping <select>
+                         ha_fetch.js fills. When it is the preset Energy-Charts source, show a
+                         static indication (no per-entity choice). Otherwise show nothing yet. #}
+                      {% if row.source == "home_assistant" or not row.source %}
                       <select class="select select-bordered select-xs font-mono w-full max-w-md ha-map-select"
                               data-series="{{ row.name if row.name else '' }}"
-                              data-kind="{{ 'price' if 'price' in (row.name or '') else 'energy' }}">
+                              data-kind="{{ 'price' if 'price' in (row.name or '') else 'energy' }}"
+                              {% if row.source != "home_assistant" %}data-inactive="1"{% endif %}>
                         <option value="">{{ _('— none —') }}</option>
                       </select>
+                      {% elif row.source == "energy_charts" %}
+                      <span class="text-xs text-base-content/70">{{ _('Preset historical (Energy-Charts NL)') }}</span>
+                      {% endif %}
                       {% if row.entity %}<div class="text-xs text-base-content/50 mt-0.5">{{ row.entity }}</div>{% endif %}
                     </td>
                   </tr>
@@ -122,7 +164,8 @@
             {{ _('● = required.  ○ = optional.  ◐ = required only if you have solar PV.  ◒ = offered only if you simulate costs (intra-hour price bracketing). Both answers come from the setup band above. Spot price drives the charge and discharge bands, so it is required whether or not you simulate costs.') }}
           </p>
 
-          {# Fetch progress — hidden until a fetch starts (ha_fetch.js). #}
+          {# Fetch progress — hidden until a fetch starts (ha_fetch.js). "Fetch history" pulls
+             only the slots whose chosen source is Home Assistant (the mapped ha-map-selects). #}
           <progress id="ha-fetch-progress" class="progress progress-primary w-full hidden" max="100"></progress>
           <div class="flex flex-wrap items-center justify-between gap-2">
             <span class="text-sm text-base-content/60" id="ha-fetch-status"></span>
@@ -131,7 +174,7 @@
         </div>
       </div>
 
-      {# ── Data quality ────────────────────────────────────────────────── #}
+      {# ── Data quality ────────────────────────────────────────────────────── #}
       <div class="card bg-base-200 border border-base-300">
         <div class="card-body gap-3 p-4">
           <h3 class="text-sm font-semibold text-base-content/70">{{ _('Data quality') }}</h3>

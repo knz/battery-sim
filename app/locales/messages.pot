@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-23 22:04+0200\n"
+"POT-Creation-Date: 2026-07-24 11:17+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -105,7 +105,19 @@ msgstr ""
 msgid "Charged into the battery"
 msgstr ""
 
+msgid "Choose a source"
+msgstr ""
+
+msgid "Choose source…"
+msgstr ""
+
+msgid "Close"
+msgstr ""
+
 msgid "Conversion losses"
+msgstr ""
+
+msgid "Could not load. Please try again."
 msgstr ""
 
 msgid "Counter resets"
@@ -170,6 +182,11 @@ msgstr ""
 msgid "Fetch history"
 msgstr ""
 
+msgid ""
+"Fetched from your Home Assistant in your browser; the token never reaches"
+" this app."
+msgstr ""
+
 msgid "Fuse rating"
 msgstr ""
 
@@ -212,6 +229,9 @@ msgstr ""
 msgid "Home Assistant"
 msgstr ""
 
+msgid "Home Assistant connection"
+msgstr ""
+
 msgid "Home Battery Simulator"
 msgstr ""
 
@@ -235,6 +255,12 @@ msgstr ""
 msgid "Language"
 msgstr ""
 
+msgid "Loaded. Reloading…"
+msgstr ""
+
+msgid "Loading…"
+msgstr ""
+
 msgid "Max charge power"
 msgstr ""
 
@@ -254,6 +280,11 @@ msgid "Min state of charge"
 msgstr ""
 
 msgid "Monthly savings"
+msgstr ""
+
+msgid ""
+"NL day-ahead spot prices from 2023 to today: committed on disk and "
+"bridged live to the end of your selected range."
 msgstr ""
 
 msgid "Next: parameters →"
@@ -284,6 +315,15 @@ msgid "Perfect foresight"
 msgstr ""
 
 msgid "Phases"
+msgstr ""
+
+msgid ""
+"Pick where each series comes from. Choose a source per slot; Home "
+"Assistant is connected once below and reused across every slot that uses "
+"it."
+msgstr ""
+
+msgid "Preset historical (Energy-Charts NL)"
 msgstr ""
 
 msgid "RESULTS"
@@ -319,13 +359,16 @@ msgstr ""
 msgid "Series"
 msgstr ""
 
-msgid "Series mapping"
+msgid "Series slots"
 msgstr ""
 
 msgid "Serve house load when consumption exceeds solar"
 msgstr ""
 
 msgid "Settings"
+msgstr ""
+
+msgid "Shared across all slots that use Home Assistant"
 msgstr ""
 
 msgid "Simulate cost savings"
@@ -353,7 +396,7 @@ msgstr ""
 msgid "Solar surplus only (net zero at the grid)"
 msgstr ""
 
-msgid "Source:"
+msgid "Source"
 msgstr ""
 
 msgid "Spot price"
@@ -414,6 +457,14 @@ msgstr ""
 msgid "Usable capacity"
 msgstr ""
 
+msgid "Use this source"
+msgstr ""
+
+msgid ""
+"Uses the shared Home Assistant connection above — connect once, then "
+"fetch history for all Home Assistant slots together."
+msgstr ""
+
 msgid "Want to know what this is worth in euros?"
 msgstr ""
 
@@ -437,6 +488,9 @@ msgid ""
 "Your prices change every 15 minutes but your meter records hourly, so the"
 " run sees one averaged price per hour and cannot act on within-hour "
 "swings."
+msgstr ""
+
+msgid "change"
 msgstr ""
 
 msgid "close"
