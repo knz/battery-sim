@@ -51,6 +51,7 @@ from fastapi.templating import Jinja2Templates
 
 from app import config, data_view, dataset, db, features, i18n, ingest_ws, interest
 from app.domain import normalize
+from app.domain.frames import SeriesFrame
 from app.domain.series_vocab import SLOT_BY_NAME
 from app.sample_data import sample_view
 from app.sources import registry
@@ -142,11 +143,31 @@ async def data_ingest_ws(ws: WebSocket):
                 elif mtype == "rows":
                     total = session.on_rows(msg)
                     await ws.send_json({"type": "progress", "name": msg.get("name"), "rows": total})
+                elif mtype == "backend_load":
+                    session.on_backend_load(msg)
                 elif mtype == "done":
-                    frames, warnings, window = session.finish()
+                    ha_frames, warnings, window = session.finish()
+                    # Reify the whole staged config into ONE dataset (specs §2.2, §3.5): the HA
+                    # frames plus each staged backend-load slot, loaded server-side now. This is
+                    # the only place a fetch's backend slots are loaded — the drawer no longer
+                    # persists them on Confirm. Per-series provenance records where each came from.
+                    sources_map: dict[str, str] = {f.name: "home_assistant" for f in ha_frames}
+                    backend_frames = []
+                    # All-or-nothing: load every backend slot BEFORE persisting. Any failure raises
+                    # IngestError → LOAD_FAILED and nothing is written, so a fetch never yields a
+                    # partial dataset.
+                    for req in session.backend_loads.values():
+                        frame = await asyncio.to_thread(
+                            _load_backend_frame, req.name, req.source, req.window
+                        )
+                        backend_frames.append(frame)
+                        sources_map[frame.name] = req.source
+
+                    frames = ha_frames + backend_frames
                     # Persistence is I/O, so it runs off the event loop (specs §5.1 adapters).
                     dataset_id = await asyncio.to_thread(
-                        dataset.save_dataset, frames, window, session.source or "home_assistant", warnings
+                        dataset.save_dataset,
+                        frames, window, session.source or "home_assistant", warnings, sources_map,
                     )
                     # A persisted fetch is the one event that advances the source generation
                     # (specs §2.2): it establishes new server-side authority, so any client's
@@ -190,6 +211,53 @@ def _jsonable_grid(report: dict) -> dict:
 _BACKEND_LOAD: SourceKind = "backend_load"
 
 
+def _resolve_backend_source(slot_name: str, source_key: str):
+    """Resolve (slot, source) for a backend-load of `slot_name` from `source_key`.
+
+    Shared by the WS reify path and POST /data/slot/{slot}/load. Raises ValueError with a
+    user-facing message on any of: unknown slot, unknown source, source not available for the
+    slot, or a non-backend_load source (a browser_fetch source's data arrives over the WS, not a
+    load). Each caller translates ValueError into its own error type (IngestError / HTTPException).
+    """
+    slot = SLOT_BY_NAME.get(slot_name)
+    if slot is None:
+        raise ValueError(f"unknown slot: {slot_name!r}")
+    if not source_key:
+        raise ValueError("missing source")
+    try:
+        source = registry.get_source(source_key)
+    except ValueError as exc:
+        raise ValueError(str(exc)) from exc
+    if not source.available_for(slot):
+        raise ValueError(f"source {source_key!r} is not available for slot {slot_name!r}")
+    if source.descriptor.kind != _BACKEND_LOAD:
+        raise ValueError(
+            f"source {source_key!r} is a {source.descriptor.kind!r} source; its data arrives "
+            "over the ingest WebSocket, not a backend load"
+        )
+    return slot, source
+
+
+def _load_backend_frame(slot_name: str, source_key: str, window) -> SeriesFrame:
+    """Load one staged backend-load slot into a frame (WS reify path, specs §2.2).
+
+    Runs on a worker thread (called via asyncio.to_thread). Raises ingest_ws.IngestError on any
+    validation or load failure so the WS route reports LOAD_FAILED and persists nothing — the
+    all-or-nothing reify contract. The window is normalised to tz-aware UTC like the endpoint.
+    """
+    try:
+        slot, source = _resolve_backend_source(slot_name, source_key)
+    except ValueError as exc:
+        raise ingest_ws.IngestError(str(exc)) from exc
+    win = (_as_utc(window[0]), _as_utc(window[1]))
+    try:
+        return source.load(slot, win)
+    except Exception as exc:  # network down / rate-limited / parse failure
+        raise ingest_ws.IngestError(
+            f"could not load {slot_name!r} from {source_key!r}: {exc}"
+        ) from exc
+
+
 @app.post("/data/slot/{slot_name}/load")
 async def load_slot(slot_name: str, body: dict = Body(...)):
     """Load one slot from a backend_load source and merge its series into the latest dataset.
@@ -206,34 +274,15 @@ async def load_slot(slot_name: str, body: dict = Body(...)):
     or wrong-kind source, and a load/network failure all return a clean 4xx/5xx JSON error rather
     than a 500 stack trace (specs §3.2 LOAD_FAILED).
     """
-    # 1. Validate the slot against the closed vocabulary (specs §4.1).
-    slot = SLOT_BY_NAME.get(slot_name)
-    if slot is None:
-        raise HTTPException(status_code=404, detail=f"unknown slot: {slot_name!r}")
-
-    # 2. Resolve the source key.
+    # 1–3. Resolve and validate the (slot, source): unknown slot/source → 404, unavailable or
+    # wrong-kind source → 400. Shared with the WS reify path via _resolve_backend_source.
     source_key = body.get("source")
-    if not source_key:
-        raise HTTPException(status_code=400, detail="missing 'source' in request body")
     try:
-        source = registry.get_source(source_key)
+        slot, source = _resolve_backend_source(slot_name, source_key)
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-    # 3. The source must offer this slot and be loadable here (backend_load, not browser_fetch).
-    if not source.available_for(slot):
-        raise HTTPException(
-            status_code=400,
-            detail=f"source {source_key!r} is not available for slot {slot_name!r}",
-        )
-    if source.descriptor.kind != _BACKEND_LOAD:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"source {source_key!r} is a {source.descriptor.kind!r} source; its data arrives "
-                "over the ingest WebSocket, not this endpoint"
-            ),
-        )
+        msg = str(exc)
+        status = 404 if msg.startswith("unknown ") else 400
+        raise HTTPException(status_code=status, detail=msg) from exc
 
     # 4. Parse the window (same shape as ingest_ws.on_header: tz-aware ISO, end > start).
     window = _parse_window(body.get("window"))

@@ -176,8 +176,13 @@
     var slots = {};
     Object.keys(locallyCustomized).forEach(function (name) {
       var st = slotState[name];
-      if (st && st.source === "home_assistant" && st.statId) {
-        slots[name] = { source: "home_assistant", statId: st.statId };
+      if (!st || !st.source) return;
+      // HA is stored only once it has an entity (otherwise it is not yet fetchable); a backend
+      // source is stored as soon as it is chosen (it has no entity to wait for).
+      if (st.source === "home_assistant") {
+        if (st.statId) slots[name] = { source: "home_assistant", statId: st.statId };
+      } else {
+        slots[name] = { source: st.source, statId: "" };
       }
     });
     try {
@@ -335,10 +340,12 @@
       updateConfirmEnabled();
       setStatus(statusEl, "✓ Connected · " + statIds.energy.length + " energy + "
         + statIds.price.length + " measurement statistics", "text-success");
-      fetchBtn.disabled = false;
+      // Fetch enablement follows what is STAGED, not the connection alone (a backend-only config
+      // is fetchable without a connection; a tested connection with nothing staged is not).
+      updateFetchEnabled();
     } catch (e) {
       setStatus(statusEl, "✗ " + e.message, "text-error");
-      fetchBtn.disabled = true;
+      updateFetchEnabled();
     } finally {
       client.close();
       testBtn.disabled = false;
@@ -436,7 +443,7 @@
   }
 
   // Slots whose chosen source is Home Assistant AND that have an entity chosen (slotState). This
-  // is the sole source of truth for the fetch — there is no per-row DOM select any more.
+  // is the sole source of truth for the HA arm of the fetch — there is no per-row DOM select.
   function mappedSlots() {
     return Object.keys(slotState)
       .filter(function (name) {
@@ -449,28 +456,75 @@
       });
   }
 
+  // The source keys that are backend_load, learned from the drawer's per-slot source lists (each
+  // descriptor carries its kind). Built once from every slot button's data-slot-sources so the
+  // fetch can tell a staged backend source from an HA one without hardcoding "energy_charts".
+  var backendSourceKeys = {};
+  Array.prototype.slice.call(document.querySelectorAll(".slot-source-btn")).forEach(function (btn) {
+    try {
+      JSON.parse(btn.getAttribute("data-slot-sources") || "[]").forEach(function (d) {
+        if (d && d.kind === "backend_load" && d.key) backendSourceKeys[d.key] = true;
+      });
+    } catch (e) { /* ignore */ }
+  });
+
+  // Staged backend-load slots: those whose committed source is a backend_load key. The fetch
+  // reifies each by sending a backend_load WS message; the backend loads and persists it.
+  function stagedBackendSlots() {
+    return Object.keys(slotState)
+      .filter(function (name) {
+        var st = slotState[name];
+        return st && st.source && backendSourceKeys[st.source];
+      })
+      .map(function (name) { return { name: name, source: slotState[name].source }; });
+  }
+
+  // True while a fetch is running, so updateFetchEnabled does not re-enable the button mid-run.
+  var fetchInFlight = false;
+
+  // Fetch is possible once ANY slot is staged — an HA slot with an entity, or a backend slot.
+  function updateFetchEnabled() {
+    if (!fetchBtn) return;
+    var any = mappedSlots().length > 0 || stagedBackendSlots().length > 0;
+    // A live fetch disables the button itself; don't fight that (re-enabled in fetchHistory's
+    // catch on failure; success navigates away).
+    if (!fetchInFlight) fetchBtn.disabled = !any;
+  }
+
+  // Fetch REIFIES the staged config into one dataset (specs §2.2, §3.5): it streams the staged HA
+  // slots from the browser and declares each staged backend-load slot (which the backend loads),
+  // then persists both together. It works with HA slots only, backend slots only, or a mix.
   async function fetchHistory() {
     var base = urlInput.value.trim(), token = tokenInput.value.trim();
     var slots = mappedSlots();
-    if (!slots.length) {
-      setStatus(fetchStatus, "Map at least one Home Assistant series first.", "text-warning");
+    var backends = stagedBackendSlots();
+    if (!slots.length && !backends.length) {
+      setStatus(fetchStatus, "Choose a source for at least one slot first.", "text-warning");
       return;
     }
+    // HA slots require a tested connection (the token lives only in the browser, §7.5).
+    if (slots.length && (!base || !token)) {
+      setStatus(fetchStatus, "Configure the Home Assistant connection first.", "text-warning");
+      return;
+    }
+
+    fetchInFlight = true;
     fetchBtn.disabled = true;
     testBtn.disabled = true;
     progressEl.classList.remove("hidden");
     progressEl.removeAttribute("value");  // indeterminate until we know totals
 
-    var ha = new HaClient(base, token);
+    var ha = slots.length ? new HaClient(base, token) : null;
     var backend = null;
     try {
-      await ha.connect();
+      if (ha) await ha.connect();
       backend = await openBackend();
 
       var w = historyWindow();
       var win = { start: w.start, end: w.end };
       backend.send(JSON.stringify({ type: "header", source: "home_assistant", window: win }));
 
+      // HA arm: stream the mapped slots' statistics.
       var total = slots.length, done = 0;
       for (var i = 0; i < slots.length; i++) {
         var slot = slots[i];
@@ -495,17 +549,26 @@
         progressEl.value = Math.round((done / total) * 100);
       }
 
+      // Backend arm: declare each staged backend-load slot. The backend loads them server-side on
+      // `done` (all-or-nothing) and folds them into the same dataset.
+      for (var b = 0; b < backends.length; b++) {
+        setStatus(fetchStatus, "Loading " + backends[b].name + "…", "text-base-content/60");
+        backend.send(JSON.stringify({
+          type: "backend_load", name: backends[b].name, source: backends[b].source, window: win
+        }));
+      }
+
       var result = await finishBackend(backend);
       setStatus(fetchStatus, "✓ Imported " + result.series + " series. Reloading…", "text-success");
-      // The server now has the dataset — including each fetched slot's source and HA statistic id
-      // (persisted in series_meta) — so panel ① re-renders the fetched slots' source AND entity from
-      // it after the reload. No client-side re-save is needed for fetched slots (§3.5, §2.2).
+      // The server now has ONE dataset with every staged slot — HA (source + statistic id) and
+      // backend-load — so panel ① re-renders all of them after the reload (§3.5, §2.2).
       setTimeout(function () { window.location.reload(); }, 600);
     } catch (e) {
       setStatus(fetchStatus, "✗ " + e.message, "text-error");
-      fetchBtn.disabled = false;
+      fetchInFlight = false;
+      updateFetchEnabled();
     } finally {
-      ha.close();
+      if (ha) ha.close();
       testBtn.disabled = false;
       progressEl.classList.add("hidden");
     }
@@ -852,63 +915,34 @@
   }
 
   // Confirm — the single primary action. Commits whatever is staged in the draft:
-  //   * HA (browser_fetch): write draft → committed slotState, refresh the row label, close. No
-  //     round-trip; the fetch picks the slot up via mappedSlots(). The Confirm gate guarantees a
-  //     tested connection and a non-empty entity here, so a committed HA slot is always fetchable.
-  //   * backend (backend_load): POST the slot load and reload on success (as "Use this source"
-  //     did). On error the message stays in the drawer and nothing is committed/closed.
+  // Confirm STAGES the choice — for HA and backend_load alike — and never writes server-side
+  // (specs §2.2, §3.5): the drawer is a pure staging surface, and the dataset is reified only by
+  // Fetch. It commits the draft to slotState, marks the slot locally-customized so saveSlotStore
+  // persists it (localStorage, generation-tagged), refreshes the row label, and closes.
+  //   * HA (browser_fetch): statId is committed too; the Confirm gate guarantees a tested
+  //     connection + a chosen entity, so a staged HA slot is always fetchable.
+  //   * backend (backend_load): no statId; the fetch reifies it via a backend_load WS message.
   // The pending CSV option's radio is disabled, so draft.source can never be it here.
   function confirmDraft() {
     var s = selectedSource();
     if (!s || loading) return;
 
-    if (s.kind === "backend_load") { confirmBackend(s); return; }
-
-    // HA (or any non-backend selectable source): commit to slotState, update the row, close.
     var name = draft.slot;
+    var isHa = draft.source === "home_assistant";
     slotState[name] = {
-      source: draft.source === "home_assistant" ? "home_assistant" : draft.source,
-      statId: draft.source === "home_assistant" ? (draft.statId || "") : "",
+      source: draft.source,
+      statId: isHa ? (draft.statId || "") : "",
       kind: slotKind(name)
     };
-    // This slot is now a local customization (until a fetch persists it server-side). Mark it so
+    // A staged choice is a local customization until a fetch persists it server-side. Mark it so
     // saveSlotStore persists it — and only it and its peers, never server-seeded slots — so the
-    // choice survives the reload a backend_load Confirm on another slot triggers (the core bug).
+    // choice survives the reload the app may trigger, and is reified on the next Fetch.
     locallyCustomized[name] = true;
     saveSlotStore();
     updateSlotButton(name);
     closeDrawer();
-  }
-
-  // The backend arm of Confirm: POST the slot load and reload. Kept separate for the async flow.
-  async function confirmBackend(s) {
-    var w = historyWindow();
-    var slot = draft.slot;
-    loading = true;
-    updateConfirmEnabled();
-    drawerBackendStatus.textContent = t("loading", "Loading…");
-    drawerBackendStatus.className = "text-sm text-base-content/60";
-    try {
-      var resp = await fetch("/data/slot/" + encodeURIComponent(slot) + "/load", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ source: s.key, window: { start: w.start, end: w.end } })
-      });
-      if (!resp.ok) {
-        var detail = "";
-        try { detail = (await resp.json()).detail || ""; } catch (e) { /* non-JSON error */ }
-        throw new Error(detail || (resp.status + " " + resp.statusText));
-      }
-      drawerBackendStatus.textContent = t("loaded_ok", "Loaded. Reloading…");
-      drawerBackendStatus.className = "text-sm text-success";
-      // The server persisted the slot; reload so panel ① re-renders from the dataset (§3.5).
-      setTimeout(function () { window.location.reload(); }, 500);
-    } catch (e) {
-      drawerBackendStatus.textContent = "✗ " + (e.message || t("load_failed", "Could not load."));
-      drawerBackendStatus.className = "text-sm text-error";
-      loading = false;
-      updateConfirmEnabled();
-    }
+    // Fetch may have just become possible (a first staged slot) or its slot set changed.
+    updateFetchEnabled();
   }
 
   // --- wiring ------------------------------------------------------------------------------
@@ -922,6 +956,9 @@
     var name = btn.getAttribute("data-slot");
     if (name && slotState[name] && slotState[name].source) updateSlotButton(name);
   });
+  // Seed the Fetch button from what is already staged (e.g. a staged backend slot restored from
+  // localStorage, or a persisted HA slot), so a page load with a fetchable config enables it.
+  updateFetchEnabled();
   // Cancel / ✕ / backdrop / Escape all DISCARD (closeDrawer commits nothing). Confirm commits.
   if (drawerClose) drawerClose.addEventListener("click", closeDrawer);
   if (drawerCancelBtn) drawerCancelBtn.addEventListener("click", closeDrawer);

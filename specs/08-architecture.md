@@ -101,12 +101,18 @@ which sources may fill it. It has two implementations:
   versioned with the app, not per-workspace runtime data** — so it sits beside the code rather
   than under `<data_dir>/<workspace_id>/`.
 
-`POST /data/slot/{name}/load` is the route that loads a `backend_load` source for one slot and
-merges the frame into the current dataset; a `browser_fetch` source is rejected there, because
-its frame arrives over the ingest WS instead. Per-series provenance is persisted in
-`series_meta.source_type` (the descriptor key of the source that produced each series), so a
-dataset assembled from more than one source — an HA-fetched set of energy meters with an
-Energy-Charts spot price merged in — records where each series came from.
+Backend-load slots are reified as part of a fetch: the browser declares each staged
+`backend_load` slot over the ingest WS (a `backend_load` message), and the route loads it
+server-side on `done` and folds the frame into the **same** dataset as the fetched HA series —
+all-or-nothing, so a failed load fails the whole fetch and persists nothing. Source selection in
+the drawer only stages; no dataset is written before a fetch (§3.5). `POST /data/slot/{name}/load`
+remains as a standalone route that loads one `backend_load` source and merges its frame into the
+current dataset (a `browser_fetch` source is rejected there, its frame arriving over the WS
+instead); it is the same load logic the reify step uses, kept available though the drawer no
+longer calls it. Per-series provenance is persisted in `series_meta.source_type` (the descriptor
+key of the source that produced each series), so a dataset assembled from more than one source —
+an HA-fetched set of energy meters with an Energy-Charts spot price loaded in — records where
+each series came from.
 
 **`app/sources/` is an adapter, not domain.** It does I/O — network, file, wall-clock — and
 deciding *where data comes from* is precisely that. It therefore sits in the adapter layer, not

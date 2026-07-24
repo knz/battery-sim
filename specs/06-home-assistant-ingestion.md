@@ -76,9 +76,12 @@ How the backend serves it:
   come from*, not how a price frame is built.
 
 The one outbound request this makes is a bidding zone (`NL`) and a date range, with no user or
-energy data attached, and it fires only when the user selects this source. That egress is
-described in [§7.5](15-data-quality-and-limits.md#75-operational-notes) alongside the HA
-requests and the feature-interest POST.
+energy data attached, and it fires only at **fetch time** — when a fetch reifies a configuration
+in which this source is staged for the spot-price slot ([§2.2](02-ux-wireframes.md), §3.5), and
+only then if the requested window extends past the committed tail. Selecting the source in the
+drawer stages it but loads nothing; no request fires on selection. That egress is described in
+[§7.5](15-data-quality-and-limits.md#75-operational-notes) alongside the HA requests and the
+feature-interest POST.
 
 The min/max price bracket slots are **not** served by this source: `price_spot_min` and
 `price_spot_max` carry an HA measurement statistic's own intra-interval min/max (below), which

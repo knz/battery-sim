@@ -349,19 +349,32 @@ history* are performed by the browser against the user's own Home Assistant, not
 sent only to that instance — it is never transmitted to the application backend
 ([§7.5](15-data-quality-and-limits.md#75-operational-notes)), and the modal says so beneath the
 token field. *Test connection* lists the available statistic ids and fills the entity dropdown
-of every HA slot; *Fetch history* fetches the statistics for the mapped HA slots, streams them
-to the backend, and the panel re-renders from the persisted dataset.
+of every HA slot; *Fetch history* reifies the whole staged configuration — it fetches the
+statistics for the mapped HA slots and streams them to the backend, and in the same step the
+backend loads every staged backend-load slot (e.g. the spot price) — after which the panel
+re-renders from the one persisted dataset. It is enabled once **any** slot is staged, not only
+HA slots (a backend-only configuration is fetchable without a Home Assistant connection).
 
-**The preset spot-price source is loaded by the backend.** When the user picks it for the Spot
-price slot, the backend reads the committed on-disk NL day-ahead dataset (2023 → a recent tail)
-and bridges any gap to the end of the selected range with a call to the public Energy-Charts
-API, with no browser involvement. It is the **one source the backend fetches directly**, and
-the reason it can is that the price API is a public cloud endpoint the backend can reach —
-unlike a user's LAN-only Home Assistant. The mechanics are in
-[§4.3](06-home-assistant-ingestion.md), and the outbound-request note in
-[§7.5](15-data-quality-and-limits.md#75-operational-notes). A backend load has no per-entity
-mapping dropdown: the slot identity *is* the mapping, so the row shows a static indication of
-the source rather than a `▾` selector.
+**The preset spot-price source is loaded by the backend — at fetch time, not on pick.**
+Choosing it for the Spot price slot only **stages** the choice, exactly as choosing Home
+Assistant for a slot does: nothing is loaded or persisted until **Fetch history**. The drawer is
+a pure staging surface (§3.1, §3.5) — picking a source, HA or backend, writes no dataset. On
+Fetch, the backend reads the committed on-disk NL day-ahead dataset (2023 → a recent tail) and
+bridges any gap to the end of the selected range with a call to the public Energy-Charts API,
+with no browser involvement, and folds the result into the **same** dataset as the fetched HA
+series. It is the **one source the backend fetches directly**, and the reason it can is that the
+price API is a public cloud endpoint the backend can reach — unlike a user's LAN-only Home
+Assistant. The mechanics are in [§4.3](06-home-assistant-ingestion.md), and the outbound-request
+note in [§7.5](15-data-quality-and-limits.md#75-operational-notes). A backend load has no
+per-entity mapping dropdown: the slot identity *is* the mapping, so the row shows a static
+indication of the source rather than a `▾` selector.
+
+Because both source kinds only stage until Fetch, a fetch **reifies the whole staged
+configuration into one dataset** — the HA slots streamed from the browser and every staged
+backend-load slot loaded by the backend, together. This is why configuring a backend source and
+then fetching an HA slot no longer discards the backend source: there is no earlier per-source
+dataset to orphan. The reify is all-or-nothing — if a staged backend load fails, the whole fetch
+fails (`LOAD_FAILED`, §3.2) and nothing is persisted.
 
 **The setup band decides which slots the roster asks for.** The two choices in the band above
 panel ① ([§2.1](#the-setup-band)) determine the slot roster here, and this is the reason

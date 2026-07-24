@@ -21,13 +21,24 @@ Protocol — client → server messages (JSON per WS text frame):
     {"type": "rows", "name": "price_spot",
      "rows": [[start_ms, mean, min, max], ...]}              # price:  [start_ms, mean, min, max]
 
+    {"type": "backend_load", "name": "price_spot",
+     "source": "energy_charts",
+     "window": {"start": "<iso>", "end": "<iso>"}}          # 0+ times: a STAGED backend-load slot
+
     {"type": "done"}                                         # once, last
+
+A fetch REIFIES the whole staged source config in one shot (specs §3.5, §2.2): the browser
+streams the Home Assistant slots as `series`/`rows`, and declares each staged backend_load slot
+(e.g. the Energy-Charts spot price) with a `backend_load` message. On `done` the route loads the
+backend slots server-side and persists HA + backend series as ONE dataset. Nothing is written
+before a fetch — configuring a slot only stages it client-side. This is why a fetch no longer
+orphans an earlier backend-loaded price: there is no "earlier" dataset to orphan.
 
 Server → client messages:
 
     {"type": "progress", "name": "<series>", "rows": <cumulative>}   # after each rows batch
     {"type": "result", "dataset_id": <int>, "series": <int>,
-     "warnings": [...], "grid": {...}}                               # on done, after persist
+     "warnings": [...], "grid": {...}, "generation": <int>}          # on done, after persist
     {"type": "error", "message": "<why>"}                            # on any protocol/validation error
 
 Rows may be split across many `rows` messages (the browser forwards them per HA fetch chunk,
@@ -35,9 +46,14 @@ specs §4.3 ha_chunk_days), so the accumulator buffers per series and only build
 `done`. It never holds more than the buffered rows — no whole-payload materialisation beyond
 that, which the fine-window cap (~10 trailing days, specs §4.3) keeps bounded.
 
+The route reifies backend_load slots all-or-nothing: any load failure fails the whole fetch
+(LOAD_FAILED) and persists nothing, so a fetch never yields a partial dataset.
+
 Main items:
     IngestError                    protocol/validation failure carrying a user-facing message.
-    IngestSession                  stateful accumulator: on_header / on_series / on_rows / finish.
+    IngestSession                  stateful accumulator: on_header / on_series / on_rows /
+                                   on_backend_load / finish.
+    BackendLoadRequest             one staged backend-load slot the route must load on `done`.
     build_frames(buffers, ...)     pure: buffered rows → (frames, warnings).
 """
 
@@ -53,6 +69,20 @@ from app.domain.series_vocab import SLOT_BY_NAME, is_known_series
 
 class IngestError(Exception):
     """A protocol or validation error. Its message is safe to show the user (specs §3.2 LOAD_FAILED)."""
+
+
+@dataclass
+class BackendLoadRequest:
+    """One staged backend-load slot the route must load server-side on `done` (specs §2.2).
+
+    Carries the slot name, the source descriptor key, and the window to load. The session only
+    records these (it stays pure and data-dir-free); the route does the actual `source.load` and
+    folds the resulting frame into the same dataset as the HA series.
+    """
+
+    name: str
+    source: str
+    window: tuple[datetime, datetime]
 
 
 # The two native resolutions a single HA series arrives at (specs §4.3): the full-window
@@ -107,6 +137,7 @@ class IngestSession:
     source: str | None = None
     window: tuple[datetime, datetime] | None = None
     buffers: dict[str, _SeriesBuffer] = field(default_factory=dict)
+    backend_loads: dict[str, BackendLoadRequest] = field(default_factory=dict)
     _header_seen: bool = False
 
     def on_header(self, msg: dict) -> None:
@@ -176,10 +207,42 @@ class IngestSession:
             raise IngestError(f"malformed row in {name!r}: {exc}") from exc
         return buf.row_count
 
+    def on_backend_load(self, msg: dict) -> None:
+        """Record one staged backend-load slot to reify on `done` (specs §2.2 reify-on-fetch).
+
+        Validates the slot name against the closed vocabulary and the window shape (same rules as
+        the header window); the source key and its kind/availability are checked by the route when
+        it actually loads (it owns the registry). A slot declared as both a `series` (HA) and a
+        `backend_load` in one fetch is a client bug — rejected here.
+        """
+        if not self._header_seen:
+            raise IngestError("backend_load declared before header")
+        name = msg.get("name")
+        if not is_known_series(name):
+            raise IngestError(f"unknown series name: {name!r}")
+        if name in self.buffers:
+            raise IngestError(f"slot {name!r} declared as both a fetched series and a backend load")
+        if name in self.backend_loads:
+            raise IngestError(f"backend_load declared twice: {name!r}")
+        source = msg.get("source")
+        if not source:
+            raise IngestError(f"backend_load for {name!r} missing 'source'")
+        win = msg.get("window") or {}
+        try:
+            start = datetime.fromisoformat(win["start"])
+            end = datetime.fromisoformat(win["end"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise IngestError(f"invalid backend_load window for {name!r}: {exc}") from exc
+        if end <= start:
+            raise IngestError(f"backend_load window end must be after start for {name!r}")
+        self.backend_loads[name] = BackendLoadRequest(name=name, source=source, window=(start, end))
+
     def finish(self) -> tuple[list[SeriesFrame], list[dict], tuple[datetime, datetime]]:
         if not self._header_seen or self.window is None:
             raise IngestError("done before header")
-        if not self.buffers:
+        # A fetch reifies the staged config: at least one HA series OR one backend-load slot.
+        # (A backend-only fetch — energy_charts spot price with no HA slots — is valid.)
+        if not self.buffers and not self.backend_loads:
             raise IngestError("no series were sent")
         frames, warnings = build_frames(self.buffers)
         return frames, warnings, self.window

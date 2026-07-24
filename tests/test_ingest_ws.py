@@ -216,3 +216,79 @@ def test_fetch_bumps_source_generation(client):
         result = _drive_valid_ingest(ws)
     assert result["generation"] == 2
     assert db.source_generation() == 2
+
+
+# The historical window the committed Energy-Charts CSVs cover, so a backend load hits no network.
+_HIST_WINDOW = {"start": "2024-03-01T00:00:00+00:00", "end": "2024-03-05T00:00:00+00:00"}
+
+
+def test_fetch_reifies_ha_and_backend_into_one_dataset(client):
+    """The reported bug: an HA slot + a staged backend price reify into ONE dataset (specs §2.2).
+
+    A fetch streams grid_import_t1 from HA and declares price_spot as a backend_load (energy_charts).
+    On `done` the backend loads the price server-side and persists both together — so the price is
+    NOT lost, unlike the old flow where save_dataset created a fresh dataset that orphaned it.
+    """
+    tc, main, dataset = client
+    with tc.websocket_connect("/data/ingest/ws") as ws:
+        ws.send_json({"type": "header", "source": "home_assistant",
+                      "window": {"start": "2024-03-01T00:00:00+00:00",
+                                 "end": "2024-03-05T00:00:00+00:00"}})
+        ws.send_json({"type": "series", "name": "grid_import_t1", "kind": "energy",
+                      "stat_id": "sensor.meter_import_t1"})
+        ws.send_json({"type": "rows", "name": "grid_import_t1",
+                      "rows": [[1709251200000, 100.0], [1709254800000, 100.5]]})
+        assert ws.receive_json()["type"] == "progress"
+        # Stage the spot price as a backend load — no prior POST, reified here.
+        ws.send_json({"type": "backend_load", "name": "price_spot",
+                      "source": "energy_charts", "window": _HIST_WINDOW})
+        ws.send_json({"type": "done"})
+        result = ws.receive_json()
+
+    assert result["type"] == "result"
+    loaded = dataset.load_latest()
+    names = {f.name for f in loaded.frames}
+    assert names == {"grid_import_t1", "price_spot"}          # BOTH survive
+    assert loaded.series_sources["grid_import_t1"] == "home_assistant"
+    assert loaded.series_sources["price_spot"] == "energy_charts"
+
+
+def test_fetch_with_only_a_backend_slot(client):
+    """A backend-only fetch (energy_charts spot price, no HA slots) reifies a dataset (specs §2.2)."""
+    tc, main, dataset = client
+    with tc.websocket_connect("/data/ingest/ws") as ws:
+        ws.send_json({"type": "header", "source": "home_assistant", "window": _HIST_WINDOW})
+        ws.send_json({"type": "backend_load", "name": "price_spot",
+                      "source": "energy_charts", "window": _HIST_WINDOW})
+        ws.send_json({"type": "done"})
+        result = ws.receive_json()
+
+    assert result["type"] == "result"
+    loaded = dataset.load_latest()
+    assert {f.name for f in loaded.frames} == {"price_spot"}
+    assert loaded.series_sources["price_spot"] == "energy_charts"
+
+
+def test_fetch_backend_failure_is_all_or_nothing(client):
+    """A backend-load failure fails the whole fetch and persists nothing (specs §2.2, §3.2).
+
+    An unknown source key makes the reify raise → LOAD_FAILED. The HA series streamed alongside it
+    must NOT be persisted: the dataset is unchanged (still none here).
+    """
+    tc, main, dataset = client
+    with tc.websocket_connect("/data/ingest/ws") as ws:
+        ws.send_json({"type": "header", "source": "home_assistant",
+                      "window": {"start": "2024-03-01T00:00:00+00:00",
+                                 "end": "2024-03-05T00:00:00+00:00"}})
+        ws.send_json({"type": "series", "name": "grid_import_t1", "kind": "energy"})
+        ws.send_json({"type": "rows", "name": "grid_import_t1",
+                      "rows": [[1709251200000, 100.0], [1709254800000, 100.5]]})
+        assert ws.receive_json()["type"] == "progress"
+        ws.send_json({"type": "backend_load", "name": "price_spot",
+                      "source": "no_such_source", "window": _HIST_WINDOW})
+        ws.send_json({"type": "done"})
+        msg = ws.receive_json()
+
+    assert msg["type"] == "error"
+    # Nothing persisted — the HA series did not sneak through.
+    assert dataset.load_latest() is None
