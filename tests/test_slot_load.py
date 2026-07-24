@@ -248,6 +248,25 @@ def test_load_endpoint_attaches_price_from_committed_data(client):
     assert loaded.series_sources["price_spot"] == "energy_charts"
 
 
+def test_load_endpoint_does_not_bump_source_generation(client):
+    """A backend_load Confirm must NOT advance the source generation (specs §2.2).
+
+    Only a persisted HA fetch bumps it. If a price load bumped it, the reload that Confirm triggers
+    would invalidate the HA customization the user saved just before — the original reset bug.
+    """
+    tc, main, dataset = client
+    from app import db
+
+    assert db.source_generation() == 0
+    resp = tc.post(
+        "/data/slot/price_spot/load",
+        json={"source": "energy_charts", "window": _HIST_WINDOW},
+    )
+    assert resp.status_code == 200, resp.text
+    # Unchanged: the load merged a series but issued no new generation.
+    assert db.source_generation() == 0
+
+
 def test_load_endpoint_merges_into_existing_dataset(client):
     """A price load attaches to an HA-fetched energy dataset without discarding the meters."""
     tc, main, dataset = client

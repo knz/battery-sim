@@ -91,6 +91,9 @@ def index(request: Request):
         "current": locale,
         "options": [{"code": c, "label": c.upper()} for c in i18n.SUPPORTED],
     }
+    # The source generation (specs §2.2): rendered so the browser can reconcile its locally-saved
+    # source customizations. Bumped only by a persisted HA fetch; 0 before the first one.
+    ctx["source_generation"] = db.source_generation()
     return templates.TemplateResponse(request, "index.html", ctx)
 
 
@@ -145,6 +148,11 @@ async def data_ingest_ws(ws: WebSocket):
                     dataset_id = await asyncio.to_thread(
                         dataset.save_dataset, frames, window, session.source or "home_assistant", warnings
                     )
+                    # A persisted fetch is the one event that advances the source generation
+                    # (specs §2.2): it establishes new server-side authority, so any client's
+                    # locally-saved source customization tagged with an older generation yields to
+                    # the server after this. This is the ONLY bump site.
+                    generation = await asyncio.to_thread(db.bump_source_generation)
                     report = normalize.grid_report(frames, window)
                     await ws.send_json(
                         {
@@ -153,6 +161,7 @@ async def data_ingest_ws(ws: WebSocket):
                             "series": len(frames),
                             "warnings": warnings,
                             "grid": _jsonable_grid(report),
+                            "generation": generation,
                         }
                     )
                     await ws.close()

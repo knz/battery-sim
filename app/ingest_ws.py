@@ -82,6 +82,7 @@ class _SeriesBuffer:
     name: str
     kind: str
     unit: str | None
+    stat_id: str | None = None
     by_period: dict[str, _PeriodRows] = field(default_factory=dict)
 
     def period(self, period: str) -> _PeriodRows:
@@ -137,7 +138,11 @@ class IngestSession:
             raise IngestError(
                 f"series {name!r} declared kind {kind!r} but the slot is {slot.kind!r}"
             )
-        self.buffers[name] = _SeriesBuffer(name=name, kind=slot.kind, unit=msg.get("unit"))
+        # stat_id is the HA statistic id the browser fetched from (specs §2.2), persisted so a
+        # fetched HA slot renders its entity after a reload. Optional: older callers omit it.
+        self.buffers[name] = _SeriesBuffer(
+            name=name, kind=slot.kind, unit=msg.get("unit"), stat_id=msg.get("stat_id")
+        )
 
     def on_rows(self, msg: dict) -> int:
         name = msg.get("name")
@@ -215,6 +220,9 @@ def build_frames(
             frame.fine_resolution_s = fine_frame.resolution_s
             frame.fine_coverage = fine_frame.coverage()
 
+        # Carry the HA statistic id onto the frame so save_dataset persists it (series_meta) and a
+        # fetched HA slot can render its entity after a reload (specs §2.2).
+        frame.stat_id = buf.stat_id
         frames.append(frame)
     return frames, warnings
 

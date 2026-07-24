@@ -101,14 +101,14 @@ def _panel_data():
         # This sample shows a populated look: the grid/solar rows are Home Assistant, price_spot
         # is the preset Energy-Charts source, and the optional/bracket rows are still unchosen.
         "mapping": [
-            {"name": "grid_import_t1", "role": _N("Grid import T1"), "req": "required", "entity": "sensor.electricity_meter_import_t1", "source": "home_assistant", "sources": _sources_for("grid_import_t1")},
-            {"name": "grid_import_t2", "role": _N("Grid import T2"), "req": "required", "entity": "sensor.electricity_meter_import_t2", "source": "home_assistant", "sources": _sources_for("grid_import_t2")},
-            {"name": "grid_export_t1", "role": _N("Grid export T1"), "req": "required", "entity": "sensor.electricity_meter_export_t1", "source": "home_assistant", "sources": _sources_for("grid_export_t1")},
-            {"name": "grid_export_t2", "role": _N("Grid export T2"), "req": "required", "entity": "sensor.electricity_meter_export_t2", "source": "home_assistant", "sources": _sources_for("grid_export_t2")},
-            {"name": "solar_production", "role": _N("Solar production"), "req": "conditional", "entity": "sensor.solar_total_production", "pv_only": True, "source": "home_assistant", "sources": _sources_for("solar_production")},
-            {"name": "battery_charge", "role": _N("Battery charge"), "req": "optional", "entity": None, "source": None, "sources": _sources_for("battery_charge")},
-            {"name": "battery_discharge", "role": _N("Battery discharge"), "req": "optional", "entity": None, "source": None, "sources": _sources_for("battery_discharge")},
-            {"name": "price_spot", "role": _N("Spot price"), "req": "required", "entity": "sensor.epex_spot_price", "source": "energy_charts", "sources": _sources_for("price_spot")},
+            {"name": "grid_import_t1", "role": _N("Grid import T1"), "req": "required", "entity": "sensor.electricity_meter_import_t1", "stat_id": "sensor.electricity_meter_import_t1", "source": "home_assistant", "sources": _sources_for("grid_import_t1")},
+            {"name": "grid_import_t2", "role": _N("Grid import T2"), "req": "required", "entity": "sensor.electricity_meter_import_t2", "stat_id": "sensor.electricity_meter_import_t2", "source": "home_assistant", "sources": _sources_for("grid_import_t2")},
+            {"name": "grid_export_t1", "role": _N("Grid export T1"), "req": "required", "entity": "sensor.electricity_meter_export_t1", "stat_id": "sensor.electricity_meter_export_t1", "source": "home_assistant", "sources": _sources_for("grid_export_t1")},
+            {"name": "grid_export_t2", "role": _N("Grid export T2"), "req": "required", "entity": "sensor.electricity_meter_export_t2", "stat_id": "sensor.electricity_meter_export_t2", "source": "home_assistant", "sources": _sources_for("grid_export_t2")},
+            {"name": "solar_production", "role": _N("Solar production"), "req": "conditional", "entity": "sensor.solar_total_production", "stat_id": "sensor.solar_total_production", "pv_only": True, "source": "home_assistant", "sources": _sources_for("solar_production")},
+            {"name": "battery_charge", "role": _N("Battery charge"), "req": "optional", "entity": None, "stat_id": None, "source": None, "sources": _sources_for("battery_charge")},
+            {"name": "battery_discharge", "role": _N("Battery discharge"), "req": "optional", "entity": None, "stat_id": None, "source": None, "sources": _sources_for("battery_discharge")},
+            {"name": "price_spot", "role": _N("Spot price"), "req": "required", "entity": "sensor.epex_spot_price", "stat_id": None, "source": "energy_charts", "sources": _sources_for("price_spot")},
             {"name": "price_spot_min", "role": _N("Spot price (min)"), "req": "cost_optional", "entity": None, "cost_only": True, "source": None, "sources": _sources_for("price_spot_min")},
             {"name": "price_spot_max", "role": _N("Spot price (max)"), "req": "cost_optional", "entity": None, "cost_only": True, "source": None, "sources": _sources_for("price_spot_max")},
         ],

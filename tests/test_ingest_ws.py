@@ -40,7 +40,8 @@ def _drive_valid_ingest(ws):
         "type": "header", "source": "home_assistant",
         "window": {"start": "2026-07-20T00:00:00+00:00", "end": "2026-07-20T02:00:00+00:00"},
     })
-    ws.send_json({"type": "series", "name": "grid_import_t1", "kind": "energy", "unit": "kWh"})
+    ws.send_json({"type": "series", "name": "grid_import_t1", "kind": "energy", "unit": "kWh",
+                  "stat_id": "sensor.meter_import_t1"})
     ws.send_json({"type": "rows", "name": "grid_import_t1",
                   "rows": [[1784505600000, 5127.0], [1784509200000, 5127.5], [1784512800000, 5128.4]]})
     assert ws.receive_json()["type"] == "progress"
@@ -84,6 +85,10 @@ def test_valid_ingest_persists_and_reports(client):
     imp = next(f for f in loaded.frames if f.name == "grid_import_t1")
     assert len(imp.values) == 2
     assert abs(imp.values[0] - 0.5) < 1e-9
+    # The HA statistic id round-trips through series_meta so a fetched slot renders its entity
+    # server-side after a reload (specs §2.2). Series sent without a stat_id keep None.
+    assert imp.stat_id == "sensor.meter_import_t1"
+    assert next(f for f in loaded.frames if f.name == "grid_export_t1").stat_id is None
 
 
 def test_unknown_series_is_rejected(client):
@@ -181,3 +186,33 @@ def test_page_reflects_persisted_dataset_after_ingest(client):
     assert "sensor.electricity_meter_import_t1" not in html
     # Register summary from real frames (specs §6.4 availability).
     assert "import T1 mapped" in html
+    # The fetched HA slot renders its persisted statistic id server-side (specs §2.2), both as the
+    # button label and in data-slot-stat-id — so it survives a reload with no client state.
+    assert "sensor.meter_import_t1" in html
+    assert 'data-slot-stat-id="sensor.meter_import_t1"' in html
+
+
+def test_fetch_bumps_source_generation(client):
+    """A persisted fetch advances the source generation and reports it (specs §2.2).
+
+    The generation starts at 0, becomes 1 after the first fetch, 2 after the second, and each
+    result frame carries the new value. The page (#source-generation) reflects the current value.
+    """
+    tc, main, dataset = client
+    from app import db
+
+    assert db.source_generation() == 0
+    # Before any fetch the page renders generation 0.
+    assert '<script id="source-generation" type="application/json">0</script>' in tc.get("/").text
+
+    with tc.websocket_connect("/data/ingest/ws") as ws:
+        result = _drive_valid_ingest(ws)
+    assert result["generation"] == 1
+    assert db.source_generation() == 1
+    assert '<script id="source-generation" type="application/json">1</script>' in tc.get("/").text
+
+    # A second fetch bumps again — this is what makes another client's stored customization stale.
+    with tc.websocket_connect("/data/ingest/ws") as ws:
+        result = _drive_valid_ingest(ws)
+    assert result["generation"] == 2
+    assert db.source_generation() == 2

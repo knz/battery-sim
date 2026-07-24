@@ -41,6 +41,36 @@
  * attributes at load (the committed initial state). mappedSlots() (used by Fetch history) reads
  * slotState — the HA slots whose statId is set — so the fetch depends only on committed state.
  *
+ * Surviving the reload (localStorage ha.slots + a source GENERATION). A backend_load Confirm
+ * (energy_charts) ends in a full window.location.reload() so panel ① re-renders from the persisted
+ * dataset. That reload drops all in-memory slotState, and the persisted view-model carries no
+ * re-selectable statistic id — so without help an HA slot's chosen entity AND its (possibly
+ * pre-fetch) source are lost the moment you pick a backend source on another slot.
+ *
+ * Two things carry a source choice across a reload, split by whether the slot has been FETCHED:
+ *
+ *  1. Fetched slots → SERVER-SIDE. When a fetch persists a series, its HA statistic id travels in
+ *     the WS `series` frame and is stored in series_meta alongside the source key. The view-model
+ *     then renders the slot's source AND entity (the id) from the dataset, so a fetched HA slot
+ *     shows "Home Assistant · <id>" after any reload with no client state involved. The statistic
+ *     id is not secret (only the token is, §7.5), so persisting it server-side is fine.
+ *
+ *  2. Pre-fetch customizations → localStorage ha.slots, reconciled by a server-issued generation
+ *     number (specs §2.2). These are choices the user made but has NOT yet fetched: HA picked for a
+ *     data-less slot, or a source override on a slot the server fills differently. The server holds
+ *     a per-workspace `source_generation`, bumped ONLY when a fetch persists a new dataset — never
+ *     by a backend_load Confirm — and rendered into #source-generation. Confirm on an HA slot saves
+ *     { gen, slots: { <slot>: {source, statId} } } tagged with the current generation. On load:
+ *       * local gen === server gen → USE LOCAL wholesale (source AND statId): the pre-fetch choice
+ *         survives the reload a backend_load Confirm triggers.
+ *       * server gen  >  local gen → a fetch has happened since (here or on another client in the
+ *         same workspace); the server is authoritative, the stale local slots are dropped.
+ *     A fetch advances the generation, so a pre-fetch entry saved beforehand is superseded by the
+ *     freshly-persisted server state (which now renders that slot itself, per 1).
+ *
+ * localStorage is browser-local by design (same as the URL/token): a PRE-FETCH customization does
+ * not follow you across browsers. A FETCHED slot does, because it lives server-side.
+ *
  * User actions on the connection card:
  *   Test connection  — open wss://<ha>/api/websocket, auth, recorder/list_statistic_ids, store
  *                       the listed ids (energy ids from "sum", mean ids from "mean"), and if a
@@ -62,6 +92,13 @@
   var HISTORY_DAYS = 730;         // how far back to request hourly (long-term stats never purge)
   var LS_URL = "ha.base_url";
   var LS_TOKEN = "ha.token";
+  // Per-slot Home Assistant selections, browser-local (specs §7.5, same posture as URL/token).
+  // A JSON object { gen: <int>, slots: { <slot>: { source, statId } } } holding ONLY browser_fetch
+  // (HA) slots, tagged with the source generation the client saw when it saved (see the file header
+  // for the reconcile rule). It exists so an HA slot's source AND chosen entity survive the full-
+  // page reload a backend_load Confirm triggers. Backend-load choices are never stored — they are
+  // already server-side, and a stored copy would only drift.
+  var LS_SLOTS = "ha.slots";
 
   // The slot roster carries data-ingest-ws (it used to live on the removed #ha-connection card).
   // Its presence also gates the whole module: no roster → panel not on this page.
@@ -99,19 +136,87 @@
   urlInput.value = localStorage.getItem(LS_URL) || urlInput.value || "";
   tokenInput.value = localStorage.getItem(LS_TOKEN) || "";
 
-  // Seed slotState from the slot source buttons. Each button carries the slot name, its persisted
-  // source (data-slot-source), and its kind (data-slot-kind). The persisted view-model does not
-  // carry a re-selectable statistic id (only a coverage summary), so statId starts empty and is
-  // set when the user picks an entity in the drawer this session.
+  // The server's current source generation, rendered into #source-generation (specs §2.2). Bumped
+  // only by a persisted HA fetch. NaN/absent is treated as 0 so a broken tag falls back to "server
+  // wins" rather than accidentally matching a stored generation.
+  var serverGen = 0;
+  try {
+    var genEl = document.getElementById("source-generation");
+    if (genEl) {
+      var g = JSON.parse(genEl.textContent);
+      serverGen = (typeof g === "number" && isFinite(g)) ? g : 0;
+    }
+  } catch (e) { serverGen = 0; }
+
+  // localStorage-backed HA slot selections, tagged with the generation they were saved at.
+  //   { gen: <int>, slots: { <slot>: { source, statId } } }
+  // loadSlotStore returns a normalised object (empty slots + gen -1 on any parse error, so it can
+  // never equal a real serverGen ≥ 0). saveSlotStore writes only the HA slots out of slotState and
+  // stamps the CURRENT serverGen; backend-load choices never land here.
+  function loadSlotStore() {
+    try {
+      var obj = JSON.parse(localStorage.getItem(LS_SLOTS) || "null");
+      if (obj && typeof obj === "object" && typeof obj.gen === "number" && obj.slots) {
+        return { gen: obj.gen, slots: obj.slots };
+      }
+    } catch (e) { /* fall through */ }
+    return { gen: -1, slots: {} };
+  }
+  // Slots the user has customized THIS session (a drawer Confirm), plus any carried over from a
+  // still-current local store. Only these are written to localStorage — NOT slots whose statId was
+  // seeded from the server (data-slot-stat-id). Persisting a server-seeded slot would duplicate
+  // authoritative state into the store and let it wrongly "win" as a pre-fetch customization.
+  var locallyCustomized = {};
+
+  // Persist the locally-customized HA slots, tagged with the generation the client currently sees.
+  // This covers only PRE-FETCH customizations: once a slot has been fetched, its source AND entity
+  // are persisted server-side (series_meta) and render from the dataset, so the store is not what
+  // carries a fetched slot across a reload.
+  function saveSlotStore() {
+    var slots = {};
+    Object.keys(locallyCustomized).forEach(function (name) {
+      var st = slotState[name];
+      if (st && st.source === "home_assistant" && st.statId) {
+        slots[name] = { source: "home_assistant", statId: st.statId };
+      }
+    });
+    try {
+      localStorage.setItem(LS_SLOTS, JSON.stringify({ gen: serverGen, slots: slots }));
+    } catch (e) { /* quota; ignore */ }
+  }
+
+  // Seed slotState from the slot source buttons, reconciled against localStorage by generation
+  // (see the file header). The button carries the SERVER's committed choice: data-slot-source and,
+  // for a fetched HA slot, data-slot-stat-id (the persisted statistic id — this is what makes a
+  // fetched slot render its entity after a reload with no client state). A localStorage entry only
+  // overrides that when it applies: its generation still matches the server's (a PRE-FETCH
+  // customization not yet superseded by a fetch). When the server's generation is newer, the store
+  // is stale — the server choice wins and the store is cleared.
+  var slotStore = loadSlotStore();
+  var storeCurrent = slotStore.gen === serverGen;  // local customization still applies?
   Array.prototype.slice.call(document.querySelectorAll(".slot-source-btn")).forEach(function (btn) {
     var name = btn.getAttribute("data-slot");
     if (!name) return;
-    slotState[name] = {
-      source: btn.getAttribute("data-slot-source") || null,
-      statId: "",
-      kind: btn.getAttribute("data-slot-kind") || slotKind(name)
-    };
+    var serverSource = btn.getAttribute("data-slot-source") || null;
+    var serverStatId = btn.getAttribute("data-slot-stat-id") || "";
+    var local = storeCurrent ? slotStore.slots[name] : null;
+    if (local) {
+      slotState[name] = { source: local.source, statId: local.statId || "", kind: slotKind(name) };
+      // A store entry at the current generation is a pre-fetch customization: keep tracking it so a
+      // later save (from customizing another slot) preserves it rather than dropping it.
+      locallyCustomized[name] = true;
+    } else {
+      slotState[name] = {
+        source: serverSource,
+        statId: serverStatId,
+        kind: btn.getAttribute("data-slot-kind") || slotKind(name)
+      };
+    }
   });
+  // Drop a stale store (older generation) so it does not shadow a future save at the new gen.
+  if (!storeCurrent && slotStore.gen !== -1) {
+    try { localStorage.removeItem(LS_SLOTS); } catch (e) { /* ignore */ }
+  }
 
   // -----------------------------------------------------------------------------------------
   // HA WebSocket client. One connection per operation; HA closes idle sockets, and the fetch is
@@ -371,7 +476,11 @@
         var slot = slots[i];
         setStatus(fetchStatus, "Fetching " + slot.name + " (" + (i + 1) + "/" + total + ")…",
           "text-base-content/60");
-        backend.send(JSON.stringify({ type: "series", name: slot.name, kind: slot.kind }));
+        // Carry the chosen HA statistic id so the backend can persist it (series_meta) and render
+        // the slot's entity from the dataset after a reload. Not secret — only the token is (§7.5).
+        backend.send(JSON.stringify({
+          type: "series", name: slot.name, kind: slot.kind, stat_id: slot.statId
+        }));
 
         // Hourly over the full window, chunked.
         var chunks = chunkWindows(w.startMs, w.endMs, HA_CHUNK_DAYS);
@@ -388,7 +497,9 @@
 
       var result = await finishBackend(backend);
       setStatus(fetchStatus, "✓ Imported " + result.series + " series. Reloading…", "text-success");
-      // The server now has the dataset; reload so panel ① re-renders from it (§3.5).
+      // The server now has the dataset — including each fetched slot's source and HA statistic id
+      // (persisted in series_meta) — so panel ① re-renders the fetched slots' source AND entity from
+      // it after the reload. No client-side re-save is needed for fetched slots (§3.5, §2.2).
       setTimeout(function () { window.location.reload(); }, 600);
     } catch (e) {
       setStatus(fetchStatus, "✗ " + e.message, "text-error");
@@ -505,7 +616,7 @@
     // mutated here — the draft is a private copy the in-drawer controls edit.
     var st = slotState[name] || {
       source: btn.getAttribute("data-slot-source") || null,
-      statId: "",
+      statId: btn.getAttribute("data-slot-stat-id") || "",
       kind: btn.getAttribute("data-slot-kind") || slotKind(name)
     };
     draft.slot = name;
@@ -760,6 +871,11 @@
       statId: draft.source === "home_assistant" ? (draft.statId || "") : "",
       kind: slotKind(name)
     };
+    // This slot is now a local customization (until a fetch persists it server-side). Mark it so
+    // saveSlotStore persists it — and only it and its peers, never server-seeded slots — so the
+    // choice survives the reload a backend_load Confirm on another slot triggers (the core bug).
+    locallyCustomized[name] = true;
+    saveSlotStore();
     updateSlotButton(name);
     closeDrawer();
   }

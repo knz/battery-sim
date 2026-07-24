@@ -62,7 +62,8 @@ CREATE TABLE IF NOT EXISTS series_meta (
     fine_resolution_s INTEGER,
     fine_start        TEXT,
     fine_end          TEXT,
-    source_type       TEXT
+    source_type       TEXT,
+    stat_id           TEXT
 );
 """
 
@@ -101,6 +102,9 @@ _SERIES_META_ADDED_COLUMNS = (
     # first shipped, so a stale local DB gets it here rather than crashing. NULL on rows written
     # before per-series provenance existed; readers fall back to the dataset-level source_type.
     ("source_type", "TEXT"),
+    # The HA statistic id a series was fetched from (specs §2.2), so a fetched HA slot can render
+    # its entity after a reload. NULL for non-HA sources and for pre-stat_id rows.
+    ("stat_id", "TEXT"),
 )
 
 
@@ -187,8 +191,8 @@ def _insert_series_meta(
     conn.execute(
         """INSERT INTO series_meta
            (dataset_id, workspace_id, name, kind, resolution_s, path,
-            fine_resolution_s, fine_start, fine_end, source_type)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            fine_resolution_s, fine_start, fine_end, source_type, stat_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             dataset_id,
             workspace_id,
@@ -200,6 +204,7 @@ def _insert_series_meta(
             fine_start,
             fine_end,
             source_type,
+            frame.stat_id,
         ),
     )
 
@@ -350,14 +355,14 @@ def load_latest(workspace_id: str = db.WORKSPACE_ID) -> LoadedDataset | None:
         dataset_id, source_type, w_start, w_end, fetched_at, warnings_json = row
         metas = conn.execute(
             """SELECT name, kind, resolution_s, path, fine_resolution_s, fine_start, fine_end,
-                      source_type
+                      source_type, stat_id
                FROM series_meta WHERE dataset_id = ?""",
             (dataset_id,),
         ).fetchall()
 
     frames = []
     series_sources: dict[str, str] = {}
-    for name, kind, resolution_s, path, fine_res, fine_start, fine_end, s_source in metas:
+    for name, kind, resolution_s, path, fine_res, fine_start, fine_end, s_source, stat_id in metas:
         p = Path(path)
         if p.exists():
             frame = _load_frame(p, name, kind, resolution_s)
@@ -367,6 +372,9 @@ def load_latest(workspace_id: str = db.WORKSPACE_ID) -> LoadedDataset | None:
                     datetime.fromisoformat(fine_start),
                     datetime.fromisoformat(fine_end),
                 )
+            # The HA statistic id this series was fetched from (specs §2.2), so the source picker
+            # can render a fetched HA slot's entity. None for non-HA sources / pre-stat_id rows.
+            frame.stat_id = stat_id
             frames.append(frame)
             # Per-series provenance, falling back to the dataset-level source for rows written
             # before per-series source_type existed (specs §2.2).

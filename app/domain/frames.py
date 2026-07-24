@@ -86,6 +86,11 @@ class SeriesFrame:
     # fine_coverage in the result object's `series` block (§4.5).
     fine_resolution_s: int | None = None
     fine_coverage: tuple[datetime, datetime] | None = None
+    # The Home Assistant statistic id this series was fetched from (specs §2.2). Carried so the
+    # source picker can render a fetched HA slot's entity after a reload; None for non-HA sources
+    # (e.g. the energy_charts backend load) and for series built without one. Not secret — only the
+    # token is browser-local (§7.5) — so it is persisted in series_meta.
+    stat_id: str | None = None
 
     def __post_init__(self) -> None:
         n = len(self.index)

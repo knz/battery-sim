@@ -118,6 +118,10 @@ def panel_data_from(dataset: LoadedDataset) -> dict:
                 # descriptor key, or None when the slot is unfilled), and the sources the drawer
                 # may offer for this slot. Phase C's source-picker drawer renders these.
                 "source": series_sources.get(slot.name),
+                # The HA statistic id this slot was fetched from (specs §2.2), so the source picker
+                # renders a fetched HA slot's entity after a reload without any client state. None
+                # for a non-HA source, an unfilled slot, or a row written before stat_id was stored.
+                "stat_id": (f.stat_id if f is not None else None),
                 "sources": [
                     {"key": d.key, "label": d.label, "kind": d.kind, "blurb": d.blurb}
                     for d in registry.sources_for(slot)

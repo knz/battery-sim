@@ -111,14 +111,24 @@
                          (source · entity) once picked in the drawer this session. Rendered inside
                          a .slot-source-label span so JS can rewrite just the text. For an HA slot
                          with no entity chosen yet, JS shows "Home Assistant · choose entity…". #}
+                      {# For a fetched Home Assistant slot the persisted statistic id (row.stat_id)
+                         is carried in data-slot-stat-id, and the label is rendered server-side as
+                         "Home Assistant · <id>" so it shows on first paint (no client state, specs
+                         §2.2). ha_fetch.js seeds slotState.statId from this attribute. #}
+                      {% set is_ha = row.source == 'home_assistant' %}
                       <button type="button"
                               class="btn btn-sm {% if chosen.label %}btn-ghost{% else %}btn-outline btn-primary{% endif %} slot-source-btn"
                               data-slot="{{ row.name }}"
                               data-slot-role="{{ _(row.role) }}"
                               data-slot-source="{{ row.source or '' }}"
+                              data-slot-stat-id="{{ row.stat_id or '' }}"
                               data-slot-kind="{{ 'price' if 'price' in (row.name or '') else 'energy' }}"
                               data-slot-sources="{{ src_list | tojson | forceescape }}">
-                        <span class="slot-source-label">{% if chosen.label %}{{ _(chosen.label) }}{% else %}{{ _('Choose source…') }}{% endif %}</span>
+                        <span class="slot-source-label">
+                          {%- if is_ha %}{{ _('Home Assistant') }} · {% if row.stat_id %}{{ row.stat_id }}{% else %}{{ _('choose entity…') }}{% endif %}
+                          {%- elif chosen.label %}{{ _(chosen.label) }}
+                          {%- else %}{{ _('Choose source…') }}{% endif -%}
+                        </span>
                         {% if chosen.label %}<span class="text-xs opacity-60">{{ _('change') }}</span>{% endif %}
                       </button>
                     </td>

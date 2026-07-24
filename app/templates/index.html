@@ -193,6 +193,12 @@
     </aside>
   </div>
 
+  {# The source generation (specs §2.2): the browser tags each locally-saved source customization
+     with this, and on reload keeps its local choice only while this is unchanged, yielding to the
+     server once a fetch (here or on another client in the same workspace) has advanced it. Bumped
+     only by a persisted HA fetch; 0 before the first one. #}
+  <script id="source-generation" type="application/json">{{ source_generation | default(0) | tojson }}</script>
+
   {# i18n strings the drawer's JS needs at runtime (rendered here so gettext extracts them). #}
   <script id="drawer-i18n" type="application/json">
     {{ {
