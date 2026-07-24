@@ -255,6 +255,15 @@ meaning makes every historical row a lie.
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
+**The connection runs in the browser.** *Test connection* and *Fetch history* are performed
+by the browser against the user's own Home Assistant, not by the backend
+([§4.3](06-home-assistant-ingestion.md)). The token entered here stays in the browser and is
+sent only to that instance — it is never transmitted to the application backend
+([§7.5](15-data-quality-and-limits.md#75-operational-notes)), and the UI says so beneath the
+token field. *Test connection* lists the available statistic ids and fills the mapping
+dropdowns; *Fetch history* fetches the statistics, streams them to the backend, and the panel
+re-renders from the persisted dataset.
+
 **The setup band decides which slots this box asks for.** The two choices in the band above
 panel ① ([§2.1](#the-setup-band)) determine the slot roster here, and this is the reason
 they are asked first:

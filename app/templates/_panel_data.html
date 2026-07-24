@@ -46,29 +46,41 @@
       </div>
 
       {# ── Home Assistant connection ───────────────────────────────────── #}
-      <div class="card bg-base-200 border border-base-300">
+      {# The connection is driven client-side by ha_fetch.js: the browser fetches statistics
+         from the user's HA directly (the token never reaches our backend, §7.5), so the URL and
+         token inputs, Test-connection, and the status line are all managed in JS. Server-side we
+         only pre-fill the Base URL when a previous fetch stored one; the token is browser-local
+         (localStorage) and is never rendered from the server. #}
+      <div class="card bg-base-200 border border-base-300" id="ha-connection"
+           data-ingest-ws="/data/ingest/ws">
         <div class="card-body gap-3 p-4">
           <h3 class="text-sm font-semibold text-base-content/70">{{ _('Home Assistant') }}</h3>
           <label class="form-control">
             <span class="label-text mb-1">{{ _('Base URL') }}</span>
-            <input type="text" class="input input-bordered input-sm" value="{{ data.ha.base_url }}" />
+            <input type="text" id="ha-base-url" class="input input-bordered input-sm"
+                   placeholder="https://homeassistant.local:8123" />
           </label>
           <label class="form-control">
             <span class="label-text mb-1">{{ _('Token') }}</span>
-            <input type="password" class="input input-bordered input-sm" value="placeholdertoken" />
+            <input type="password" id="ha-token" class="input input-bordered input-sm"
+                   autocomplete="off" placeholder="{{ _('long-lived access token') }}" />
+            <span class="label-text-alt mt-1 text-base-content/50">
+              {{ _('Stays in your browser. It is sent only to your Home Assistant, never to this app.') }}
+            </span>
           </label>
           <div class="flex flex-wrap items-center justify-between gap-2">
-            <span class="text-success text-sm">
-              ✓ {{ _('Connected') }} · {{ data.ha.version }} ·
-              {{ _('%(n)s statistic IDs available', n=data.ha.statistic_count) }}
-            </span>
-            <button class="btn btn-outline btn-sm">{{ _('Test connection') }}</button>
+            <span class="text-sm text-base-content/60" id="ha-status">{{ _('Not connected') }}</span>
+            <button type="button" class="btn btn-outline btn-sm" id="ha-test-btn">{{ _('Test connection') }}</button>
           </div>
         </div>
       </div>
 
       {# ── Series mapping ──────────────────────────────────────────────── #}
-      <div class="card bg-base-200 border border-base-300">
+      {# The mapping binds each series slot (§4.1) to one HA statistic id. The <select> options
+         are populated client-side after Test connection lists the ids (ha_fetch.js reads
+         data-series/data-kind). When a persisted dataset exists, `row.entity` shows what was
+         fetched; the select still lets the user remap and re-fetch. #}
+      <div class="card bg-base-200 border border-base-300" id="ha-mapping">
         <div class="card-body gap-3 p-4">
           <h3 class="text-sm font-semibold text-base-content/70">{{ _('Series mapping') }}</h3>
 
@@ -91,7 +103,14 @@
                       {% elif row.req == "cost_optional" %}<span title="{{ _('offered if you simulate costs') }}" class="text-primary">◒</span>
                       {% else %}<span title="{{ _('optional') }}" class="text-base-content/40">○</span>{% endif %}
                     </td>
-                    <td><span class="font-mono text-xs">{{ row.entity }}</span></td>
+                    <td>
+                      <select class="select select-bordered select-xs font-mono w-full max-w-md ha-map-select"
+                              data-series="{{ row.name if row.name else '' }}"
+                              data-kind="{{ 'price' if 'price' in (row.name or '') else 'energy' }}">
+                        <option value="">{{ _('— none —') }}</option>
+                      </select>
+                      {% if row.entity %}<div class="text-xs text-base-content/50 mt-0.5">{{ row.entity }}</div>{% endif %}
+                    </td>
                   </tr>
                   {% endif %}
                 {% endfor %}
@@ -103,8 +122,11 @@
             {{ _('● = required.  ○ = optional.  ◐ = required only if you have solar PV.  ◒ = offered only if you simulate costs (intra-hour price bracketing). Both answers come from the setup band above. Spot price drives the charge and discharge bands, so it is required whether or not you simulate costs.') }}
           </p>
 
-          <div class="flex justify-end">
-            <button class="btn btn-primary btn-sm">{{ _('Fetch history') }}</button>
+          {# Fetch progress — hidden until a fetch starts (ha_fetch.js). #}
+          <progress id="ha-fetch-progress" class="progress progress-primary w-full hidden" max="100"></progress>
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <span class="text-sm text-base-content/60" id="ha-fetch-status"></span>
+            <button type="button" class="btn btn-primary btn-sm" id="ha-fetch-btn" disabled>{{ _('Fetch history') }}</button>
           </div>
         </div>
       </div>
@@ -140,9 +162,13 @@
             </table>
           </div>
 
+          {# The price-granularity warning shows only when a price series was averaged down
+             (§6.2). Absent otherwise — the template does not fabricate an empty alert. #}
+          {% if data.quality.price_warning %}
           <div role="alert" class="alert alert-warning py-2">
             <span class="text-sm">⚠ {{ _(data.quality.price_warning) }}</span>
           </div>
+          {% endif %}
 
           <div class="grid grid-cols-1 gap-1 sm:grid-cols-[auto_1fr] sm:gap-x-6">
             <span class="text-base-content/60">{{ _('Gaps') }}</span><span>{{ data.quality.gaps }}</span>
@@ -150,9 +176,13 @@
             <span class="text-base-content/60">{{ _('Meter registers') }}</span><span>{{ data.quality.registers }}</span>
           </div>
 
+          {# The reconstructed-load warning depends on load reconstruction (§6.3), a later
+             increment. Shown only when that computation has produced one. #}
+          {% if data.quality.load_warning %}
           <div role="alert" class="alert alert-warning py-2">
             <span class="text-sm">⚠ {{ _(data.quality.load_warning) }}</span>
           </div>
+          {% endif %}
         </div>
       </div>
 

@@ -63,16 +63,16 @@ def _panel_data():
         # The two price-bracketing rows below are cost_only, so with this sample's
         # simulate_cost=False they are absent; they appear when cost simulation is enabled.
         "mapping": [
-            {"role": _N("Grid import T1"), "req": "required", "entity": "sensor.electricity_meter_import_t1"},
-            {"role": _N("Grid import T2"), "req": "required", "entity": "sensor.electricity_meter_import_t2"},
-            {"role": _N("Grid export T1"), "req": "required", "entity": "sensor.electricity_meter_export_t1"},
-            {"role": _N("Grid export T2"), "req": "required", "entity": "sensor.electricity_meter_export_t2"},
-            {"role": _N("Solar production"), "req": "conditional", "entity": "sensor.solar_total_production", "pv_only": True},
-            {"role": _N("Battery charge"), "req": "optional", "entity": "— none —"},
-            {"role": _N("Battery discharge"), "req": "optional", "entity": "— none —"},
-            {"role": _N("Spot price"), "req": "required", "entity": "sensor.epex_spot_price"},
-            {"role": _N("Spot price (min)"), "req": "cost_optional", "entity": "— none —", "cost_only": True},
-            {"role": _N("Spot price (max)"), "req": "cost_optional", "entity": "— none —", "cost_only": True},
+            {"name": "grid_import_t1", "role": _N("Grid import T1"), "req": "required", "entity": "sensor.electricity_meter_import_t1"},
+            {"name": "grid_import_t2", "role": _N("Grid import T2"), "req": "required", "entity": "sensor.electricity_meter_import_t2"},
+            {"name": "grid_export_t1", "role": _N("Grid export T1"), "req": "required", "entity": "sensor.electricity_meter_export_t1"},
+            {"name": "grid_export_t2", "role": _N("Grid export T2"), "req": "required", "entity": "sensor.electricity_meter_export_t2"},
+            {"name": "solar_production", "role": _N("Solar production"), "req": "conditional", "entity": "sensor.solar_total_production", "pv_only": True},
+            {"name": "battery_charge", "role": _N("Battery charge"), "req": "optional", "entity": "— none —"},
+            {"name": "battery_discharge", "role": _N("Battery discharge"), "req": "optional", "entity": "— none —"},
+            {"name": "price_spot", "role": _N("Spot price"), "req": "required", "entity": "sensor.epex_spot_price"},
+            {"name": "price_spot_min", "role": _N("Spot price (min)"), "req": "cost_optional", "entity": "— none —", "cost_only": True},
+            {"name": "price_spot_max", "role": _N("Spot price (max)"), "req": "cost_optional", "entity": "— none —", "cost_only": True},
         ],
         "quality": {
             "coverage": "2025-06-01 → 2026-07-21   (416 days)",

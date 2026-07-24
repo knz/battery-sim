@@ -14,11 +14,18 @@
 │  BROWSER                                                                  │
 │  Jinja2-rendered HTML · HTMX (fragment swaps) · Plotly (chart JSON)       │
 │  No build step, no SPA framework, no client-side computation.             │
-└───────────────────────────┬───────────────────────────────────────────────┘
-                            │  HTTP (fragments + JSON) · SSE /api/stream
-┌───────────────────────────▼───────────────────────────────────────────────┐
+│                                                                           │
+│    HaStatsClient (ha_fetch.js)  ── fetches from the user's Home Assistant  │
+│      • wss://<user-ha>/api/websocket, auth with the long-lived token       │
+│      • the token stays here; it never reaches the backend (§7.5)           │
+│      • forwards raw rows to the backend over WS /data/ingest/ws            │
+└──────┬────────────────────────────────────────────────┬───────────────────┘
+       │  HTTP (fragments+JSON) · SSE /api/stream         │  wss:// (user's HA)
+       │  · WS /data/ingest/ws (raw rows in)              ▼
+       │                                          [ user's Home Assistant ]
+┌──────▼─────────────────────────────────────────────────────────────────────┐
 │  WEB LAYER — FastAPI                                                      │
-│    routes/data.py     POST /data/source  /data/mapping  /data/fetch       │
+│    routes/data.py     WS /data/ingest/ws   (browser-fetched rows in)      │
 │    routes/params.py   PATCH /params                                       │
 │    routes/results.py  GET  /results  /results/export.csv                  │
 │    routes/stream.py   GET  /api/stream           (SSE)                    │
@@ -30,41 +37,48 @@
                             │
 ┌───────────────────────────▼───────────────────────────────────────────────┐
 │  SERVICE LAYER  (orchestration, state machine, no numerics)               │
-│    IngestService       source config → SeriesFrames → persist             │
+│    IngestService       streamed rows → SeriesFrames → persist             │
 │    WorkspaceService    params CRUD, validation, dirty tracking            │
 │    SimulationService   run_id, debounce, cancellation, LRU result cache   │
 │    JobRunner           ProcessPoolExecutor keyed by workspace_id          │
 └──────┬──────────────────────────────────────┬─────────────────────────────┘
        │                                      │
 ┌──────▼──────────────────────┐   ┌───────────▼────────────────────────────┐
-│  ADAPTERS  (all I/O)        │   │  DOMAIN  (pure functions, no I/O)      │
-│    HaStatsClient            │   │    ingest/     cumulative→delta        │
+│  ADAPTERS  (backend I/O)    │   │  DOMAIN  (pure functions, no I/O)      │
+│    IngestSocket parser      │   │    ingest/     cumulative→delta        │
 │    CsvLoader                │   │    normalize/  grid selection, resample│
-│    PriceLoader              │   │    quality/    checks, flags           │
+│    DatasetStore (persist)   │   │    quality/    checks, flags           │
 │    InterestReporter         │   │    pricing/    import/export curves    │
 │    (future) EntsoeClient    │   │                                        │
 └──────┬──────────────────────┘   │    policies/   charge + discharge      │
        │                          │    battery/    step function, limits   │
-       │                          │    simulate/   main loop               │
-       │                          │    metrics/    KPIs, waterfall         │
-       │                          │    benchmark/  perfect-foresight DP    │
+       │      NB: the HA fetch is  │    simulate/   main loop               │
+       │      in the BROWSER, not  │    metrics/    KPIs, waterfall         │
+       │      a backend adapter.   │    benchmark/  perfect-foresight DP    │
        │                          └────────────────────────────────────────┘
 ┌──────▼────────────────────────────────────────────────────────────────────┐
 │  PERSISTENCE                                                              │
 │    SQLite  (SQLAlchemy)                                                   │
 │      workspaces(id, owner_id, name, created_at)                           │
 │      datasets(id, workspace_id, source_type, fetched_at, coverage, qa)    │
-│      series_meta(id, dataset_id, name, kind, resolution_s, path)          │
+│      series_meta(id, dataset_id, name, kind, resolution_s, path,          │
+│                  fine_resolution_s, fine_coverage)                        │
 │      params(workspace_id, json, updated_at)          -- current config    │
 │      runs(id, workspace_id, run_id, config_hash, result_json, created_at) │
-│      credentials(workspace_id, ha_url, ha_token_enc)                      │
 │      feature_interest(workspace_id, feature_key, count, last_clicked_at)  │
 │                                                                           │
+│      -- No credentials table: the HA token stays in the browser (§7.5).   │
+│                                                                           │
 │    Filesystem                                                             │
-│      <data_dir>/<workspace_id>/series/<name>_<res>.parquet                │
+│      <data_dir>/<workspace_id>/series/<name>.npz                          │
 │      <data_dir>/<workspace_id>/uploads/<original_filename>                │
 └───────────────────────────────────────────────────────────────────────────┘
 ```
+
+> **On series storage format.** The series arrays are persisted as NumPy `.npz` in this
+> increment rather than Parquet, to avoid a pandas dependency for a store the domain layer
+> reads back into plain arrays. The on-disk format is an implementation detail behind
+> `DatasetStore`; a move to Parquet is a later change if columnar tooling is wanted.
 
 The `domain/` sub-packages map onto the specification files as follows:
 
@@ -152,10 +166,10 @@ every 1,024 intervals. The `run_id` protocol that drives cancellation is in
 ## 5.4 Configuration
 
 Single `config.toml` next to the data directory: bind host/port, data dir, log level,
-default parameter values, encryption key for stored HA tokens, and the feature-interest
-endpoint. Environment variables override. HA tokens are encrypted at rest with a key derived
-from a local secret file (0600); this is deterrence against casual disclosure, not a security
-boundary. See also [§7.5](15-data-quality-and-limits.md#75-operational-notes).
+default parameter values, and the feature-interest endpoint. Environment variables override.
+There is **no HA-token configuration and no token-encryption key**: the Home Assistant token
+stays in the browser and is never stored server-side
+([§4.3](06-home-assistant-ingestion.md), [§7.5](15-data-quality-and-limits.md#75-operational-notes)).
 
 `feature_interest_url` is **empty by default** and no request is made while it is empty. A
 packager or a user who wants the reports to reach someone sets it deliberately. Beside it,

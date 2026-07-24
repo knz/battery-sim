@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-23 21:14+0200\n"
+"POT-Creation-Date: 2026-07-23 22:04+0200\n"
 "PO-Revision-Date: 2026-07-23 20:30+0200\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: nl\n"
@@ -18,12 +18,8 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.18.0\n"
 
-#, python-format
-msgid "%(n)s statistic IDs available"
-msgstr "%(n)s statistiek-ID's beschikbaar"
-
 msgid "0.41％ of intervals had negative reconstructed load (clamped to 0)."
-msgstr ""
+msgstr "0.41％ van de intervallen had een negatieve gereconstrueerde belasting (afgekapt naar 0)."
 "0,41％ van de intervallen had negatief gereconstrueerd verbruik (afgekapt "
 "op 0)."
 
@@ -111,9 +107,6 @@ msgstr "Laadstrategie"
 
 msgid "Charged into the battery"
 msgstr "In de batterij geladen"
-
-msgid "Connected"
-msgstr "Verbonden"
 
 msgid "Conversion losses"
 msgstr "Omzettingsverliezen"
@@ -283,6 +276,10 @@ msgstr "Zonder batterij"
 msgid "Not built yet"
 msgstr "Nog niet gebouwd"
 
+#, fuzzy
+msgid "Not connected"
+msgstr "Verbonden"
+
 msgid "One conversion PV→battery"
 msgstr "Eén omzetting PV→batterij"
 
@@ -398,6 +395,13 @@ msgstr "Sluipverbruik"
 msgid "Standby draw"
 msgstr "Sluipverbruik"
 
+msgid ""
+"Stays in your browser. It is sent only to your Home Assistant, never to "
+"this app."
+msgstr ""
+"Blijft in je browser. Wordt alleen naar je Home Assistant gestuurd, nooit "
+"naar deze app."
+
 msgid "Test connection"
 msgstr "Verbinding testen"
 
@@ -483,6 +487,9 @@ msgstr ""
 msgid "kWh"
 msgstr "kWh"
 
+msgid "long-lived access token"
+msgstr "long-lived access token (langlevend toegangstoken)"
+
 msgid "not nameplate"
 msgstr "niet de nominale waarde"
 
@@ -509,6 +516,9 @@ msgstr "geldig"
 
 msgid "workspace: local"
 msgstr "werkruimte: lokaal"
+
+msgid "— none —"
+msgstr "— geen —"
 
 msgid "…if export allowed"
 msgstr "…als teruglevering toegestaan"
@@ -581,4 +591,7 @@ msgstr "👍 Ik wil dit"
 
 #~ msgid "always"
 #~ msgstr "altijd"
+
+#~ msgid "%(n)s statistic IDs available"
+#~ msgstr "%(n)s statistiek-ID's beschikbaar"
 

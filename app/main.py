@@ -16,10 +16,17 @@ records a thumbs-up in the local counter (app/db.py) and fires the optional, fir
 outbound POST (app/interest.py). The counter write always succeeds and the endpoint always
 returns success, whatever the outbound request does.
 
+Beyond the pending affordance, this layer now serves the Home Assistant **data import**
+(specs/06-home-assistant-ingestion.md, browser-fetch increment). The browser fetches statistics
+from the user's own HA instance directly and streams the raw rows to `WS /data/ingest/ws`; the
+backend normalises them into SeriesFrames (app/domain) and persists them (app/dataset.py) so
+they survive a restart. No HA token ever reaches this backend — it stays in the browser.
+
 Routes:
     GET  /                          → the full page (index.html)
     GET  /lang/{code}               → set the language cookie, redirect back
     POST /feature-interest/{key}    → record interest in a pending control; 204 on success
+    WS   /data/ingest/ws            → stream browser-fetched HA rows in; persist SeriesFrames
     /static/*                       → CSS, generated stylesheet, Plotly, topology SVGs
 
 Run:  uv run uvicorn app.main:app --reload
@@ -28,12 +35,13 @@ Run:  uv run uvicorn app.main:app --reload
 import asyncio
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from app import config, db, features, i18n, interest
+from app import config, data_view, dataset, db, features, i18n, ingest_ws, interest
+from app.domain import normalize
 from app.sample_data import sample_view
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -58,6 +66,15 @@ def index(request: Request):
     i18n.install_for(templates.env, locale)
 
     ctx = sample_view()
+    # If a real dataset has been fetched and persisted, panel ① renders from it (specs §3.5);
+    # otherwise it keeps the static sample as the empty state. Params/results stay sample until
+    # their own increments land. A load failure falls back to the sample rather than 500ing.
+    try:
+        loaded = dataset.load_latest()
+        if loaded is not None and loaded.frames:
+            ctx["data"] = data_view.panel_data_from(loaded)
+    except Exception:  # pragma: no cover - defensive: a corrupt dataset must not break the page
+        pass
     ctx["lang"] = {
         "current": locale,
         "options": [{"code": c, "label": c.upper()} for c in i18n.SUPPORTED],
@@ -82,6 +99,68 @@ async def feature_interest(feature_key: str):
     # forbids. report() no-ops when no endpoint is configured.
     asyncio.get_running_loop().create_task(interest.report(feature_key, CONFIG))
     return Response(status_code=204)
+
+
+@app.websocket("/data/ingest/ws")
+async def data_ingest_ws(ws: WebSocket):
+    """Stream browser-fetched HA statistics rows in; normalise, persist, and report back.
+
+    Protocol in app/ingest_ws.py: a `header`, then `series`/`rows` batches per mapped series,
+    then `done`. The backend accumulates in an `IngestSession`, and on `done` builds SeriesFrames
+    (app/domain), persists them (app/dataset.save_dataset), and returns a `result` frame with the
+    dataset id, series count, ingest warnings, and the panel-① grid report (specs §6.2).
+
+    A protocol or validation error is reported as an `error` frame and closes the socket without
+    persisting — the LOAD_FAILED path (specs §3.2). No HA token is ever received here (§7.5).
+    """
+    await ws.accept()
+    session = ingest_ws.IngestSession()
+    try:
+        while True:
+            msg = await ws.receive_json()
+            mtype = msg.get("type")
+            try:
+                if mtype == "header":
+                    session.on_header(msg)
+                elif mtype == "series":
+                    session.on_series(msg)
+                elif mtype == "rows":
+                    total = session.on_rows(msg)
+                    await ws.send_json({"type": "progress", "name": msg.get("name"), "rows": total})
+                elif mtype == "done":
+                    frames, warnings, window = session.finish()
+                    # Persistence is I/O, so it runs off the event loop (specs §5.1 adapters).
+                    dataset_id = await asyncio.to_thread(
+                        dataset.save_dataset, frames, window, session.source or "home_assistant", warnings
+                    )
+                    report = normalize.grid_report(frames, window)
+                    await ws.send_json(
+                        {
+                            "type": "result",
+                            "dataset_id": dataset_id,
+                            "series": len(frames),
+                            "warnings": warnings,
+                            "grid": _jsonable_grid(report),
+                        }
+                    )
+                    await ws.close()
+                    return
+                else:
+                    raise ingest_ws.IngestError(f"unknown message type: {mtype!r}")
+            except ingest_ws.IngestError as exc:
+                await ws.send_json({"type": "error", "message": str(exc)})
+                await ws.close()
+                return
+    except WebSocketDisconnect:
+        # Client vanished mid-stream; nothing was persisted, nothing to clean up.
+        return
+
+
+def _jsonable_grid(report: dict) -> dict:
+    """Grid report → JSON-safe dict (grid_s and native_resolution_s are already ints/None)."""
+    # normalize.grid_report already emits plain ints/strings/None; this is a pass-through guard
+    # kept explicit so a future numpy leak is caught here rather than at ws.send_json.
+    return report
 
 
 @app.get("/lang/{code}")

@@ -114,5 +114,10 @@
       });
     })();
   </script>
+
+  {# Browser-side Home Assistant fetch (specs/06-home-assistant-ingestion.md). The token stays
+     in the browser and is sent only to the user's own HA; fetched rows stream to the backend
+     over WS /data/ingest/ws (§7.5). #}
+  <script src="/static/ha_fetch.js" defer></script>
 </body>
 </html>

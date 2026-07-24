@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-23 21:14+0200\n"
+"POT-Creation-Date: 2026-07-23 22:04+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -16,10 +16,6 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.18.0\n"
-
-#, python-format
-msgid "%(n)s statistic IDs available"
-msgstr ""
 
 msgid "0.41％ of intervals had negative reconstructed load (clamped to 0)."
 msgstr ""
@@ -107,9 +103,6 @@ msgid "Charge policy"
 msgstr ""
 
 msgid "Charged into the battery"
-msgstr ""
-
-msgid "Connected"
 msgstr ""
 
 msgid "Conversion losses"
@@ -275,6 +268,9 @@ msgstr ""
 msgid "Not built yet"
 msgstr ""
 
+msgid "Not connected"
+msgstr ""
+
 msgid "One conversion PV→battery"
 msgstr ""
 
@@ -380,6 +376,11 @@ msgstr ""
 msgid "Standby draw"
 msgstr ""
 
+msgid ""
+"Stays in your browser. It is sent only to your Home Assistant, never to "
+"this app."
+msgstr ""
+
 msgid "Test connection"
 msgstr ""
 
@@ -455,6 +456,9 @@ msgstr ""
 msgid "kWh"
 msgstr ""
 
+msgid "long-lived access token"
+msgstr ""
+
 msgid "not nameplate"
 msgstr ""
 
@@ -480,6 +484,9 @@ msgid "valid"
 msgstr ""
 
 msgid "workspace: local"
+msgstr ""
+
+msgid "— none —"
 msgstr ""
 
 msgid "…if export allowed"
