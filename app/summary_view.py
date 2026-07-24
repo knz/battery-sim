@@ -48,68 +48,18 @@ from datetime import datetime
 import numpy as np
 
 from app.dataset import LoadedDataset
-from app.domain import normalize
 from app.domain.frames import SeriesFrame
+from app.domain.reconcile import (
+    CLAMP_UNRELIABLE_FRAC,
+    DIV_GUARD_EPS,
+    reconcile_grid,
+)
 
-# Below this PV total (kWh) self_consumption is undefined — nothing was generated to consume, so
-# report it as absent rather than dividing by ~0 (specs §6.11 DIV_GUARD_EPS). A household with a
-# PV slot mapped but no production over the window falls here.
-DIV_GUARD_EPS = 1e-6
-
-
-def _resample_sum(frame: SeriesFrame, grid_s: int, window: tuple[datetime, datetime]) -> np.ndarray | None:
-    """Sum `frame`'s energy onto the `grid_s` grid over `window`, as a per-grid-interval array.
-
-    Energy totals are resolution-invariant (Σ kWh is the same however finely it was recorded), so
-    downsampling is a bucketed sum of the native deltas and upsampling never happens here — an
-    energy series is never coarser than the grid the run chose (specs §6.2, choose_grid picks the
-    MAX covering energy resolution). Returns one value per grid interval in [window[0], window[1]),
-    or None for an irregular series (no native spacing to bucket by).
-
-    The bucketing is purely by timestamp: each native interval's energy lands in the grid bucket
-    its start falls into. A native series equal to the grid maps one-to-one; a finer one sums
-    several natives per bucket. Intervals the series does not cover contribute 0 (own-coverage
-    policy — a series shorter than the window simply adds nothing outside its span).
-    """
-    if frame.resolution_s is None:
-        return None
-    # frame.index is UTC-naive datetime64 (the pipeline holds UTC, specs §4.4); the window is
-    # tz-aware UTC. Drop the tz to compare in the same UTC-naive frame — NOT astimezone(), which
-    # would shift to local time and misalign the buckets by the UTC offset.
-    start = np.datetime64(window[0].replace(tzinfo=None), "s")
-    end = np.datetime64(window[1].replace(tzinfo=None), "s")
-    n_buckets = int((end - start).astype("timedelta64[s]").astype(np.int64) // grid_s)
-    if n_buckets <= 0:
-        return None
-    out = np.zeros(n_buckets, dtype=np.float64)
-    idx = frame.index.astype("datetime64[s]")
-    offset_s = (idx - start).astype("timedelta64[s]").astype(np.int64)
-    bucket = offset_s // grid_s
-    inside = (bucket >= 0) & (bucket < n_buckets)
-    np.add.at(out, bucket[inside], np.nan_to_num(frame.values[inside], nan=0.0))
-    return out
-
-
-def _grid_sum(frame: SeriesFrame | None, grid_s: int, window: tuple[datetime, datetime]) -> np.ndarray | None:
-    """The per-grid-interval energy of `frame` (None → None), or None if it cannot be gridded."""
-    if frame is None:
-        return None
-    return _resample_sum(frame, grid_s, window)
-
-
-def _combined(*arrays: np.ndarray | None) -> np.ndarray | None:
-    """Element-wise sum of the present arrays (None means absent), or None if all are absent.
-
-    Used to fold the two tariff registers (T1 + T2) into a single import/export series before the
-    load reconstruction, treating an unmapped register as contributing nothing.
-    """
-    present = [a for a in arrays if a is not None]
-    if not present:
-        return None
-    total = np.zeros_like(present[0])
-    for a in present:
-        total = total + a
-    return total
+# The per-interval reconciliation + §6.3 load reconstruction were extracted to
+# app/domain/reconcile.py so the panel-③ results view (app/results_view.py) can reuse the same
+# numeric core over a selectable window. DIV_GUARD_EPS and CLAMP_UNRELIABLE_FRAC now live there and
+# are imported back here. This module keeps the formatting, the solar own-coverage logic, the price
+# stats, and the notes — i.e. everything that shapes the band's presentation.
 
 
 def _fmt_kwh(total: float) -> str:
@@ -150,29 +100,12 @@ def _price_stats(frame: SeriesFrame | None) -> dict | None:
     }
 
 
-# Slots that DEFINE the band's window. Only the grid meter registers drive coverage — an optional
-# series with a short span (a solar array or battery mapped part-way through, e.g. panels installed
-# six months into a two-year meter history) must NOT clip the grid/household totals to its own
-# sub-window. Each optional group is instead summed over its OWN coverage within this window and
-# reports its own span (specs §2.3a "sum over each series' own coverage"). This is the fix for the
-# "grid import looks very low" case: the effective window is the meter's, not the intersection.
-_WINDOW_SLOTS = ("grid_import_t1", "grid_import_t2", "grid_export_t1", "grid_export_t2")
-
 # A solar series whose total production over the window is below this (kWh) is treated as EMPTY —
 # a sensor mapped but not actually reporting (near-zero deltas). We then omit the solar group and
 # surface a data-quality note, rather than showing "Produced 0 kWh" or dividing self_consumption by
 # ~0 (which produced the −1001532% anomaly). Set well above float noise and the odd stray reading,
 # well below any real array's output over a usable window.
 PV_PRESENT_FLOOR_KWH = 1.0
-
-# Reliability gate for the load reconstruction. When the §6.3 negative-load clamp discards more
-# than this fraction of the (clamped) load, consumption and self-sufficiency are treated as
-# UNRELIABLE and suppressed with a warning — the clamp is inflating load by that much, so the two
-# figures built on it cannot be trusted. The dominant cause is real PV export the solar sensor did
-# not report (or an unmapped battery discharging to the grid). A few clamped intervals are normal
-# (sensor noise, minor clock skew); a large share is a broken input. 5% is comfortably above the
-# incidental-noise band and well below the ~23% this dataset's missing-PV case produced.
-CLAMP_UNRELIABLE_FRAC = 0.05
 
 
 def data_summary_from(dataset: LoadedDataset) -> dict | None:
@@ -190,59 +123,28 @@ def data_summary_from(dataset: LoadedDataset) -> dict | None:
     frames = dataset.frames
     by_name = {f.name: f for f in frames}
 
-    # Window + grid from the grid meter series alone (not all frames — see _WINDOW_SLOTS).
-    window_frames = [f for f in frames if f.name in _WINDOW_SLOTS]
-    window = normalize.effective_window(window_frames, dataset.window)
-    grid_s = normalize.choose_grid(window_frames, window)
-    if grid_s is None:
-        return None  # no covering grid meter series → nothing to summarise (band omitted)
+    # The per-interval reconciliation + §6.3 load reconstruction now live in reconcile_grid: window
+    # + grid from the grid meter series alone (not all frames), each energy series resampled onto the
+    # grid, load reconstructed and the negative clamp measured. Returns None on no covering grid
+    # meter — the same guard the band had inline (nothing to summarise; main.py omits it).
+    rec = reconcile_grid(dataset, dataset.window)
+    if rec is None:
+        return None
 
-    # Grid energy on the common grid. Import/export fold their two tariff registers together; PV
-    # and the existing battery are single series. An unmapped slot yields None and contributes 0.
-    imp = _combined(
-        _grid_sum(by_name.get("grid_import_t1"), grid_s, window),
-        _grid_sum(by_name.get("grid_import_t2"), grid_s, window),
-    )
-    exp = _combined(
-        _grid_sum(by_name.get("grid_export_t1"), grid_s, window),
-        _grid_sum(by_name.get("grid_export_t2"), grid_s, window),
-    )
-    if imp is None or exp is None:
-        return None  # no grid meter reconciled onto the grid → cannot summarise
-
-    pv = _grid_sum(by_name.get("solar_production"), grid_s, window)
-    batt_chg = _grid_sum(by_name.get("battery_charge"), grid_s, window)
-    batt_dis = _grid_sum(by_name.get("battery_discharge"), grid_s, window)
-    has_battery = batt_chg is not None or batt_dis is not None
-
-    # §6.3 load reconstruction, per interval: load = imp − exp + pv + batt_dis − batt_chg, then
-    # clamp negatives to 0. The battery terms strip an EXISTING battery; without it they are 0, so
-    # the reconstructed load is net of whatever battery the household already owns (specs §6.3).
-    raw_load = imp - exp
-    if pv is not None:
-        raw_load = raw_load + pv
-    if has_battery:
-        raw_load = raw_load + (batt_dis if batt_dis is not None else 0.0) - (
-            batt_chg if batt_chg is not None else 0.0
-        )
-    negative = raw_load < 0
-    load = np.maximum(raw_load, 0.0)
-
-    imp_total = float(imp.sum())
-    exp_total = float(exp.sum())
-    load_total = float(load.sum())
-    # Energy discarded by the clamp: the magnitude of the negative reconstructed load. This is
-    # export the reconstruction could NOT explain from import + PV + battery. A large amount means
-    # the reconstruction is compromised — typically real PV the solar sensor did not report, or an
-    # unmapped battery discharging to the grid (§6.3). Clamping inflates `load` by exactly this
-    # much, so consumption and self-sufficiency built on it become untrustworthy.
-    clamped_kwh = float(-raw_load[negative].sum())
-    # Fraction of the reconstructed household energy that the clamp had to discard. Denominator is
-    # load + clamped so it is well-defined even when the clamp zeroed nearly everything (load_total
-    # ≈ 0 with heavy clamping is the MOST unreliable case, not a divide-by-zero to swallow): there,
-    # clamped_frac → 1. Equivalently, the share of |reconstruction| that came out negative.
-    denom = load_total + clamped_kwh
-    clamped_frac = clamped_kwh / denom if denom > DIV_GUARD_EPS else 0.0
+    # Bind the reconciliation result to the names the rest of the band already used, so the
+    # formatting, notes, solar and battery blocks below are unchanged.
+    window = rec.window
+    grid_s = rec.grid_s
+    pv = rec.pv
+    exp = rec.exp
+    batt_chg = rec.batt_charge
+    batt_dis = rec.batt_discharge
+    has_battery = rec.has_battery
+    imp_total = rec.imp_total
+    exp_total = rec.exp_total
+    load_total = rec.load_total
+    clamped_frac = rec.clamped_frac
+    clamped_kwh = rec.clamped_kwh
 
     # RELIABILITY GATE. When the clamp discarded a material share of the load, consumption and
     # self-sufficiency are unreliable — do not present them as fact. Surface a prominent warning
