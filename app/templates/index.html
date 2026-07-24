@@ -82,9 +82,16 @@
        the pending [?] reuses the shared #pending-dialog above (data-feature-key="data_source_csv").
        When the selected source is Home Assistant, the drawer also reveals a single entity
        (statistic id) <select> (#drawer-entity-select), populated per slot from the shared
-       connection's listing; the chosen id is kept in per-slot JS state and reflected in the
-       slot's source-button label. Static chrome strings are translated here; per-source
-       label/blurb text arrives pre-translated in the row payload. #}
+       connection's listing.
+
+       Staged-then-confirm: the drawer is transactional. Selecting a source or an entity only
+       STAGES a drawer-local draft (ha_fetch.js) — nothing reaches the committed per-slot state or
+       the row label until the user presses #drawer-confirm. Confirm commits: for a Home Assistant
+       slot it writes the chosen source + entity into committed state and updates the row label;
+       for a backend source (#drawer-backend-status shows progress) it runs the load and reloads.
+       #drawer-cancel — like ✕ / backdrop / Escape — discards the draft and leaves the committed
+       state untouched. Static chrome strings are translated here; per-source label/blurb text
+       arrives pre-translated in the row payload. #}
   <div id="source-drawer" class="fixed inset-0 z-40 hidden" aria-hidden="true">
     <div id="source-drawer-backdrop" class="absolute inset-0 bg-black/40"></div>
     <aside class="absolute right-0 top-0 h-full w-full max-w-md bg-base-100 shadow-xl
@@ -123,10 +130,23 @@
         <p id="drawer-ha-note" class="text-xs text-base-content/60 hidden">
           {{ _('Uses the shared Home Assistant connection above — connect once, then fetch history for all Home Assistant slots together.') }}
         </p>
+        {# Backend-source status line (shown only for a backend_load source; carries the
+           load-in-progress / error text). The action itself is the shared Confirm button below. #}
         <div id="drawer-backend-action" class="hidden flex-col gap-2">
           <span id="drawer-backend-status" class="text-sm text-base-content/60"></span>
-          <button type="button" id="drawer-use-source" class="btn btn-primary btn-sm">
-            {{ _('Use this source') }}
+        </div>
+
+        {# Transactional footer (§2.2, staged-then-confirm). Nothing the drawer stages is committed
+           until Confirm is pressed: for a Home Assistant slot it writes the chosen source + entity
+           into committed state and updates the row label; for a backend source it runs the load and
+           reloads. Cancel (like ✕ / backdrop / Escape) discards the staged draft and leaves the
+           committed state untouched. #}
+        <div class="mt-2 flex items-center justify-end gap-2">
+          <button type="button" id="drawer-cancel" class="btn btn-ghost btn-sm">
+            {{ _('Cancel') }}
+          </button>
+          <button type="button" id="drawer-confirm" class="btn btn-primary btn-sm" disabled>
+            {{ _('Confirm') }}
           </button>
         </div>
       </div>

@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-24 14:34+0200\n"
+"POT-Creation-Date: 2026-07-24 14:48+0200\n"
 "PO-Revision-Date: 2026-07-23 20:40+0200\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: en\n"
@@ -97,6 +97,9 @@ msgstr "Both"
 msgid "Calculate →"
 msgstr "Calculate →"
 
+msgid "Cancel"
+msgstr "Cancel"
+
 msgid "Caveats for this run"
 msgstr "Caveats for this run"
 
@@ -114,6 +117,9 @@ msgstr "Choose source…"
 
 msgid "Close"
 msgstr "Close"
+
+msgid "Confirm"
+msgstr "Confirm"
 
 msgid "Connect Home Assistant above first"
 msgstr ""
@@ -483,9 +489,6 @@ msgstr "Upload CSV"
 msgid "Usable capacity"
 msgstr "Usable capacity"
 
-msgid "Use this source"
-msgstr "Use this source"
-
 msgid ""
 "Uses the shared Home Assistant connection above — connect once, then "
 "fetch history for all Home Assistant slots together."
@@ -665,4 +668,7 @@ msgstr "👍 I want this"
 
 #~ msgid "Entity / statistic ID"
 #~ msgstr "Entity / statistic ID"
+
+#~ msgid "Use this source"
+#~ msgstr "Use this source"
 

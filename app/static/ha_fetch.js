@@ -18,18 +18,23 @@
  *     list (data-slot-sources). A click opens the shared right-side drawer (#source-drawer in
  *     index.html) listing those sources as radios. Picking a source:
  *       * home_assistant (browser_fetch) → the drawer reveals a single entity <select>
- *         (#drawer-entity-select), populated for THIS slot from the shared connection's listing;
- *         the chosen id is stored in per-slot JS state (slotState). No round-trip.
- *       * energy_charts (backend_load)   → POST /data/slot/{slot}/load {source, window}; on
- *         success reload so panel ① re-renders from the persisted dataset (specs §3.5).
+ *         (#drawer-entity-select), populated for THIS slot from the shared connection's listing.
+ *       * energy_charts (backend_load)   → Confirm POSTs /data/slot/{slot}/load {source, window}
+ *         and reloads so panel ① re-renders from the persisted dataset (specs §3.5).
  *       * data_source_csv (pending)      → the shared "not built yet" dialog (#pending-dialog).
  *
- * Per-slot entity state (the crux). There is NO per-row DOM <select> any more; instead a JS map
- * `slotState[name] = { source, statId, kind }` records each slot's chosen source and (for HA) its
- * chosen statistic id. It is seeded from each .slot-source-btn's data-* attributes at load. The
- * drawer's single entity <select> is (re)configured per slot on open / on picking the HA radio,
- * and writes back into slotState on change. mappedSlots() (used by Fetch history) reads slotState
- * — the HA slots whose statId is set — so the fetch no longer depends on any per-row select.
+ * Staged-then-confirm model (the crux). The drawer is TRANSACTIONAL: nothing commits on mere
+ * selection or on closing. While the drawer is open, all in-drawer controls (source radios, entity
+ * <select>) write ONLY to a drawer-local `draft = { slot, source, statId }`. The committed per-slot
+ * state lives in `slotState[name] = { source, statId, kind }` and is the ONLY thing updateSlotButton
+ * and mappedSlots read. openDrawer seeds `draft` from the committed slotState (so the current choice
+ * shows pre-selected) without touching slotState. A single Confirm button commits:
+ *       * HA source   → writes draft → slotState, refreshes the row label, closes. No reload.
+ *       * backend     → runs the load POST (as the old "Use this source" did) and reloads on success.
+ * Cancel / Escape / ✕ / backdrop DISCARD: closeDrawer reverts to the committed state and never
+ * mutates slotState or the row label. slotState is seeded from each .slot-source-btn's data-*
+ * attributes at load (the committed initial state). mappedSlots() (used by Fetch history) reads
+ * slotState — the HA slots whose statId is set — so the fetch depends only on committed state.
  *
  * User actions on the connection card:
  *   Test connection  — open wss://<ha>/api/websocket, auth, recorder/list_statistic_ids, store
@@ -203,11 +208,11 @@
       statIds.energy = sums.map(function (s) { return s.statistic_id; }).sort();
       statIds.price = means.map(function (s) { return s.statistic_id; }).sort();
       haConnected = true;
-      // If the drawer is open on an HA slot, its entity select was showing the "connect first"
-      // hint; repopulate it now. Otherwise the ids are just stored for the next drawer open.
-      if (drawerState.slot && drawerState.selected
-          && drawerState.selected.kind === "browser_fetch") {
-        fillDrawerEntitySelect(drawerState.slot);
+      // If the drawer is open with HA staged in the draft, its entity select was showing the
+      // "connect first" hint; repopulate it now. Otherwise the ids are just stored for the next
+      // drawer open.
+      if (draft.slot && draft.source === "home_assistant") {
+        fillDrawerEntitySelect(draft.slot);
       }
       setStatus(statusEl, "✓ Connected · " + statIds.energy.length + " energy + "
         + statIds.price.length + " measurement statistics", "text-success");
@@ -222,13 +227,13 @@
   }
 
   // Populate the drawer's single entity <select> for one slot from the listed ids (kind-
-  // appropriate: energy ids for energy slots, mean ids for price slots). Preselect the slot's
-  // previously chosen id (slotState), else a best-effort guess. When not connected yet, show a
-  // single disabled hint instead of ids (the note tells the user to connect above).
+  // appropriate: energy ids for energy slots, mean ids for price slots). Preselect the DRAFT's
+  // chosen id, else a best-effort guess. When not connected yet, show a single disabled hint
+  // instead of ids (the note tells the user to connect above). Writes only to the draft — the
+  // guess is a staged default, visible in the open dropdown but not committed until Confirm.
   function fillDrawerEntitySelect(slotName) {
     if (!drawerEntitySelect) return;
-    var st = slotState[slotName] || { kind: slotKind(slotName), statId: "" };
-    var kind = st.kind === "price" ? "price" : "energy";
+    var kind = slotKind(slotName) === "price" ? "price" : "energy";
     var sel = drawerEntitySelect;
 
     // Reset to a single leading option, then either the hint or the ids.
@@ -250,15 +255,13 @@
       opt.value = id; opt.textContent = id;
       sel.appendChild(opt);
     });
-    // Preselect: a prior explicit choice, else a heuristic guess. The guess is a *visible*
-    // default, not a silent one — it is written to slotState so the dropdown, the roster row
-    // label (`Home Assistant · <id>`), and mappedSlots() all show the same id the fetch will use.
-    // The user sees it on the row and in the open dropdown and overrides a wrong guess there; it
-    // is a starting point, not a mapping authority.
-    var pick = st.statId || guessId(slotName, statIds[kind]) || "";
+    // Preselect: the draft's current id, else a heuristic guess. The guess is a staged default —
+    // shown pre-selected in the dropdown and stored in draft.statId, but NOT committed; it only
+    // reaches slotState (and the row label) on Confirm. Nothing here touches slotState.
+    var pick = draft.statId || guessId(slotName, statIds[kind]) || "";
     sel.value = pick;
-    st.statId = sel.value;
-    if (drawerState.slot === slotName) updateSlotButton(slotName);  // keep the row label in step
+    draft.statId = sel.value;
+    updateConfirmEnabled();
   }
 
   // Heuristic auto-map from the slot name to a statistic id. A convenience default only: the
@@ -455,45 +458,55 @@
   var drawerEntitySelect = document.getElementById("drawer-entity-select");
   var drawerBackendAction = document.getElementById("drawer-backend-action");
   var drawerBackendStatus = document.getElementById("drawer-backend-status");
-  var drawerUseBtn = document.getElementById("drawer-use-source");
+  var drawerConfirmBtn = document.getElementById("drawer-confirm");
+  var drawerCancelBtn = document.getElementById("drawer-cancel");
 
-  var drawerState = { slot: null, source: null, selected: null };
+  // Drawer-local staging. `draft` is the ONLY thing the in-drawer controls write to while the
+  // drawer is open; it is seeded from the committed slotState on open and applied to slotState
+  // only on Confirm. `sources` holds the current slot's source descriptors (for Confirm to read
+  // the selected source's kind). `loading` guards Confirm during a backend load.
+  var draft = { slot: null, source: null, statId: "" };
+  var drawerSources = [];
+  var loading = false;
   var lastFocus = null;
 
-  // Storing the chosen entity: writes into slotState and refreshes the slot's button label.
+  // The entity <select> stages the chosen id into the draft (never slotState). Confirm commits it.
   if (drawerEntitySelect) {
     drawerEntitySelect.addEventListener("change", function () {
-      var name = drawerState.slot;
-      if (!name || !slotState[name]) return;
-      slotState[name].statId = drawerEntitySelect.value || "";
-      updateSlotButton(name);
+      draft.statId = drawerEntitySelect.value || "";
+      updateConfirmEnabled();
     });
   }
 
   function openDrawer(btn) {
     if (!drawer) return;
     var name = btn.getAttribute("data-slot");
-    drawerState.slot = name;
-    // The current source comes from slotState (kept across opens), falling back to the button's
-    // persisted value so a first open reflects the server's choice.
-    var st = slotState[name] || (slotState[name] = {
+    // Seed the draft from the slot's COMMITTED state (kept across opens), falling back to the
+    // button's persisted value so a first open reflects the server's choice. slotState is NOT
+    // mutated here — the draft is a private copy the in-drawer controls edit.
+    var st = slotState[name] || {
       source: btn.getAttribute("data-slot-source") || null,
       statId: "",
       kind: btn.getAttribute("data-slot-kind") || slotKind(name)
-    });
-    drawerState.source = st.source;
-    drawerState.selected = null;
+    };
+    draft.slot = name;
+    draft.source = st.source;
+    draft.statId = st.statId || "";
+    loading = false;
+
     var role = btn.getAttribute("data-slot-role") || name;
-    var sources = [];
-    try { sources = JSON.parse(btn.getAttribute("data-slot-sources") || "[]"); } catch (e) { sources = []; }
+    drawerSources = [];
+    try { drawerSources = JSON.parse(btn.getAttribute("data-slot-sources") || "[]"); } catch (e) { drawerSources = []; }
 
     // Start with the entity picker hidden; onSelectSource reveals it for the HA radio (if the
     // slot's current source is HA, renderSourceList re-checks that radio and calls onSelectSource).
     if (drawerHaEntity) drawerHaEntity.classList.add("hidden");
+    drawerBackendStatus.textContent = "";
 
     // The heading is static ("Choose a source"); this subtitle names the slot's role.
     drawerTitle.textContent = role;
-    renderSourceList(sources);
+    renderSourceList(drawerSources);
+    updateConfirmEnabled();
 
     lastFocus = btn;
     drawer.classList.remove("hidden");
@@ -501,23 +514,25 @@
     if (drawerClose) drawerClose.focus();
   }
 
+  // Close WITHOUT committing: the draft is dropped and the committed slotState / row label are
+  // left exactly as they were. This is the Cancel / Escape / ✕ / backdrop path. It must never
+  // mutate slotState or call updateSlotButton.
   function closeDrawer() {
     if (!drawer) return;
-    // Reflect the slot's final choice on the main screen before closing.
-    if (drawerState.slot) updateSlotButton(drawerState.slot);
     drawer.classList.add("hidden");
     drawer.setAttribute("aria-hidden", "true");
     drawerBackendAction.classList.add("hidden");
     drawerHaNote.classList.add("hidden");
     if (drawerHaEntity) drawerHaEntity.classList.add("hidden");
     drawerBackendStatus.textContent = "";
+    draft = { slot: null, source: null, statId: "" };
+    loading = false;
     if (lastFocus) { try { lastFocus.focus(); } catch (e) { /* ignore */ } }
   }
 
   // Render the radio list for the current slot's sources, plus the pending "Upload CSV" option.
   function renderSourceList(sources) {
     drawerList.textContent = "";
-    drawerState.selected = null;
 
     sources.forEach(function (s) {
       var label = document.createElement("label");
@@ -528,7 +543,7 @@
       radio.name = "drawer-source";
       radio.className = "radio radio-sm mt-0.5";
       radio.value = s.key;
-      radio.checked = (s.key === drawerState.source);
+      radio.checked = (s.key === draft.source);
       radio.addEventListener("change", function () { onSelectSource(s); });
       var text = document.createElement("div");
       text.className = "flex flex-col";
@@ -581,13 +596,14 @@
     return wrap;
   }
 
-  // React to a source radio choice: record it in slotState and show the HA entity picker / note
-  // or the backend action as appropriate.
+  // React to a source radio choice: stage it in the draft and show the HA entity picker / note or
+  // the backend hint as appropriate. Writes ONLY to the draft — slotState and the row label are
+  // untouched until Confirm.
   function onSelectSource(s) {
-    drawerState.selected = s;
-    drawerState.source = s.key;
-    var name = drawerState.slot;
-    if (name && slotState[name]) slotState[name].source = s.key;
+    draft.source = s.key;
+    // A different source invalidates the previously staged entity id.
+    if (s.kind !== "browser_fetch") draft.statId = "";
+    var name = draft.slot;
 
     var isHa = s.kind === "browser_fetch";
     var isBackend = s.kind === "backend_load";
@@ -597,16 +613,33 @@
     drawerBackendAction.classList.toggle("flex", isBackend);
     drawerBackendStatus.textContent = "";
 
-    // Picking HA is applied immediately in the UI (no round-trip): populate the entity <select>
-    // for this slot from the shared connection (or show the connect-first hint). The persisted
-    // state updates on the next fetch/reload; here we reflect the choice in the current DOM.
+    // Picking HA populates the entity <select> for this slot from the shared connection (or shows
+    // the connect-first hint) and stages a default id into the draft. Nothing is committed.
     if (isHa) applyHaChoice(name);
-    if (name) updateSlotButton(name);
+    updateConfirmEnabled();
   }
 
-  // Make the slot use the shared HA connection: (re)populate the drawer entity <select> for it.
+  // Make the slot use the shared HA connection: (re)populate the drawer entity <select> for it,
+  // staging the chosen id into the draft.
   function applyHaChoice(slotName) {
     fillDrawerEntitySelect(slotName);
+  }
+
+  // Enable Confirm when the draft has a source selected and no backend load is in flight. A
+  // backend source can Confirm as soon as it is picked; an HA source can Confirm with or without
+  // an entity (committing HA with an empty id shows "· choose entity…" on the row and leaves the
+  // slot un-fetchable — a deliberate, reversible state).
+  function updateConfirmEnabled() {
+    if (!drawerConfirmBtn) return;
+    drawerConfirmBtn.disabled = loading || !draft.source;
+  }
+
+  // The descriptor for the draft's currently-selected source (or null), from the slot's list.
+  function selectedSource() {
+    for (var i = 0; i < drawerSources.length; i++) {
+      if (drawerSources[i].key === draft.source) return drawerSources[i];
+    }
+    return null;
   }
 
   // Update a slot's source-button label (and styling) on the main screen from slotState. The
@@ -650,16 +683,40 @@
     return String(s).replace(/["\\\]]/g, "\\$&");
   }
 
-  // "Use this source" for a backend_load source (energy_charts): POST the slot load, then reload.
-  async function useBackendSource() {
-    var s = drawerState.selected;
-    if (!s || s.kind !== "backend_load") return;
+  // Confirm — the single primary action. Commits whatever is staged in the draft:
+  //   * HA (browser_fetch): write draft → committed slotState, refresh the row label, close. No
+  //     round-trip; the fetch picks the slot up via mappedSlots(). Committing with an empty entity
+  //     is allowed (row shows "· choose entity…", slot not yet fetchable).
+  //   * backend (backend_load): POST the slot load and reload on success (as "Use this source"
+  //     did). On error the message stays in the drawer and nothing is committed/closed.
+  // The pending CSV option's radio is disabled, so draft.source can never be it here.
+  function confirmDraft() {
+    var s = selectedSource();
+    if (!s || loading) return;
+
+    if (s.kind === "backend_load") { confirmBackend(s); return; }
+
+    // HA (or any non-backend selectable source): commit to slotState, update the row, close.
+    var name = draft.slot;
+    slotState[name] = {
+      source: draft.source === "home_assistant" ? "home_assistant" : draft.source,
+      statId: draft.source === "home_assistant" ? (draft.statId || "") : "",
+      kind: slotKind(name)
+    };
+    updateSlotButton(name);
+    closeDrawer();
+  }
+
+  // The backend arm of Confirm: POST the slot load and reload. Kept separate for the async flow.
+  async function confirmBackend(s) {
     var w = historyWindow();
-    drawerUseBtn.disabled = true;
+    var slot = draft.slot;
+    loading = true;
+    updateConfirmEnabled();
     drawerBackendStatus.textContent = t("loading", "Loading…");
     drawerBackendStatus.className = "text-sm text-base-content/60";
     try {
-      var resp = await fetch("/data/slot/" + encodeURIComponent(drawerState.slot) + "/load", {
+      var resp = await fetch("/data/slot/" + encodeURIComponent(slot) + "/load", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ source: s.key, window: { start: w.start, end: w.end } })
@@ -676,7 +733,8 @@
     } catch (e) {
       drawerBackendStatus.textContent = "✗ " + (e.message || t("load_failed", "Could not load."));
       drawerBackendStatus.className = "text-sm text-error";
-      drawerUseBtn.disabled = false;
+      loading = false;
+      updateConfirmEnabled();
     }
   }
 
@@ -691,9 +749,11 @@
     var name = btn.getAttribute("data-slot");
     if (name && slotState[name] && slotState[name].source) updateSlotButton(name);
   });
+  // Cancel / ✕ / backdrop / Escape all DISCARD (closeDrawer commits nothing). Confirm commits.
   if (drawerClose) drawerClose.addEventListener("click", closeDrawer);
+  if (drawerCancelBtn) drawerCancelBtn.addEventListener("click", closeDrawer);
   if (drawerBackdrop) drawerBackdrop.addEventListener("click", closeDrawer);
-  if (drawerUseBtn) drawerUseBtn.addEventListener("click", useBackendSource);
+  if (drawerConfirmBtn) drawerConfirmBtn.addEventListener("click", confirmDraft);
   document.addEventListener("keydown", function (ev) {
     if (ev.key === "Escape" && drawer && !drawer.classList.contains("hidden")) closeDrawer();
   });

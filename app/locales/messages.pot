@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-24 14:34+0200\n"
+"POT-Creation-Date: 2026-07-24 14:48+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -96,6 +96,9 @@ msgstr ""
 msgid "Calculate →"
 msgstr ""
 
+msgid "Cancel"
+msgstr ""
+
 msgid "Caveats for this run"
 msgstr ""
 
@@ -112,6 +115,9 @@ msgid "Choose source…"
 msgstr ""
 
 msgid "Close"
+msgstr ""
+
+msgid "Confirm"
 msgstr ""
 
 msgid "Connect Home Assistant above first"
@@ -458,9 +464,6 @@ msgid "Upload CSV"
 msgstr ""
 
 msgid "Usable capacity"
-msgstr ""
-
-msgid "Use this source"
 msgstr ""
 
 msgid ""

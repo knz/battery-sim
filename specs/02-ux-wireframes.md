@@ -272,9 +272,9 @@ before the slot is known forces a single answer onto a set of slots that do not 
 
 The `▸` on a slot row opens a right-side drawer listing the sources available **for that
 slot** — different slots offer different sets, decided by each source's `available_for` rule
-([§5.1](08-architecture.md#51-diagram)). The user picks one and, for a backend-loaded source,
-confirms with a *Use this source* action; the choice is persisted with the slot and shown back
-on the row. The drawer is one shared component: it opens for whichever slot's `▸` was clicked.
+([§5.1](08-architecture.md#51-diagram)). The user picks one, configures it, and commits with
+**Confirm**; the choice is then persisted with the slot and shown back on the row. The drawer is
+one shared component: it opens for whichever slot's `▸` was clicked.
 
 ```
   ┌─ Source for: Grid import T1 ───────────────────────────────────────────┐
@@ -287,12 +287,19 @@ on the row. The drawer is one shared component: it opens for whichever slot's `�
   │  (   ) Upload CSV                                              [?]      │
   │        Provide a file yourself.  — not built yet —                    │
   │                                                                        │
-  │                                       [ Use this source ]   [ close ]  │
+  │                                          [ Confirm ]   [ Cancel ]      │
   └────────────────────────────────────────────────────────────────────────┘
 ```
 
 Each source shows a **label and a one-line blurb** as a radio option
 ([§5.1](08-architecture.md#51-diagram) `SourceDescriptor`).
+
+**The drawer is transactional: nothing takes effect until Confirm.** Choosing a source or an
+entity in the drawer stages the change but does not touch the roster row or the loaded data.
+**Confirm** commits it — for Home Assistant it binds the source and entity to the slot; for the
+preset spot-price source it runs the backend load. **Cancel** (and closing the drawer with `✕`,
+the backdrop, or `Esc`) discards the staged change and leaves the slot exactly as it was. This
+keeps a half-made choice from silently altering what the run will use.
 
 **The Home Assistant entity is chosen here, in the drawer, not on the row.** When Home
 Assistant is the selected source the drawer shows an **Entity** dropdown of the statistic ids
