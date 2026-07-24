@@ -51,6 +51,20 @@ identically whether or not costs are modelled. The cost metrics are computed und
 regime, per [§1.3](01-product-brief.md#13-regulatory-regime--fixed-decision), and are not
 computed at all when `cfg.simulate_cost` is false.
 
+**A subset of the energy row needs no simulated battery, and is surfaced before panel ②.**
+`self_sufficiency`, `self_consumption`, and the raw import/export/PV/load totals behind them are
+functions of the *ingested* series and the [§6.3](09-ingest-algorithms.md#63-household-load-reconstruction)
+load reconstruction alone — they do not reference the battery capacity, the policy, or the runs
+`A`/`C`. They are shown in the data summary band
+([§2.3a](02-ux-wireframes.md#23a-the-data-summary-band--your-data-at-a-glance)) as soon as data
+loads, describing the household as it was recorded. The one energy metric that does need the
+simulated battery is `efc`, which counts *its* cycles; and `saved_kwh` / `saved_pct` compare the
+`A` and `C` runs, so both belong to panel ③, not the band. Where the household already owns a
+battery, note that `self_consumption` and the reconstructed `load` are net of it — the summary
+band labels them so ([§2.3a](02-ux-wireframes.md#the-pre-existing-battery-and-what-net-of-your-battery-means)),
+since [§6.3](09-ingest-algorithms.md#63-household-load-reconstruction) strips the existing
+battery when reconstructing load.
+
 **Cost simulation only ever adds.** Every metric in the energy row is bit-identical between
 a run with `simulate_cost` off and the same run with it on; enabling the toggle appends the
 cost row and touches nothing above it. This is the invariant the whole optional-cost design

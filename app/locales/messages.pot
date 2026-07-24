@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-24 16:39+0200\n"
+"POT-Creation-Date: 2026-07-24 16:57+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -66,6 +66,9 @@ msgstr ""
 msgid "Allow export to grid during D2/D3"
 msgstr ""
 
+msgid "Average"
+msgstr ""
+
 msgid "B"
 msgstr ""
 
@@ -108,6 +111,9 @@ msgstr ""
 msgid "Charge policy"
 msgstr ""
 
+msgid "Charged"
+msgstr ""
+
 msgid "Charged into the battery"
 msgstr ""
 
@@ -127,6 +133,9 @@ msgid "Configure…"
 msgstr ""
 
 msgid "Confirm"
+msgstr ""
+
+msgid "Consumption"
 msgstr ""
 
 msgid "Conversion losses"
@@ -167,6 +176,9 @@ msgstr ""
 msgid "Discharge policy"
 msgstr ""
 
+msgid "Discharged"
+msgstr ""
+
 msgid "Discharged from the battery"
 msgstr ""
 
@@ -194,6 +206,9 @@ msgstr ""
 msgid "Export limit"
 msgstr ""
 
+msgid "Exported"
+msgstr ""
+
 msgid "Fetch history"
 msgstr ""
 
@@ -209,6 +224,9 @@ msgid "GRID IMPORT SAVED"
 msgstr ""
 
 msgid "Gaps"
+msgstr ""
+
+msgid "Grid"
 msgstr ""
 
 msgid "Grid charge when spot price is in band"
@@ -256,12 +274,18 @@ msgstr ""
 msgid "House load"
 msgstr ""
 
+msgid "Household"
+msgstr ""
+
 msgid "How is your PV connected to the battery?"
 msgstr ""
 
 msgid ""
 "If you would use it, say so. It tells us what to build next, and it is "
 "the only signal we get."
+msgstr ""
+
+msgid "Imported"
 msgstr ""
 
 msgid "Initial SoC"
@@ -362,6 +386,9 @@ msgstr ""
 msgid "Preset historical (Energy-Charts NL)"
 msgstr ""
 
+msgid "Produced"
+msgstr ""
+
 msgid "RESULTS"
 msgstr ""
 
@@ -389,7 +416,13 @@ msgstr ""
 msgid "Secondary metrics"
 msgstr ""
 
+msgid "Self-consumption"
+msgstr ""
+
 msgid "Self-consumption ratio"
+msgstr ""
+
+msgid "Self-sufficiency"
 msgstr ""
 
 msgid "Series"
@@ -426,6 +459,9 @@ msgstr ""
 msgid "SoC + price"
 msgstr ""
 
+msgid "Solar"
+msgstr ""
+
 msgid "Solar production"
 msgstr ""
 
@@ -442,6 +478,9 @@ msgid "Spot price (max)"
 msgstr ""
 
 msgid "Spot price (min)"
+msgstr ""
+
+msgid "Spot price over this period"
 msgstr ""
 
 msgid ""
@@ -467,6 +506,12 @@ msgid "Thanks. We have recorded that you want this."
 msgstr ""
 
 msgid "The run uses"
+msgstr ""
+
+msgid ""
+"These come from the battery you already own. The consumption and self-"
+"consumption figures above are reconstructed net of it, so they describe "
+"the house rather than the meter."
 msgstr ""
 
 msgid "These two answers decide what the app asks you for below."
@@ -507,6 +552,12 @@ msgstr ""
 msgid "Yes"
 msgstr ""
 
+msgid "Your data at a glance"
+msgstr ""
+
+msgid "Your existing battery"
+msgstr ""
+
 msgid "Your policy"
 msgstr ""
 
@@ -538,6 +589,9 @@ msgstr ""
 msgid "export CSV"
 msgstr ""
 
+msgid "high"
+msgstr ""
+
 msgid ""
 "is part of the plan for this simulator, but it is not built yet. The app "
 "is being written one feature at a time and this one has not been reached."
@@ -547,6 +601,12 @@ msgid "kWh"
 msgstr ""
 
 msgid "long-lived access token"
+msgstr ""
+
+msgid "low"
+msgstr ""
+
+msgid "net of your existing battery"
 msgstr ""
 
 msgid "not nameplate"

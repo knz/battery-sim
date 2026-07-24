@@ -10,6 +10,11 @@ consumes. When the real service layer lands (specs/08-architecture.md §5.1), th
 replaced by the result object of specs/07-internal-representation.md §4.5 — the template
 field names deliberately mirror that eventual structure.
 
+`sample_view()` includes `data_summary` (specs §2.3a) unconditionally so a demo render shows the
+band. The real page hides it in the empty/pre-fetch state: app/main.py drops `data_summary` from
+the context when no dataset is loaded, since the band has nothing to summarise until data exists
+(§3.4). The template itself guards on `data_summary` being present.
+
 Current variant: the app default — has_pv=True, simulate_cost=False (energy only). These two
 choices are the setup band (specs/02-ux-wireframes.md §2.1); they drive which series/slots
 panel ① asks for, which boxes panel ② shows, and which sections panel ③ renders. They live in
@@ -156,6 +161,45 @@ def _panel_data():
     }
 
 
+def _data_summary():
+    """The data summary band — "Your data at a glance" (specs/02-ux-wireframes.md §2.3a).
+
+    The battery-free figures that follow from the household's OWN recorded data before the
+    SIMULATED battery is configured: the §6.11 energy row (minus efc, which counts the simulated
+    battery's cycles) over the §6.3 load reconstruction, plus the raw grid/price aggregates.
+
+    This sample shows the EXISTING-battery variant: `battery` is populated, so the band renders a
+    "Your existing battery" throughput group and the Household/Solar figures are flagged
+    `net_battery` — reconstructed net of the battery the household already owns (§6.3 strips it).
+    The optional groups follow omit-don't-zero (§2.4): `solar` present because this sample has PV
+    (CONFIG.has_pv), `battery` present because its sensors are mapped, `price` present because a
+    spot series was loaded. A no-PV / no-existing-battery dataset would set the respective keys to
+    None and the template would drop those groups.
+
+    Numbers are illustrative and consistent with the panel ①/③ samples (4,129 kWh imported,
+    3,180 kWh exported, 31% self-sufficiency). Consumption is the reconstructed household load
+    net of the existing battery; self-consumption is 1 − export/pv.
+    """
+    return {
+        "coverage": "2025-06-01 → 2026-07-21",
+        "days": 416,
+        # Always present.
+        "grid": {"imported": "4,129 kWh", "exported": "3,180 kWh"},
+        # Always present. `net_battery` flags that the reconstruction stripped an existing
+        # battery (§6.3), so the template labels this (and Solar) "net of your existing battery".
+        "household": {"consumption": "6,540 kWh", "self_sufficiency": "31%", "net_battery": True},
+        # PV present (CONFIG.has_pv). Omitted (None) for a no-PV dataset.
+        "solar": {"produced": "4,820 kWh", "self_consumption": "58%"},
+        # Existing battery present: its measured charge-in / discharge-out over the window. This
+        # is the battery the household ALREADY owns, not the one panel ② will simulate. Omitted
+        # (None) when no battery_charge/battery_discharge series was mapped.
+        "battery": {"charged": "2,510 kWh", "discharged": "2,240 kWh"},
+        # Spot price context over the window (battery-free: the price is an input, §1.4). Omitted
+        # (None) when no price series was loaded.
+        "price": {"avg": "0.142 €/kWh", "min": "−0.021 €/kWh", "max": "0.487 €/kWh"},
+    }
+
+
 def _panel_params():
     """Panel ② — parameters summary + expanded body (§2.3, §2.5)."""
     return {
@@ -248,6 +292,7 @@ def sample_view():
     return {
         "cfg": CONFIG,
         "data": _panel_data(),
+        "data_summary": _data_summary(),
         "params": _panel_params(),
         "results": _panel_results(),
     }

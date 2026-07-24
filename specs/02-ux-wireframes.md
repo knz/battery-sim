@@ -29,6 +29,10 @@ recalculation.
 │  │    Home Assistant · 5 series · simulated hourly                        │  │
 │  └────────────────────────────────────────────────────────────────────────┘  │
 │                                                                              │
+│  ┌─ Your data at a glance ─────────────────────────────── (see 2.3a) ─────┐  │
+│  │  4,129 kWh imported · 31% self-sufficient · … (shown once data loads)  │  │
+│  └────────────────────────────────────────────────────────────────────────┘  │
+│                                                                              │
 │  ┌────────────────────────────────────────────────────────────────────────┐  │
 │  │ ② PARAMETERS                                      ✓ valid     [edit ▾] │  │
 │  │    10.0 kWh · 5.0/5.0 kW · 90% · charge P3 · discharge P1 · energy only│  │
@@ -553,6 +557,106 @@ Uploading into a slot that already holds a file **replaces** it. There is one fi
 series, so there is no merging to specify and no collision to resolve.
 
 The expected format for each series is in [05-data-formats.md](05-data-formats.md).
+
+## 2.3a The data summary band — "Your data at a glance"
+
+Between panel ① and panel ② sits an **unnumbered summary band**. It appears once the fetch
+succeeds (`LOAD_SUCCEEDED`, [§3.1](04-state-machine.md#31-session-level-states)) and shows the
+figures that follow **from the household's own recorded data alone** — before any simulated
+battery, policy or pricing is configured. It is an interstitial "here is what we found", read
+between loading the data and describing the battery: it lets the user confirm the import looks
+right, and see what their year actually was, before they invest effort in parameters.
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  Your data at a glance                              2025-06-01 → 2026-07-21   │
+│                                                     416 days                  │
+│                                                                              │
+│  ┌─ Grid ─────────────────┐  ┌─ Household ────────────┐  ┌─ Solar ──────────┐ │
+│  │  Imported   4,129 kWh  │  │  Consumption 6,540 kWh │  │  Produced        │ │
+│  │  Exported   3,180 kWh  │  │  Self-sufficiency 31%  │  │     4,820 kWh    │ │
+│  │                        │  │  net of your battery ⓘ │  │  Self-consumption│ │
+│  │                        │  │                        │  │     58 %         │ │
+│  │                        │  │                        │  │  net of battery  │ │
+│  └────────────────────────┘  └────────────────────────┘  └──────────────────┘ │
+│                                                                              │
+│  ┌─ Your existing battery ────────────────────────────────────────────────┐  │
+│  │  Charged      2,510 kWh        Discharged     2,240 kWh                 │  │
+│  │  ⓘ These come from the battery you already own (its charge/discharge    │  │
+│  │     sensors). The figures above are reconstructed net of it, so they    │  │
+│  │     describe the house, not the meter.                                  │  │
+│  └────────────────────────────────────────────────────────────────────────┘  │
+│                                                                              │
+│  ┌─ Spot price over this period ──────────────────────────────────────────┐  │
+│  │  Average 0.142 €/kWh    ·    low −0.021    ·    high 0.487              │  │
+│  └────────────────────────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+### It is a band, not a stepper panel
+
+Like the setup band ([§2.1](#the-setup-band)), it is **not numbered, does not collapse to a
+summary, carries no CTA and no `[?]` affordance**, and has no focus state of its own
+([§3.4](04-state-machine.md#34-panel-focus-model)). It differs from the setup band in one
+respect: the setup band is present from `EMPTY`, whereas this band has nothing to summarise until
+data exists, so it is **absent before the first successful fetch** and appears on
+`LOAD_SUCCEEDED`. It re-renders whenever the dataset is reloaded ([§3.2](04-state-machine.md#32-events)
+`RELOAD_DATA`). Panel ①'s own "Next: parameters →" CTA is unchanged and still drives the step from
+① to ②; the band sits between them as context, not as a gate.
+
+### What it shows, and why none of it needs the simulated battery
+
+Every figure here is a function of the ingested series, computed by the metrics in
+[§6.11](12-metrics-and-benchmarks.md#611-metrics) (the "Energy" row, minus `efc`, which counts
+the simulated battery's cycles) over the reconstructed load of
+[§6.3](09-ingest-algorithms.md#63-household-load-reconstruction). None of them depends on the
+battery capacity, the policy, or the pricing model, which is exactly why they can be shown before
+panel ②. The price context is battery-free for the same reason the charge/discharge bands are:
+the spot series is an input, not a cost model ([§1.4](01-product-brief.md#a-price-series-is-not-a-cost-model)).
+
+| Group | Rows | Rendered when |
+|---|---|---|
+| **Grid** | total imported, total exported (kWh over the window) | always |
+| **Household** | reconstructed consumption, self-sufficiency (`1 − import/load`) | always |
+| **Solar** | PV production, self-consumption (`1 − export/pv`) | PV series present |
+| **Your existing battery** | measured charge-in, discharge-out (kWh) | battery series present |
+| **Spot price over this period** | average, min, max (€/kWh) | price series present |
+
+**Omit, never zero.** A group whose inputs are absent is not rendered — no PV series, no Solar
+group; no battery series, no battery group. Rendering `0 kWh` or `0%` would assert something the
+data cannot support, the same discipline panel ③ uses
+([§2.4](#panel--without-pv)). Self-sufficiency is always well defined and always shown; without
+PV it measures purely the meter, and (see below) net of any existing battery.
+
+### The pre-existing battery, and what "net of your battery" means
+
+The user **may already own a battery**. When they do, its charge/discharge sensors are mapped into
+the `battery_charge` / `battery_discharge` slots ([§4.1](05-data-formats.md#41-the-series-vocabulary)),
+and [§6.3](09-ingest-algorithms.md#63-household-load-reconstruction) reconstructs household load by
+*stripping* that battery: `load = import − export + pv + battery_discharge − battery_charge`. The
+household consumption and self-consumption figures are therefore **derived from the existing
+battery's data too** — they describe the house behind the meter, net of the battery it already has,
+not a hypothetical no-battery meter reading.
+
+Two consequences the band makes explicit rather than hiding:
+
+- The existing battery gets **its own group**, reporting the charge-in and discharge-out it
+  actually did over the window. This is an observed fact about the household's current setup, and
+  it is worth stating on its own before the simulated battery's figures appear in panel ③ — the two
+  are easily confused, and separating "the battery you have" from "the battery we simulate" here
+  keeps them apart.
+- The Household and Solar rows are labelled **"net of your existing battery"** whenever those slots
+  are present, with an ⓘ explaining that the reconstruction used the battery's sensors. Without the
+  slots the label is absent and the rows read plainly, because there was no battery to net out.
+
+This is the *existing* (measured, an input) versus *simulated* (configured in panel ②, the
+counterfactual) battery distinction, and it runs through the whole product: the summary band
+reports the household as it was, panels ②/③ report what a simulated battery would change. One
+limitation is acknowledged and not solved here: if the existing battery was installed **partway
+through the window**, its sensors may not cover the whole span and the reconstructed load is then
+inconsistent across the boundary — [open question §8.6](17-open-questions.md), routed to
+[§6.15](13-configuration-epochs.md). The band shows the window-wide figures; detecting and
+offering to restrict the window is future work.
 
 ## 2.3 Panel ② — Parameter configuration (expanded)
 

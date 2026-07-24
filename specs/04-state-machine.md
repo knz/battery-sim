@@ -161,6 +161,12 @@ The **setup band** (§2.1) is not a panel and has no focus state. It is always e
 never collapses to a summary, and carries no CTA — it is a scope selector, not a step in
 the stepper. It sits above panel ① and is editable throughout the session.
 
+The **data summary band** ([§2.3a](02-ux-wireframes.md#23a-the-data-summary-band--your-data-at-a-glance))
+is likewise not a panel and has no focus state — it neither collapses nor carries a CTA. Unlike
+the setup band it has nothing to show until data exists, so it is **absent until `DATA_READY`**
+and renders from that point on, re-rendering on every subsequent `RELOAD_DATA` (§3.2). It sits
+between panel ① and panel ② as read-only context; it drives no transition.
+
 ## 3.5 Persistence points
 
 State is written to disk on: `LOAD_SUCCEEDED` (dataset), `PARAMS_CHANGED` (debounced

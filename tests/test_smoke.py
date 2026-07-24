@@ -134,6 +134,13 @@ def test_slot_info_affordance(page):
     page.keyboard.press("Escape")
 
 
+def test_data_summary_band_absent_in_empty_state(page):
+    # The data summary band (§2.3a) is shown only once data has loaded. The smoke server runs
+    # against a throwaway data dir with no persisted dataset (the empty state), so the band must
+    # be absent — main.py drops `data_summary` from the context when no dataset exists (§3.4).
+    assert page.get_by_text("Your data at a glance", exact=True).count() == 0
+
+
 def test_pending_dialog_opens(page):
     page.get_by_role("button", name="Export CSV").click()
     assert page.get_by_text("Not built yet").first.is_visible()

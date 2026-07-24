@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-24 16:39+0200\n"
+"POT-Creation-Date: 2026-07-24 16:57+0200\n"
 "PO-Revision-Date: 2026-07-23 20:30+0200\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: nl\n"
@@ -69,6 +69,9 @@ msgstr "Teruglevering aan net toestaan"
 msgid "Allow export to grid during D2/D3"
 msgstr "Teruglevering aan net toestaan tijdens D2/D3"
 
+msgid "Average"
+msgstr "Gemiddeld"
+
 msgid "B"
 msgstr "B"
 
@@ -111,6 +114,9 @@ msgstr "Kanttekeningen bij deze berekening"
 msgid "Charge policy"
 msgstr "Laadstrategie"
 
+msgid "Charged"
+msgstr "Geladen"
+
 msgid "Charged into the battery"
 msgstr "In de batterij geladen"
 
@@ -131,6 +137,9 @@ msgstr "Configureren…"
 
 msgid "Confirm"
 msgstr "Bevestigen"
+
+msgid "Consumption"
+msgstr "Verbruik"
 
 msgid "Conversion losses"
 msgstr "Omzettingsverliezen"
@@ -173,6 +182,9 @@ msgstr "Datakwaliteit"
 msgid "Discharge policy"
 msgstr "Ontlaadstrategie"
 
+msgid "Discharged"
+msgstr "Ontladen"
+
 msgid "Discharged from the battery"
 msgstr "Uit de batterij ontladen"
 
@@ -200,6 +212,9 @@ msgstr "CSV exporteren"
 msgid "Export limit"
 msgstr "Invoedingslimiet"
 
+msgid "Exported"
+msgstr "Teruggeleverd"
+
 msgid "Fetch history"
 msgstr "Geschiedenis ophalen"
 
@@ -218,6 +233,9 @@ msgstr "BESPAARDE NETAFNAME"
 
 msgid "Gaps"
 msgstr "Gaten"
+
+msgid "Grid"
+msgstr "Net"
 
 msgid "Grid charge when spot price is in band"
 msgstr "Laden vanaf net wanneer de spotprijs binnen de band valt"
@@ -264,6 +282,9 @@ msgstr "Thuisbatterij-simulator"
 msgid "House load"
 msgstr "Huisverbruik"
 
+msgid "Household"
+msgstr "Huishouden"
+
 msgid "How is your PV connected to the battery?"
 msgstr "Hoe zijn je zonnepanelen met de batterij verbonden?"
 
@@ -273,6 +294,9 @@ msgid ""
 msgstr ""
 "Als je dit zou gebruiken, laat het weten. Het vertelt ons wat we hierna "
 "moeten bouwen, en het is het enige signaal dat we krijgen."
+
+msgid "Imported"
+msgstr "Afgenomen"
 
 msgid "Initial SoC"
 msgstr "Begin-laadtoestand"
@@ -386,6 +410,9 @@ msgstr ""
 msgid "Preset historical (Energy-Charts NL)"
 msgstr "Vaste historische reeks (Energy-Charts NL)"
 
+msgid "Produced"
+msgstr "Opgewekt"
+
 msgid "RESULTS"
 msgstr "RESULTATEN"
 
@@ -416,8 +443,14 @@ msgstr "ZELFVOORZIENING"
 msgid "Secondary metrics"
 msgstr "Aanvullende cijfers"
 
+msgid "Self-consumption"
+msgstr "Zelfconsumptie"
+
 msgid "Self-consumption ratio"
 msgstr "Zelfconsumptieratio"
+
+msgid "Self-sufficiency"
+msgstr "Zelfvoorziening"
 
 msgid "Series"
 msgstr "Reeks"
@@ -457,6 +490,9 @@ msgstr "Simulatieraster"
 msgid "SoC + price"
 msgstr "Laadtoestand + prijs"
 
+msgid "Solar"
+msgstr "Zon"
+
 msgid "Solar production"
 msgstr "Zonopwekking"
 
@@ -474,6 +510,9 @@ msgstr "Spotprijs (max)"
 
 msgid "Spot price (min)"
 msgstr "Spotprijs (min)"
+
+msgid "Spot price over this period"
+msgstr "Spotprijs over deze periode"
 
 msgid ""
 "Spot prices are quarter-hourly but the run is hourly, so the battery "
@@ -504,6 +543,12 @@ msgstr "Bedankt. We hebben genoteerd dat u dit wilt."
 
 msgid "The run uses"
 msgstr "De berekening gebruikt"
+
+msgid ""
+"These come from the battery you already own. The consumption and self-"
+"consumption figures above are reconstructed net of it, so they describe "
+"the house rather than the meter."
+msgstr "Deze komen van de batterij die u al bezit. De verbruiks- en zelfconsumptiecijfers hierboven zijn hierop gecorrigeerd, zodat ze het huis beschrijven en niet de meter."
 
 msgid "These two answers decide what the app asks you for below."
 msgstr "Deze twee antwoorden bepalen wat de app hieronder van je vraagt."
@@ -546,6 +591,12 @@ msgstr "Waar de energie vandaan komt"
 msgid "Yes"
 msgstr "Ja"
 
+msgid "Your data at a glance"
+msgstr "Uw gegevens in één oogopslag"
+
+msgid "Your existing battery"
+msgstr "Uw bestaande batterij"
+
 msgid "Your policy"
 msgstr "Jouw strategie"
 
@@ -584,6 +635,9 @@ msgstr "dagen"
 msgid "export CSV"
 msgstr "CSV exporteren"
 
+msgid "high"
+msgstr "hoog"
+
 msgid ""
 "is part of the plan for this simulator, but it is not built yet. The app "
 "is being written one feature at a time and this one has not been reached."
@@ -597,6 +651,12 @@ msgstr "kWh"
 
 msgid "long-lived access token"
 msgstr "long-lived access token (langlevend toegangstoken)"
+
+msgid "low"
+msgstr "laag"
+
+msgid "net of your existing battery"
+msgstr "na aftrek van uw bestaande batterij"
 
 msgid "not nameplate"
 msgstr "niet de nominale waarde"

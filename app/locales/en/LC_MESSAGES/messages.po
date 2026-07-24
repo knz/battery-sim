@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-24 16:39+0200\n"
+"POT-Creation-Date: 2026-07-24 16:57+0200\n"
 "PO-Revision-Date: 2026-07-23 20:40+0200\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: en\n"
@@ -67,6 +67,9 @@ msgstr "Allow export to grid"
 msgid "Allow export to grid during D2/D3"
 msgstr "Allow export to grid during D2/D3"
 
+msgid "Average"
+msgstr "Average"
+
 msgid "B"
 msgstr "B"
 
@@ -109,6 +112,9 @@ msgstr "Caveats for this run"
 msgid "Charge policy"
 msgstr "Charge policy"
 
+msgid "Charged"
+msgstr "Charged"
+
 msgid "Charged into the battery"
 msgstr "Charged into the battery"
 
@@ -129,6 +135,9 @@ msgstr "Configure…"
 
 msgid "Confirm"
 msgstr "Confirm"
+
+msgid "Consumption"
+msgstr "Consumption"
 
 msgid "Conversion losses"
 msgstr "Conversion losses"
@@ -170,6 +179,9 @@ msgstr "Data quality"
 msgid "Discharge policy"
 msgstr "Discharge policy"
 
+msgid "Discharged"
+msgstr "Discharged"
+
 msgid "Discharged from the battery"
 msgstr "Discharged from the battery"
 
@@ -197,6 +209,9 @@ msgstr "Export CSV"
 msgid "Export limit"
 msgstr "Export limit"
 
+msgid "Exported"
+msgstr "Exported"
+
 msgid "Fetch history"
 msgstr "Fetch history"
 
@@ -215,6 +230,9 @@ msgstr "GRID IMPORT SAVED"
 
 msgid "Gaps"
 msgstr "Gaps"
+
+msgid "Grid"
+msgstr "Grid"
 
 msgid "Grid charge when spot price is in band"
 msgstr "Grid charge when spot price is in band"
@@ -261,6 +279,9 @@ msgstr "Home Battery Simulator"
 msgid "House load"
 msgstr "House load"
 
+msgid "Household"
+msgstr "Household"
+
 msgid "How is your PV connected to the battery?"
 msgstr "How is your PV connected to the battery?"
 
@@ -270,6 +291,9 @@ msgid ""
 msgstr ""
 "If you would use it, say so. It tells us what to build next, and it is "
 "the only signal we get."
+
+msgid "Imported"
+msgstr "Imported"
 
 msgid "Initial SoC"
 msgstr "Initial SoC"
@@ -383,6 +407,9 @@ msgstr ""
 msgid "Preset historical (Energy-Charts NL)"
 msgstr "Preset historical (Energy-Charts NL)"
 
+msgid "Produced"
+msgstr "Produced"
+
 msgid "RESULTS"
 msgstr "RESULTS"
 
@@ -413,8 +440,14 @@ msgstr "SELF-SUFFICIENCY"
 msgid "Secondary metrics"
 msgstr "Secondary metrics"
 
+msgid "Self-consumption"
+msgstr "Self-consumption"
+
 msgid "Self-consumption ratio"
 msgstr "Self-consumption ratio"
+
+msgid "Self-sufficiency"
+msgstr "Self-sufficiency"
 
 msgid "Series"
 msgstr "Series"
@@ -454,6 +487,9 @@ msgstr "Simulation grid"
 msgid "SoC + price"
 msgstr "SoC + price"
 
+msgid "Solar"
+msgstr "Solar"
+
 msgid "Solar production"
 msgstr "Solar production"
 
@@ -471,6 +507,9 @@ msgstr "Spot price (max)"
 
 msgid "Spot price (min)"
 msgstr "Spot price (min)"
+
+msgid "Spot price over this period"
+msgstr "Spot price over this period"
 
 msgid ""
 "Spot prices are quarter-hourly but the run is hourly, so the battery "
@@ -498,6 +537,12 @@ msgstr "Thanks. We have recorded that you want this."
 
 msgid "The run uses"
 msgstr "The run uses"
+
+msgid ""
+"These come from the battery you already own. The consumption and self-"
+"consumption figures above are reconstructed net of it, so they describe "
+"the house rather than the meter."
+msgstr "These come from the battery you already own. The consumption and self-consumption figures above are reconstructed net of it, so they describe the house rather than the meter."
 
 msgid "These two answers decide what the app asks you for below."
 msgstr ""
@@ -539,6 +584,12 @@ msgstr "Where the energy comes from"
 msgid "Yes"
 msgstr "Yes"
 
+msgid "Your data at a glance"
+msgstr "Your data at a glance"
+
+msgid "Your existing battery"
+msgstr "Your existing battery"
+
 msgid "Your policy"
 msgstr "Your policy"
 
@@ -577,6 +628,9 @@ msgstr "days"
 msgid "export CSV"
 msgstr "export CSV"
 
+msgid "high"
+msgstr "high"
+
 msgid ""
 "is part of the plan for this simulator, but it is not built yet. The app "
 "is being written one feature at a time and this one has not been reached."
@@ -589,6 +643,12 @@ msgstr "kWh"
 
 msgid "long-lived access token"
 msgstr ""
+
+msgid "low"
+msgstr "low"
+
+msgid "net of your existing battery"
+msgstr "net of your existing battery"
 
 msgid "not nameplate"
 msgstr "not nameplate"

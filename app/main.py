@@ -82,12 +82,22 @@ def index(request: Request):
     # If a real dataset has been fetched and persisted, panel ① renders from it (specs §3.5);
     # otherwise it keeps the static sample as the empty state. Params/results stay sample until
     # their own increments land. A load failure falls back to the sample rather than 500ing.
+    #
+    # The data summary band (§2.3a) is shown ONLY once data has loaded: before the first fetch
+    # there is nothing to summarise, so it is absent (§3.4). sample_view() always carries a
+    # `data_summary`, so drop it here in the empty state and keep it once a dataset exists. Its
+    # numbers stay the sample view-model this increment — the real §6.3/§6.11 battery-free
+    # computation over the persisted frames is a later increment (as with panels ②/③).
+    has_dataset = False
     try:
         loaded = dataset.load_latest()
         if loaded is not None and loaded.frames:
             ctx["data"] = data_view.panel_data_from(loaded)
+            has_dataset = True
     except Exception:  # pragma: no cover - defensive: a corrupt dataset must not break the page
         pass
+    if not has_dataset:
+        ctx.pop("data_summary", None)
     ctx["lang"] = {
         "current": locale,
         "options": [{"code": c, "label": c.upper()} for c in i18n.SUPPORTED],

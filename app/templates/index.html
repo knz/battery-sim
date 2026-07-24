@@ -3,8 +3,11 @@
 
   Renders the header, the setup band (§2.1 — the has_pv / simulate_cost scope choices), and
   the three stacked stepper panels. Panels ① and ② are collapsed to their one-line summaries;
-  panel ③ (Results) is expanded. Content comes from the static sample view-model
-  (app/sample_data.py); nothing here is wired to feature logic yet.
+  panel ③ (Results) is expanded. Between panel ① and panel ② an unnumbered "data summary" band
+  (§2.3a, _panel_summary.html) is included ONLY when `data_summary` is set — i.e. once data has
+  loaded; before the first fetch there is nothing to summarise and it is absent (§3.4). Content
+  comes from the static sample view-model (app/sample_data.py); nothing here is wired to feature
+  logic yet.
 
   Interactivity: native collapse expand/collapse, the <dialog>-based "not built yet" modal (the
   pending affordance), and the slot-first source-picker drawer (#source-drawer) — a shared
@@ -45,6 +48,10 @@
     {# The setup band (§2.1) — the two shape-determining choices, above the panels. #}
     {% include "_setup_band.html" %}
     {% include "_panel_data.html" %}
+    {# The data summary band (§2.3a) sits between panel ① and panel ②, but only once data has
+       been loaded — before the first fetch there is nothing to summarise, so it is absent
+       (state machine §3.4: rendered from DATA_READY onward). #}
+    {% if data_summary %}{% include "_panel_summary.html" %}{% endif %}
     {% include "_panel_params.html" %}
     {% include "_panel_results.html" %}
   </main>
