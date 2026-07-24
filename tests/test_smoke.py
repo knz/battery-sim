@@ -130,7 +130,12 @@ def test_pending_dialog_opens(page):
 
 def test_new_pending_controls_marked(page):
     # The two controls marked pending in this increment render disabled with a [?] affordance.
-    assert page.locator("input[name=source][disabled]").count() >= 1  # Upload CSV radio
+    # "Upload CSV" is a pending source radio that now lives inside the source-picker drawer
+    # (moved there when panel ① went slot-first, 0594e34); open a slot's drawer to reveal it.
+    # ha_fetch.js renders it as name="drawer-source", disabled, with feature key data_source_csv.
+    page.locator(".slot-source-btn").first.click()
+    assert page.locator("input[name=drawer-source][disabled]").count() >= 1  # Upload CSV radio
+    page.keyboard.press("Escape")  # Escape discards and closes the drawer (leaves no committed state)
     # "Simulate cost savings?" — the "Yes" answer is disabled with a [?] pending marker
     # (cost machinery not built yet; lives in the setup band since c8f3254).
     assert page.locator("input[name=setup_cost][disabled]").count() >= 1
