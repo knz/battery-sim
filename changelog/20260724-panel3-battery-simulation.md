@@ -327,9 +327,103 @@ repeating it — §6.9's pseudocode does NOT hoist `cfg.*` into locals; it reads
   since the same paragraph insists the code needs no `has_pv` branch. `charge_policy` is therefore not
   coerced; offerability is exposed separately.
 
+## Phase 3 — the simulation core, §6.6–§6.9, runs A/B/C
+
+> Detailed per-decision record: [20260725-simulation-core-phase3.md](20260725-simulation-core-phase3.md).
+
+**Built.** New `app/domain/simulate.py`: `charge_request` (§6.6), `discharge_request` + band-overlap
+netting (§6.7), `battery_step` with all seven numbered steps (§6.8), the sequential `simulate` loop
+and vectorised `simulate_baseline` (§6.9), a struct-of-arrays `Flows` container, and a `run_all`
+harness for runs A/B/C. Run B exists solely so `standby_kwh = C.imp − B.imp` is an exact run
+difference rather than `standby_w × hours` — the two differ whenever standby was served by PV or the
+battery. Runs D/E are absent, not stubbed. New `tests/test_simulate.py` (25 tests).
+
+### Two defects in the SPEC's own §6.8 pseudocode
+
+Both reachable from `initial_soc_pct` outside `[min, max]` — which §7.3 check 11 **warns about but
+does not block**, so it is a live runtime input, and Phase 2's own warning text already promises the
+value "will be clamped at the first step":
+
+- **Nothing clamps a below-floor starting SoC.** Step 3 charges only toward `soc_max` and step 4
+  discharges only toward `soc_min`, so an out-of-window start stays out of window and trips step 7's
+  assertion on interval 0 — a crash on a configuration the spec permits.
+- **Step 4's `(soc − soc_min) × eta_d` goes negative** for the same input, so `withdrawn` goes
+  negative and the arithmetic runs backwards: a *discharge* request *charges* the battery.
+
+Confirmed independently by the orchestrator by hand before the review, and by the review afterwards.
+Fixed by clamping once in `simulate` before the loop (the only placement §6.8's steps allow) and
+flooring step 4's available energy at 0 as an independent guard.
+
+The review established that recording the CLAMPED value in `soc_start` is **required, not merely
+defensible**: with `initial_soc_pct = 5%` under a 20% floor, §6.11's
+`conversion_loss = charge_ac − discharge_ac − (soc_end − soc_start)` closes at exactly 0.0 with the
+clamped value, and gives a physically impossible −1.5 with the raw one.
+
+### Conservation identity — and its limit
+
+The naive §6.14 form does not close. What is asserted:
+
+    pv + imp + dis_home + dis_grid  ==  load + exp + chg_pv + chg_grid + curtailed
+
+`curtailed` is the added term (PV that reached the AC bus and was neither exported, consumed nor
+stored); `load` must be the standby-inclusive load in runs B/C; and NO SoC term appears, because
+`chg_*`/`dis_*` are AC-side so conversion losses already sit outside the balance.
+
+**The review found this identity is weaker than it looks, which neither the orchestrator nor the
+implementer had noticed:** it is §6.8 step 5 algebraically rearranged, so it holds BY CONSTRUCTION
+whenever the connection caps do not bind, and cannot catch a defect confined to step 5's inputs.
+Demonstrated: mutating `withdrawn = dis_ac` (dropping `/eta_d` — a genuinely energy-creating defect)
+leaves conservation closing perfectly, and is caught only by the hand-computed fixtures 1, 2 and 16.
+Its real value is on the shed and curtailment paths (steps 6–7), where the rearrangement no longer
+holds trivially. **Phase 4 must not treat conservation as a general safety net.**
+
+### Fixture 16 returns a NEGATIVE saving, and that is correct
+
+A no-PV arbitrage battery costs **−1.774 kWh/day** in an energy-only run, decomposing exactly into
+standby (0.030 × 24 = 0.720) plus round-trip loss (10 × (1/√0.9 − √0.9) = 1.054). Verified by the
+orchestrator by hand and by the review, which also confirmed the battery genuinely performs exactly
+one cycle per day (SoC saturates at 10.0 for hours 2–11, empties at hour 21) and `efc == days` to
+1e-15. This is §7.2 item 9: without PV the battery's value lies entirely in the price *spread*, a
+euro quantity, so a kWh-only measurement of an arbitrage config captures only its costs. The spec
+requires reporting it rather than hiding it.
+
+### Adversarial review verdict: CLEAN — no correctness defects
+
+After hand-computed scenarios, compound-clamp attacks and a 120-config randomised fuzz: no flow array
+ever went negative; `imp`/`exp` were never simultaneously positive; SoC never escaped its window;
+float drift over 8,760 intervals of strict daily cycling was exactly 0.0 (the clamps reset error each
+cycle); the loop is linear (0.059 s for 8,760 intervals, well inside the §6.9 target). Verified
+correct: shed order and arithmetic on both caps, the DC bonus applying to the PV path only, the
+headroom clamp being in storage units, D2/D3 serving the house first, single-application netting,
+§7.2 item 1 (the baseline curtails identically in kind to run C), no in-place mutation of the shared
+frame arrays, and B/C differing only in standby.
+
+The implementer's claim that it had mutation-tested its own suite was **spot-checked rather than
+taken at face value**: the review re-applied four mutations in a scratch copy and reproduced the
+reported failure counts exactly (2, 1, 6), plus one of its own. No test asserts the implementation
+against itself — `_ETA` is a hard literal with a comment explaining that `math.sqrt(0.9)` would be
+circular, and fixture 2 pins the intermediate stored value precisely because an output-only test
+passes for the wrong loss convention.
+
+### Fixes applied (iteration 1) — both minor
+
+Three fixture-16 tests were silently hitting the appendix-A default 1×25 A / 5.75 kW connection cap
+(the import shed fired 20× in one, 8× in each sibling), throttling charging from 5.0 to 4.72 kWh/h.
+Results were bit-identical — the 12-hour low-price window has enough slack that the battery still
+fills, one hour later — but the docstrings' analytic derivation reasons about a 5 kW charge rate the
+run never achieved. Overridden explicitly. And the fixture-3 tests gained a comment stating what the
+conservation identity does and does not cover, so a Phase 4 implementer reading it understands the
+limit.
+
+**Worth carrying forward:** the shipped default connection (1×25 A → 5.75 kW) is tight enough to shed
+a 5 kW charge request against a ~1 kW household load. That is appendix A's default, not a bug, but it
+will shape Phase 4's headline numbers on a default configuration.
+
 ## Status
 
 **Phase 1 complete** — implemented, adversarially reviewed, fixes applied and verified, committed
 (`9f639d2`).
 **Phase 2 complete** — implemented, adversarially reviewed (DEFECT FOUND), all five defects fixed and
-verified. Next: Phase 3 (the simulation core, §6.6–§6.9, runs A/B/C).
+verified, committed (`6a8707c`).
+**Phase 3** — implemented, adversarially reviewed (CLEAN), two minor test fixes in flight.
+Next: Phase 4 (§6.11 metrics + panel ③ on real results).
