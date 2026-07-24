@@ -14,7 +14,7 @@ Covered:
     * a preset ("last_1_week") and the default (empty body) → 200 + an HTML fragment rooted at
       #panel-results;
     * an explicit start/end range → 200;
-    * the fragment carries the zero-battery headline (import with battery == baseline);
+    * the fragment carries REAL simulated figures, including an honestly-rendered negative saving;
     * bad inputs → clean 4xx (unknown preset, both period+range, end<=start, non-object body);
     * no dataset → 409.
 """
@@ -96,15 +96,30 @@ def test_results_explicit_range(client):
     assert 'id="panel-results"' in r.text
 
 
-def test_results_zero_battery_headline(client):
-    # The zero-battery invariant is visible in the rendered fragment: import "with battery" equals
-    # the baseline import, and grid-import-saved is 0.
+def test_results_headline_carries_real_simulated_figures(client):
+    """The rendered fragment shows a REAL run, and renders a negative saving honestly end-to-end.
+
+    The fixture is 2 kWh/h of import, no PV and no price, so over the clamped last-week window the
+    simulated baseline imports 7 × 24 × 2 = 336 kWh. With no price series the default P3 charge
+    band never opens (a NaN spot fails both band comparisons), so the battery only discharges its
+    initial 5.0 kWh down to the 10% floor — 4.0 kWh withdrawn, 4.0 × sqrt(0.9) = 3.79 kWh delivered
+    AC — while its standby draw costs 0.030 kW × 168 h = 5.04 kWh. The saving is therefore
+
+        3.79 − 5.04 = −1.25 kWh
+
+    i.e. NEGATIVE, which §7.2 item 9 says is correct output. The presentation must show it as a
+    cost: the row is captioned "Extra grid import", not "avoided", and the with-battery import
+    (337 kWh) is HIGHER than the baseline (336 kWh).
+    """
     r = client.post("/results", json={"period": "last_1_week"})
     assert r.status_code == 200
-    # Both breakdown rows show the same import figure (equal by construction this increment).
-    # 7 days × 24 h × 2 kWh = 336 kWh over the clamped last-week window.
-    assert "336 kWh" in r.text
-    assert "0 kWh" in r.text  # avoided / charged / discharged all zero
+    assert "336 kWh" in r.text          # simulated baseline import
+    assert "337 kWh" in r.text          # with battery — higher, because the battery cost energy
+    assert "Extra grid import" in r.text
+    assert "Grid import avoided" not in r.text
+    assert "Discharged from the battery" in r.text
+    # And the zero-battery caveat the previous increment always emitted is gone.
+    assert "No battery is configured" not in r.text
 
 
 def test_results_fragment_includes_data_glance_band(client):
@@ -180,10 +195,15 @@ def test_data_glance_is_translated_in_both_copies(client):
     assert "Uw gegevens in één oogopslag" in r.text  # the section title (panel ①)
     assert ">Net<" in r.text and ">Huishouden<" in r.text  # group headings from the macro body
     assert "Your data at a glance" not in r.text
+    # The Grid group's "as your meter recorded them" caption is in the macro body too, so it must
+    # translate in both copies like every other string there.
+    assert "zoals uw meter ze heeft geregistreerd" in r.text
+    assert "as your meter recorded them" not in r.text
     # The panel-③ fragment renders the same macro through a different route.
     r3 = client.post("/results", json={"period": "last_1_week"}, headers={"Cookie": "lang=nl"})
     assert "Uw energieverbruik in de geselecteerde periode" in r3.text
     assert ">Net<" in r3.text
+    assert "zoals uw meter ze heeft geregistreerd" in r3.text
 
 
 def test_range_picker_states_the_day_count(client):

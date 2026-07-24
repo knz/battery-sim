@@ -1,27 +1,75 @@
 """Panel ③ — Results (ENERGY SAVINGS) view-model, computed from a persisted dataset (specs §2.4).
 
-This increment brings panel ③ to life with REAL measured figures over a SELECTABLE window, but
-with a deliberate simplification: the simulated battery (panel ②) is not configured yet, so it does
-NOTHING — charge ≡ 0 and discharge ≡ 0. The "with battery" scenario therefore equals the baseline:
-grid-import-saved = 0, self-sufficiency baseline == battery, equivalent full cycles = 0, throughput
-= 0, conversion loss = 0, standby = 0. The panel honestly shows zero savings while every MEASURED
-figure (import, export, PV, reconstructed load, self-sufficiency, self-consumption, export) is real.
+Panel ③ now shows REAL SIMULATED battery figures. The previous increment hard-zeroed every
+battery-side number because there was no simulation core; there is one now (§6.6–§6.9,
+`app/domain/simulate.py`) and a §6.11 metrics layer over it (`app/domain/metrics.py`), so this
+module builds a `SimulationFrame`, runs A/B/C, and reports what the battery actually did.
+
+The pipeline per request:
+
+    reconcile_grid   →  the energy series on one grid + the §6.3 reconstructed load
+    simulation_frame →  the same, plus the spot price on that grid (§4.4)
+    run_all          →  runs A (baseline), B (battery, no standby), C (battery + standby)
+    energy_metrics   →  the §6.11 figures
+    (here)           →  KPI tiles, the energy breakdown, secondary metrics, caveats
+
+**The configuration is appendix-A defaults, not the user's.** Panel ② is not wired to a config
+object yet (Phase 6), so `SimulationConfig()` is constructed with its documented defaults — 10 kWh
+usable, 10–100% SoC, 5/5 kW, 90% round trip, 30 W standby, charge P3, discharge D1, no grid export,
+1×25 A connection, cost simulation off. The figures below are therefore "what THIS battery would
+have done", not "what YOUR battery would have done", and a caveat says so until Phase 6 binds the
+form. That is a deliberately visible placeholder rather than a hidden assumption.
 
 What is NOT emitted this increment (later phases):
   * the §6.12 perfect-foresight benchmark box — the DP is not built, so no `benchmark` key is
-    emitted (Phase 2 guards the template). We do not invent benchmark numbers.
-  * the "intervals battery was full / empty" secondary row — meaningless with no battery; omitted.
+    emitted (the template guards on it). We do not invent benchmark numbers.
+  * the "intervals battery was full / empty" secondary row — it needs a SoC-bound comparison the
+    metrics layer does not own yet; omitted rather than guessed.
   * annualisation — a short-window run (< min_annualisation_days) sets `annualisation_disabled`
     with a message so the template can show the §2.4 info box; nothing is annualised here anyway.
+  * any euro figure — `simulate_cost` is false, so §6.10 does not run.
 
 The view-model also carries a `data_summary` key: the §2.3a "Your data at a glance" figures repeated
 inside panel ③ but computed over the SELECTED window (spot price clamped to it too), rendered from
 the shared _data_glance.html macro so it swaps with the panel on every range change.
 
-Omit-don't-zero (§2.4 "Panel ③ without PV"): the self-consumption row is omitted when there is no
-PV (its denominator is PV); grid export is shown as a real figure (structurally zero without PV, but
-we show the measured value). Numbers are formatted here (thousands-separated kWh, integer percent)
-so the template stays dumb, matching app/summary_view.py.
+Two presentation rules that are not cosmetic:
+
+  * **Omit-don't-zero** (§2.4 "Panel ③ without PV"): the self-consumption row is omitted when
+    there is no usable PV, because its denominator is PV and §6.11 says the metric is null there —
+    never 0 and never 1, both of which would assert something the data cannot support.
+  * **A negative saving is reported honestly** (§7.2 item 9). A no-PV battery under an energy-only
+    objective can spend more kWh on round-trip losses and standby than its bands recover, and the
+    spec is explicit that this is correct output. So the KPI tile carries the sign, `saved_pct`
+    keeps it, and the breakdown row is relabelled "Extra grid import" rather than showing a
+    negative number under a label reading "avoided".
+
+**Self-sufficiency is display-clamped to `max(0, ·)` on BOTH sides** (§2.3a). The metric can go
+negative when import exceeds the reconstructed load — the battery ending the window more charged
+than it started, or round-trip losses — and a negative percentage reads as broken. The clamp is
+presentation only; `app/domain/metrics.py` returns the unclamped value, and a caveat fires here
+whenever the clamp actually bites.
+
+**The self-sufficiency tile compares run A against run C, never the meter against run C** (§7.1).
+Both halves come from `EnergyMetrics`. The measured figure `1 − rec.imp_total/rec.load_total` is a
+different information set: the meter's import exceeds run A's simulated import by the energy that
+reversed direction inside a grid interval, which the reconstruction nets out and no simulated
+battery can recover. §7.1 is explicit — "Using observed import as the denominator while computing
+the battery case from reconstructed data would mix two information sets and produce a number that
+is wrong in a direction nobody can reason about" — and the bias is one-sided and flattering. The
+measured import keeps its place in the data-glance band, which is labelled as the meter's, and a
+caveat states the kWh difference so the two numbers on the panel are legible rather than
+contradictory (§7.1: "Report the observed import alongside it, with the difference labelled as
+resolution loss").
+
+**Self-consumption is measured over the PV series' OWN coverage on both sides** (§2.3a: "comparing
+six months of production against two years of export would be meaningless"). `frame.pv` is
+zero-filled outside PV coverage, so the whole-window figure silently widens the export window while
+leaving the PV total unchanged. `_pv_coverage_mask` builds the mask once and hands it to
+`energy_metrics`, so the two scenarios cannot end up on different windows.
+
+Numbers are formatted here (thousands-separated kWh, integer percent) so the template stays dumb,
+matching app/summary_view.py.
 
 `results_from` returns None when the reconcile helper returns None (no simulatable grid) — the caller
 falls back to the empty state, exactly like data_summary_from.
@@ -45,6 +93,7 @@ import numpy as np
 
 from app.dataset import LoadedDataset
 from app.domain import normalize
+from app.domain.metrics import EnergyMetrics, energy_metrics
 from app.domain.reconcile import (
     CLAMP_UNRELIABLE_FRAC,
     DIV_GUARD_EPS,
@@ -52,7 +101,11 @@ from app.domain.reconcile import (
     ReconciledGrid,
     reconcile_grid,
 )
+from app.domain.simconfig import SimulationConfig
+from app.domain.simframe import simulation_frame
+from app.domain.simulate import run_all
 from app.data_view import _fmt_res
+from app.sample_data import _N
 from app.summary_view import data_summary_from
 
 # summary_view imports from reconcile/dataset/frames, NOT from results_view, so this top-level
@@ -193,8 +246,13 @@ def _period_selected_for(dataset: LoadedDataset, window: tuple[datetime, datetim
 
 
 def _fmt_kwh(total: float) -> str:
-    """kWh total → "1,234 kWh" (thousands-separated, rounded to whole kWh, matching summary_view)."""
-    return f"{round(total):,} kWh"
+    """kWh total → "1,234 kWh" (thousands-separated, rounded to whole kWh, matching summary_view).
+
+    Every caller passes a non-negative quantity, so the sign is not expected to appear — but when
+    it does it is rendered with U+2212 MINUS SIGN, matching `_fmt_signed_kwh` and `_fmt_signed_pct`.
+    Python's `format` emits ASCII "-", which would put two different minus glyphs on one panel.
+    """
+    return f"{round(total):,} kWh".replace("-", "−")
 
 
 def _fmt_pct(fraction: float) -> str:
@@ -202,21 +260,69 @@ def _fmt_pct(fraction: float) -> str:
     return f"{round(100 * fraction)}%"
 
 
+def _fmt_signed_kwh(total: float) -> str:
+    """A kWh figure that may be NEGATIVE → "1,234 kWh" / "−1,234 kWh" (U+2212, matching the app).
+
+    Used for the saving, which §7.2 item 9 says may legitimately come out negative. `round()` is
+    applied to the MAGNITUDE so a value between −0.5 and 0 prints "0 kWh" rather than "−0 kWh":
+    a signed zero is a formatting artefact, not a measurement, and it reads as a bug.
+    """
+    whole = round(abs(total))
+    sign = "−" if total < 0 and whole != 0 else ""
+    return f"{sign}{whole:,} kWh"
+
+
+def _fmt_signed_pct(pct: float) -> str:
+    """A percentage that may be negative → "−34.2 %" / "+12.0 %" (one decimal, §2.4's tile).
+
+    Explicitly signed, because the tile's delta line has to distinguish a saving from a cost and
+    an unsigned "34.2 %" beside a negative saving would read as the opposite of the truth. Same
+    minus-zero guard as `_fmt_signed_kwh`: a value rounding to 0.0 prints without a sign.
+    """
+    rounded = round(abs(pct), 1)
+    if rounded == 0.0:
+        return "0.0 %"
+    return f"{'−' if pct < 0 else '+'}{rounded:.1f} %"
+
+
+def _clamped_pct(fraction: float | None) -> tuple[str, bool]:
+    """A §6.11 ratio → (integer-percent string, did-the-display-clamp-fire) per §2.3a.
+
+    `max(0, ·)` is applied to the DISPLAYED value only; the caller raises a caveat when the second
+    element is True. `None` (the metric is not computable) formats as "n/a" and does not count as
+    a clamp — absence and a clamped negative are different statements.
+    """
+    if fraction is None:
+        return "n/a", False
+    if fraction < 0:
+        return _fmt_pct(0.0), True
+    return _fmt_pct(fraction), False
+
+
 def _self_sufficiency(rec: ReconciledGrid) -> float:
-    """1 − import/load over the window (§6.11), display-clamped to ≥ 0. 0 when load is ~0."""
+    """1 − import/load over the window (§6.11), display-clamped to ≥ 0. 0 when load is ~0.
+
+    Retained for the measured/battery-free figure; the simulated scenarios' self-sufficiency comes
+    from `app/domain/metrics.py` (which returns it UNCLAMPED) and is clamped by `_clamped_pct`.
+    """
     if rec.load_total <= DIV_GUARD_EPS:
         return 0.0
     return max(0.0, 1 - rec.imp_total / rec.load_total)
 
 
-def _pv_self_consumption(dataset: LoadedDataset, rec: ReconciledGrid) -> float | None:
-    """1 − export/pv over the PV's OWN coverage window (§6.11), or None when there is no usable PV.
+def _pv_coverage_mask(dataset: LoadedDataset, rec: ReconciledGrid) -> np.ndarray | None:
+    """Boolean per grid interval: does the PV SERIES' own coverage span this interval? (§2.3a)
 
-    Mirrors summary_view._add_solar: PV may cover only part of the grid window (panels installed
-    part-way through), so both PV and the export it is compared against are restricted to the PV
-    coverage sub-window. Returns None when no PV slot is mapped, the PV frame is empty, or its total
-    over its coverage is below PV_PRESENT_FLOOR_KWH (a sensor mapped but not really reporting) — all
-    the omit-don't-zero cases for the self-consumption row (§2.4 "Panel ③ without PV").
+    Mirrors summary_view._add_solar's masking. PV may cover only part of the grid window (panels
+    installed part-way through a longer meter history), and §2.3a is explicit that self-consumption
+    must compare PV against export over the PV's own window — "comparing six months of production
+    against two years of export would be meaningless". This is the mask that expresses that window,
+    computed ONCE here and used for both the measured figure and the simulated ones (it is handed to
+    `energy_metrics`), so the two cannot end up on different windows.
+
+    Returns None when no PV slot is mapped or the PV frame has no coverage at all — the cases where
+    there is no PV window to speak of. A None mask means "use the whole window", which is what a
+    dataset with no PV needs and what a fully-covering PV series amounts to anyway.
     """
     if rec.pv is None:
         return None
@@ -227,19 +333,25 @@ def _pv_self_consumption(dataset: LoadedDataset, rec: ReconciledGrid) -> float |
     if cov is None:
         return None
     pv_start, pv_end = cov
-    # Grid-interval mask over the effective window, restricting to the PV coverage sub-window.
     win_start = np.datetime64(rec.window[0].replace(tzinfo=None), "s")
     n = len(rec.pv)
     bucket_start = win_start + (np.arange(n) * rec.grid_s).astype("timedelta64[s]")
     ps = np.datetime64(pv_start.replace(tzinfo=None), "s")
     pe = np.datetime64(pv_end.replace(tzinfo=None), "s")
-    in_pv = (bucket_start >= ps) & (bucket_start < pe)
+    return (bucket_start >= ps) & (bucket_start < pe)
 
-    pv_total = float(rec.pv[in_pv].sum())
-    if pv_total < PV_PRESENT_FLOOR_KWH:
-        return None  # mapped but effectively empty → omit the row
-    exp_pv_window = float(rec.exp[in_pv].sum())
-    return 1 - exp_pv_window / pv_total
+
+def _pv_present(rec: ReconciledGrid, pv_mask: np.ndarray | None) -> bool:
+    """Is there enough PV over its own coverage for the self-consumption row to mean anything?
+
+    The omit-don't-zero gate for the self-consumption row (§2.4 "Panel ③ without PV"): False when no
+    PV slot is mapped, when the PV frame has no coverage, or when its total over that coverage is
+    below PV_PRESENT_FLOOR_KWH (a sensor mapped but not really reporting). §6.11 makes the metric
+    null in all three cases, and both 0 and 1 would assert something the data cannot support.
+    """
+    if rec.pv is None or pv_mask is None:
+        return False
+    return float(rec.pv[pv_mask].sum()) >= PV_PRESENT_FLOOR_KWH
 
 
 def _monthly_import(rec: ReconciledGrid) -> dict:
@@ -272,16 +384,21 @@ def _monthly_import(rec: ReconciledGrid) -> dict:
 def results_from(
     dataset: LoadedDataset, window: tuple[datetime, datetime]
 ) -> dict | None:
-    """Build the panel-③ ENERGY SAVINGS view-model over `window`, zero-battery (specs §2.4).
+    """Build the panel-③ ENERGY SAVINGS view-model over `window` from a real run (specs §2.4).
 
     Shape-compatible with sample_data._panel_results() EXCEPT: no `benchmark` key (the §6.12 DP is
-    not built this increment) and the "intervals battery full/empty" secondary row is omitted (no
-    battery). Returns None when reconcile_grid returns None (no simulatable grid) — the caller then
-    falls back to the empty state, exactly like data_summary_from.
+    Phase 5) and the "intervals battery full/empty" secondary row is omitted. Returns None when
+    reconcile_grid returns None (no simulatable grid) — the caller then falls back to the empty
+    state, exactly like data_summary_from.
 
-    With charge ≡ discharge ≡ 0, the "with battery" import equals the baseline import, so every
-    savings figure is honestly zero while the measured figures (import, export, PV, load,
-    self-sufficiency, self-consumption) are real.
+    The battery figures come from runs A/B/C over a `SimulationFrame` under appendix-A defaults;
+    see the module comment for why the config is not the user's yet, and for the sign, clamp and
+    omit rules the presentation below obeys.
+
+    `should_cancel` is deliberately not passed to `run_all`: there is no run-orchestration layer
+    (§3.3/§5.3) to cancel from, and a hook nothing can trip would be dead weight. The run is
+    ~0.1 s over a year of hourly data (measured, changelog 20260725), which is why this is
+    computed inline per request rather than behind a cache.
     """
     rec = reconcile_grid(dataset, window)
     if rec is None:
@@ -303,46 +420,156 @@ def results_from(
     # the sample view-model's shape is unchanged); the template renders the parts.
     period = f"{period_dates} · {period_run}"
 
-    # Baseline == battery under the zero-battery assumption.
-    ss = _self_sufficiency(rec)  # baseline self-sufficiency == battery self-sufficiency
-    ss_str = _fmt_pct(ss)
-    self_consumption = _pv_self_consumption(dataset, rec)  # None when no usable PV
+    # ── Run the simulation (§6.9) and compute the §6.11 metrics ────────────────────────────────
+    # simulation_frame re-runs reconcile_grid internally rather than taking `rec`. That is one
+    # duplicated reconciliation per request (~4 ms on a year of hourly data, measured); the
+    # alternative — a frame builder that accepts a pre-reconciled grid — would change a Phase-1
+    # module's signature, which is out of scope here. Both paths run the SAME reconcile_grid over
+    # the SAME window, so the band's numbers and the run's cannot disagree.
+    frame = simulation_frame(dataset, window)
+    cfg = SimulationConfig()  # appendix-A defaults; Phase 6 binds the panel-② form
+    # The PV series' own coverage as a per-interval mask (§2.3a). Handed to `energy_metrics` so BOTH
+    # scenarios' self-consumption is measured over that one window; see `_pv_coverage_mask`.
+    pv_mask = _pv_coverage_mask(dataset, rec)
+    pv_present = _pv_present(rec, pv_mask)
+    metrics: EnergyMetrics | None = None
+    if frame is not None and frame.intervals > 0:
+        # `rec` and `frame` come from the same reconcile_grid over the same window, so `pv_mask`
+        # (built against `rec`) indexes `frame`'s arrays too — same length, same interval starts.
+        metrics = energy_metrics(run_all(frame, cfg), frame, cfg, pv_mask=pv_mask)
 
-    # ── KPI tiles (§2.4). All savings are zero this increment; self-sufficiency baseline == battery.
-    kpis = [
-        {"title": "GRID IMPORT SAVED", "value": "0", "unit": "kWh", "delta": "0 %"},
-        {"title": "SELF-SUFFICIENCY", "value": f"{ss_str} → {ss_str}", "delta": "+0 pp"},
-        {"title": "EQUIVALENT FULL CYCLES", "value": "0",
-         "delta": "0.00 / day", "extra": "0 kWh throughput"},
-    ]
-
-    # ── "Where the energy comes from" breakdown (§2.4). Import with battery == import no battery,
-    # so avoided = 0. Everything the battery would move is 0 (it does nothing this increment). Label
-    # msgids match the sample so existing translations apply.
     imp_str = _fmt_kwh(rec.imp_total)
-    energy_breakdown = [
-        {"label": "Grid import, no battery", "value": imp_str},
-        {"label": "Grid import, with battery", "value": imp_str},
-        {"label": "Grid import avoided", "value": "0 kWh", "rule_above": True},
-        {"label": "Charged into the battery", "value": "0 kWh", "gap_above": True},
-        {"label": "Discharged from the battery", "value": "0 kWh"},
-        {"label": "Conversion losses", "value": "0 kWh"},
-        {"label": "Standby consumption", "value": "0 kWh"},
-    ]
-
-    # ── Secondary metrics (§2.4). Self-consumption omitted without usable PV (omit-don't-zero); it
-    # is baseline == battery when shown. Grid export is the measured figure, equal on both sides.
     exp_str = _fmt_kwh(rec.exp_total)
-    secondary = []
-    if self_consumption is not None:
-        sc_str = _fmt_pct(self_consumption)
-        secondary.append({"label": "Self-consumption ratio", "value": f"{sc_str} → {sc_str}"})
-    secondary.append({"label": "Grid export", "value": f"{exp_str} → {exp_str}"})
-    # "Intervals battery was full / empty" omitted — meaningless with no battery this increment.
 
-    # ── Caveats: real data-quality notes (§2.4). Plain English strings; the template wraps them in
-    # _() and a later phase extracts them to the catalog. Order: reconstruction reliability, then
-    # price granularity, then ALWAYS the honest "battery not configured → savings are zero" note.
+    clamp_fired = False
+    negative_saving = False
+
+    if metrics is None:
+        # Defensive: `reconcile_grid` succeeded, so `simulation_frame` should too (it returns None
+        # on exactly the same condition). If it somehow did not, show the measured figures and no
+        # invented battery numbers rather than raising on a page the user is looking at. This is
+        # the ONE place the MEASURED self-sufficiency is shown as a tile value, and it is safe
+        # precisely because there is no simulated figure beside it to be compared against.
+        ss_str = _fmt_pct(_self_sufficiency(rec))
+        kpis = [
+            {"title": "GRID IMPORT SAVED", "value": "n/a", "unit": "kWh", "delta": ""},
+            {"title": "SELF-SUFFICIENCY", "value": f"{ss_str} → n/a", "delta": ""},
+            {"title": "EQUIVALENT FULL CYCLES", "value": "n/a", "delta": "", "extra": ""},
+        ]
+        energy_breakdown = [
+            {"label": "Grid import, no battery", "value": imp_str},
+        ]
+        secondary = [{"label": "Grid export", "value": exp_str}]
+    else:
+        # ── KPI tiles (§2.4) ───────────────────────────────────────────────────────────────────
+        # The saving is SIGNED throughout: §7.2 item 9 makes a negative saving a legitimate result
+        # (an energy-only run of a no-PV battery pays round-trip losses and standby for a price
+        # spread it does not price), so nothing here may assume it is positive.
+        negative_saving = metrics.saved_kwh < 0
+        saved_value = _fmt_signed_kwh(metrics.saved_kwh).removesuffix(" kWh")
+        saved_delta = (
+            _fmt_signed_pct(metrics.saved_pct) if metrics.saved_pct is not None else "n/a"
+        )
+
+        # Self-sufficiency: BOTH halves from the run (§7.1). The baseline is run A's simulated
+        # figure, NOT the measured `1 − rec.imp_total/rec.load_total`, because the arrow is a
+        # COMPARISON and §7.1 requires both scenarios to see the same information set: "Using
+        # observed import as the denominator while computing the battery case from reconstructed
+        # data would mix two information sets and produce a number that is wrong in a direction
+        # nobody can reason about." The measured import is higher than run A's by the §7.1
+        # resolution loss (within-interval import/export overlap the hourly grid nets out), so a
+        # measured left half made the arrow systematically flattering — on the real dataset it
+        # showed +12 pp where like-for-like is +10 pp. The measured figures keep their place in
+        # the data-glance band above, which is separately labelled as measured.
+        #
+        # Both halves are display-clamped to ≥ 0 (§2.3a) and the delta is in percentage POINTS,
+        # computed on the clamped values so it agrees with the two numbers shown beside it.
+        ss_base_str, ss_base_clamped = _clamped_pct(metrics.self_sufficiency_baseline)
+        ss_batt_str, ss_batt_clamped = _clamped_pct(metrics.self_sufficiency_battery)
+        clamp_fired = ss_base_clamped or ss_batt_clamped
+        # Both sides are None together (§6.11's symmetric null guard: a household with ~no load is
+        # not self-sufficient in either scenario), so the delta is omitted rather than computed
+        # against an invented zero.
+        if (metrics.self_sufficiency_baseline is None
+                or metrics.self_sufficiency_battery is None):
+            ss_delta = ""
+        else:
+            ss_base_frac = max(0.0, metrics.self_sufficiency_baseline)
+            ss_batt_frac = max(0.0, metrics.self_sufficiency_battery)
+            ss_delta_pp = round(100 * ss_batt_frac) - round(100 * ss_base_frac)
+            ss_delta = f"{ss_delta_pp:+d} pp"
+        kpis = [
+            {"title": "GRID IMPORT SAVED", "value": saved_value, "unit": "kWh",
+             "delta": saved_delta},
+            {"title": "SELF-SUFFICIENCY",
+             "value": f"{ss_base_str} → {ss_batt_str}",
+             "delta": ss_delta},
+            {"title": "EQUIVALENT FULL CYCLES",
+             "value": f"{metrics.efc:,.0f}" if metrics.efc is not None else "n/a",
+             "delta": (f"{metrics.cycles_per_day:.2f} / day"
+                       if metrics.cycles_per_day is not None else ""),
+             "extra": f"{_fmt_kwh(metrics.throughput_kwh)} throughput"},
+        ]
+
+        # ── "Where the energy comes from" breakdown (§2.4) ─────────────────────────────────────
+        # The "no battery" figure is run A's SIMULATED import, not the meter's — it is the
+        # denominator `saved_pct` uses and the number the row below it is a difference of, so
+        # showing the measured import here would leave the subtraction visibly not adding up.
+        # (The measured import is stated in the data-glance band above, labelled as measured.)
+        #
+        # The third row's LABEL follows the sign (§7.2 item 9): "avoided" is a claim, and printing
+        # a negative number under it would state the opposite of what happened.
+        #
+        # `_N` so `pybabel extract -k _N` finds "Extra grid import". Every other breakdown label
+        # reaches the catalog via app/sample_data.py's parallel copy, but this one has no sample
+        # counterpart — the sample shows a positive saving — so without the tag a Dutch user on the
+        # negative-saving path got one English row among translated peers.
+        avoided_label = _N("Extra grid import") if negative_saving else "Grid import avoided"
+        energy_breakdown = [
+            {"label": "Grid import, no battery",
+             "value": _fmt_kwh(metrics.baseline_import_kwh)},
+            {"label": "Grid import, with battery",
+             "value": _fmt_kwh(metrics.battery_import_kwh)},
+            {"label": avoided_label,
+             "value": _fmt_kwh(abs(metrics.saved_kwh)), "rule_above": True},
+            {"label": "Charged into the battery",
+             "value": _fmt_kwh(metrics.charge_ac_kwh), "gap_above": True},
+            {"label": "Discharged from the battery",
+             "value": _fmt_kwh(metrics.discharge_ac_kwh)},
+            {"label": "Conversion losses", "value": _fmt_kwh(metrics.conversion_loss_kwh)},
+            {"label": "Standby consumption", "value": _fmt_kwh(metrics.standby_kwh)},
+        ]
+
+        # ── Secondary metrics (§2.4) ───────────────────────────────────────────────────────────
+        # Self-consumption is omitted without usable PV (omit-don't-zero): §6.11 makes it null
+        # there, and the row's whole content would be an assertion the data cannot support.
+        #
+        # BOTH halves come from the run, over the PV series' OWN coverage window (`pv_mask`, passed
+        # into `energy_metrics` above). §2.3a is the authority and it is a statement about the
+        # metric, not about one copy of it: "comparing six months of production against two years
+        # of export would be meaningless". It was previously true of the baseline half only, while
+        # the battery half spanned the whole window against a PV array zero-filled outside its
+        # coverage — so on the real dataset (162 days of PV in a 365-day window) roughly two points
+        # of the apparent 34% → 60% jump were purely the window changing under the reader.
+        secondary = []
+        if (pv_present
+                and metrics.self_consumption_baseline is not None
+                and metrics.self_consumption_battery is not None):
+            sc_base, _ = _clamped_pct(metrics.self_consumption_baseline)
+            sc_batt, _ = _clamped_pct(metrics.self_consumption_battery)
+            secondary.append({"label": "Self-consumption ratio", "value": f"{sc_base} → {sc_batt}"})
+        secondary.append({
+            "label": "Grid export",
+            "value": f"{_fmt_kwh(metrics.baseline_export_kwh)} → "
+                     f"{_fmt_kwh(metrics.battery_export_kwh)}",
+        })
+        # "Intervals battery was full / empty" omitted — needs a SoC-bound comparison the metrics
+        # layer does not compute yet; omitted rather than guessed.
+
+    # ── Caveats (§2.4). Plain English strings; the template wraps them in _() and a later phase
+    # extracts them to the catalog. Order: reconstruction reliability, price granularity, then the
+    # run-specific notes (negative saving, SoC drift, self-sufficiency clamp), then the standing
+    # note that the battery parameters are defaults rather than the user's.
     caveats: list[str] = []
     if rec.clamped_frac > CLAMP_UNRELIABLE_FRAC:
         caveats.append(
@@ -351,20 +578,85 @@ def results_from(
             f"usually means solar export the PV sensor did not report, or an unmapped battery — "
             f"so the load and self-sufficiency figures here are unreliable."
         )
+    if metrics is not None:
+        # §7.1's own instruction: "Report the observed import alongside it, with the difference
+        # labelled as resolution loss." The band above shows the METER's import; the Energy savings
+        # section below shows run A's SIMULATED no-battery import, which is smaller by the energy
+        # that flowed both ways inside a single interval — the reconstructed load nets that out and
+        # no simulated battery can recover it. Two grid-import numbers on one panel read as a
+        # contradiction unless the difference is named, so it is named here in kWh.
+        #
+        # Raised only when the gap rounds to at least 1 kWh: below that the two figures print
+        # identically and a caveat explaining a difference the reader cannot see would be noise.
+        resolution_loss = rec.imp_total - metrics.baseline_import_kwh
+        if round(resolution_loss) >= 1:
+            caveats.append(
+                f"Your meter recorded {imp_str} imported over this period; the simulation's "
+                f"no-battery baseline is {_fmt_kwh(metrics.baseline_import_kwh)}. The difference "
+                f"of {_fmt_kwh(resolution_loss)} is energy that flowed both into and out of your "
+                f"house within a single {res_label} interval, which data at this resolution cannot "
+                f"see. Everything under Energy savings is computed from the simulated baseline, so "
+                f"that the battery and no-battery cases are built from the same information; the "
+                f"figures above it are as your meter recorded them. That is why the two sets of "
+                f"numbers do not match exactly."
+            )
     price_lost = normalize.price_granularity_lost(dataset.frames, rec.grid_s)
     if price_lost["lost"]:
         native = _fmt_res(price_lost["native_resolution_s"])
         caveats.append(
             f"Spot prices are recorded every {native} but the run is {res_label}, so the battery "
-            f"would act on an averaged price and could not chase within-interval swings."
+            f"acted on an averaged price and could not chase within-interval swings."
         )
-    # Always: the honest headline for this increment. No battery is configured, so the simulator
-    # moves no energy and every savings figure above is zero by construction — the measured figures
-    # (import, export, self-sufficiency) are real, but the "with battery" columns equal the baseline.
+    if negative_saving and metrics is not None:
+        # §7.2 items 9 and 10. Without PV the battery's value is in the price SPREAD — a euro
+        # quantity — so an energy-only run measures the cost of moving the energy and none of the
+        # benefit. Say that plainly rather than presenting a negative kWh figure as a verdict.
+        caveats.append(
+            f"This battery imported {_fmt_kwh(abs(metrics.saved_kwh))} MORE from the grid than "
+            f"the same household without one. That is a real result, not an error: round-trip "
+            f"losses and standby cost energy, and the value of charging cheaply and discharging "
+            f"when prices are high is a price spread — a euro quantity this energy-only run does "
+            f"not compute. An energy-only run cannot tell you whether the battery is worth buying."
+        )
+    if metrics is not None and metrics.soc_drift_significant:
+        # §6.11's SoC drift correction. Without a cost model there is no median import price, so
+        # the euro valuation (`soc_delta_value_eur`) is null and is not shown — only the kWh.
+        direction = "more" if metrics.soc_delta_kwh > 0 else "less"
+        caveats.append(
+            f"The battery ended the period {_fmt_kwh(abs(metrics.soc_delta_kwh))} {direction} "
+            f"charged than it started. That residual energy is not part of the saving above and "
+            f"is large relative to it, so the headline figure would move if the period ended at a "
+            f"different state of charge."
+        )
+    if clamp_fired:
+        # §2.3a's display clamp, on EITHER half of the tile. Only the presentation is clamped; the
+        # metric itself is negative. Worded to cover both sides rather than naming the battery one:
+        # the baseline half is now run A's simulated figure and can clamp too (the same round-trip
+        # and drift mechanics apply to a household with an EXISTING battery in the reconstruction).
+        caveats.append(
+            "Self-sufficiency came out below zero and is shown as zero. Grid "
+            "import exceeded the reconstructed household load over this period — the battery ended more "
+            "charged than it started, or round-trip losses consumed imported energy. It evens out "
+            "over full charge/discharge cycles; select a longer period to see it."
+        )
+    # Standing note until Phase 6 binds panel ② to a config object: the battery above is the
+    # appendix-A default, not the user's. Stated rather than hidden — a figure computed from an
+    # unstated parameter set is the kind of number that propagates unchallenged.
+    #
+    # **No literal "%" in any caveat string.** The template renders these through `_()`, and the
+    # Jinja i18n extension is installed with `newstyle=True`, which applies %-formatting to the
+    # translated result: "90% round-trip" comes out as "90{}ound-trip" because "% r" is read as a
+    # conversion specifier. Escaping it as "%%" would work but pushes the escape onto every
+    # translator of every catalog, so the caveats are worded without the sign instead — hence
+    # "0.90 round-trip" below rather than "90% round-trip". (The KPI tiles and breakdown rows are
+    # unaffected: they are values, rendered without `_()`.)
     caveats.append(
-        "No battery is configured yet, so the simulated battery does nothing: every savings figure "
-        "is zero and the “with battery” columns equal your measured baseline. Configure a "
-        "battery to see what it would have saved."
+        f"These figures are for a default battery — {cfg.battery.usable_capacity_kwh:g} kWh usable, "
+        f"{cfg.battery.max_charge_kw:g}/{cfg.battery.max_discharge_kw:g} kW, "
+        f"{cfg.battery.roundtrip_efficiency:.2f} round-trip efficiency, "
+        f"charge {cfg.policy.charge_policy.value} / discharge {cfg.policy.discharge_policy.value} — "
+        f"because the parameters panel is not wired up yet. They are not yet based on a battery "
+        f"you chose."
     )
 
     # The "Your data at a glance" figures, repeated inside panel ③ but over the SELECTED range (the

@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-24 22:42+0200\n"
+"POT-Creation-Date: 2026-07-25 01:07+0200\n"
 "PO-Revision-Date: 2026-07-23 20:40+0200\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: en\n"
@@ -214,9 +214,6 @@ msgstr "Discharged from the battery"
 msgid "Do you have solar PV?"
 msgstr "Do you have solar PV?"
 
-msgid "Energy savings"
-msgstr "Energy savings"
-
 msgid "EQUIVALENT FULL CYCLES"
 msgstr "EQUIVALENT FULL CYCLES"
 
@@ -225,6 +222,9 @@ msgstr "Enable cost simulation"
 
 msgid "Energy flows"
 msgstr "Energy flows"
+
+msgid "Energy savings"
+msgstr "Energy savings"
 
 msgid "Entity"
 msgstr ""
@@ -237,6 +237,9 @@ msgstr "Export limit"
 
 msgid "Exported"
 msgstr "Exported"
+
+msgid "Extra grid import"
+msgstr "Extra grid import"
 
 msgid "Fetch history"
 msgstr "Fetch history"
@@ -707,6 +710,9 @@ msgstr ""
 "household consumption is reconstructed: load = grid import − grid export "
 "+ solar produced. Intervals where the result is negative (a data problem)"
 " are clamped to zero."
+
+msgid "as your meter recorded them"
+msgstr "as your meter recorded them"
 
 msgid "change"
 msgstr "change"

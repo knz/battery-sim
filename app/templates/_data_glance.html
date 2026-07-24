@@ -83,12 +83,19 @@
     {# The three headline groups. Grid and Household are always present; Solar only with PV. #}
     <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
       {# ── Grid ────────────────────────────────────────────────────────────── #}
+      {# Labelled "as your meter recorded them". These two are raw measured sums in BOTH copies of
+         the band, so the label is correct in panel ① as well as panel ③ — but it earns its place
+         in panel ③, where the Energy savings section directly below shows the SIMULATED no-battery
+         import, a slightly smaller number (§7.1 resolution loss). Two unlabelled "grid import"
+         figures on one panel read as a contradiction; the panel-③ caveat names the gap in kWh, and
+         this caption says which of the two is the meter's. #}
       <div class="rounded-box border border-base-300 bg-base-200/40 p-3">
         <h3 class="text-xs font-semibold uppercase tracking-wide text-base-content/60">{{ _('Grid') }}</h3>
         <dl class="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-sm">
           <dt class="text-base-content/60">{{ _('Imported') }}</dt><dd class="text-right font-medium">{{ data_summary.grid.imported }}</dd>
           <dt class="text-base-content/60">{{ _('Exported') }}</dt><dd class="text-right font-medium">{{ data_summary.grid.exported }}</dd>
         </dl>
+        <p class="mt-1 text-xs text-base-content/50">{{ _('as your meter recorded them') }}</p>
       </div>
 
       {# ── Household ───────────────────────────────────────────────────────── #}

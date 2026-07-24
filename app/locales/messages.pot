@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-24 22:57+0200\n"
+"POT-Creation-Date: 2026-07-25 01:07+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -225,6 +225,9 @@ msgid "Export limit"
 msgstr ""
 
 msgid "Exported"
+msgstr ""
+
+msgid "Extra grid import"
 msgstr ""
 
 msgid "Fetch history"
@@ -635,6 +638,9 @@ msgid ""
 "household consumption is reconstructed: load = grid import − grid export "
 "+ solar produced. Intervals where the result is negative (a data problem)"
 " are clamped to zero."
+msgstr ""
+
+msgid "as your meter recorded them"
 msgstr ""
 
 msgid "change"

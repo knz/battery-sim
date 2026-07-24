@@ -313,6 +313,18 @@ repeating it — §6.9's pseudocode does NOT hoist `cfg.*` into locals; it reads
 `battery_step` per interval. The don't-re-cache comment was written as a conditional
 ("if that ever measures as hot, the caller should hoist") instead of citing the spec.
 
+### Cross-phase follow-up: the `newstyle=True` gettext trap (found in Phase 4)
+
+`app/i18n.py:90` — `install_gettext_translations(..., newstyle=True)` %-formats the result of `_()`,
+so a literal `%` in any dynamic translated string is treated as a format placeholder: it is silently
+eaten before a letter, and RAISES `ValueError` before a non-ASCII character (a 500 on a page a user is
+looking at). Not currently triggered — KPI values bypass `_()` by template design and the Phase 4
+caveats were worded around it — but it is a live trap for the next dynamic string carrying a
+percentage. Fix at the root (escape `%` → `%%` before translation, or `newstyle=False`) as its own
+task, since it touches i18n and every catalog. Related to the pre-existing "dynamic caveat strings
+render in English under NL" follow-up from the zero-battery increment: both are consequences of
+passing runtime-built strings through `_()` at all.
+
 ### Phase 2 follow-ups (deferred, not blocking)
 
 - **`_finite()` rejects `str`**, so `GridConfig(phases="3")` blocks rather than coercing. Defensible
@@ -419,11 +431,133 @@ limit.
 a 5 kW charge request against a ~1 kW household load. That is appendix A's default, not a bug, but it
 will shape Phase 4's headline numbers on a default configuration.
 
+## Phase 4 — §6.11 metrics + panel ③ on real results
+
+> Detailed per-decision record: [20260725-metrics-and-real-results-phase4.md](20260725-metrics-and-real-results-phase4.md).
+
+**Built.** New `app/domain/metrics.py` (`EnergyMetrics`, `SOC_DRIFT_WARN_FRAC`, `energy_metrics`) —
+pure: runs + frame + config in, bare numbers out. `app/results_view.py` rewired to build a
+`SimulationFrame`, construct a `SimulationConfig` (appendix-A defaults until Phase 6 wires the form),
+call `run_all`, compute metrics and populate the tiles, breakdown, secondary metrics and caveats. The
+"No battery is configured yet" caveat is deleted — it is no longer true. New `tests/test_metrics.py`
+(20 hand-computed fixtures).
+
+**Every metric has its own hand-computed fixture**, per the Phase 3 review's finding that the
+conservation identity cannot catch metric-arithmetic defects. The core scenario (4 hours, load 1/1/3/3,
+PV 5/5/0/0, 10 kWh battery, P1/D1) is worked out on paper in the test module header and each figure
+asserted as a literal.
+
+### Panel ③ now shows real numbers
+
+Over the persisted dataset (8,760 hourly intervals, 2025-07-24 → 2026-07-24), on the default battery:
+
+    GRID IMPORT SAVED        341 kWh   +8.8 %
+    SELF-SUFFICIENCY         21% → 33%   +12 pp
+    EQUIVALENT FULL CYCLES   138   0.38 / day   1,311 kWh throughput
+
+    Grid import, no battery      3,864 kWh      Charged into the battery   1,462 kWh
+    Grid import, with battery    3,523 kWh      Discharged from battery    1,311 kWh
+    Grid import avoided            341 kWh      Conversion losses            146 kWh
+                                                Standby consumption          195 kWh
+    Self-consumption ratio  34% → 60%    Grid export  2,030 → 1,275 kWh
+
+Orchestrator-verified as internally consistent: 3,864 − 3,523 = 341; charged 1,462 − discharged 1,311
+= 151 ≈ the 146 kWh conversion loss plus a small SoC change.
+
+**Simulation cost: 0.130 s per request** (frame build 0.004, `run_all` 0.115). No caching — the cost
+is acceptable, and a cache key over config + window + dataset id raises a staleness question the spec
+has not framed and Phase 6 would change. Revisit when Phase 5's DP (seconds, per §6.12) lands on the
+same request path; that is a different order of magnitude.
+
+### Pre-existing i18n defect found by looking at the live page
+
+`app/i18n.py:90` installs gettext with `newstyle=True`, which applies %-formatting to the RESULT of
+`_()`. Any dynamic string passed through `_()` therefore has its literal `%` interpreted as a format
+placeholder:
+
+    "90% round-trip efficiency"  ->  "90{}ound-trip efficiency"      (character eaten)
+    "21% → 33%"                  ->  ValueError: unsupported format character '→'   (would 500)
+
+**Orchestrator assessment of the blast radius** (the agent reported the eaten character; the raising
+case is worse and was found in follow-up): the exposure is bounded to `_()`-wrapped strings. KPI values
+and breakdown figures render as `{{ k.value }}` / `{{ row.value }}` WITHOUT `_()`, so the live page is
+correct and `"21% → 33%"` never reaches gettext — safe by template design, not by luck in the string.
+Today the only `_()`-wrapped dynamic strings are the caveats, and both live caveats were verified to
+render safely after the agent worded them without `%`.
+
+That workaround is right for this phase but leaves a trap: the next person to write a caveat
+containing a percentage gets a mangled string, or a 500 if a non-ASCII character follows the `%`.
+Filed as a follow-up below; the root fix (escaping `%` before translation, or `newstyle=False`) touches
+i18n and every catalog and does not belong in this phase.
+
+### Adversarial review verdict: DEFECT FOUND — observed and simulated figures mixed in one comparison
+
+The §6.11 arithmetic in `metrics.py` was verified correct on every point (saved_pct's denominator,
+storage-side efc, null-not-zero self-consumption, the three ambiguity resolutions, SoC drift's
+`abs()` on both sides, gap masking, standby as the exact run difference). **All defects were in the
+PRESENTATION layer** — `results_view.py` mixing information sets:
+
+- **The SELF-SUFFICIENCY tile compared observed against simulated.** Left half was
+  `1 − rec.imp_total/rec.load_total` (the METER); right half was `metrics.self_sufficiency_battery`
+  (SIMULATED). Orchestrator-verified on the real dataset: observed import 3,924.49 kWh vs run A's
+  3,864.17 — a 60.32 kWh gap from §7.1 resolution damage. The tile read **+12 pp** where like-for-like
+  is **+10 pp**, and the bias flattered the battery in EVERY preset (+29/+25, +28/+26, +31/+28,
+  +26/+23, +12/+10). A correct `self_sufficiency_baseline` was computed and never read.
+- **Self-consumption compared a 162-day PV window against a 365-day one.**
+- **Two unexplained "grid import"/"grid export" figures on one panel** (3,924 vs 3,864; 2,096 vs 2,030).
+- Minor: a zero-load household reported "0% → 100%"; "Extra grid import" was missing from the NL
+  catalog; `_fmt_kwh` used ASCII `-` where `_fmt_signed_kwh` used U+2212.
+
+The code comment showed the self-sufficiency choice was a DELIBERATE trade — taken from the
+reconciliation so the tile would agree with the band above it. §7.1 rules the other way and prescribes
+both halves of the remedy: *"Use the simulated baseline (run A), so that both scenarios see identical
+information. Report the observed import alongside it, with the difference labelled as resolution
+loss."*
+
+### Fixes applied (iteration 1)
+
+Both halves of both comparisons now come from `EnergyMetrics`; the band's Grid figures gained an
+"as your meter recorded them" caption (in the shared macro, so panel ① gets it too — correct, they are
+measured in both places); and a caveat names the gap per §7.1. Displayed figures moved to the honest
+like-for-like values — 1-year self-sufficiency **23% → 33% (+10 pp)**, self-consumption **36% → 60%**.
+
+**The implementer corrected the review's DEFECT-2 diagnosis, and the correction is right.** The
+windowing was NOT the cause: §6.9 computes export as `max(0, pv − load)` over a §6.3-clamped
+non-negative load and `frame.pv` is zero outside PV coverage, so a run cannot export where `pv == 0`.
+Orchestrator-verified: run A's export where `pv == 0` is exactly 0.0, and run A's total export is
+2030.033745 kWh masked and unmasked alike. The 34% → 36% shift came entirely from the §7.1
+information-set switch. The PV mask was kept anyway on a structural argument: it converts an agreement
+that holds *because of how §6.9 happens to define export* into one the metrics layer states for itself,
+so a later phase giving a run another export path (D3 grid arbitrage) cannot silently break it.
+
+**Why no existing test caught this:** every panel-③ fixture had `export = 0`, so measured and simulated
+import coincided and the defective view passed. The new tests use an overlap fixture (2 kWh/h import
+AND 1 kWh/h export in the same hour) where the two information sets differ by a factor of two —
+measured self-sufficiency 50%, simulated 75% — with both candidates pinned in each assertion.
+
+Suite: **328 passed, 2 skipped**.
+
+### Phase 4 follow-ups (deferred, not blocking)
+
+- **The band's own derived ratios stay measured** (Household self-sufficiency 21%, Solar
+  self-consumption 34%) and so still differ from the tiles' 23% / 36%. That is the intended split —
+  §2.3a describes the band as battery-free measured data — and the caveat now says the savings section
+  is simulated while everything above it is the meter's. Moving the band's ratios to simulated figures
+  would be a further product decision, not taken here.
+- The resolution-loss caveat fires when the gap rounds to ≥ 1 kWh; that threshold is a judgement call,
+  not spec-derived.
+- `pybabel update` needs `--no-location` (the committed catalogs carry no `#:` comments) and
+  `--no-fuzzy-matching` (fuzzy matching mistranslated "Extra grid import" as "Netafname T2"). Worth
+  documenting in `babel.cfg`'s workflow; not changed here.
+
 ## Status
 
 **Phase 1 complete** — implemented, adversarially reviewed, fixes applied and verified, committed
 (`9f639d2`).
 **Phase 2 complete** — implemented, adversarially reviewed (DEFECT FOUND), all five defects fixed and
 verified, committed (`6a8707c`).
-**Phase 3** — implemented, adversarially reviewed (CLEAN), two minor test fixes in flight.
-Next: Phase 4 (§6.11 metrics + panel ③ on real results).
+**Phase 3 complete** — implemented, adversarially reviewed (CLEAN), two minor test fixes applied
+without moving any number, committed (`bf52cb4`).
+**Phase 4 complete** — implemented, adversarially reviewed (DEFECT FOUND: observed/simulated mixing),
+all defects fixed and verified, committed.
+Next: Phase 5 (§6.12 energy DP + benchmark box).

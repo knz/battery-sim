@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-24 22:42+0200\n"
+"POT-Creation-Date: 2026-07-25 01:07+0200\n"
 "PO-Revision-Date: 2026-07-23 20:30+0200\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: nl\n"
@@ -218,9 +218,6 @@ msgstr "Uit de batterij ontladen"
 msgid "Do you have solar PV?"
 msgstr "Heb je zonnepanelen?"
 
-msgid "Energy savings"
-msgstr "Energiebesparing"
-
 msgid "EQUIVALENT FULL CYCLES"
 msgstr "EQUIVALENTE VOLLEDIGE CYCLI"
 
@@ -229,6 +226,9 @@ msgstr "Kostensimulatie inschakelen"
 
 msgid "Energy flows"
 msgstr "Energiestromen"
+
+msgid "Energy savings"
+msgstr "Energiebesparing"
 
 msgid "Entity"
 msgstr "Entiteit"
@@ -241,6 +241,9 @@ msgstr "Invoedingslimiet"
 
 msgid "Exported"
 msgstr "Teruggeleverd"
+
+msgid "Extra grid import"
+msgstr "Extra netafname"
 
 msgid "Fetch history"
 msgstr "Geschiedenis ophalen"
@@ -718,6 +721,9 @@ msgstr ""
 "het huishoudelijk verbruik wordt gereconstrueerd: verbruik = netafname − "
 "teruglevering + opgewekte zon. Intervallen waar de uitkomst negatief is "
 "(een datafout) worden afgekapt op nul."
+
+msgid "as your meter recorded them"
+msgstr "zoals uw meter ze heeft geregistreerd"
 
 msgid "change"
 msgstr "wijzigen"
