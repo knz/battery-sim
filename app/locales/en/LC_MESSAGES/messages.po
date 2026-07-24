@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-24 18:21+0200\n"
+"POT-Creation-Date: 2026-07-24 22:42+0200\n"
 "PO-Revision-Date: 2026-07-23 20:40+0200\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: en\n"
@@ -652,6 +652,9 @@ msgstr "Yes"
 
 msgid "Your data at a glance"
 msgstr "Your data at a glance"
+
+msgid "Your energy use during the selected period"
+msgstr "Your energy use during the selected period"
 
 msgid "Your existing battery"
 msgstr "Your existing battery"

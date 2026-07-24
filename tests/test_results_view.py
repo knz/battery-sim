@@ -132,6 +132,42 @@ def test_results_returns_none_without_grid():
     assert results_from(ds, (_WIN_START, _WIN_END)) is None
 
 
+def test_results_includes_window_clamped_data_summary():
+    # The panel-③ view-model now carries the "Your data at a glance" band (results.data_summary),
+    # computed over the SELECTED window with the spot price clamped to it too. It must match
+    # data_summary_from(ds, window=rec_window, clamp_price_to_window=True) exactly.
+    from app.domain.reconcile import reconcile_grid
+    from app.summary_view import data_summary_from
+    from tests.test_data_summary import _price
+    ds = _dataset([
+        _energy("grid_import_t1", 2.0),
+        _energy("grid_export_t1", 0.0),
+        _price("price_spot", 0.15),
+    ])
+    window = (_WIN_START, _WIN_END)
+    r = results_from(ds, window)
+    assert "data_summary" in r
+    # Grid totals over the window (import 2 kWh/h × 24 = 48 kWh).
+    assert r["data_summary"]["grid"] == {"imported": "48 kWh", "exported": "0 kWh"}
+    # Window-clamped, price included: identical to the direct call over the effective window.
+    rec = reconcile_grid(ds, window)
+    expected = data_summary_from(ds, window=rec.window, clamp_price_to_window=True)
+    assert r["data_summary"] == expected
+
+
+def test_results_data_summary_window_clamped_totals():
+    # A sub-window restricts the band totals: meters span 48 h at 2 kWh/h (96 kWh full), a 24 h
+    # window through results_from must show 48 kWh in the band — proof it clamps to the window.
+    from tests.test_data_summary import _dataset_2day, _energy as _energy2
+    ds = _dataset_2day([
+        _energy2("grid_import_t1", 2.0, n=48),
+        _energy2("grid_export_t1", 0.0, n=48),
+    ])
+    sub = (_WIN_START, _WIN_END)  # first 24 h of the 48 h coverage
+    r = results_from(ds, sub)
+    assert r["data_summary"]["grid"]["imported"] == "48 kWh"
+
+
 # ── resolve_window ───────────────────────────────────────────────────────────────────────────
 #
 # A wider synthetic dataset so presets have room: 400 hourly intervals is too few for day-presets,

@@ -174,3 +174,97 @@ follow-ups above (shared-env locale race, dynamic-caveat translation, month-labe
 Natural next increments: panel ② (battery parameters) — once it lands, the zero-battery caveat and
 the `benchmark`-absent guard retire and run C diverges from A; the §6.12 perfect-foresight DP for the
 benchmark box; and the debounce/SSE run-identity machinery (§3.3) for continuous re-parameterisation.
+
+## Addition: repeat the "Your data at a glance" band inside panel ③ (window-clamped)
+
+**Request.** Repeat the §2.3a "Your data at a glance" summary band inside panel ③ (Results), above
+the ENERGY SAVINGS section, but computed over the SELECTED date range rather than the dataset's full
+coverage — so it re-renders on every range change and reflects exactly the window the results are
+for.
+
+### Decisions
+
+- **Everything clamps to the selected range in the panel-③ copy — INCLUDING the spot price.** The
+  interstitial band prices over the price series' OWN full coverage (honest even when the price
+  series is bridged past the meter window). The panel-③ copy instead clamps avg/min/max to the
+  reconcile effective window (`rec.window`), so every figure in that copy matches the selected range
+  consistently. This is a deliberate divergence between the two copies, confirmed with the user.
+- **One shared macro, no duplicated markup.** The band body was extracted verbatim into a
+  `data_glance(data_summary)` Jinja macro so both places render byte-identical markup (every `_()`,
+  every ⓘ `.slot-info-btn`, every omit-don't-zero guard). The macro argument shadows the context var
+  of the same name, so the body text is unchanged.
+- **The band lives INSIDE `#panel-results`**, so it is part of the fragment swapped on every range
+  change (POST /results), not a separate region.
+
+### Implementation
+
+- `app/summary_view.py` — `data_summary_from` gains an optional window + a window-clamped price
+  option: `data_summary_from(dataset, window=None, *, clamp_price_to_window=False)`. `window=None`
+  keeps the UNCHANGED full-coverage behaviour (reconcile over `dataset.window`, price over the
+  series' own coverage) that the interstitial band and all existing callers/tests rely on. A given
+  window is threaded to `reconcile_grid`; `coverage`/`days` and all figures come from the effective
+  reconciled window (`rec.window`). New helper `_price_stats_in_window(frame, window)` masks the
+  price frame's UTC-naive index to `[window[0], window[1])` (tz dropped, same convention as
+  `reconcile._resample_sum`), drops NaNs, reuses `_fmt_eur`, and returns None when no price points
+  fall in the window. Used only when `clamp_price_to_window=True`.
+- `app/results_view.py` — `results_from` now calls `data_summary_from(dataset, window=eff,
+  clamp_price_to_window=True)` (eff = the effective reconcile window) and attaches it as
+  `result["data_summary"]`. Import is top-level: `summary_view` imports from `reconcile`/`dataset`/
+  `frames`, never from `results_view`, so there is NO import cycle.
+- `app/templates/_data_glance.html` — NEW. Holds the `data_glance` macro (the full band body).
+- `app/templates/_panel_summary.html` — reduced to its comment block plus
+  `{% from "_data_glance.html" import data_glance %}{{ data_glance(data_summary) }}`.
+- `app/templates/_panel_results.html` — imports the macro and renders
+  `{% if results.data_summary %}{{ data_glance(results.data_summary, title=...) }}{% endif %}` above
+  the ENERGY SAVINGS divider. The macro import resolves in the standalone POST /results `render()`
+  path too (verified by a route test).
+
+### Distinct band headings (user refinement)
+
+The two bands carry DIFFERENT titles: the interstitial band keeps **"Your data at a glance"**; panel
+③'s copy reads **"Your energy use during the selected period"**, since it is scoped to the selected
+date range rather than the whole dataset. The `data_glance` macro gained a `title=None` parameter
+(defaulting to the original, so `_panel_summary.html` needs no change); `_panel_results.html` passes
+the new, already-`_()`-translated title, used for both the `<h2>` and the `aria-label`.
+
+### ⓘ affordance after a fragment swap
+
+The `.slot-info-btn` click handler in `app/static/ha_fetch.js` is delegated from `document`
+(`document.addEventListener("click", ...)`, line 134), and the shared `#slot-info-dialog` lives in
+the never-swapped `_panel_data.html`. So the ⓘ buttons in panel ③'s band keep working after a
+`#panel-results` fragment swap with NO re-binding — no JS change was needed.
+
+### Tests
+
+- `tests/test_data_summary.py` — `test_computed_window_restricts_totals_to_subwindow` (a 24 h
+  sub-window over 48 h coverage halves the import total; the no-arg call is unchanged) and
+  `test_computed_clamp_price_to_window_restricts_price_stats` (prices differ per half; clamped stats
+  see only the sub-window, default full-coverage sees both, window-without-clamp still uses full
+  coverage).
+- `tests/test_results_view.py` — `test_results_includes_window_clamped_data_summary` (the
+  view-model carries `data_summary`, matching `data_summary_from(ds, window=rec.window,
+  clamp_price_to_window=True)` exactly) and `test_results_data_summary_window_clamped_totals` (a
+  sub-window through `results_from` clamps the band totals).
+- `tests/test_results_route.py` — `test_results_fragment_includes_data_glance_band` (the standalone
+  POST /results fragment contains the band heading + a group heading, proving the macro import
+  resolves in the standalone render path).
+
+**i18n:** the band body reuses existing markup (no new msgids there), but the distinct panel-③
+heading is one new string — **"Your energy use during the selected period"**. It was extracted,
+translated to NL ("Uw energieverbruik in de geselecteerde periode"), the EN source catalog filled,
+and both `.mo` files recompiled; no fuzzy or untranslated entries remain. Both titles verified to
+render in both locales (interstitial keeps the original; the fragment carries the new one).
+
+### Review outcome — data-glance-in-panel-③
+
+Adversarial review verdict: **MINOR ISSUES, no functional defect.** No-window equivalence confirmed
+(the interstitial band and all existing tests unchanged); the price-window clamp uses the correct
+tz convention and the effective reconciled window, agreeing with the grid figures; the macro body is
+byte-identical to the original save the intended heading swap; both render paths (initial + fragment
+swap) work; the ⓘ buttons survive the swap (document-delegated handler, shared dialog in the
+never-swapped panel ①); no duplicate DOM ids from rendering the band twice. The single issue was a
+stale changelog sentence (now corrected here) that claimed no new msgids / no pybabel run.
+
+**Status:** full suite green — **127 passed, 2 skipped** (was 122; +5 new tests). No follow-ups
+introduced beyond the pre-existing deferred items (the shared-env locale race still applies to the
+new macro exactly as to the rest of the templates).

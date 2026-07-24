@@ -25,7 +25,17 @@
 
   UI chrome is wrapped in _() for translation; values (numbers, units, coverage) stay literal.
   Labels/titles/caveats come pre-marked from the view-model and are translated here via _().
+
+  The "Your data at a glance" band is repeated inside this panel, above ENERGY SAVINGS, from the
+  SHARED data_glance macro (_data_glance.html) — the same markup as the interstitial band, but over
+  the SELECTED range (results.data_summary, computed in app/results_view.py with the spot price
+  clamped to the range too). It sits inside #panel-results, so it re-renders on every range change.
+  The ⓘ .slot-info-btn buttons it carries keep working after a fragment swap: their click handler is
+  delegated from `document` in ha_fetch.js and the #slot-info-dialog lives in the never-swapped
+  _panel_data.html. The macro import works in the standalone POST /results render too — the Jinja
+  loader (templates.env) finds _data_glance.html the same way it finds this file.
 #}
+{% from "_data_glance.html" import data_glance %}
 {# The period-preset buttons: (token, label) pairs. The token is the POST request value
    (results_view.PERIOD_DAYS keys); the label is the human text (translated). The active button
    is the one whose token matches the resolved window's preset, mapped from results.period_selected
@@ -90,6 +100,14 @@
     <div role="alert" class="alert alert-info py-2">
       <span class="text-sm">ⓘ {{ _(results.annualisation_message) }}</span>
     </div>
+    {% endif %}
+
+    {# ── "Your data at a glance" over the SELECTED range (shared macro) ─────
+       The same band as the interstitial one, but clamped to this window (spot price included).
+       Guarded: results.data_summary should be present whenever the results view rendered, but the
+       view-model may set it None defensively, in which case the band is simply omitted. #}
+    {% if results.data_summary %}
+    {{ data_glance(results.data_summary, title=_('Your energy use during the selected period')) }}
     {% endif %}
 
     {# ══ ENERGY SAVINGS ══════════════════════════════════════════════════ #}

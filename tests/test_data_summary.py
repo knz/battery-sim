@@ -309,6 +309,51 @@ def test_computed_self_consumption_over_pv_window_not_full_window():
     assert s["solar"]["self_consumption"] == "75%"
 
 
+def test_computed_window_restricts_totals_to_subwindow():
+    # data_summary_from(ds, window=<subwindow>) reconciles over the passed window, not the dataset's
+    # full coverage. Meters span the full 48 h at 2 kWh/h import (96 kWh over the full window); a
+    # 24 h sub-window must total only 48 kWh, and the header must show the sub-window's span.
+    ds = _dataset_2day([
+        _energy("grid_import_t1", 2.0, n=48),
+        _energy("grid_export_t1", 0.0, n=48),
+    ])
+    sub = (datetime(2026, 1, 1, tzinfo=timezone.utc), datetime(2026, 1, 2, tzinfo=timezone.utc))
+    s = data_summary_from(ds, window=sub)
+    assert s["grid"]["imported"] == "48 kWh"  # 24 h × 2, HALF the full-window 96 kWh
+    assert s["days"] == 1
+    assert s["coverage"] == "2026-01-01 → 2026-01-02"
+    # The no-arg (full-coverage) call is unchanged: still the whole 48 h.
+    assert data_summary_from(ds)["grid"]["imported"] == "96 kWh"
+
+
+def test_computed_clamp_price_to_window_restricts_price_stats():
+    # clamp_price_to_window=True prices only over the sub-window. Prices are 0.10 in the first 24 h
+    # and 0.90 in the second 24 h; the first-day sub-window must see only the 0.10 prices, and the
+    # full-coverage call (default) must average both halves.
+    prices = np.concatenate([np.full(24, 0.10), np.full(24, 0.90)])
+    ds = _dataset_2day([
+        _energy("grid_import_t1", 1.0, n=48),
+        _energy("grid_export_t1", 0.0, n=48),
+        _price("price_spot", prices, n=48),
+    ])
+    sub = (datetime(2026, 1, 1, tzinfo=timezone.utc), datetime(2026, 1, 2, tzinfo=timezone.utc))
+    s = data_summary_from(ds, window=sub, clamp_price_to_window=True)
+    # Only the 0.10 prices fall in the sub-window.
+    assert s["price"] == {
+        "avg": "0.100 €/kWh",
+        "min": "0.100 €/kWh",
+        "max": "0.100 €/kWh",
+    }
+    # Full-coverage default: both halves, avg 0.50, min 0.10, max 0.90.
+    full = data_summary_from(ds)
+    assert full["price"]["avg"] == "0.500 €/kWh"
+    assert full["price"]["min"] == "0.100 €/kWh"
+    assert full["price"]["max"] == "0.900 €/kWh"
+    # window given but clamp_price_to_window=False → price still over the series' OWN full coverage.
+    unclamped = data_summary_from(ds, window=sub)
+    assert unclamped["price"]["avg"] == "0.500 €/kWh"
+
+
 def test_computed_view_satisfies_sample_shape_contract():
     # The computed view-model must carry the same keys the sample contract asserts, so the template
     # renders either identically. Build the full existing-battery + PV + price variant and re-run

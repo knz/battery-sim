@@ -107,6 +107,23 @@ def test_results_zero_battery_headline(client):
     assert "0 kWh" in r.text  # avoided / charged / discharged all zero
 
 
+def test_results_fragment_includes_data_glance_band(client):
+    # The standalone POST /results fragment renders the repeated data-glance band (from the shared
+    # _data_glance.html macro imported at the top of _panel_results.html) — proof the macro import
+    # resolves in the standalone render() path, not just the full page. Panel ③'s copy carries its
+    # OWN heading ("Your energy use during the selected period"), NOT the interstitial band's title,
+    # since it is scoped to the selected range.
+    r = client.post("/results", json={"period": "last_1_week"})
+    assert r.status_code == 200
+    # The panel-③ band heading (default EN locale). Its NL is "Uw energieverbruik in de
+    # geselecteerde periode".
+    assert "Your energy use during the selected period" in r.text
+    # The interstitial band's own title must NOT leak into panel ③'s copy.
+    assert "Your data at a glance" not in r.text
+    # And a band-specific group heading, so it is the band body and not just an aria-label echo.
+    assert "Imported" in r.text
+
+
 def test_results_unknown_preset_400(client):
     r = client.post("/results", json={"period": "last_decade"})
     assert r.status_code == 400

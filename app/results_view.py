@@ -14,6 +14,10 @@ What is NOT emitted this increment (later phases):
   * annualisation — a short-window run (< min_annualisation_days) sets `annualisation_disabled`
     with a message so the template can show the §2.4 info box; nothing is annualised here anyway.
 
+The view-model also carries a `data_summary` key: the §2.3a "Your data at a glance" band repeated
+inside panel ③ but computed over the SELECTED window (spot price clamped to it too), rendered from
+the shared _data_glance.html macro so it swaps with the panel on every range change.
+
 Omit-don't-zero (§2.4 "Panel ③ without PV"): the self-consumption row is omitted when there is no
 PV (its denominator is PV); grid export is shown as a real figure (structurally zero without PV, but
 we show the measured value). Numbers are formatted here (thousands-separated kWh, integer percent)
@@ -49,6 +53,11 @@ from app.domain.reconcile import (
     reconcile_grid,
 )
 from app.data_view import _fmt_res
+from app.summary_view import data_summary_from
+
+# summary_view imports from reconcile/dataset/frames, NOT from results_view, so this top-level
+# import does not cycle. The panel-③ band (results.data_summary) is the SAME "Your data at a glance"
+# view-model, but computed over the SELECTED window with the spot price clamped to it too.
 
 # Below this PV total (kWh) self_consumption is undefined — nothing was generated to consume
 # (specs §6.11). Kept in step with summary_view.PV_PRESENT_FLOOR_KWH: a PV slot mapped but not
@@ -352,10 +361,20 @@ def results_from(
         "battery to see what it would have saved."
     )
 
+    # The "Your data at a glance" band, repeated inside panel ③ but over the SELECTED range (the
+    # effective reconcile window), with the spot price clamped to that range too — unlike the
+    # interstitial band, which prices over the series' own full coverage (decision confirmed with
+    # the user, changelog 20260724). It renders from the SAME shared macro (_data_glance.html), so
+    # it re-renders on every range change inside the swappable #panel-results region. Defensive
+    # None-guard: data_summary_from should not return None once reconcile_grid succeeded here, but
+    # if it does the template guards `results.data_summary`.
+    data_summary = data_summary_from(dataset, window=eff, clamp_price_to_window=True)
+
     result: dict = {
         "period": period,
         "periods": list(_PERIOD_LABELS),
         "period_selected": _period_selected_for(dataset, eff),
+        "data_summary": data_summary,
         "kpis": kpis,
         "energy_breakdown": energy_breakdown,
         # No `benchmark` key this increment (§6.12 DP not built); Phase 2 guards the template.

@@ -38,7 +38,10 @@ Formatting (thousands-separated kWh, integer percent, €/kWh to 3 dp) lives her
 stays unchanged from the sample; the values are bare data (no translation).
 
 Main items:
-    data_summary_from(dataset) -> dict | None    the §2.3a band view-model, or None if unsummarisable.
+    data_summary_from(dataset, window=None, *, clamp_price_to_window=False) -> dict | None
+        the §2.3a band view-model, or None if unsummarisable. window=None → full-coverage (the
+        interstitial band); a window → the panel-③ copy over a selected range, optionally clamping
+        the spot-price stats to that range too.
 """
 
 from __future__ import annotations
@@ -100,6 +103,38 @@ def _price_stats(frame: SeriesFrame | None) -> dict | None:
     }
 
 
+def _price_stats_in_window(
+    frame: SeriesFrame | None, window: tuple[datetime, datetime]
+) -> dict | None:
+    """avg/min/max of a price series over `[window[0], window[1])` only, or None if empty.
+
+    The panel-③ copy of the band clamps EVERYTHING to the selected range — including the spot
+    price (unlike the interstitial band, which prices over the series' own full coverage via
+    `_price_stats`). This restricts the price frame to the price points whose interval-start falls
+    within the reconcile effective window, then computes the same time-unweighted avg/min/max.
+
+    tz convention matches reconcile._resample_sum: the frame index is UTC-naive datetime64 and the
+    window is tz-aware UTC, so the window bounds have their tz dropped (`.replace(tzinfo=None)`) to
+    compare in the same UTC-naive frame — NOT astimezone(), which would shift by the UTC offset.
+    Returns None when no price points fall in the window.
+    """
+    if frame is None or len(frame.values) == 0:
+        return None
+    start = np.datetime64(window[0].replace(tzinfo=None), "s")
+    end = np.datetime64(window[1].replace(tzinfo=None), "s")
+    idx = frame.index.astype("datetime64[s]")
+    in_window = (idx >= start) & (idx < end)
+    vals = np.asarray(frame.values, dtype=np.float64)[in_window]
+    vals = vals[~np.isnan(vals)]
+    if len(vals) == 0:
+        return None
+    return {
+        "avg": _fmt_eur(float(vals.mean())),
+        "min": _fmt_eur(float(vals.min())),
+        "max": _fmt_eur(float(vals.max())),
+    }
+
+
 # A solar series whose total production over the window is below this (kWh) is treated as EMPTY —
 # a sensor mapped but not actually reporting (near-zero deltas). We then omit the solar group and
 # surface a data-quality note, rather than showing "Produced 0 kWh" or dividing self_consumption by
@@ -108,7 +143,12 @@ def _price_stats(frame: SeriesFrame | None) -> dict | None:
 PV_PRESENT_FLOOR_KWH = 1.0
 
 
-def data_summary_from(dataset: LoadedDataset) -> dict | None:
+def data_summary_from(
+    dataset: LoadedDataset,
+    window: tuple[datetime, datetime] | None = None,
+    *,
+    clamp_price_to_window: bool = False,
+) -> dict | None:
     """Build the §2.3a data summary band view-model from a persisted dataset, or None.
 
     Returns the same shape as sample_data._data_summary() (grid / household / solar / battery /
@@ -119,6 +159,19 @@ def data_summary_from(dataset: LoadedDataset) -> dict | None:
     The window is driven by the GRID METER coverage only (_WINDOW_SLOTS), not the intersection of
     all series, so a short-coverage optional series (solar/battery mapped part-way through) does not
     truncate the grid totals. Optional groups sum over their own coverage within this window.
+
+    Two call shapes:
+      * `window=None` (default) — the interstitial band: reconcile over the dataset's full coverage
+        window (`dataset.window`) and price over the price series' OWN full coverage. This is the
+        UNCHANGED behaviour every existing caller and test relies on.
+      * `window=<range>` — panel ③'s copy of the band over a SELECTED range: reconcile over that
+        window (grid/household/solar already clamp because they run off reconcile_grid's arrays).
+        With `clamp_price_to_window=True` the spot-price avg/min/max are also restricted to the
+        reconcile effective window (`rec.window`), so the panel-③ band clamps EVERYTHING to the
+        selected range (a decision confirmed with the user — see changelog 20260724).
+
+    `coverage`/`days` and all figures reflect the EFFECTIVE window actually reconciled (`rec.window`,
+    the requested window clamped to grid-meter coverage), so the band header shows the selected range.
     """
     frames = dataset.frames
     by_name = {f.name: f for f in frames}
@@ -126,8 +179,9 @@ def data_summary_from(dataset: LoadedDataset) -> dict | None:
     # The per-interval reconciliation + §6.3 load reconstruction now live in reconcile_grid: window
     # + grid from the grid meter series alone (not all frames), each energy series resampled onto the
     # grid, load reconstructed and the negative clamp measured. Returns None on no covering grid
-    # meter — the same guard the band had inline (nothing to summarise; main.py omits it).
-    rec = reconcile_grid(dataset, dataset.window)
+    # meter — the same guard the band had inline (nothing to summarise; main.py omits it). The
+    # requested window defaults to the dataset's full coverage window (the interstitial-band case).
+    rec = reconcile_grid(dataset, window if window is not None else dataset.window)
     if rec is None:
         return None
 
@@ -176,7 +230,14 @@ def data_summary_from(dataset: LoadedDataset) -> dict | None:
         # Omit-don't-zero (§2.4): a group whose inputs are absent is None, and the template drops it.
         "solar": None,
         "battery": None,
-        "price": _price_stats(by_name.get("price_spot")),
+        # Price: the interstitial band prices over the series' OWN full coverage (_price_stats);
+        # the panel-③ copy clamps to the reconcile effective window (_price_stats_in_window), so its
+        # avg/min/max match the selected range like every other figure in that copy.
+        "price": (
+            _price_stats_in_window(by_name.get("price_spot"), rec.window)
+            if clamp_price_to_window
+            else _price_stats(by_name.get("price_spot"))
+        ),
         # Data-quality notes surfaced with the band. Each is (key, **params) the template renders as
         # a caveat; §6.3 / §2.3a discipline: say what happened rather than present a clamped or empty
         # series as clean. "load_unreliable" carries the unexplained-export figures.

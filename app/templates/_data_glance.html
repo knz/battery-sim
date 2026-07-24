@@ -1,0 +1,178 @@
+{#
+  _data_glance.html — the "Your data at a glance" band body as a REUSABLE macro
+  (specs/02-ux-wireframes.md §2.3a).
+
+  The band markup used to live inline in _panel_summary.html. It is now a single `data_glance`
+  macro so BOTH places that show the band render identical markup from one source:
+    * _panel_summary.html — the UNNUMBERED interstitial band between panels ① and ②, over the
+      dataset's full coverage;
+    * _panel_results.html — the same band repeated inside panel ③, over the SELECTED range (its
+      spot-price stats clamped to that range too — app/results_view.py).
+
+  The macro takes the view-model as its argument `data_summary`, which SHADOWS the context var of
+  the same name, so the body below is textually unchanged from the old inline version — every _(),
+  every ⓘ .slot-info-btn, and every omit-don't-zero guard is preserved exactly.
+
+  Each DERIVED metric (Consumption, Self-sufficiency, Self-consumption) carries an ⓘ .slot-info-btn
+  that opens the shared #slot-info-dialog (defined in _panel_data.html, wired by the delegated
+  handler in ha_fetch.js). The handler is delegated from `document`, so the ⓘ buttons in the
+  panel-③ copy keep working after a fragment swap of #panel-results with no re-binding.
+
+  View-model shape (app/sample_data.py `_data_summary`, computed in app/summary_view.py):
+    data_summary = {
+      coverage: str, days: int,
+      grid:      {imported, exported},                       # always
+      household: {consumption, self_sufficiency,             # str, or None when reconstruction
+                  net_battery: bool,                         #   is unreliable (both hidden)
+                  self_sufficiency_clamped: bool},           # neg. clamped to 0% → caveat
+      solar:     {produced, self_consumption?,               # PV present (self_consumption omitted
+                  coverage, days, partial: bool} | None,     #   if nothing produced); partial→span
+      battery:   {charged, discharged} | None,               # existing battery present
+      price:     {avg, min, max} | None,                     # spot price present
+      notes:     [{key, ...params}],                         # data-quality caveats (may be empty)
+    }
+#}
+{# `title` is the band heading (and aria-label). It defaults to the interstitial band's
+   "Your data at a glance"; panel ③'s copy passes its own ("Your energy use during the selected
+   period") since it is scoped to the selected date range, not the whole dataset. Callers pass an
+   already-`_()`-translated string, so it is rendered verbatim here (not re-translated). #}
+{% macro data_glance(data_summary, title=None) %}
+{% set band_title = title if title is not none else _('Your data at a glance') %}
+<section class="card bg-base-100 border border-base-300 rounded-box" aria-label="{{ band_title }}">
+  <div class="card-body gap-3 p-4">
+    <div class="flex flex-wrap items-baseline justify-between gap-2">
+      <h2 class="text-sm font-semibold text-base-content/70">{{ band_title }}</h2>
+      <span class="text-xs text-base-content/50">
+        {{ data_summary.coverage }}{% if data_summary.days %} · {{ data_summary.days }} {{ ngettext('day', 'days', data_summary.days) }}{% endif %}
+      </span>
+    </div>
+
+    {# The three headline groups. Grid and Household are always present; Solar only with PV. #}
+    <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      {# ── Grid ────────────────────────────────────────────────────────────── #}
+      <div class="rounded-box border border-base-300 bg-base-200/40 p-3">
+        <h3 class="text-xs font-semibold uppercase tracking-wide text-base-content/60">{{ _('Grid') }}</h3>
+        <dl class="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-sm">
+          <dt class="text-base-content/60">{{ _('Imported') }}</dt><dd class="text-right font-medium">{{ data_summary.grid.imported }}</dd>
+          <dt class="text-base-content/60">{{ _('Exported') }}</dt><dd class="text-right font-medium">{{ data_summary.grid.exported }}</dd>
+        </dl>
+      </div>
+
+      {# ── Household ───────────────────────────────────────────────────────── #}
+      {# consumption / self_sufficiency are None when the load reconstruction is unreliable (the
+         §6.3 clamp discarded a large share of load — usually PV export the solar sensor missed).
+         We then show a dash and rely on the load_unreliable note below to explain, rather than
+         printing an inflated consumption the user might trust. #}
+      <div class="rounded-box border border-base-300 bg-base-200/40 p-3">
+        <h3 class="text-xs font-semibold uppercase tracking-wide text-base-content/60">{{ _('Household') }}</h3>
+        {# ⓘ next to each DERIVED metric explains its computation in the shared #slot-info-dialog
+           (defined in _panel_data.html; wired by the delegated .slot-info-btn handler in
+           ha_fetch.js — no per-metric JS). The Consumption blurb adapts to the existing-battery
+           case, since §6.3 then strips that battery from the reconstruction. Grid import/export are
+           raw measured sums, so they carry no ⓘ. #}
+        <dl class="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-sm">
+          <dt class="text-base-content/60">
+            {{ _('Consumption') }}
+            <button type="button" class="btn btn-ghost btn-xs btn-circle align-middle slot-info-btn"
+                    aria-label="{{ _('About') }} {{ _('Consumption') }}"
+                    data-info-title="{{ _('Consumption') }}"
+                    data-info-body="{% if data_summary.household.net_battery %}{{ _('Your smart meter only sees energy crossing the grid connection, so household consumption is reconstructed: load = grid import − grid export + solar produced + battery discharged − battery charged. Because you have an existing battery, its charge and discharge are included, so this is your consumption net of that battery. Intervals where the result is negative (a data problem) are clamped to zero.') }}{% else %}{{ _('Your smart meter only sees energy crossing the grid connection, so household consumption is reconstructed: load = grid import − grid export + solar produced. Intervals where the result is negative (a data problem) are clamped to zero.') }}{% endif %}">ⓘ</button>
+          </dt>
+          <dd class="text-right font-medium">{{ data_summary.household.consumption or '—' }}</dd>
+          <dt class="text-base-content/60">
+            {{ _('Self-sufficiency') }}
+            <button type="button" class="btn btn-ghost btn-xs btn-circle align-middle slot-info-btn"
+                    aria-label="{{ _('About') }} {{ _('Self-sufficiency') }}"
+                    data-info-title="{{ _('Self-sufficiency') }}"
+                    data-info-body="{{ _('The share of your household consumption met without drawing from the grid: self-sufficiency = 1 − grid import ÷ consumption. 0％ means every kWh came from the grid; higher means more was covered by your own solar (and existing battery). It uses the reconstructed consumption above.') }}">ⓘ</button>
+          </dt>
+          <dd class="text-right font-medium">{{ data_summary.household.self_sufficiency or '—' }}</dd>
+        </dl>
+        {% if data_summary.household.net_battery %}
+        <p class="mt-1 text-xs text-base-content/50">{{ _('net of your existing battery') }}</p>
+        {% endif %}
+        {# Self-sufficiency clamped to 0%: import exceeded reconstructed load over the window,
+           which happens when an existing battery ended more charged than it started. The metric
+           is honest (that energy was imported, not self-supplied) but it evens out over full
+           charge/discharge cycles, so say so rather than showing a negative percentage (§2.3a). #}
+        {% if data_summary.household.self_sufficiency_clamped %}
+        <p class="mt-1 text-xs text-base-content/50">
+          ⓘ {{ _('Grid import exceeded household load over this window — your existing battery ended it more charged than it started. This evens out over full charge/discharge cycles.') }}
+        </p>
+        {% endif %}
+      </div>
+
+      {# ── Solar — only when PV data is present (omit, never zero). ─────────── #}
+      {% if data_summary.solar %}
+      <div class="rounded-box border border-base-300 bg-base-200/40 p-3">
+        <h3 class="text-xs font-semibold uppercase tracking-wide text-base-content/60">{{ _('Solar') }}</h3>
+        <dl class="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-sm">
+          <dt class="text-base-content/60">{{ _('Produced') }}</dt><dd class="text-right font-medium">{{ data_summary.solar.produced }}</dd>
+          {% if data_summary.solar.self_consumption %}
+          <dt class="text-base-content/60">
+            {{ _('Self-consumption') }}
+            <button type="button" class="btn btn-ghost btn-xs btn-circle align-middle slot-info-btn"
+                    aria-label="{{ _('About') }} {{ _('Self-consumption') }}"
+                    data-info-title="{{ _('Self-consumption') }}"
+                    data-info-body="{{ _('The share of your solar production you used yourself rather than exporting: self-consumption = 1 − grid export ÷ solar produced, measured over the period your solar data covers. 100％ means none of your production was exported; lower means more went back to the grid.') }}">ⓘ</button>
+          </dt>
+          <dd class="text-right font-medium">{{ data_summary.solar.self_consumption }}</dd>
+          {% endif %}
+        </dl>
+        {# The PV series can cover only part of the (grid-driven) window — panels installed
+           part-way through a longer meter history. Label its own span so "Produced" is not read
+           as covering the whole period (§2.3a "sum over each series' own coverage"). #}
+        {% if data_summary.solar.partial %}
+        <p class="mt-1 text-xs text-base-content/50">{{ _('since') }} {{ data_summary.solar.coverage.split(' → ')[0] }} · {{ data_summary.solar.days }} {{ ngettext('day', 'days', data_summary.solar.days) }}</p>
+        {% endif %}
+        {% if data_summary.household.net_battery %}
+        <p class="mt-1 text-xs text-base-content/50">{{ _('net of your existing battery') }}</p>
+        {% endif %}
+      </div>
+      {% endif %}
+    </div>
+
+    {# ── Your existing battery — only when its sensors were mapped (§6.3 strip). ──
+         Rendered on its own so "the battery you have" is never confused with the
+         simulated battery panel ③ will report. #}
+    {% if data_summary.battery %}
+    <div class="rounded-box border border-base-300 bg-base-200/40 p-3">
+      <h3 class="text-xs font-semibold uppercase tracking-wide text-base-content/60">{{ _('Your existing battery') }}</h3>
+      <dl class="mt-1 flex flex-wrap gap-x-8 gap-y-0.5 text-sm">
+        <div class="flex gap-3"><dt class="text-base-content/60">{{ _('Charged') }}</dt><dd class="font-medium">{{ data_summary.battery.charged }}</dd></div>
+        <div class="flex gap-3"><dt class="text-base-content/60">{{ _('Discharged') }}</dt><dd class="font-medium">{{ data_summary.battery.discharged }}</dd></div>
+      </dl>
+      <p class="mt-1 text-xs text-base-content/50">
+        ⓘ {{ _('These come from the battery you already own. The consumption and self-consumption figures above are reconstructed net of it, so they describe the house rather than the meter.') }}
+      </p>
+    </div>
+    {% endif %}
+
+    {# ── Spot price over this period — only when a price series is present. ── #}
+    {% if data_summary.price %}
+    <div class="rounded-box border border-base-300 bg-base-200/40 p-3">
+      <h3 class="text-xs font-semibold uppercase tracking-wide text-base-content/60">{{ _('Spot price over this period') }}</h3>
+      <p class="mt-1 text-sm">
+        {{ _('Average') }} <span class="font-medium">{{ data_summary.price.avg }}</span>
+        · {{ _('low') }} <span class="font-medium">{{ data_summary.price.min }}</span>
+        · {{ _('high') }} <span class="font-medium">{{ data_summary.price.max }}</span>
+      </p>
+    </div>
+    {% endif %}
+
+    {# ── Data-quality notes (§6.3 / §2.3a: say what happened). Each note is a dict with a `key`
+         and optional params. `load_unreliable` is a prominent WARNING (the reconstruction is
+         compromised — consumption/self-sufficiency were suppressed above); `solar_empty` is a
+         quieter note that a mapped PV sensor reported almost nothing. #}
+    {% for note in data_summary.notes %}
+      {% if note.key == 'load_unreliable' %}
+      <div role="alert" class="alert alert-warning text-sm">
+        <span>⚠ {{ _('%(export)s was exported to the grid but your solar (and battery) data does not account for it, so the household consumption and self-sufficiency could not be reconstructed reliably and are hidden. This usually means a solar sensor is not reporting all of your production, or a battery is not mapped. Check your data sources.', export=note.export_kwh) }}</span>
+      </div>
+      {% elif note.key == 'solar_empty' %}
+      <p class="text-xs text-base-content/50">ⓘ {{ _('A solar sensor is mapped but reported almost no production over this period, so the Solar figures are hidden. It may not be wired up correctly.') }}</p>
+      {% endif %}
+    {% endfor %}
+  </div>
+</section>
+{% endmacro %}
