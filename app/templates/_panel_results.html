@@ -26,16 +26,23 @@
   UI chrome is wrapped in _() for translation; values (numbers, units, coverage) stay literal.
   Labels/titles/caveats come pre-marked from the view-model and are translated here via _().
 
-  The "Your data at a glance" band is repeated inside this panel, above ENERGY SAVINGS, from the
-  SHARED data_glance macro (_data_glance.html) — the same markup as the interstitial band, but over
-  the SELECTED range (results.data_summary, computed in app/results_view.py with the spot price
-  clamped to the range too). It sits inside #panel-results, so it re-renders on every range change.
+  The "Your data at a glance" figures are repeated inside this panel, above the Energy savings
+  divider, from the SHARED data_glance macro (_data_glance.html) — the same content as panel ①'s
+  copy, but over the SELECTED range (results.data_summary, computed in app/results_view.py with the
+  spot price clamped to the range too), and framed to match the section below it: rendered with
+  frame='divider', so it carries a divider heading like "Energy savings" and NO card around it.
+  It sits inside #panel-results, so it re-renders on every range change.
   The ⓘ .slot-info-btn buttons it carries keep working after a fragment swap: their click handler is
   delegated from `document` in ha_fetch.js and the #slot-info-dialog lives in the never-swapped
   _panel_data.html. The macro import works in the standalone POST /results render too — the Jinja
   loader (templates.env) finds _data_glance.html the same way it finds this file.
 #}
-{% from "_data_glance.html" import data_glance %}
+{# `with context` is REQUIRED, not stylistic: Jinja macro imports do not receive the
+   importing template's context, which is where the i18n extension puts the per-request
+   gettext functions. Without it the macro's strings freeze at the first locale rendered in
+   the process and never change again (an English-first server shows an English band to
+   Dutch users). Covered by test_data_glance_is_translated_in_both_copies. #}
+{% from "_data_glance.html" import data_glance with context %}
 {# The period-preset buttons: (token, label) pairs. The token is the POST request value
    (results_view.PERIOD_DAYS keys); the label is the human text (translated). The active button
    is the one whose token matches the resolved window's preset, mapped from results.period_selected
@@ -90,7 +97,18 @@
         <button type="button" id="results-apply-range" class="btn btn-sm btn-outline">{{ _('Apply') }}</button>
       </div>
 
-      <span class="text-sm text-base-content/60">{{ results.period }}</span>
+      {# The selected window, stated ONCE per panel: dates · N days · run description. The day
+         count sits here (rather than under the glance heading below, where it used to be
+         repeated) because it describes the range the picker just set. `period_dates`/`period_run`
+         are bare literals; the day count needs ngettext, so the template joins them. Falls back
+         to the whole `period` line if a view-model predates the split. #}
+      <span class="text-sm text-base-content/60">
+        {%- if results.period_dates -%}
+        {{ results.period_dates }}{% if results.period_days %} · {{ results.period_days }} {{ ngettext('day', 'days', results.period_days) }}{% endif %} · {{ results.period_run }}
+        {%- else -%}
+        {{ results.period }}
+        {%- endif -%}
+      </span>
     </div>
 
     {# ── Short-window guard box (§2.4 / §7.4) ───────────────────────────────
@@ -103,16 +121,17 @@
     {% endif %}
 
     {# ── "Your data at a glance" over the SELECTED range (shared macro) ─────
-       The same band as the interstitial one, but clamped to this window (spot price included).
+       The same figures as panel ①'s copy, but clamped to this window (spot price included), and
+       framed like the "Energy savings" section below it — a divider heading, no card.
        Guarded: results.data_summary should be present whenever the results view rendered, but the
-       view-model may set it None defensively, in which case the band is simply omitted. #}
+       view-model may set it None defensively, in which case the section is simply omitted. #}
     {% if results.data_summary %}
-    {{ data_glance(results.data_summary, title=_('Your energy use during the selected period')) }}
+    {{ data_glance(results.data_summary, title=_('Your energy use during the selected period'), frame='divider') }}
     {% endif %}
 
     {# ══ ENERGY SAVINGS ══════════════════════════════════════════════════ #}
-    <div class="divider divider-start text-xs font-semibold tracking-wider text-base-content/70">
-      {{ _('ENERGY SAVINGS') }}
+    <div class="divider divider-start text-xs font-semibold uppercase tracking-wider text-base-content/70">
+      {{ _('Energy savings') }}
     </div>
 
     {# ── KPI tiles ─────────────────────────────────────────────────────── #}

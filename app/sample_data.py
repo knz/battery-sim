@@ -248,7 +248,12 @@ def _panel_params():
 def _panel_results():
     """Panel ③ — results, ENERGY SAVINGS section (§2.4). Cost section omitted (cost off)."""
     return {
+        # The picker's coverage line, split so the template can render the day count (which needs
+        # ngettext) between the dates and the run description. `period` keeps the whole line.
         "period": "2025-07-22 → 2026-07-21 · simulated hourly · 8,760 intervals",
+        "period_dates": "2025-07-22 → 2026-07-21",
+        "period_days": 365,
+        "period_run": "simulated hourly · 8,760 intervals",
         "periods": [_N("1 week"), _N("1 month"), _N("3 months"), _N("6 months"), _N("1 year")],
         "period_selected": "1 year",
         # Three KPI tiles. `unit` is rendered smaller and inline beside the big value.

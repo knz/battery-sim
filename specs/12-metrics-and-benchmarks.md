@@ -55,22 +55,22 @@ computed at all when `cfg.simulate_cost` is false.
 `self_sufficiency`, `self_consumption`, and the raw import/export/PV/load totals behind them are
 functions of the *ingested* series and the [§6.3](09-ingest-algorithms.md#63-household-load-reconstruction)
 load reconstruction alone — they do not reference the battery capacity, the policy, or the runs
-`A`/`C`. They are shown in the data summary band
-([§2.3a](02-ux-wireframes.md#23a-the-data-summary-band--your-data-at-a-glance)) as soon as data
+`A`/`C`. They are shown in the data summary section inside panel ①
+([§2.3a](02-ux-wireframes.md#23a-the-data-summary--your-data-at-a-glance)) as soon as data
 loads, describing the household as it was recorded. The one energy metric that does need the
 simulated battery is `efc`, which counts *its* cycles; and `saved_kwh` / `saved_pct` compare the
-`A` and `C` runs, so both belong to panel ③, not the band. Where the household already owns a
+`A` and `C` runs, so both belong to panel ③'s savings section, not the data summary. Where the household already owns a
 battery, note that `self_consumption` and the reconstructed `load` are net of it — the summary
-band labels them so ([§2.3a](02-ux-wireframes.md#the-pre-existing-battery-and-what-net-of-your-battery-means)),
+section labels them so ([§2.3a](02-ux-wireframes.md#the-pre-existing-battery-and-what-net-of-your-battery-means)),
 since [§6.3](09-ingest-algorithms.md#63-household-load-reconstruction) strips the existing
 battery when reconstructing load. In that same existing-battery case `self_sufficiency` can be
 negative over a finite window — import exceeds load when the battery ends more charged than it
-started, or through round-trip losses — so the band **display-clamps** it to `max(0, ·)` and shows
+started, or through round-trip losses — so the summary **display-clamps** it to `max(0, ·)` and shows
 a caveat; the metric itself is unchanged, only its presentation
-([§2.3a](02-ux-wireframes.md#23a-the-data-summary-band--your-data-at-a-glance)). When instead the
+([§2.3a](02-ux-wireframes.md#23a-the-data-summary--your-data-at-a-glance)). When instead the
 §6.3 negative-load clamp has discarded a *large* share of the load — export the reconstruction
 cannot account for, usually an under-reporting PV sensor or an unmapped battery — `load` and hence
-`self_sufficiency` and `consumption` are not trustworthy; the band suppresses those two and warns,
+`self_sufficiency` and `consumption` are not trustworthy; the summary suppresses those two and warns,
 keeping only the measured grid/price figures ([§2.3a](02-ux-wireframes.md#when-an-input-is-empty-or-the-reconstruction-is-unreliable-say-so)).
 
 **Cost simulation only ever adds.** Every metric in the energy row is bit-identical between

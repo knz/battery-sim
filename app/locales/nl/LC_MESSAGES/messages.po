@@ -218,8 +218,8 @@ msgstr "Uit de batterij ontladen"
 msgid "Do you have solar PV?"
 msgstr "Heb je zonnepanelen?"
 
-msgid "ENERGY SAVINGS"
-msgstr "ENERGIEBESPARING"
+msgid "Energy savings"
+msgstr "Energiebesparing"
 
 msgid "EQUIVALENT FULL CYCLES"
 msgstr "EQUIVALENTE VOLLEDIGE CYCLI"

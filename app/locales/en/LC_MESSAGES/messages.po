@@ -214,8 +214,8 @@ msgstr "Discharged from the battery"
 msgid "Do you have solar PV?"
 msgstr "Do you have solar PV?"
 
-msgid "ENERGY SAVINGS"
-msgstr "ENERGY SAVINGS"
+msgid "Energy savings"
+msgstr "Energy savings"
 
 msgid "EQUIVALENT FULL CYCLES"
 msgstr "EQUIVALENT FULL CYCLES"

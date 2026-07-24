@@ -134,10 +134,38 @@ def test_slot_info_affordance(page):
     page.keyboard.press("Escape")
 
 
-def test_data_summary_band_absent_in_empty_state(page):
-    # The data summary band (§2.3a) is shown only once data has loaded. The smoke server runs
-    # against a throwaway data dir with no persisted dataset (the empty state), so the band must
-    # be absent — main.py drops `data_summary` from the context when no dataset exists (§3.4).
+def test_slot_info_dialog_works_when_panel_1_is_collapsed(page):
+    # Regression: the shared #slot-info-dialog used to live inside panel ①'s `.collapse-content`,
+    # which daisyUI gives `content-visibility: hidden` when collapsed. showModal() then still put
+    # the dialog in the top layer — blocking every click on the page — but the browser never
+    # painted it: no popup, frozen page. Reported against panel ③'s glance ⓘ with panel ① closed;
+    # panel ①'s own roster ⓘ reproduces it identically, and works in the empty state this server
+    # runs. Assert the dialog actually becomes VISIBLE (not merely `open`) with panel ① collapsed.
+    toggle = page.locator('input[aria-label="Toggle Data panel"]')
+    toggle.check()  # expand to reach the roster's ⓘ button
+    btn = page.get_by_role("button", name="About House load")
+    btn.scroll_into_view_if_needed()
+    toggle.uncheck()  # collapse panel ① again; the delegated handler still fires
+    page.evaluate("document.querySelector('.slot-info-btn').click()")
+    dialog = page.locator("#slot-info-dialog")
+    assert dialog.evaluate("d => d.open") is True
+    # The real assertion: painted, not just open. This was False with the dialog inside the panel.
+    assert dialog.is_visible()
+    assert dialog.evaluate(
+        "d => !d.closest('.collapse-content')"
+    ), "the dialog must not live inside a collapse, or it is hidden when the panel is closed"
+    page.keyboard.press("Escape")
+    # The `page` fixture is module-scoped: restore panel ① to expanded, the state the other tests
+    # in this file expect (several click controls inside it).
+    toggle.check()
+
+
+def test_data_summary_absent_in_empty_state(page):
+    # The data summary (§2.3a) renders INSIDE panel ①, below the data-quality box, but only once
+    # data has loaded. The smoke server runs against a throwaway data dir with no persisted
+    # dataset (the empty state), so it must be absent — main.py drops `data_summary` from the
+    # context when no dataset exists (§3.4). Its placement is covered in test_results_route.py,
+    # which has a dataset to render.
     assert page.get_by_text("Your data at a glance", exact=True).count() == 0
 
 

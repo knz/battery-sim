@@ -1,4 +1,4 @@
-"""Unit tests for the data summary band (specs/02-ux-wireframes.md §2.3a).
+"""Unit tests for the data summary (specs/02-ux-wireframes.md §2.3a).
 
 Two layers:
 

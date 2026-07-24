@@ -95,12 +95,12 @@ def index(request: Request):
     # otherwise it keeps the static sample as the empty state. Params/results stay sample until
     # their own increments land. A load failure falls back to the sample rather than 500ing.
     #
-    # The data summary band (§2.3a) is shown ONLY once data has loaded: before the first fetch
+    # The data summary (§2.3a) is shown ONLY once data has loaded: before the first fetch
     # there is nothing to summarise, so it is absent (§3.4). sample_view() always carries a
-    # `data_summary`, so drop it here in the empty state and replace it with the COMPUTED band
+    # `data_summary`, so drop it here in the empty state and replace it with the COMPUTED figures
     # once a dataset exists — the real §6.3/§6.11 battery-free figures over the persisted frames
     # (app/summary_view.py), no longer the sample. data_summary_from returns None when the frames
-    # yield no simulatable grid, in which case the band is omitted exactly as in the empty state.
+    # yield no simulatable grid, in which case it is omitted exactly as in the empty state.
     has_dataset = False
     try:
         loaded = dataset.load_latest()

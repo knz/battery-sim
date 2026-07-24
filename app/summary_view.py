@@ -1,6 +1,6 @@
-"""The data summary band's view-model, computed from a persisted dataset (specs §2.3a).
+"""The data summary's view-model, computed from a persisted dataset (specs §2.3a).
 
-Increment 2 of the data summary band: where app/sample_data._data_summary() hard-codes the
+Increment 2 of the data summary: where app/sample_data._data_summary() hard-codes the
 "Your data at a glance" figures, this module computes them from the ingested SeriesFrames.
 It is the battery-free slice of the §6.11 energy metrics over the §6.3 load reconstruction —
 the figures that follow from the household's OWN recorded data before the *simulated* battery
@@ -32,15 +32,15 @@ Two policies, both confirmed with the user (see changelog 20260724):
     (existing battery added mid-window, open question §8.6).
 
 `data_summary_from` returns None when there is no covering energy series (no simulatable grid):
-the band has nothing to summarise, so main.py omits it exactly as in the empty state.
+the summary has nothing to show, so main.py omits it exactly as in the empty state.
 
 Formatting (thousands-separated kWh, integer percent, €/kWh to 3 dp) lives here so the template
 stays unchanged from the sample; the values are bare data (no translation).
 
 Main items:
     data_summary_from(dataset, window=None, *, clamp_price_to_window=False) -> dict | None
-        the §2.3a band view-model, or None if unsummarisable. window=None → full-coverage (the
-        interstitial band); a window → the panel-③ copy over a selected range, optionally clamping
+        the §2.3a view-model, or None if unsummarisable. window=None → full-coverage (the
+        panel-① copy); a window → the panel-③ copy over a selected range, optionally clamping
         the spot-price stats to that range too.
 """
 
@@ -62,7 +62,7 @@ from app.domain.reconcile import (
 # app/domain/reconcile.py so the panel-③ results view (app/results_view.py) can reuse the same
 # numeric core over a selectable window. DIV_GUARD_EPS and CLAMP_UNRELIABLE_FRAC now live there and
 # are imported back here. This module keeps the formatting, the solar own-coverage logic, the price
-# stats, and the notes — i.e. everything that shapes the band's presentation.
+# stats, and the notes — i.e. everything that shapes the summary's presentation.
 
 
 def _fmt_kwh(total: float) -> str:
@@ -86,7 +86,7 @@ def _fmt_eur(value: float) -> str:
 def _price_stats(frame: SeriesFrame | None) -> dict | None:
     """avg/min/max of a price series over its own coverage, or None if absent/empty (§2.3a).
 
-    The average is the plain time-unweighted mean of the per-interval prices — the band's headline
+    The average is the plain time-unweighted mean of the per-interval prices — the headline
     is "the price you saw", not an energy-weighted cost, which belongs to the cost accounting
     (§6.10). NaNs (gap intervals) are ignored.
     """
@@ -108,8 +108,8 @@ def _price_stats_in_window(
 ) -> dict | None:
     """avg/min/max of a price series over `[window[0], window[1])` only, or None if empty.
 
-    The panel-③ copy of the band clamps EVERYTHING to the selected range — including the spot
-    price (unlike the interstitial band, which prices over the series' own full coverage via
+    The panel-③ copy clamps EVERYTHING to the selected range — including the spot
+    price (unlike panel ①'s copy, which prices over the series' own full coverage via
     `_price_stats`). This restricts the price frame to the price points whose interval-start falls
     within the reconcile effective window, then computes the same time-unweighted avg/min/max.
 
@@ -149,11 +149,11 @@ def data_summary_from(
     *,
     clamp_price_to_window: bool = False,
 ) -> dict | None:
-    """Build the §2.3a data summary band view-model from a persisted dataset, or None.
+    """Build the §2.3a data summary view-model from a persisted dataset, or None.
 
     Returns the same shape as sample_data._data_summary() (grid / household / solar / battery /
     price groups, the net_battery flag, coverage + days), computed from the frames per §6.3/§6.11.
-    Returns None when no grid meter series covers the window (no simulatable grid) — the band then
+    Returns None when no grid meter series covers the window (no simulatable grid) — the summary then
     has nothing to summarise and main.py omits it, as in the empty state.
 
     The window is driven by the GRID METER coverage only (_WINDOW_SLOTS), not the intersection of
@@ -161,17 +161,17 @@ def data_summary_from(
     truncate the grid totals. Optional groups sum over their own coverage within this window.
 
     Two call shapes:
-      * `window=None` (default) — the interstitial band: reconcile over the dataset's full coverage
+      * `window=None` (default) — panel ①'s copy: reconcile over the dataset's full coverage
         window (`dataset.window`) and price over the price series' OWN full coverage. This is the
         UNCHANGED behaviour every existing caller and test relies on.
-      * `window=<range>` — panel ③'s copy of the band over a SELECTED range: reconcile over that
+      * `window=<range>` — panel ③'s copy over a SELECTED range: reconcile over that
         window (grid/household/solar already clamp because they run off reconcile_grid's arrays).
         With `clamp_price_to_window=True` the spot-price avg/min/max are also restricted to the
-        reconcile effective window (`rec.window`), so the panel-③ band clamps EVERYTHING to the
+        reconcile effective window (`rec.window`), so the panel-③ copy clamps EVERYTHING to the
         selected range (a decision confirmed with the user — see changelog 20260724).
 
     `coverage`/`days` and all figures reflect the EFFECTIVE window actually reconciled (`rec.window`,
-    the requested window clamped to grid-meter coverage), so the band header shows the selected range.
+    the requested window clamped to grid-meter coverage), so the section header shows the selected range.
     """
     frames = dataset.frames
     by_name = {f.name: f for f in frames}
@@ -179,13 +179,13 @@ def data_summary_from(
     # The per-interval reconciliation + §6.3 load reconstruction now live in reconcile_grid: window
     # + grid from the grid meter series alone (not all frames), each energy series resampled onto the
     # grid, load reconstructed and the negative clamp measured. Returns None on no covering grid
-    # meter — the same guard the band had inline (nothing to summarise; main.py omits it). The
-    # requested window defaults to the dataset's full coverage window (the interstitial-band case).
+    # meter — the same guard the summary had inline (nothing to summarise; main.py omits it). The
+    # requested window defaults to the dataset's full coverage window (the panel-① case).
     rec = reconcile_grid(dataset, window if window is not None else dataset.window)
     if rec is None:
         return None
 
-    # Bind the reconciliation result to the names the rest of the band already used, so the
+    # Bind the reconciliation result to the names the rest of the summary already used, so the
     # formatting, notes, solar and battery blocks below are unchanged.
     window = rec.window
     grid_s = rec.grid_s
@@ -230,7 +230,7 @@ def data_summary_from(
         # Omit-don't-zero (§2.4): a group whose inputs are absent is None, and the template drops it.
         "solar": None,
         "battery": None,
-        # Price: the interstitial band prices over the series' OWN full coverage (_price_stats);
+        # Price: panel ①'s copy prices over the series' OWN full coverage (_price_stats);
         # the panel-③ copy clamps to the reconcile effective window (_price_stats_in_window), so its
         # avg/min/max match the selected range like every other figure in that copy.
         "price": (
@@ -238,7 +238,7 @@ def data_summary_from(
             if clamp_price_to_window
             else _price_stats(by_name.get("price_spot"))
         ),
-        # Data-quality notes surfaced with the band. Each is (key, **params) the template renders as
+        # Data-quality notes surfaced with the summary. Each is (key, **params) the template renders as
         # a caveat; §6.3 / §2.3a discipline: say what happened rather than present a clamped or empty
         # series as clean. "load_unreliable" carries the unexplained-export figures.
         "notes": [],

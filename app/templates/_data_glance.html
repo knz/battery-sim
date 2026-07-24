@@ -2,12 +2,23 @@
   _data_glance.html — the "Your data at a glance" band body as a REUSABLE macro
   (specs/02-ux-wireframes.md §2.3a).
 
-  The band markup used to live inline in _panel_summary.html. It is now a single `data_glance`
-  macro so BOTH places that show the band render identical markup from one source:
-    * _panel_summary.html — the UNNUMBERED interstitial band between panels ① and ②, over the
-      dataset's full coverage;
-    * _panel_results.html — the same band repeated inside panel ③, over the SELECTED range (its
+  A single `data_glance` macro so BOTH places that show these figures render identical content
+  from one source:
+    * _panel_data.html — inside panel ①, between the Data-quality card and the "Next: parameters"
+      CTA, over the dataset's full coverage. Hidden when panel ① collapses.
+    * _panel_results.html — the same figures repeated inside panel ③, over the SELECTED range (its
       spot-price stats clamped to that range too — app/results_view.py).
+
+  The two differ only in their FRAME, chosen by the `frame` argument:
+    * frame='section' (default, panel ①) — a card styled as a peer of the Data-quality card
+      beside it (bg-base-200), heading `h3` with the coverage span right-aligned in the header.
+    * frame='divider' (panel ③) — NO card frame and NO coverage span. The heading is a
+      `divider divider-start`, matching the "Energy savings" divider directly below it, and its
+      content sits directly in panel ③'s body. The coverage span is omitted because panel ③'s
+      range picker already states the selected window immediately above.
+  Everything below the frame is the shared `_glance_body` macro, so a change to the figures lands
+  in both copies. Divider/heading labels are sentence-case msgids uppercased by CSS (`uppercase`),
+  the convention the group headings below already follow — casing is presentation, not translation.
 
   The macro takes the view-model as its argument `data_summary`, which SHADOWS the context var of
   the same name, so the body below is textually unchanged from the old inline version — every _(),
@@ -32,21 +43,43 @@
       notes:     [{key, ...params}],                         # data-quality caveats (may be empty)
     }
 #}
-{# `title` is the band heading (and aria-label). It defaults to the interstitial band's
+{# `title` is the section heading (and aria-label). It defaults to panel ①'s
    "Your data at a glance"; panel ③'s copy passes its own ("Your energy use during the selected
    period") since it is scoped to the selected date range, not the whole dataset. Callers pass an
    already-`_()`-translated string, so it is rendered verbatim here (not re-translated). #}
-{% macro data_glance(data_summary, title=None) %}
+{% macro data_glance(data_summary, title=None, frame='section') %}
 {% set band_title = title if title is not none else _('Your data at a glance') %}
-<section class="card bg-base-100 border border-base-300 rounded-box" aria-label="{{ band_title }}">
+{% set coverage_line %}{{ data_summary.coverage }}{% if data_summary.days %} · {{ data_summary.days }} {{ ngettext('day', 'days', data_summary.days) }}{% endif %}{% endset %}
+{% if frame == 'divider' %}
+{# Panel ③'s copy: no card frame. The heading is a `divider divider-start`, matching the
+   "Energy savings" divider directly below it. NO coverage line here: panel ③'s range picker
+   states the selected window (dates · N days · resolution) directly above, so repeating it under
+   this heading said the same thing twice. #}
+<section aria-label="{{ band_title }}">
+  <div class="divider divider-start text-xs font-semibold uppercase tracking-wider text-base-content/70">
+    {{ band_title }}
+  </div>
+  <div class="flex flex-col gap-3">
+    {{ _glance_body(data_summary) }}
+  </div>
+</section>
+{% else %}
+{# Panel ①'s copy: a peer of the Data-quality card in the same panel body. #}
+<section class="card bg-base-200 border border-base-300" aria-label="{{ band_title }}">
   <div class="card-body gap-3 p-4">
     <div class="flex flex-wrap items-baseline justify-between gap-2">
-      <h2 class="text-sm font-semibold text-base-content/70">{{ band_title }}</h2>
-      <span class="text-xs text-base-content/50">
-        {{ data_summary.coverage }}{% if data_summary.days %} · {{ data_summary.days }} {{ ngettext('day', 'days', data_summary.days) }}{% endif %}
-      </span>
+      <h3 class="text-sm font-semibold text-base-content/70">{{ band_title }}</h3>
+      <span class="text-xs text-base-content/50">{{ coverage_line }}</span>
     </div>
+    {{ _glance_body(data_summary) }}
+  </div>
+</section>
+{% endif %}
+{% endmacro %}
 
+{# The band's content, shared verbatim by both frames: the three headline groups, the existing
+   battery, the spot price, and the data-quality notes. Only the wrapper above differs. #}
+{% macro _glance_body(data_summary) %}
     {# The three headline groups. Grid and Household are always present; Solar only with PV. #}
     <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
       {# ── Grid ────────────────────────────────────────────────────────────── #}
@@ -173,6 +206,4 @@
       <p class="text-xs text-base-content/50">ⓘ {{ _('A solar sensor is mapped but reported almost no production over this period, so the Solar figures are hidden. It may not be wired up correctly.') }}</p>
       {% endif %}
     {% endfor %}
-  </div>
-</section>
 {% endmacro %}

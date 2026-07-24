@@ -3,11 +3,10 @@
 
   Renders the header, the setup band (§2.1 — the has_pv / simulate_cost scope choices), and
   the three stacked stepper panels. Panels ① and ② are collapsed to their one-line summaries;
-  panel ③ (Results) is expanded. Between panel ① and panel ② an unnumbered "data summary" band
-  (§2.3a, _panel_summary.html) is included ONLY when `data_summary` is set — i.e. once data has
-  loaded; before the first fetch there is nothing to summarise and it is absent (§3.4). Content
-  comes from the static sample view-model (app/sample_data.py); nothing here is wired to feature
-  logic yet.
+  panel ③ (Results) is expanded. The "Your data at a glance" figures (§2.3a) are NOT a band here:
+  they render inside panel ① (below its data-quality box) and again inside panel ③ over the
+  selected range — both from the shared _data_glance.html macro. Content comes from the static
+  sample view-model (app/sample_data.py); nothing here is wired to feature logic yet.
 
   Interactivity: native collapse expand/collapse, the <dialog>-based "not built yet" modal (the
   pending affordance), and the slot-first source-picker drawer (#source-drawer) — a shared
@@ -48,13 +47,33 @@
     {# The setup band (§2.1) — the two shape-determining choices, above the panels. #}
     {% include "_setup_band.html" %}
     {% include "_panel_data.html" %}
-    {# The data summary band (§2.3a) sits between panel ① and panel ②, but only once data has
-       been loaded — before the first fetch there is nothing to summarise, so it is absent
-       (state machine §3.4: rendered from DATA_READY onward). #}
-    {% if data_summary %}{% include "_panel_summary.html" %}{% endif %}
     {% include "_panel_params.html" %}
     {% include "_panel_results.html" %}
   </main>
+
+  {# ── Slot info dialog — the shared ⓘ modal (specs §4.1, §2.3a). ──────────────────
+       One modal for every ⓘ .slot-info-btn on the page: the slot roster's role blurbs in panel ①
+       AND the derived-metric blurbs in both copies of the data glance (panel ① and panel ③).
+       ha_fetch.js fills the title + body from the clicked button's data-* (already translated
+       server-side) and calls showModal().
+
+       It MUST live here at page level, not inside a panel. It previously sat in
+       _panel_data.html, inside panel ①'s `.collapse-content` — which daisyUI gives
+       `content-visibility: hidden` when the panel is collapsed. A <dialog> in such a subtree
+       still enters the top layer on showModal() (so it blocks every click on the page) but is
+       never painted: the user gets no popup and a frozen page. That reproduced by collapsing
+       panel ① and clicking any ⓘ in panel ③'s glance copy. Page level has no such ancestor, so
+       the modal works regardless of which panels are open. #}
+  <dialog id="slot-info-dialog" class="modal">
+    <div class="modal-box">
+      <h3 class="text-lg font-bold" id="slot-info-title"></h3>
+      <p class="py-3 text-sm text-base-content/80" id="slot-info-body"></p>
+      <div class="modal-action">
+        <form method="dialog"><button class="btn btn-ghost btn-sm">{{ _('close') }}</button></form>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>{{ _('close') }}</button></form>
+  </dialog>
 
   {# ── "Not built yet" dialog — the pending affordance (§2.1). Shared by any pending
        control; the control name and feature key are filled in by the script below. The

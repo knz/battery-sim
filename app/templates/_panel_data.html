@@ -41,7 +41,18 @@
   button next to its role label; clicking opens the shared #slot-info-dialog (filled by
   ha_fetch.js from the button's data-info-title/body). Rows without `info` render no icon, so
   the affordance is generic — a new series gets one by populating that field, not by editing here.
+
+  Below the data-quality box, and above the CTA, the panel renders the "Your data at a glance"
+  figures (§2.3a) from the shared _data_glance.html macro — but only when `data_summary` is set,
+  i.e. once a dataset has loaded. This used to be an unnumbered band between panels ① and ②
+  (_panel_summary.html, now removed); it is a section of this panel, so it collapses with it.
 #}
+{# `with context` is REQUIRED, not stylistic: Jinja macro imports do not receive the
+   importing template's context, which is where the i18n extension puts the per-request
+   gettext functions. Without it the macro's strings freeze at the first locale rendered in
+   the process and never change again (an English-first server shows an English band to
+   Dutch users). Covered by test_data_glance_is_translated_in_both_copies. #}
+{% from "_data_glance.html" import data_glance with context %}
 <section class="collapse collapse-arrow bg-base-100 border border-base-300 rounded-box">
   <input type="checkbox" aria-label="{{ _('Toggle Data panel') }}" />
   <div class="collapse-title flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -173,20 +184,10 @@
         </div>
       </div>
 
-      {# ── Slot info dialog ────────────────────────────────────────────────── #}
-      {# One shared modal for every row's ⓘ affordance. ha_fetch.js fills the title + body from
-         the clicked .slot-info-btn's data-* (already translated server-side) and calls
-         showModal(). A single dialog keeps the roster free of per-row markup. #}
-      <dialog id="slot-info-dialog" class="modal">
-        <div class="modal-box">
-          <h3 class="text-lg font-bold" id="slot-info-title"></h3>
-          <p class="py-3 text-sm text-base-content/80" id="slot-info-body"></p>
-          <div class="modal-action">
-            <form method="dialog"><button class="btn btn-ghost btn-sm">{{ _('close') }}</button></form>
-          </div>
-        </div>
-        <form method="dialog" class="modal-backdrop"><button>{{ _('close') }}</button></form>
-      </dialog>
+      {# The shared #slot-info-dialog used to live here. It now sits at PAGE level in index.html:
+         a <dialog> inside .collapse-content still enters the top layer when collapsed — blocking
+         all input — but is never painted, because daisyUI sets content-visibility:hidden on a
+         closed collapse. See index.html for the full note. #}
 
       {# ── Data quality ────────────────────────────────────────────────────── #}
       <div class="card bg-base-200 border border-base-300">
@@ -242,6 +243,15 @@
           {% endif %}
         </div>
       </div>
+
+      {# ── Your data at a glance (§2.3a) ──────────────────────────────────────
+         The battery-free figures computed from the loaded dataset, rendered as a peer of the
+         Data-quality card above. Present only once data has loaded — main.py sets `data_summary`
+         from DATA_READY onward and drops it in the empty state, where there is nothing to
+         summarise. The same macro renders panel ③'s range-clamped copy (frame='divider'). #}
+      {% if data_summary %}
+      {{ data_glance(data_summary) }}
+      {% endif %}
 
       <div class="flex justify-end">
         <button class="btn btn-primary btn-sm">{{ _('Next: parameters →') }}</button>

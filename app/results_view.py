@@ -14,7 +14,7 @@ What is NOT emitted this increment (later phases):
   * annualisation — a short-window run (< min_annualisation_days) sets `annualisation_disabled`
     with a message so the template can show the §2.4 info box; nothing is annualised here anyway.
 
-The view-model also carries a `data_summary` key: the §2.3a "Your data at a glance" band repeated
+The view-model also carries a `data_summary` key: the §2.3a "Your data at a glance" figures repeated
 inside panel ③ but computed over the SELECTED window (spot price clamped to it too), rendered from
 the shared _data_glance.html macro so it swaps with the panel on every range change.
 
@@ -56,7 +56,7 @@ from app.data_view import _fmt_res
 from app.summary_view import data_summary_from
 
 # summary_view imports from reconcile/dataset/frames, NOT from results_view, so this top-level
-# import does not cycle. The panel-③ band (results.data_summary) is the SAME "Your data at a glance"
+# import does not cycle. The panel-③ copy (results.data_summary) is the SAME "Your data at a glance"
 # view-model, but computed over the SELECTED window with the spot price clamped to it too.
 
 # Below this PV total (kWh) self_consumption is undefined — nothing was generated to consume
@@ -291,11 +291,17 @@ def results_from(
     intervals = len(rec.imp)
     res_label = _fmt_res(rec.grid_s)
 
-    # Coverage line, e.g. "2025-07-22 → 2026-07-21 · simulated hourly · 8,760 intervals".
-    period = (
-        f"{eff[0].date().isoformat()} → {eff[1].date().isoformat()}"
-        f" · simulated {res_label} · {intervals:,} intervals"
-    )
+    # The picker's coverage line, split in two so the template can insert the day count between
+    # them: "<dates> · N days · simulated hourly · 8,760 intervals". The day count is the
+    # template's to render because "day"/"days" needs ngettext, whereas these parts are bare
+    # literals. The data-glance section below the picker used to repeat this span; it no longer
+    # does, so the selected range's length is stated once per panel, here.
+    period_dates = f"{eff[0].date().isoformat()} → {eff[1].date().isoformat()}"
+    period_run = f"simulated {res_label} · {intervals:,} intervals"
+    period_days = (eff[1] - eff[0]).days
+    # `period` stays the whole line as one string for any consumer that wants it unsplit (and so
+    # the sample view-model's shape is unchanged); the template renders the parts.
+    period = f"{period_dates} · {period_run}"
 
     # Baseline == battery under the zero-battery assumption.
     ss = _self_sufficiency(rec)  # baseline self-sufficiency == battery self-sufficiency
@@ -361,9 +367,9 @@ def results_from(
         "battery to see what it would have saved."
     )
 
-    # The "Your data at a glance" band, repeated inside panel ③ but over the SELECTED range (the
+    # The "Your data at a glance" figures, repeated inside panel ③ but over the SELECTED range (the
     # effective reconcile window), with the spot price clamped to that range too — unlike the
-    # interstitial band, which prices over the series' own full coverage (decision confirmed with
+    # panel-① copy, which prices over the series' own full coverage (decision confirmed with
     # the user, changelog 20260724). It renders from the SAME shared macro (_data_glance.html), so
     # it re-renders on every range change inside the swappable #panel-results region. Defensive
     # None-guard: data_summary_from should not return None once reconcile_grid succeeded here, but
@@ -372,6 +378,9 @@ def results_from(
 
     result: dict = {
         "period": period,
+        "period_dates": period_dates,
+        "period_days": period_days,
+        "period_run": period_run,
         "periods": list(_PERIOD_LABELS),
         "period_selected": _period_selected_for(dataset, eff),
         "data_summary": data_summary,

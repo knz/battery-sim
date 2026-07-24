@@ -27,10 +27,8 @@ recalculation.
 │  ┌────────────────────────────────────────────────────────────────────────┐  │
 │  │ ① DATA                                            ✓ 412 days  [edit ▾] │  │
 │  │    Home Assistant · 5 series · simulated hourly                        │  │
-│  └────────────────────────────────────────────────────────────────────────┘  │
-│                                                                              │
-│  ┌─ Your data at a glance ─────────────────────────────── (see 2.3a) ─────┐  │
-│  │  4,129 kWh imported · 31% self-sufficient · … (shown once data loads)  │  │
+│  │    (expanded: … data quality, then "Your data at a glance" — see 2.3a, │  │
+│  │     shown once data loads — then the "Next: parameters →" CTA)         │  │
 │  └────────────────────────────────────────────────────────────────────────┘  │
 │                                                                              │
 │  ┌────────────────────────────────────────────────────────────────────────┐  │
@@ -262,9 +260,18 @@ before the slot is known forces a single answer onto a set of slots that do not 
 │  │                     auto-detected from when each register increments   │  │
 │  └────────────────────────────────────────────────────────────────────────┘  │
 │                                                                              │
+│  ┌─ Your data at a glance ────────────────── 2025-06-01 → 2026-07-21 ─────┐  │
+│  │  … the battery-free figures — see 2.3a for the full layout.            │  │
+│  │  Present only once data has loaded; absent in the empty state.         │  │
+│  └────────────────────────────────────────────────────────────────────────┘  │
+│                                                                              │
 │                                              [ Next: parameters →  ]         │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
+
+The panel closes with two boxes in a deliberate order: **data quality** reports whether the import
+is sound, and **"Your data at a glance"** ([§2.3a](#23a-the-data-summary--your-data-at-a-glance))
+reports what the data says. The second is present only once a dataset has loaded.
 
 ### The per-slot source drawer
 
@@ -558,14 +565,16 @@ series, so there is no merging to specify and no collision to resolve.
 
 The expected format for each series is in [05-data-formats.md](05-data-formats.md).
 
-## 2.3a The data summary band — "Your data at a glance"
+## 2.3a The data summary — "Your data at a glance"
 
-Between panel ① and panel ② sits an **unnumbered summary band**. It appears once the fetch
-succeeds (`LOAD_SUCCEEDED`, [§3.1](04-state-machine.md#31-session-level-states)) and shows the
-figures that follow **from the household's own recorded data alone** — before any simulated
-battery, policy or pricing is configured. It is an interstitial "here is what we found", read
-between loading the data and describing the battery: it lets the user confirm the import looks
-right, and see what their year actually was, before they invest effort in parameters.
+**Inside panel ①**, below the data-quality box and above the "Next: parameters →" CTA, sits a
+**data summary section**. It appears once the fetch succeeds (`LOAD_SUCCEEDED`,
+[§3.1](04-state-machine.md#31-session-level-states)) and shows the figures that follow **from the
+household's own recorded data alone** — before any simulated battery, policy or pricing is
+configured. It is the closing "here is what we found" of the data step: having just reported
+*whether the import is sound* (data quality), the panel then reports *what the data says*, so the
+user can confirm the import looks right, and see what their year actually was, before investing
+effort in parameters.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
@@ -593,16 +602,29 @@ right, and see what their year actually was, before they invest effort in parame
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### It is a band, not a stepper panel
+### It is a section of panel ①, not a band and not a step
 
-Like the setup band ([§2.1](#the-setup-band)), it is **not numbered, does not collapse to a
-summary, carries no CTA and no `[?]` affordance**, and has no focus state of its own
-([§3.4](04-state-machine.md#34-panel-focus-model)). It differs from the setup band in one
-respect: the setup band is present from `EMPTY`, whereas this band has nothing to summarise until
-data exists, so it is **absent before the first successful fetch** and appears on
-`LOAD_SUCCEEDED`. It re-renders whenever the dataset is reloaded ([§3.2](04-state-machine.md#32-events)
-`RELOAD_DATA`). Panel ①'s own "Next: parameters →" CTA is unchanged and still drives the step from
-① to ②; the band sits between them as context, not as a gate.
+It is **part of panel ①'s body**, so it has no numbering, no CTA, no `[?]` affordance and no focus
+state of its own ([§3.4](04-state-machine.md#34-panel-focus-model)) — panel ①'s focus state covers
+it. Two consequences follow from living inside the panel rather than between panels:
+
+- **It hides when panel ① collapses.** Once the user steps on to panel ②, panel ① collapses to its
+  one-line summary and these figures go with it. That is accepted: the user can reopen panel ① at
+  any time, and panel ③ repeats the figures over the selected range (see below).
+- **It is absent before the first successful fetch.** There is nothing to summarise in `EMPTY`, so
+  panel ① renders its slot roster and quality box without this section, and gains it on
+  `LOAD_SUCCEEDED`. It re-renders whenever the dataset is reloaded
+  ([§3.2](04-state-machine.md#32-events) `RELOAD_DATA`).
+
+Panel ①'s "Next: parameters →" CTA is unchanged and still drives the step from ① to ②; the section
+sits above it as context, not as a gate.
+
+**It is rendered twice, from one source.** Panel ③ repeats the same figures over the **selected
+range** ([§2.4](#24-panel--results)), clamped to that window (spot price included). The two copies
+share one implementation and differ only in their frame: in panel ① it is a card styled as a peer
+of the data-quality box beside it; in panel ③ it carries a divider heading matching the "Energy
+savings" section it introduces, with no card around it, so it reads as one of that panel's result
+sections rather than a transplanted band.
 
 ### What it shows, and why none of it needs the simulated battery
 
@@ -634,7 +656,7 @@ reconstructed load over the window — which happens when an existing battery en
 charged than it started (net SoC drift) or through round-trip losses: some imported energy went
 into the battery and was not discharged to the load within the window. The quantity is honest —
 that energy *was* imported, not self-supplied — but a negative percentage reads as broken. So the
-band clamps the *displayed* value to `max(0, ·)` and, when it clamps, shows a one-line caveat
+summary clamps the *displayed* value to `max(0, ·)` and, when it clamps, shows a one-line caveat
 noting the battery ended more charged than it started and that this evens out over full
 charge/discharge cycles. The underlying metric is unchanged; only the presentation is clamped.
 This case does not arise for a household without an existing battery (import cannot exceed
@@ -642,7 +664,7 @@ This case does not arise for a household without an existing battery (import can
 
 ### Coverage: the grid meter drives the window; each group keeps its own span
 
-The band's window is the **grid meter** coverage, not the intersection of every mapped series. A
+The summary's window is the **grid meter** coverage, not the intersection of every mapped series. A
 household may map a series that covers only part of the meter history — solar panels or a battery
 installed part-way through a two-year record. Intersecting all series would collapse the window to
 that short span and clip the grid totals to it (a two-year import reading as a few hundred kWh). So
@@ -654,7 +676,7 @@ two years of export would be meaningless.
 
 ### When an input is empty or the reconstruction is unreliable, say so
 
-Two data problems the band must surface rather than present as clean numbers, in the spirit of
+Two data problems the summary must surface rather than present as clean numbers, in the spirit of
 [§6.3](09-ingest-algorithms.md#63-household-load-reconstruction) ("say what happened"):
 
 - **A mapped PV series that reports almost nothing** (total production below a small floor) is
@@ -665,7 +687,7 @@ Two data problems the band must surface rather than present as clean numbers, in
   [§6.3](09-ingest-algorithms.md#63-household-load-reconstruction) clamps a large share of the load
   to zero — export the reconstruction cannot explain from import + PV + battery, typically real PV
   the solar sensor under-reports or an unmapped battery discharging to the grid — the clamp silently
-  *inflates* consumption and drives self-sufficiency toward 0. Past a threshold the band treats
+  *inflates* consumption and drives self-sufficiency toward 0. Past a threshold the summary treats
   consumption and self-sufficiency as **unreliable**: it hides both and shows a prominent warning
   naming the unexplained export and pointing the user at their solar/battery sensors. The measured
   figures (grid import/export, price) are unaffected and still shown.
@@ -680,7 +702,7 @@ household consumption and self-consumption figures are therefore **derived from 
 battery's data too** — they describe the house behind the meter, net of the battery it already has,
 not a hypothetical no-battery meter reading.
 
-Two consequences the band makes explicit rather than hiding:
+Two consequences the summary makes explicit rather than hiding:
 
 - The existing battery gets **its own group**, reporting the charge-in and discharge-out it
   actually did over the window. This is an observed fact about the household's current setup, and
@@ -692,12 +714,12 @@ Two consequences the band makes explicit rather than hiding:
   slots the label is absent and the rows read plainly, because there was no battery to net out.
 
 This is the *existing* (measured, an input) versus *simulated* (configured in panel ②, the
-counterfactual) battery distinction, and it runs through the whole product: the summary band
+counterfactual) battery distinction, and it runs through the whole product: the data summary
 reports the household as it was, panels ②/③ report what a simulated battery would change. One
 limitation is acknowledged and not solved here: if the existing battery was installed **partway
 through the window**, its sensors may not cover the whole span and the reconstructed load is then
 inconsistent across the boundary — [open question §8.6](17-open-questions.md), routed to
-[§6.15](13-configuration-epochs.md). The band shows the window-wide figures; detecting and
+[§6.15](13-configuration-epochs.md). The summary shows the window-wide figures; detecting and
 offering to restrict the window is future work.
 
 ## 2.3 Panel ② — Parameter configuration (expanded)
@@ -929,8 +951,13 @@ tariffs.
 ├──────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
 │  Period:  [ 1 week ] [ 1 month ] [ 3 months ] [ 6 months ] (•1 year•)        │
-│           2025-07-22 → 2026-07-21 · simulated hourly · 8,760 intervals       │
-│                                                       ⟳ recalculating…       │
+│           2025-07-22 → 2026-07-21 · 365 days · simulated hourly ·            │
+│           8,760 intervals                             ⟳ recalculating…       │
+│                                                                              │
+│  ═══ YOUR ENERGY USE DURING THE SELECTED PERIOD ═════════════════════════    │
+│                                                                              │
+│      … the same battery-free figures as 2.3a, clamped to the selected        │
+│      range (spot price included). No frame of its own — see 2.3a.            │
 │                                                                              │
 │  ═══ ENERGY SAVINGS ═════════════════════════════════════════════════════    │
 │                                                                              │
@@ -1041,6 +1068,16 @@ are `benchmarks.energy` and `benchmarks.cost`, the caveats box is `warnings`. Th
 
 Notes on the two sections:
 
+- **"Your energy use during the selected period" repeats the §2.3a figures over the range.**
+  Above the energy-savings section, the panel restates the battery-free figures panel ① showed
+  ([§2.3a](#23a-the-data-summary--your-data-at-a-glance)) — but clamped to the **selected range**,
+  spot price included, so every number in the panel describes the same window. It is the *before*
+  against which the savings below are read, and it is why the range picker changing does not leave
+  a stale full-coverage figure on screen. It is styled as a peer of the sections below it — a
+  divider heading, no frame of its own — not as a transplanted band; and it is the same
+  implementation as panel ①'s copy, differing only in that frame. It carries **no coverage line
+  of its own**: the range picker directly above states the selected window (dates · N days ·
+  resolution · intervals), so the panel says how long the range is exactly once.
 - **Enabling cost simulation adds the second section and changes nothing in the first.**
   Every figure above the `COST SAVINGS` divider — the three KPI tiles, the energy breakdown,
   the energy benchmark and its capture ratio, the secondary metrics, the kWh caveats — is
