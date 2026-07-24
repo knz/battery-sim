@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-24 11:17+0200\n"
+"POT-Creation-Date: 2026-07-24 14:34+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -114,6 +114,9 @@ msgstr ""
 msgid "Close"
 msgstr ""
 
+msgid "Connect Home Assistant above first"
+msgstr ""
+
 msgid "Conversion losses"
 msgstr ""
 
@@ -170,7 +173,7 @@ msgstr ""
 msgid "Energy flows"
 msgstr ""
 
-msgid "Entity / statistic ID"
+msgid "Entity"
 msgstr ""
 
 msgid "Export CSV"
@@ -491,6 +494,9 @@ msgid ""
 msgstr ""
 
 msgid "change"
+msgstr ""
+
+msgid "choose entity…"
 msgstr ""
 
 msgid "close"

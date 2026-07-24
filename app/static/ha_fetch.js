@@ -9,25 +9,34 @@
  *     LAN-only, self-signed) HA instance, and keeping the fetch here means the long-lived access
  *     token never leaves the browser (specs §7.5). The token is held in localStorage and sent
  *     only to the user's own HA. The connection is SHARED across slots: the user tests once
- *     (URL + token + Test connection), and every HA-source slot's mapping <select> is then filled
- *     from the same listing. Fetched rows stream to our backend over WS /data/ingest/ws
+ *     (URL + token + Test connection), and the listed statistic ids are then reused for every
+ *     HA-source slot. Fetched rows stream to our backend over WS /data/ingest/ws
  *     (app/ingest_ws.py), which normalises and persists them.
  *
  *  2. The slot-first source-picker drawer. Each slot row (templates/_panel_data.html) has a
- *     "Choose source…" button carrying the slot name and its source list (data-slot-sources). A
- *     click opens the shared right-side drawer (#source-drawer in index.html) listing those
- *     sources as radios. Picking a source:
- *       * home_assistant (browser_fetch) → the slot uses the shared connection + its <select>;
- *         the row is re-rendered to show HA selected. No round-trip.
+ *     "Choose source…" button carrying the slot name, its kind (energy/price), and its source
+ *     list (data-slot-sources). A click opens the shared right-side drawer (#source-drawer in
+ *     index.html) listing those sources as radios. Picking a source:
+ *       * home_assistant (browser_fetch) → the drawer reveals a single entity <select>
+ *         (#drawer-entity-select), populated for THIS slot from the shared connection's listing;
+ *         the chosen id is stored in per-slot JS state (slotState). No round-trip.
  *       * energy_charts (backend_load)   → POST /data/slot/{slot}/load {source, window}; on
  *         success reload so panel ① re-renders from the persisted dataset (specs §3.5).
  *       * data_source_csv (pending)      → the shared "not built yet" dialog (#pending-dialog).
  *
+ * Per-slot entity state (the crux). There is NO per-row DOM <select> any more; instead a JS map
+ * `slotState[name] = { source, statId, kind }` records each slot's chosen source and (for HA) its
+ * chosen statistic id. It is seeded from each .slot-source-btn's data-* attributes at load. The
+ * drawer's single entity <select> is (re)configured per slot on open / on picking the HA radio,
+ * and writes back into slotState on change. mappedSlots() (used by Fetch history) reads slotState
+ * — the HA slots whose statId is set — so the fetch no longer depends on any per-row select.
+ *
  * User actions on the connection card:
- *   Test connection  — open wss://<ha>/api/websocket, auth, recorder/list_statistic_ids, fill
- *                       every HA slot's mapping <select> (energy ids for energy slots, mean ids
- *                       for price). Enables Fetch history.
- *   Fetch history    — for each slot whose chosen source is HA (an ha-map-select with a value),
+ *   Test connection  — open wss://<ha>/api/websocket, auth, recorder/list_statistic_ids, store
+ *                       the listed ids (energy ids from "sum", mean ids from "mean"), and if a
+ *                       drawer is open for an HA slot, (re)populate its entity <select>. Enables
+ *                       Fetch history.
+ *   Fetch history    — for each HA slot with a chosen statId in slotState,
  *                       recorder/statistics_during_period over the full window at period "hour",
  *                       plus period "5minute" over the trailing HA_FINE_WINDOW_DAYS (specs §4.3).
  *                       Stream to the backend, then reload (specs §3.5 LOAD_SUCCEEDED).
@@ -54,7 +63,13 @@
   var fetchBtn = document.getElementById("ha-fetch-btn");
   var fetchStatus = document.getElementById("ha-fetch-status");
   var progressEl = document.getElementById("ha-fetch-progress");
-  var selects = Array.prototype.slice.call(document.querySelectorAll(".ha-map-select"));
+
+  // Per-slot state, seeded from each slot's source button (no per-row DOM select any more).
+  //   slotState[name] = { source: <key|null>, statId: <string>, kind: "energy"|"price" }
+  // Filled below once we can read the .slot-source-btn nodes; kind derives from the slot name the
+  // same way the old template did ('price' in name ? price : energy).
+  var slotState = {};
+  function slotKind(name) { return /price/.test(name || "") ? "price" : "energy"; }
 
   // Runtime i18n (rendered server-side into #drawer-i18n so gettext extracts the msgids).
   var I18N = {};
@@ -67,6 +82,20 @@
   // Restore the last URL/token from localStorage (browser-local; never server-side, §7.5).
   urlInput.value = localStorage.getItem(LS_URL) || urlInput.value || "";
   tokenInput.value = localStorage.getItem(LS_TOKEN) || "";
+
+  // Seed slotState from the slot source buttons. Each button carries the slot name, its persisted
+  // source (data-slot-source), and its kind (data-slot-kind). The persisted view-model does not
+  // carry a re-selectable statistic id (only a coverage summary), so statId starts empty and is
+  // set when the user picks an entity in the drawer this session.
+  Array.prototype.slice.call(document.querySelectorAll(".slot-source-btn")).forEach(function (btn) {
+    var name = btn.getAttribute("data-slot");
+    if (!name) return;
+    slotState[name] = {
+      source: btn.getAttribute("data-slot-source") || null,
+      statId: "",
+      kind: btn.getAttribute("data-slot-kind") || slotKind(name)
+    };
+  });
 
   // -----------------------------------------------------------------------------------------
   // HA WebSocket client. One connection per operation; HA closes idle sockets, and the fetch is
@@ -143,8 +172,8 @@
   };
 
   // -----------------------------------------------------------------------------------------
-  // Test connection: list ids, fill every HA slot's mapping select. The connected state is
-  // conceptually shared: one successful test fills all HA-source selects at once.
+  // Test connection: list ids once; the ids are shared across all HA slots. The drawer's single
+  // entity <select> is populated per slot on open / on picking HA (fillDrawerEntitySelect).
   // -----------------------------------------------------------------------------------------
   var statIds = { energy: [], price: [] };  // populated by testConnection
   var haConnected = false;                  // set true after a successful test
@@ -174,7 +203,12 @@
       statIds.energy = sums.map(function (s) { return s.statistic_id; }).sort();
       statIds.price = means.map(function (s) { return s.statistic_id; }).sort();
       haConnected = true;
-      fillSelects();
+      // If the drawer is open on an HA slot, its entity select was showing the "connect first"
+      // hint; repopulate it now. Otherwise the ids are just stored for the next drawer open.
+      if (drawerState.slot && drawerState.selected
+          && drawerState.selected.kind === "browser_fetch") {
+        fillDrawerEntitySelect(drawerState.slot);
+      }
       setStatus(statusEl, "✓ Connected · " + statIds.energy.length + " energy + "
         + statIds.price.length + " measurement statistics", "text-success");
       fetchBtn.disabled = false;
@@ -187,32 +221,49 @@
     }
   }
 
-  // Fill every HA-mappable slot's select from the listed ids. Selects whose slot is NOT using HA
-  // (data-inactive) are left with only the "— none —" option so they are never fetched.
-  function fillSelects() {
-    selects.forEach(function (sel) {
-      if (sel.getAttribute("data-inactive") === "1") return;  // slot's source isn't HA
-      var kind = sel.getAttribute("data-kind") === "price" ? "price" : "energy";
-      var current = sel.value;
-      // Keep the "— none —" first option, replace the rest.
-      while (sel.options.length > 1) sel.remove(1);
-      statIds[kind].forEach(function (id) {
-        var opt = document.createElement("option");
-        opt.value = id; opt.textContent = id;
-        sel.appendChild(opt);
-      });
-      // Best-effort auto-map: if a stat id contains the series name's key tokens, preselect it.
-      if (!current) {
-        var guess = guessId(sel.getAttribute("data-series"), statIds[kind]);
-        if (guess) sel.value = guess;
-      } else {
-        sel.value = current;
-      }
+  // Populate the drawer's single entity <select> for one slot from the listed ids (kind-
+  // appropriate: energy ids for energy slots, mean ids for price slots). Preselect the slot's
+  // previously chosen id (slotState), else a best-effort guess. When not connected yet, show a
+  // single disabled hint instead of ids (the note tells the user to connect above).
+  function fillDrawerEntitySelect(slotName) {
+    if (!drawerEntitySelect) return;
+    var st = slotState[slotName] || { kind: slotKind(slotName), statId: "" };
+    var kind = st.kind === "price" ? "price" : "energy";
+    var sel = drawerEntitySelect;
+
+    // Reset to a single leading option, then either the hint or the ids.
+    while (sel.options.length) sel.remove(0);
+    if (!haConnected) {
+      var hint = document.createElement("option");
+      hint.value = "";
+      hint.textContent = t("connect_first", "Connect Home Assistant above first");
+      sel.appendChild(hint);
+      sel.disabled = true;
+      return;
+    }
+    sel.disabled = false;
+    var none = document.createElement("option");
+    none.value = ""; none.textContent = t("none", "— none —");
+    sel.appendChild(none);
+    statIds[kind].forEach(function (id) {
+      var opt = document.createElement("option");
+      opt.value = id; opt.textContent = id;
+      sel.appendChild(opt);
     });
+    // Preselect: a prior explicit choice, else a heuristic guess. The guess is a *visible*
+    // default, not a silent one — it is written to slotState so the dropdown, the roster row
+    // label (`Home Assistant · <id>`), and mappedSlots() all show the same id the fetch will use.
+    // The user sees it on the row and in the open dropdown and overrides a wrong guess there; it
+    // is a starting point, not a mapping authority.
+    var pick = st.statId || guessId(slotName, statIds[kind]) || "";
+    sel.value = pick;
+    st.statId = sel.value;
+    if (drawerState.slot === slotName) updateSlotButton(slotName);  // keep the row label in step
   }
 
-  // Heuristic auto-map from the slot name to a statistic id. Purely a convenience — the user
-  // confirms by fetching; a wrong guess is corrected in the dropdown. Not a mapping authority.
+  // Heuristic auto-map from the slot name to a statistic id. A convenience default only: the
+  // guess is shown on the roster row and in the dropdown, and a wrong one is corrected there. Not
+  // a mapping authority.
   function guessId(series, ids) {
     if (!series) return "";
     var hints = {
@@ -262,17 +313,17 @@
     };
   }
 
-  // Slots whose chosen source is Home Assistant: an active ha-map-select with a value. Selects
-  // for non-HA slots are marked data-inactive and skipped.
+  // Slots whose chosen source is Home Assistant AND that have an entity chosen (slotState). This
+  // is the sole source of truth for the fetch — there is no per-row DOM select any more.
   function mappedSlots() {
-    return selects
-      .filter(function (sel) { return sel.getAttribute("data-inactive") !== "1" && sel.value; })
-      .map(function (sel) {
-        return {
-          name: sel.getAttribute("data-series"),
-          kind: sel.getAttribute("data-kind") === "price" ? "price" : "energy",
-          statId: sel.value
-        };
+    return Object.keys(slotState)
+      .filter(function (name) {
+        var st = slotState[name];
+        return st && st.source === "home_assistant" && st.statId;
+      })
+      .map(function (name) {
+        var st = slotState[name];
+        return { name: name, kind: st.kind === "price" ? "price" : "energy", statId: st.statId };
       });
   }
 
@@ -400,6 +451,8 @@
   var drawerTitle = document.getElementById("drawer-slot-title");
   var drawerList = document.getElementById("drawer-source-list");
   var drawerHaNote = document.getElementById("drawer-ha-note");
+  var drawerHaEntity = document.getElementById("drawer-ha-entity");
+  var drawerEntitySelect = document.getElementById("drawer-entity-select");
   var drawerBackendAction = document.getElementById("drawer-backend-action");
   var drawerBackendStatus = document.getElementById("drawer-backend-status");
   var drawerUseBtn = document.getElementById("drawer-use-source");
@@ -407,13 +460,36 @@
   var drawerState = { slot: null, source: null, selected: null };
   var lastFocus = null;
 
+  // Storing the chosen entity: writes into slotState and refreshes the slot's button label.
+  if (drawerEntitySelect) {
+    drawerEntitySelect.addEventListener("change", function () {
+      var name = drawerState.slot;
+      if (!name || !slotState[name]) return;
+      slotState[name].statId = drawerEntitySelect.value || "";
+      updateSlotButton(name);
+    });
+  }
+
   function openDrawer(btn) {
     if (!drawer) return;
-    drawerState.slot = btn.getAttribute("data-slot");
-    drawerState.source = btn.getAttribute("data-slot-source") || null;
-    var role = btn.getAttribute("data-slot-role") || drawerState.slot;
+    var name = btn.getAttribute("data-slot");
+    drawerState.slot = name;
+    // The current source comes from slotState (kept across opens), falling back to the button's
+    // persisted value so a first open reflects the server's choice.
+    var st = slotState[name] || (slotState[name] = {
+      source: btn.getAttribute("data-slot-source") || null,
+      statId: "",
+      kind: btn.getAttribute("data-slot-kind") || slotKind(name)
+    });
+    drawerState.source = st.source;
+    drawerState.selected = null;
+    var role = btn.getAttribute("data-slot-role") || name;
     var sources = [];
     try { sources = JSON.parse(btn.getAttribute("data-slot-sources") || "[]"); } catch (e) { sources = []; }
+
+    // Start with the entity picker hidden; onSelectSource reveals it for the HA radio (if the
+    // slot's current source is HA, renderSourceList re-checks that radio and calls onSelectSource).
+    if (drawerHaEntity) drawerHaEntity.classList.add("hidden");
 
     // The heading is static ("Choose a source"); this subtitle names the slot's role.
     drawerTitle.textContent = role;
@@ -427,10 +503,13 @@
 
   function closeDrawer() {
     if (!drawer) return;
+    // Reflect the slot's final choice on the main screen before closing.
+    if (drawerState.slot) updateSlotButton(drawerState.slot);
     drawer.classList.add("hidden");
     drawer.setAttribute("aria-hidden", "true");
     drawerBackendAction.classList.add("hidden");
     drawerHaNote.classList.add("hidden");
+    if (drawerHaEntity) drawerHaEntity.classList.add("hidden");
     drawerBackendStatus.textContent = "";
     if (lastFocus) { try { lastFocus.focus(); } catch (e) { /* ignore */ } }
   }
@@ -502,30 +581,73 @@
     return wrap;
   }
 
-  // React to a source radio choice: show the HA note / backend action as appropriate.
+  // React to a source radio choice: record it in slotState and show the HA entity picker / note
+  // or the backend action as appropriate.
   function onSelectSource(s) {
     drawerState.selected = s;
+    drawerState.source = s.key;
+    var name = drawerState.slot;
+    if (name && slotState[name]) slotState[name].source = s.key;
+
     var isHa = s.kind === "browser_fetch";
     var isBackend = s.kind === "backend_load";
     drawerHaNote.classList.toggle("hidden", !isHa);
+    if (drawerHaEntity) drawerHaEntity.classList.toggle("hidden", !isHa);
     drawerBackendAction.classList.toggle("hidden", !isBackend);
     drawerBackendAction.classList.toggle("flex", isBackend);
     drawerBackendStatus.textContent = "";
 
-    // Picking HA is applied immediately in the UI (no round-trip): mark this slot's source HA so
-    // the shared connection fills its select. The page's persisted state updates on the next
-    // fetch/reload; here we just reflect the choice in the current DOM.
-    if (isHa) applyHaChoice(drawerState.slot);
+    // Picking HA is applied immediately in the UI (no round-trip): populate the entity <select>
+    // for this slot from the shared connection (or show the connect-first hint). The persisted
+    // state updates on the next fetch/reload; here we reflect the choice in the current DOM.
+    if (isHa) applyHaChoice(name);
+    if (name) updateSlotButton(name);
   }
 
-  // Make the slot use the shared HA connection: activate its mapping select and, if already
-  // connected, fill it now.
+  // Make the slot use the shared HA connection: (re)populate the drawer entity <select> for it.
   function applyHaChoice(slotName) {
-    var sel = selects.filter(function (x) { return x.getAttribute("data-series") === slotName; })[0];
-    if (sel) {
-      sel.removeAttribute("data-inactive");
-      if (haConnected) fillSelects();
+    fillDrawerEntitySelect(slotName);
+  }
+
+  // Update a slot's source-button label (and styling) on the main screen from slotState. The
+  // .slot-source-label span carries the text: "Home Assistant · <entity>" (or "· choose entity…"
+  // when HA is chosen but no entity yet), the plain source label for other sources, or the
+  // "Choose source…" affordance when unchosen. The [change] hint is kept if present.
+  function updateSlotButton(slotName) {
+    var btn = document.querySelector('.slot-source-btn[data-slot="' + cssEscape(slotName) + '"]');
+    if (!btn) return;
+    var labelEl = btn.querySelector(".slot-source-label");
+    if (!labelEl) return;
+    var st = slotState[slotName];
+    if (!st || !st.source) {
+      labelEl.textContent = t("choose_source", "Choose source…");
+      return;
     }
+    if (st.source === "home_assistant") {
+      var suffix = st.statId || t("choose_entity", "choose entity…");
+      labelEl.textContent = t("ha_source", "Home Assistant") + " · " + suffix;
+    } else {
+      labelEl.textContent = sourceLabel(slotName, st.source);
+    }
+  }
+
+  // The translated label for a source key, read off the slot button's data-slot-sources payload
+  // (labels arrive pre-translated from the template). Falls back to the raw key.
+  function sourceLabel(slotName, key) {
+    var btn = document.querySelector('.slot-source-btn[data-slot="' + cssEscape(slotName) + '"]');
+    if (btn) {
+      try {
+        var srcs = JSON.parse(btn.getAttribute("data-slot-sources") || "[]");
+        for (var i = 0; i < srcs.length; i++) if (srcs[i].key === key) return srcs[i].label;
+      } catch (e) { /* fall through */ }
+    }
+    return key;
+  }
+
+  // Minimal CSS.escape shim (slot names are simple identifiers, but be safe for querySelector).
+  function cssEscape(s) {
+    if (window.CSS && window.CSS.escape) return window.CSS.escape(s);
+    return String(s).replace(/["\\\]]/g, "\\$&");
   }
 
   // "Use this source" for a backend_load source (energy_charts): POST the slot load, then reload.
@@ -564,6 +686,10 @@
 
   Array.prototype.slice.call(document.querySelectorAll(".slot-source-btn")).forEach(function (btn) {
     btn.addEventListener("click", function () { openDrawer(btn); });
+    // Initial label refresh: an HA slot with no re-selectable statId shows "Home Assistant ·
+    // choose entity…" so the missing entity is visible before the drawer is opened.
+    var name = btn.getAttribute("data-slot");
+    if (name && slotState[name] && slotState[name].source) updateSlotButton(name);
   });
   if (drawerClose) drawerClose.addEventListener("click", closeDrawer);
   if (drawerBackdrop) drawerBackdrop.addEventListener("click", closeDrawer);

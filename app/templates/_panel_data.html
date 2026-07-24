@@ -12,10 +12,18 @@
   lists that slot's available sources (row.sources) and their config. The drawer is opened by JS
   reading data-* attributes off the row's button (ha_fetch.js).
 
+  The Home Assistant entity (statistic id) for a slot is chosen INSIDE the drawer, not on this
+  main row: there is no entity to choose for any source other than Home Assistant. The row's
+  source button therefore also carries the chosen HA entity inline in its label (e.g.
+  "Home Assistant · sensor.…import_t1"); ha_fetch.js updates that label after the user picks an
+  entity in the drawer this session (the persisted view-model does not carry a re-selectable
+  statistic id, only a "(res, N intervals)" coverage summary, so a persisted HA slot shows just
+  the source label until re-picked). The roster table has three columns: Role, Req, Source.
+
   The Home Assistant CONNECTION is SHARED: the user tests/connects once here (URL + token + Test
-  connection), and every HA-source slot then reuses that connection — its mapping <select> is
-  filled by ha_fetch.js after a successful test. That is why the connection card is a single
-  panel-level card, not per-slot.
+  connection), and every HA-source slot then reuses that connection — the drawer's single entity
+  <select> is filled by ha_fetch.js from that connection when a slot's drawer is opened. That is
+  why the connection card is a single panel-level card, not per-slot.
 
   The slot roster is gated by the setup band (§2.2, §2.1): the solar row shows only when
   cfg.has_pv, and the two Spot price (min/max) rows are offered only when cfg.simulate_cost.
@@ -84,9 +92,10 @@
       {# One row per data.mapping entry (the full slot roster from data_view/sample_data), gated
          by the setup band (§2.2): the solar row shows only with has_pv; the two price-bracketing
          rows only with simulate_cost. Each row shows role, requirement marker, and the chosen
-         source — with, for an HA slot, the mapping <select> ha_fetch.js fills after Test
-         connection (data-series/data-kind hooks preserved). The "Choose source…" button opens
-         the shared drawer, carrying the slot name + its source list (as JSON) for JS to render. #}
+         source. The entity (HA statistic id) is NOT a column here — it is chosen in the drawer;
+         the source button's label carries the chosen HA entity inline (ha_fetch.js). The
+         "Choose source…" button opens the shared drawer, carrying the slot name + its source
+         list (as JSON) for JS to render. #}
       <div class="card bg-base-200 border border-base-300" id="slot-roster">
         <div class="card-body gap-3 p-4">
           <h3 class="text-sm font-semibold text-base-content/70">{{ _('Series slots') }}</h3>
@@ -98,7 +107,6 @@
                   <th>{{ _('Role') }}</th>
                   <th class="text-center">{{ _('Req') }}</th>
                   <th>{{ _('Source') }}</th>
-                  <th>{{ _('Entity / statistic ID') }}</th>
                 </tr>
               </thead>
               <tbody>
@@ -115,7 +123,8 @@
                     <td>
                       {# The chosen source's label, or a "Choose source…" affordance. Either way
                          the button opens the drawer for this slot; when a source is chosen the
-                         button also lets the user change it. #}
+                         button also lets the user change it — including, for Home Assistant, the
+                         entity (statistic id) chosen inside the drawer. #}
                       {% set chosen = namespace(label=None) %}
                       {% for s in row.sources %}
                         {% if s.key == row.source %}{% set chosen.label = s.label %}{% endif %}
@@ -127,31 +136,20 @@
                       {% for s in row.sources %}
                         {% set _ = src_list.append({"key": s.key, "kind": s.kind, "label": _(s.label), "blurb": _(s.blurb)}) %}
                       {% endfor %}
+                      {# The label text ha_fetch.js maintains: it appends the chosen HA entity
+                         (source · entity) once picked in the drawer this session. Rendered inside
+                         a .slot-source-label span so JS can rewrite just the text. For an HA slot
+                         with no entity chosen yet, JS shows "Home Assistant · choose entity…". #}
                       <button type="button"
                               class="btn btn-sm {% if chosen.label %}btn-ghost{% else %}btn-outline btn-primary{% endif %} slot-source-btn"
                               data-slot="{{ row.name }}"
                               data-slot-role="{{ _(row.role) }}"
                               data-slot-source="{{ row.source or '' }}"
+                              data-slot-kind="{{ 'price' if 'price' in (row.name or '') else 'energy' }}"
                               data-slot-sources="{{ src_list | tojson | forceescape }}">
-                        {% if chosen.label %}{{ _(chosen.label) }} <span class="text-xs opacity-60">{{ _('change') }}</span>
-                        {% else %}{{ _('Choose source…') }}{% endif %}
+                        <span class="slot-source-label">{% if chosen.label %}{{ _(chosen.label) }}{% else %}{{ _('Choose source…') }}{% endif %}</span>
+                        {% if chosen.label %}<span class="text-xs opacity-60">{{ _('change') }}</span>{% endif %}
                       </button>
-                    </td>
-                    <td>
-                      {# When the chosen source is Home Assistant, show the mapping <select>
-                         ha_fetch.js fills. When it is the preset Energy-Charts source, show a
-                         static indication (no per-entity choice). Otherwise show nothing yet. #}
-                      {% if row.source == "home_assistant" or not row.source %}
-                      <select class="select select-bordered select-xs font-mono w-full max-w-md ha-map-select"
-                              data-series="{{ row.name if row.name else '' }}"
-                              data-kind="{{ 'price' if 'price' in (row.name or '') else 'energy' }}"
-                              {% if row.source != "home_assistant" %}data-inactive="1"{% endif %}>
-                        <option value="">{{ _('— none —') }}</option>
-                      </select>
-                      {% elif row.source == "energy_charts" %}
-                      <span class="text-xs text-base-content/70">{{ _('Preset historical (Energy-Charts NL)') }}</span>
-                      {% endif %}
-                      {% if row.entity %}<div class="text-xs text-base-content/50 mt-0.5">{{ row.entity }}</div>{% endif %}
                     </td>
                   </tr>
                   {% endif %}
@@ -165,7 +163,8 @@
           </p>
 
           {# Fetch progress — hidden until a fetch starts (ha_fetch.js). "Fetch history" pulls
-             only the slots whose chosen source is Home Assistant (the mapped ha-map-selects). #}
+             only the slots whose chosen source is Home Assistant and that have an entity chosen
+             in the drawer (ha_fetch.js reads that per-slot state, not any per-row DOM select). #}
           <progress id="ha-fetch-progress" class="progress progress-primary w-full hidden" max="100"></progress>
           <div class="flex flex-wrap items-center justify-between gap-2">
             <span class="text-sm text-base-content/60" id="ha-fetch-status"></span>

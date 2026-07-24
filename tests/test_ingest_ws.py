@@ -161,8 +161,10 @@ def test_page_shows_sample_before_any_fetch(client):
     """With no dataset, panel ① renders the static sample (empty state)."""
     tc, main, dataset = client
     html = tc.get("/").text
-    # A sample-only entity id that the real view-model never emits.
-    assert "sensor.electricity_meter_import_t1" in html
+    # A sample-only quality string the real view-model never emits. (The sample's placeholder
+    # entity ids are no longer rendered — the HA entity is chosen in the drawer, not shown as a
+    # main-row column — so a quality-string marker is used instead.)
+    assert "3 gaps totalling 4.2 h" in html
 
 
 def test_page_reflects_persisted_dataset_after_ingest(client):

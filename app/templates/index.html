@@ -80,8 +80,11 @@
        closable via the ✕ control, the backdrop, and Escape. The source options and the CSV
        pending option are rendered into #drawer-source-list by JS from the row's data-* payload;
        the pending [?] reuses the shared #pending-dialog above (data-feature-key="data_source_csv").
-       Static chrome strings are translated here; per-source label/blurb text arrives pre-translated
-       in the row payload. #}
+       When the selected source is Home Assistant, the drawer also reveals a single entity
+       (statistic id) <select> (#drawer-entity-select), populated per slot from the shared
+       connection's listing; the chosen id is kept in per-slot JS state and reflected in the
+       slot's source-button label. Static chrome strings are translated here; per-source
+       label/blurb text arrives pre-translated in the row payload. #}
   <div id="source-drawer" class="fixed inset-0 z-40 hidden" aria-hidden="true">
     <div id="source-drawer-backdrop" class="absolute inset-0 bg-black/40"></div>
     <aside class="absolute right-0 top-0 h-full w-full max-w-md bg-base-100 shadow-xl
@@ -99,6 +102,22 @@
 
         {# The source options for the current slot, rendered by ha_fetch.js. #}
         <div id="drawer-source-list" class="flex flex-col gap-2"></div>
+
+        {# Home Assistant entity picker — shown by JS only when the selected source is Home
+           Assistant. The single <select> is (re)populated per slot when the drawer opens or the
+           HA radio is picked: energy statistic ids for energy slots, mean ids for price slots,
+           from the shared connection's listing (ha_fetch.js). Until the connection is tested it
+           shows a disabled hint; the note below points at the connection card. The chosen id is
+           kept in per-slot JS state, not in this DOM node. #}
+        <div id="drawer-ha-entity" class="hidden flex-col gap-1">
+          <label class="form-control">
+            <span class="label-text mb-1">{{ _('Entity') }}</span>
+            <select id="drawer-entity-select" class="select select-bordered select-sm font-mono w-full"
+                    aria-label="{{ _('Entity') }}">
+              <option value="">{{ _('— none —') }}</option>
+            </select>
+          </label>
+        </div>
 
         {# Notes shown depending on the selected option's kind (toggled by JS). #}
         <p id="drawer-ha-note" class="text-xs text-base-content/60 hidden">
@@ -121,7 +140,12 @@
       "load_failed": _("Could not load. Please try again."),
       "loaded_ok": _("Loaded. Reloading…"),
       "pending_hint": _("Not built yet"),
-      "upload_csv": _("Upload CSV")
+      "upload_csv": _("Upload CSV"),
+      "choose_entity": _("choose entity…"),
+      "connect_first": _("Connect Home Assistant above first"),
+      "ha_source": _("Home Assistant"),
+      "choose_source": _("Choose source…"),
+      "none": _("— none —")
     } | tojson }}
   </script>
 

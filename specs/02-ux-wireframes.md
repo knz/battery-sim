@@ -199,19 +199,21 @@ before the slot is known forces a single answer onto a set of slots that do not 
 │  └────────────────────────────────────────────────────────────────────────┘  │
 │                                                                              │
 │  ┌─ Series slots ─────────────────────────────────────────────────────────┐  │
-│  │  ROLE              REQ  SOURCE                ENTITY / STATISTIC ID     │  │
+│  │  ROLE              REQ  SOURCE                                          │  │
 │  │  ──────────────────────────────────────────────────────────────────    │  │
-│  │  Grid import T1     ●  [ Home Assistant  ▸ ] [ sensor.…import_t1   ▾ ]  │  │
-│  │  Grid import T2     ●  [ Home Assistant  ▸ ] [ sensor.…import_t2   ▾ ]  │  │
-│  │  Grid export T1     ●  [ Home Assistant  ▸ ] [ sensor.…export_t1   ▾ ]  │  │
-│  │  Grid export T2     ●  [ Home Assistant  ▸ ] [ sensor.…export_t2   ▾ ]  │  │
-│  │  Solar production   ◐  [ Home Assistant  ▸ ] [ sensor.solar_total  ▾ ]  │  │
-│  │  Battery charge     ○  [ Choose source…  ▸ ]                           │  │
-│  │  Battery discharge  ○  [ Choose source…  ▸ ]                           │  │
-│  │  Spot price         ●  [ Preset (Energy- ▸ ] Energy-Charts NL, on disk │  │
-│  │                          Charts NL)          + bridged to today        │  │
-│  │  Spot price (min)   ◒  [ Home Assistant  ▸ ] [ — none —           ▾ ]  │  │
-│  │  Spot price (max)   ◒  [ Home Assistant  ▸ ] [ — none —           ▾ ]  │  │
+│  │  Grid import T1     ●  [ Home Assistant · sensor.…import_t1        ▸ ]  │  │
+│  │  Grid import T2     ●  [ Home Assistant · sensor.…import_t2        ▸ ]  │  │
+│  │  Grid export T1     ●  [ Home Assistant · sensor.…export_t1        ▸ ]  │  │
+│  │  Grid export T2     ●  [ Home Assistant · sensor.…export_t2        ▸ ]  │  │
+│  │  Solar production   ◐  [ Home Assistant · choose entity…           ▸ ]  │  │
+│  │  Battery charge     ○  [ Choose source…                            ▸ ]  │  │
+│  │  Battery discharge  ○  [ Choose source…                            ▸ ]  │  │
+│  │  Spot price         ●  [ Preset historical (Energy-Charts NL)      ▸ ]  │  │
+│  │  Spot price (min)   ◒  [ Choose source…                            ▸ ]  │  │
+│  │  Spot price (max)   ◒  [ Choose source…                            ▸ ]  │  │
+│  │                                                                        │  │
+│  │  Each row's [ … ▸ ] opens the source drawer for that slot; the button  │  │
+│  │  shows the chosen source and, for Home Assistant, the bound entity.    │  │
 │  │                                                                        │  │
 │  │  ● = required.  ○ = optional.                                          │  │
 │  │  ◐ = required only if you have solar PV.                               │  │
@@ -221,7 +223,6 @@ before the slot is known forces a single answer onto a set of slots that do not 
 │  │  whether or not you simulate costs.                                    │  │
 │  │  Both meter registers should be mapped. See "Tariff registers" below.  │  │
 │  │                                                                        │  │
-│  │  The ▸ on a row opens the source drawer (right) for that slot.         │  │
 │  │                                              [ Fetch history ]         │  │
 │  └────────────────────────────────────────────────────────────────────────┘  │
 │                                                                              │
@@ -276,25 +277,34 @@ confirms with a *Use this source* action; the choice is persisted with the slot 
 on the row. The drawer is one shared component: it opens for whichever slot's `▸` was clicked.
 
 ```
-  ┌─ Source for: Spot price ───────────────────────────────────────────────┐
+  ┌─ Source for: Grid import T1 ───────────────────────────────────────────┐
   │                                                                        │
   │  ( • ) Home Assistant                                                  │
   │        Fetched from your Home Assistant in your browser; the token     │
   │        never reaches this app.                                         │
-  │                                                                        │
-  │  (   ) Preset historical (Energy-Charts NL)                           │
-  │        NL day-ahead spot prices from 2023 to today: committed on disk  │
-  │        and bridged live to the end of your selected range.            │
+  │        Entity  [ sensor.electricity_meter_import_t1            ▾ ]     │
   │                                                                        │
   │  (   ) Upload CSV                                              [?]      │
-  │        Provide a price file yourself.  — not built yet —              │
+  │        Provide a file yourself.  — not built yet —                    │
   │                                                                        │
   │                                       [ Use this source ]   [ close ]  │
   └────────────────────────────────────────────────────────────────────────┘
 ```
 
 Each source shows a **label and a one-line blurb** as a radio option
-([§5.1](08-architecture.md#51-diagram) `SourceDescriptor`). Which slots offer which sources:
+([§5.1](08-architecture.md#51-diagram) `SourceDescriptor`).
+
+**The Home Assistant entity is chosen here, in the drawer, not on the row.** When Home
+Assistant is the selected source the drawer shows an **Entity** dropdown of the statistic ids
+the shared connection listed (energy `sum` ids for an energy slot, `mean` ids for a price
+slot), so the one place a slot's HA binding is made is the same place its source is chosen —
+there is no separate mapping column on the main roster. The dropdown is populated from the
+shared connection ([§2.1](#the-setup-band)); until *Test connection* has run it shows a prompt
+to connect first. The chosen id is shown back on the roster row beside the source
+(`Home Assistant · sensor.…import_t1`). A source with no entity to pick — the preset
+Energy-Charts price, a future CSV upload — shows no dropdown, because there is nothing to bind.
+
+Which slots offer which sources:
 
 - **Energy slots** (grid import/export, solar, battery charge/discharge) offer **Home
   Assistant**, and — pending — **Upload CSV**. These are the user's own records, so there is no
