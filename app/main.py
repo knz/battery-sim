@@ -31,6 +31,7 @@ without a browser round-trip and without discarding the other series. browser_fe
 
 Routes:
     GET  /                          → the full page (index.html)
+    POST /results                   → recompute panel ③ over a window; return the HTML fragment
     GET  /lang/{code}               → set the language cookie, redirect back
     POST /feature-interest/{key}    → record interest in a pending control; 204 on success
     WS   /data/ingest/ws            → stream browser-fetched HA rows in; persist SeriesFrames
@@ -49,7 +50,18 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from app import config, data_view, dataset, db, features, i18n, ingest_ws, interest, summary_view
+from app import (
+    config,
+    data_view,
+    dataset,
+    db,
+    features,
+    i18n,
+    ingest_ws,
+    interest,
+    results_view,
+    summary_view,
+)
 from app.domain import normalize
 from app.domain.frames import SeriesFrame
 from app.domain.series_vocab import SLOT_BY_NAME
@@ -96,6 +108,15 @@ def index(request: Request):
             ctx["data"] = data_view.panel_data_from(loaded)
             ctx["data_summary"] = summary_view.data_summary_from(loaded)
             has_dataset = ctx["data_summary"] is not None
+            # Panel ③ (§2.4): render the COMPUTED energy-savings view-model over the default
+            # window (last_1_year, coverage-anchored) instead of the static sample. Like
+            # data_summary, results_from returns None when the frames yield no simulatable grid —
+            # in that case the sample ctx["results"] stays as the empty-state fallback.
+            computed_results = results_view.results_from(
+                loaded, results_view.resolve_window(loaded)
+            )
+            if computed_results is not None:
+                ctx["results"] = computed_results
     except Exception:  # pragma: no cover - defensive: a corrupt dataset must not break the page
         pass
     if not has_dataset:
@@ -108,6 +129,68 @@ def index(request: Request):
     # source customizations. Bumped only by a persisted HA fetch; 0 before the first one.
     ctx["source_generation"] = db.source_generation()
     return templates.TemplateResponse(request, "index.html", ctx)
+
+
+@app.post("/results", response_class=HTMLResponse)
+def results(request: Request, body: dict = Body(...)):
+    """Recompute panel ③ over a requested window and return the rendered fragment (specs §3.2).
+
+    The period/date picker in panel ③ POSTs here to recompute the ENERGY SAVINGS view-model over
+    a sub-window without a full page reload. The response is the rendered `_panel_results.html`
+    fragment (HTML, not JSON) so the browser swaps it in place (main.py: index() renders the same
+    template as part of the page; here it is rendered standalone).
+
+    Body (mutually exclusive):
+        {"period": "<preset>"}            — one of results_view.PERIOD_DAYS, coverage-anchored, OR
+        {"start": "<iso>", "end": "<iso>"} — an explicit range (tz-aware UTC, like _parse_window).
+
+    Errors are clean 4xx/409, never a 500 stack trace:
+        * no persisted dataset → 409 (the picker only appears once a dataset exists, so this is an
+          edge case — e.g. the dataset was cleared in another tab);
+        * a bad request (unknown preset, empty/out-of-coverage range, both period and range) →
+          400 (resolve_window raises ValueError);
+        * frames that yield no simulatable grid → 409 (results_from returns None).
+    """
+    loaded = dataset.load_latest()
+    if loaded is None or not loaded.frames:
+        raise HTTPException(status_code=409, detail="no dataset")
+
+    # Parse the request into resolve_window's kwargs. period XOR (start, end); resolve_window
+    # enforces the mutual exclusivity and validates, so we just marshal the ISO datetimes here
+    # (tz-aware UTC, same convention as _parse_window / _as_utc).
+    period = body.get("period")
+    start_raw = body.get("start")
+    end_raw = body.get("end")
+    kwargs: dict = {}
+    if period is not None:
+        kwargs["period"] = period
+    if start_raw is not None or end_raw is not None:
+        try:
+            if start_raw is not None:
+                kwargs["start"] = _as_utc(datetime.fromisoformat(start_raw))
+            if end_raw is not None:
+                kwargs["end"] = _as_utc(datetime.fromisoformat(end_raw))
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=f"invalid date: {exc}") from exc
+
+    try:
+        window = results_view.resolve_window(loaded, **kwargs)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    result = results_view.results_from(loaded, window)
+    if result is None:
+        raise HTTPException(status_code=409, detail="no simulatable data")
+
+    # Install the request locale on the Jinja env (as index() does), then render the template
+    # standalone. templates.env already has jinja2.ext.i18n; install_for makes _() resolve.
+    # (The shared-env gettext install is a per-request mutation of module-level state — a
+    # pre-existing app-wide concern index() already has; not worsened in kind here. See the
+    # changelog follow-up.) The fragment reads only `results.*`, so no other context is passed.
+    locale = i18n.resolve_locale(request)
+    i18n.install_for(templates.env, locale)
+    html = templates.env.get_template("_panel_results.html").render(results=result)
+    return HTMLResponse(html)
 
 
 @app.post("/feature-interest/{feature_key}", status_code=204)

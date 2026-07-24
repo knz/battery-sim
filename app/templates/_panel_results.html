@@ -1,16 +1,43 @@
 {#
   _panel_results.html — Panel ③ Results (specs/02-ux-wireframes.md §2.4).
 
-  Rendered expanded. This sample has simulate_cost=False, so ONLY the ENERGY SAVINGS section
-  is shown: the three KPI tiles, the energy breakdown, the energy benchmark bars, the
-  secondary metrics, the monthly-savings chart, and the caveats box. The COST SAVINGS
+  Rendered expanded. This increment has simulate_cost=False, so ONLY the ENERGY SAVINGS
+  section is shown: the three KPI tiles, the energy breakdown, the (optional) benchmark bars,
+  the secondary metrics, the monthly-savings chart, and the caveats box. The COST SAVINGS
   section and the money KPI/waterfall/benchmark are ABSENT (§2.4 "Panel ③ without cost
   simulation"), replaced by the "enable cost simulation" affordance at the foot.
 
+  Two ways this template is rendered:
+    1. by index() as part of the full page (initial load), and
+    2. by POST /results as a STANDALONE fragment when the period/date picker recomputes over a
+       new window (specs §3.2 RANGE_CHANGED). The route returns this whole template's output and
+       the browser swaps it in by its root #panel-results element's outerHTML.
+
+  Fragment-swap design (see the delegated listeners at the foot of index.html — NOT here):
+    * The period/date pickers must keep working after a swap. Because a swapped-in inline <script>
+      re-inserts but does NOT re-execute, the picker's click/apply handlers are DELEGATED from
+      `document` in index.html (bound once, on a part of the page that is never swapped). They key
+      off `data-period` / #results-apply-range, so the fresh buttons work with no re-binding.
+    * The Plotly chart is drawn by a NAMED window.drawMonthlyChart() (defined in index.html) that
+      reads the fresh data from the swapped-in #monthly-data <script> node. index.html calls it on
+      initial load; the delegated fetch-handler calls it again after each swap. The inline draw is
+      therefore gone from this template — only the data node and the chart container remain.
+
   UI chrome is wrapped in _() for translation; values (numbers, units, coverage) stay literal.
-  Labels/titles/caveats come pre-marked from sample_data and are translated here via _().
+  Labels/titles/caveats come pre-marked from the view-model and are translated here via _().
 #}
-<section class="bg-base-100 border border-base-300 rounded-box">
+{# The period-preset buttons: (token, label) pairs. The token is the POST request value
+   (results_view.PERIOD_DAYS keys); the label is the human text (translated). The active button
+   is the one whose token matches the resolved window's preset, mapped from results.period_selected
+   (the wireframe label the view-model highlights). #}
+{% set period_buttons = [
+     ("last_1_week",   _('last 1 week'),   "1 week"),
+     ("last_30_days",  _('last 30 days'),  "1 month"),
+     ("last_3_months", _('last 3 months'), "3 months"),
+     ("last_6_months", _('last 6 months'), "6 months"),
+     ("last_1_year",   _('last 1 year'),   "1 year"),
+   ] %}
+<section id="panel-results" class="bg-base-100 border border-base-300 rounded-box">
   <div class="p-4 lg:p-6 flex flex-col gap-5">
 
     <div class="flex flex-wrap items-center gap-2">
@@ -18,15 +45,52 @@
       <span class="font-semibold">{{ _('RESULTS') }}</span>
     </div>
 
-    {# ── Period selector ───────────────────────────────────────────────── #}
-    <div class="flex flex-wrap items-center gap-3">
-      <div class="join">
-        {% for p in results.periods %}
-        <button class="btn btn-sm join-item {% if p == results.period_selected %}btn-active{% endif %}">{{ _(p) }}</button>
-        {% endfor %}
+    {# ── Period selector + explicit date-range picker (§2.4) ───────────────
+       Presets anchor to the END of data coverage (§7.4). Each button POSTs {"period": token}
+       to /results; the date range POSTs {"start","end"}. Both are handled by the DELEGATED
+       listeners in index.html, so these controls survive a fragment swap without re-binding. #}
+    <div class="flex flex-col gap-3">
+      <div class="flex flex-wrap items-center gap-3">
+        <div class="join" id="results-period">
+          {% for token, label, sel in period_buttons %}
+          <button type="button" class="btn btn-sm join-item {% if sel == results.period_selected %}btn-active{% endif %}"
+                  data-period="{{ token }}">{{ label }}</button>
+          {% endfor %}
+        </div>
+        {# The "⟳ recalculating…" affordance (§2.4). Toggled visible by the fetch handler for the
+           duration of a recompute; hidden otherwise. #}
+        <span id="results-recalculating" class="text-sm text-base-content/60 hidden">
+          ⟳ {{ _('recalculating…') }}
+        </span>
       </div>
+
+      {# Explicit date-range picker: two native date inputs + Apply. The date values are converted
+         to ISO datetimes in the handler — start at 00:00:00Z, end at 23:59:59Z (inclusive of the
+         chosen end day). resolve_window clamps both ends to coverage, so an out-of-range date is
+         not an error, just clamped. #}
+      <div class="flex flex-wrap items-end gap-2">
+        <label class="form-control">
+          <span class="label-text text-xs mb-1">{{ _('From') }}</span>
+          <input type="date" id="results-range-start" class="input input-bordered input-sm" />
+        </label>
+        <label class="form-control">
+          <span class="label-text text-xs mb-1">{{ _('To') }}</span>
+          <input type="date" id="results-range-end" class="input input-bordered input-sm" />
+        </label>
+        <button type="button" id="results-apply-range" class="btn btn-sm btn-outline">{{ _('Apply') }}</button>
+      </div>
+
       <span class="text-sm text-base-content/60">{{ results.period }}</span>
     </div>
+
+    {# ── Short-window guard box (§2.4 / §7.4) ───────────────────────────────
+       Shown INSTEAD of an annualised figure when the effective window is under
+       min_annualisation_days. The view-model sets annualisation_disabled + a message. #}
+    {% if results.annualisation_disabled %}
+    <div role="alert" class="alert alert-info py-2">
+      <span class="text-sm">ⓘ {{ _(results.annualisation_message) }}</span>
+    </div>
+    {% endif %}
 
     {# ══ ENERGY SAVINGS ══════════════════════════════════════════════════ #}
     <div class="divider divider-start text-xs font-semibold tracking-wider text-base-content/70">
@@ -73,7 +137,11 @@
       </div>
     </div>
 
-    {# ── Benchmark: grid import avoided ────────────────────────────────── #}
+    {# ── Benchmark: grid import avoided ─────────────────────────────────────
+       GUARDED: the §6.12 perfect-foresight DP is not built this increment, so the computed
+       view-model emits no `benchmark` key. Only render this card when one is present (the
+       static sample still carries it; the computed view-model does not). #}
+    {% if results.benchmark %}
     <div class="card bg-base-200 border border-base-300">
       <div class="card-body gap-3 p-4">
         <h3 class="text-sm font-semibold text-base-content/70">{{ _('Benchmark: grid import avoided') }}</h3>
@@ -90,6 +158,7 @@
         <p class="text-sm text-base-content/70">{{ _(results.benchmark.gloss) }}</p>
       </div>
     </div>
+    {% endif %}
 
     {# ── Charts ────────────────────────────────────────────────────────── #}
     <div class="card bg-base-200 border border-base-300">
@@ -122,27 +191,12 @@
       <button class="btn btn-primary btn-sm">{{ _('Enable cost simulation') }}</button>
     </div>
   </div>
-</section>
 
-{# Plotly, served locally (no runtime CDN dependency — §5.1). Draws the monthly chart from
-   the embedded sample data. The axis title is translated server-side and passed in. Guarded
-   so a missing bundle does not break the page. #}
-<script src="/static/vendor/plotly.min.js"></script>
-<script id="monthly-data" type="application/json">
-  {{ {"months": results.chart.months, "values": results.chart["values"], "ytitle": _('kWh')} | tojson }}
-</script>
-<script>
-  (function () {
-    if (typeof Plotly === 'undefined') return;
-    var d = JSON.parse(document.getElementById('monthly-data').textContent);
-    Plotly.newPlot('monthly-chart', [{
-      type: 'bar', x: d.months, y: d.values,
-      marker: { color: '#570df8' }
-    }], {
-      margin: { t: 10, r: 10, b: 30, l: 40 },
-      yaxis: { title: d.ytitle },
-      paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
-      font: { size: 11 }
-    }, { displayModeBar: false, responsive: true });
-  })();
-</script>
+  {# The monthly-chart data, embedded fresh on every (re)render so the swapped-in fragment carries
+     the new window's series. window.drawMonthlyChart() (index.html) reads THIS node and draws into
+     #monthly-chart above. The axis title is translated server-side. This node lives INSIDE
+     #panel-results so it is replaced together with the panel on a swap. #}
+  <script id="monthly-data" type="application/json">
+    {{ {"months": results.chart.months, "values": results.chart["values"], "ytitle": _('kWh')} | tojson }}
+  </script>
+</section>
