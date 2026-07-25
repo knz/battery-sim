@@ -361,11 +361,14 @@ def results_benchmark(request: Request, body: dict = Body(...)):
     # The money box rides along when there is one. Wrapped with its target slot id so the fetch
     # handler can place each box without the response needing to be JSON — the energy box keeps
     # its bare-HTML shape when it travels alone, which is what the existing handler expects.
+    # `cost=True` is presentation only: it tints the money box's heading with .cost-label, the
+    # same flag _panel_results.html passes when it renders this partial inline.
     cost_bench = result.get("cost_benchmark")
     if cost_bench is not None:
         html = (
             f'<div data-slot="benchmark-slot">{html}</div>'
-            f'<div data-slot="cost-benchmark-slot">{box.render(benchmark=cost_bench)}</div>'
+            f'<div data-slot="cost-benchmark-slot">'
+            f"{box.render(benchmark=cost_bench, cost=True)}</div>"
         )
     return HTMLResponse(html)
 

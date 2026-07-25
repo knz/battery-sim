@@ -309,7 +309,7 @@
        every figure above this divider is identical to what an energy-only run shows. Nothing in
        this branch touches anything above it. #}
     {% if results.cost %}
-    <div class="divider divider-start text-xs font-semibold uppercase tracking-wider text-base-content/70">
+    <div class="divider divider-start text-xs font-semibold uppercase tracking-wider cost-label">
       {{ _('Cost savings') }}
     </div>
 
@@ -319,7 +319,7 @@
        beside it carries the two bills it is the difference of. #}
     <div class="stats stats-vertical sm:stats-horizontal border border-base-300 bg-base-200 w-full">
       <div class="stat">
-        <div class="stat-title text-xs">{{ _(results.cost.kpi.title) }}</div>
+        <div class="stat-title text-xs cost-label">{{ _(results.cost.kpi.title) }}</div>
         <div class="stat-value text-2xl">{{ msg(results.cost.kpi.value) }}<span class="text-base font-normal text-base-content/60"> {{ results.cost.kpi.unit }}</span></div>
         <div class="stat-desc">{{ msg(results.cost.kpi.delta) }}</div>
       </div>
@@ -346,13 +346,13 @@
     {% if results.cost_benchmark %}
     {# Already rendered — the view-model carried a box (the static sample). #}
     <div id="cost-benchmark-slot">
-      {% with benchmark = results.cost_benchmark %}{% include "_benchmark_box.html" %}{% endwith %}
+      {% with benchmark = results.cost_benchmark, cost = true %}{% include "_benchmark_box.html" %}{% endwith %}
     </div>
     {% elif results.cost %}
     <div id="cost-benchmark-slot">
       <div class="card bg-base-100 border border-base-300 rounded-box">
         <div class="card-body gap-2 p-4">
-          <h3 class="text-sm font-semibold text-base-content/70">{{ _('Benchmark: money saved') }}</h3>
+          <h3 class="text-sm font-semibold cost-label">{{ _('Benchmark: money saved') }}</h3>
           <p class="text-xs text-base-content/60">⟳ {{ _('computing…') }}</p>
         </div>
       </div>
@@ -369,7 +369,7 @@
        on the degradation line), so its value goes through msg() like any other message. #}
     <div class="card bg-base-200 border border-base-300">
       <div class="card-body gap-1 p-4">
-        <h3 class="text-sm font-semibold text-base-content/70">{{ _('Where the money comes from') }}</h3>
+        <h3 class="text-sm font-semibold cost-label">{{ _('Where the money comes from') }}</h3>
         {% for row in results.cost.waterfall_rows %}
           {% if row.rule_above %}<div class="my-1 border-t border-base-300"></div>{% endif %}
           <div class="flex justify-between {% if row.rule_above %}font-semibold{% endif %}">

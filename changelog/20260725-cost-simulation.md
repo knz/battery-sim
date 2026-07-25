@@ -583,15 +583,73 @@ hundreds) and H17 (an unreachable fallback written as though it were safe).
 
 **Complete.** 766 passed, 2 skipped.
 
+## Phase 7 — the cost accent colour *(complete)*
+
+### What was built
+
+A `.cost-label` / `.cost-field` pair defined once in `app/static/src/app.tailwind.css`, applied to
+panel ②'s Pricing box (heading, sub-box legends, every label, the inputs and the preset select),
+panel ③'s COST SAVINGS divider and the headings inside it, and the setup band's toggle label.
+`num_field` took an optional `cost` parameter rather than being duplicated — it is shared by every
+box in panel ② and only Pricing wants the tint. `_benchmark_box.html` takes the flag from the
+render context, not the view-model, so no presentation flag leaks into the data.
+
+### The accent token had to be split per theme
+
+daisyUI defines `accent` as the same bright teal in **both** configured themes. On light-mode
+`base-100` that is **1.91:1** — against WCAG AA's 4.5:1 floor for small text, and these are
+`text-xs` labels. A flat `text-accent` would have shipped labels that are technically tinted and
+practically unreadable. Light mode therefore uses `accent-content` (9.70:1), dark mode uses
+`accent` (8.30:1). Verified independently by recomputing OKLCH → sRGB → WCAG relative luminance
+from the token values, not taken on report.
+
+`primary` is untouched: it already carries selection state (benchmark bars, selected radio cards),
+and the teal sits ~90° away in hue, so "this is a cost field" cannot read as "this is selected".
+
+### The tint parsed, shipped, and did nothing
+
+Review caught this by rendering the page in a real browser rather than reading the markup, and it
+is the finding that mattered. `.cost-field` and `.cost-label` were written into `@layer components`;
+daisyUI sets `.input`'s border and `.stat-title`'s color in a **later** layer, and a later layer
+wins over an earlier one however specific the earlier selector is.
+
+Measured before the fix: the cost input's border was `oklab(0.21 … / 0.2)` — **byte-identical** to
+an untinted input's — and MONEY SAVED, the headline figure of the whole section, kept the default
+colour. Only the `h3` headings tinted. Every class-name test passed throughout, because a class
+attribute in the HTML says nothing about whether a colour reaches the screen.
+
+Fixed by making the rules **unlayered**. `@layer utilities` was tried first and is not sufficient:
+Tailwind nests daisyUI's rules in a layer declared after ours, so a layered block still loses.
+Unlayered CSS beats every layered rule regardless of order, which also survives daisyUI reordering
+its internals on an upgrade.
+
+**The test now measures a rendered colour**, in the browser `test_smoke.py` already runs: a tinted
+element must differ from its untinted peer. It asserts no specific value — the token is a design
+choice that may change, while "the tint is visible" is the requirement. Mutation-tested: putting
+the rules back in `@layer components` turns it red.
+
+Also removed a stray duplicate `import re` appended after the last test in `test_params_route.py`.
+
+### Filed rather than fixed
+
+**H18** — `index.html` hard-codes `data-theme="light"` while daisyUI's dark rules are scoped to
+`:root:not([data-theme])` and `[data-theme='dark']`, so every dark rule in the stylesheet is
+dormant, the new cost ones and all the pre-existing ones alike. The dark branch was verified
+correct by rendering with the attribute removed; it is unreachable, not wrong. Whether the app
+supports dark mode at all is a product question predating this increment.
+
+### Status
+
+**Complete.** 770 passed, 2 skipped.
+
 ## Current status
 
-Phases 1–6 complete and committed (766 passed, 2 skipped). The cost path is end to end: panel ②
-configures a contract, panel ③ reports what it would have saved in euros, bounded by run E. Phase 7
-(the accent colour) is next — the `accent` token is defined in both daisyUI themes and is distinct
-from the `primary` already carrying benchmark bars, and box headings share one shape
-(`text-sm font-semibold text-base-content/70`) that gives the cost variant a single hook. Phase 8
-is mostly done already, its catalog work having been pulled forward into Phases 5 and 6; what
-remains is `specs/implementation-progress.md`.
+Phases 1–7 complete and committed (770 passed, 2 skipped). Both halves of the original request are
+delivered: the cost path runs end to end, and the controls that drive it are visually distinct.
+
+Phase 8 is done ahead of its slot — the catalog work was pulled forward into Phases 5 and 6, and
+`specs/implementation-progress.md` was updated alongside Phase 7. What remains is a final read of
+the whole increment.
 
 Working agreement from this point: phases run to completion without check-in; only genuine open
 decisions are brought back to the user.

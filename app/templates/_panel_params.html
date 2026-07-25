@@ -50,13 +50,19 @@
   {% endfor %}
 {% endmacro %}
 
-{# A labelled numeric input bound to its dotted path, with its unit, optional hint and messages. #}
-{% macro num_field(f, label, unit, hint='', width='w-20', label_width='w-44') %}
+{# A labelled numeric input bound to its dotted path, with its unit, optional hint and messages.
+
+   `cost=true` marks the row as belonging to cost simulation: the label and the input take the
+   .cost-label / .cost-field tint defined in app.tailwind.css. It is a parameter rather than a
+   second macro because this one is shared by every box in the panel and only the Pricing box
+   wants the tint — duplicating the markup would give the two copies room to drift. The tint is
+   decoration only; the Pricing box's own heading and legends still say what it is (§2.3). #}
+{% macro num_field(f, label, unit, hint='', width='w-20', label_width='w-44', cost=false) %}
 <div class="flex flex-col gap-1">
   <div class="flex items-center gap-2">
-    <span class="{{ label_width }} label-text">{{ label }}</span>
+    <span class="{{ label_width }} label-text{% if cost %} cost-label{% endif %}">{{ label }}</span>
     <input type="text" inputmode="decimal" name="{{ f.name }}"
-           class="input input-bordered input-xs {{ width }} text-right{% if f.invalid %} input-error{% endif %}"
+           class="input input-bordered input-xs {{ width }} text-right{% if cost %} cost-field{% endif %}{% if f.invalid %} input-error{% endif %}"
            value="{{ f.value }}"
            aria-label="{{ label }}"
            {% if f.invalid %}aria-invalid="true"{% endif %} />
@@ -397,7 +403,7 @@
       {% set pr = params.pricing %}
       <div class="card bg-base-200 border border-base-300">
         <div class="card-body gap-3 p-4">
-          <h3 class="text-sm font-semibold text-base-content/70">{{ _('Pricing') }}</h3>
+          <h3 class="text-sm font-semibold cost-label">{{ _('Pricing') }}</h3>
 
           {# Contract type. FIXED and VARIABLE are PENDING controls (app/features.py): disabled,
              with a [?] opening the shared #pending-dialog. Only DYNAMIC has a rate source behind
@@ -409,7 +415,7 @@
              definitions — the same delegated .slot-info-btn handler as the slot roster and the
              disabled charge policies, so no new JS. #}
           <div class="flex flex-wrap items-center gap-3">
-            <span class="w-28 label-text">{{ _('Contract') }}</span>
+            <span class="w-28 label-text cost-label">{{ _('Contract') }}</span>
             <button type="button" class="btn btn-ghost btn-xs btn-circle align-middle slot-info-btn"
                     aria-label="{{ _('About the contract types') }}"
                     data-info-title="{{ _('Contract types') }}"
@@ -418,7 +424,7 @@
             <label class="label gap-1{% if not c.pending %} cursor-pointer{% endif %}">
               <input type="radio" name="pricing.contract" value="{{ c.key }}" class="radio radio-sm"
                      {% if c.selected %}checked{% endif %}{% if c.pending %} disabled{% endif %} />
-              <span class="label-text{% if c.pending %} text-base-content/50{% endif %}">{{ _(c.label) }}</span>
+              <span class="label-text cost-label{% if c.pending %} text-base-content/50{% endif %}">{{ _(c.label) }}</span>
               {% if c.pending %}
               <button type="button" class="btn btn-ghost btn-xs"
                       data-pending-name="{{ _(c.label) }}" data-feature-key="{{ c.feature_key }}">[?]</button>
@@ -430,23 +436,23 @@
           {# The Dynamic sub-panel. Only the supplier markup: §6.5's FIXED and VARIABLE branches
              never read it, and the wireframe's Spot source row belongs to panel ① (above). #}
           <div class="rounded-box border border-base-300 p-3">
-            <h4 class="mb-2 text-xs font-semibold uppercase text-base-content/60">{{ _('Dynamic') }}</h4>
-            {{ num_field(pr.supplier_markup, _('Supplier markup'), '€/kWh', _('excl. VAT'), 'w-24', 'w-44') }}
+            <h4 class="mb-2 text-xs font-semibold uppercase cost-label">{{ _('Dynamic') }}</h4>
+            {{ num_field(pr.supplier_markup, _('Supplier markup'), '€/kWh', _('excl. VAT'), 'w-24', 'w-44', cost=true) }}
           </div>
 
-          {{ num_field(pr.energy_tax, _('Energy tax'), '€/kWh', _('excl. VAT — 2026 value'), 'w-24', 'w-44') }}
+          {{ num_field(pr.energy_tax, _('Energy tax'), '€/kWh', _('excl. VAT — 2026 value'), 'w-24', 'w-44', cost=true) }}
           {# Stored as a fraction (0.21), shown as 21 — the conversion is `_pct_to_frac` in the
              FIELDS table and its inverse on the way out, so the two directions cannot drift. #}
-          {{ num_field(pr.vat, _('VAT'), '%', '', 'w-16', 'w-44') }}
+          {{ num_field(pr.vat, _('VAT'), '%', '', 'w-16', 'w-44', cost=true) }}
 
           {# ── Feed-in ─────────────────────────────────────────────────────── #}
           <div class="rounded-box border border-base-300 p-3">
-            <h4 class="mb-2 text-xs font-semibold uppercase text-base-content/60">{{ _('Feed-in') }}</h4>
+            <h4 class="mb-2 text-xs font-semibold uppercase cost-label">{{ _('Feed-in') }}</h4>
             {# The preset select FILLS α and β; it is not itself stored (§6.5's table, and see
                _FEEDIN_PRESETS). A stored pair matching no row leaves the placeholder selected. #}
             <div class="flex flex-wrap items-center gap-2">
-              <span class="w-44 label-text">{{ _('Preset') }}</span>
-              <select id="feedin-preset" class="select select-bordered select-xs w-64"
+              <span class="w-44 label-text cost-label">{{ _('Preset') }}</span>
+              <select id="feedin-preset" class="select select-bordered select-xs w-64 cost-field"
                       aria-label="{{ _('Preset') }}">
                 <option {% if not pr.feedin_presets | selectattr('selected') | list %}selected{% endif %}>{{ _('Custom') }}</option>
                 {% for p in pr.feedin_presets %}
@@ -456,25 +462,25 @@
               </select>
             </div>
             <p class="my-2 text-xs text-base-content/60">{{ _('compensation = max(0, α × bare + β)') }}</p>
-            {{ num_field(pr.feedin_alpha, _('α'), '', '', 'w-20', 'w-44') }}
-            {{ num_field(pr.feedin_beta, _('β'), '€/kWh', '', 'w-24', 'w-44') }}
+            {{ num_field(pr.feedin_alpha, _('α'), '', '', 'w-20', 'w-44', cost=true) }}
+            {{ num_field(pr.feedin_beta, _('β'), '€/kWh', '', 'w-24', 'w-44', cost=true) }}
 
             {# Terugleverkosten. TIERED is vocabulary only (§6.5: it needs a tier table, an
                annualisation and the min_tlk_tiering_days fallback), so it renders pending. #}
             <div class="mt-2 flex flex-col gap-1">
-              <span class="label-text">{{ _('Terugleverkosten') }}</span>
+              <span class="label-text cost-label">{{ _('Terugleverkosten') }}</span>
               {% for m in pr.tlk_modes %}
               <label class="label justify-start gap-2{% if not m.pending %} cursor-pointer{% endif %}">
                 <input type="radio" name="pricing.tlk_mode" value="{{ m.key }}" class="radio radio-sm"
                        {% if m.selected %}checked{% endif %}{% if m.pending %} disabled{% endif %} />
-                <span class="label-text{% if m.pending %} text-base-content/50{% endif %}">{{ _(m.label) }}</span>
+                <span class="label-text cost-label{% if m.pending %} text-base-content/50{% endif %}">{{ _(m.label) }}</span>
                 {% if m.pending %}
                 <button type="button" class="btn btn-ghost btn-xs"
                         data-pending-name="{{ _(m.label) }}" data-feature-key="{{ m.feature_key }}">[?]</button>
                 {% endif %}
               </label>
               {% endfor %}
-              {{ num_field(pr.tlk_rate, _('Flat rate'), '€/kWh', '', 'w-24', 'w-44') }}
+              {{ num_field(pr.tlk_rate, _('Flat rate'), '€/kWh', '', 'w-24', 'w-44', cost=true) }}
             </div>
             <p class="mt-2 text-xs text-base-content/60">
               ⓘ {{ _('2027 tariffs are not yet published. These values are estimates.') }}
@@ -484,24 +490,24 @@
           {# ── Advanced (collapsible, §2.3 "[expand]") ─────────────────────── #}
           <div class="collapse collapse-arrow rounded-box border border-base-300">
             <input type="checkbox" aria-label="{{ _('Toggle advanced pricing settings') }}" />
-            <div class="collapse-title text-xs font-semibold uppercase text-base-content/60">{{ _('Advanced') }}</div>
+            <div class="collapse-title text-xs font-semibold uppercase cost-label">{{ _('Advanced') }}</div>
             <div class="collapse-content flex flex-col gap-2">
-              {{ num_field(pr.degradation, _('Degradation cost'), '€/kWh', _('per kWh throughput; 0 disables it'), 'w-24', 'w-44') }}
+              {{ num_field(pr.degradation, _('Degradation cost'), '€/kWh', _('per kWh throughput; 0 disables it'), 'w-24', 'w-44', cost=true) }}
               <div class="flex flex-wrap items-center gap-2">
-                <span class="w-44 label-text">{{ _('Day/night window') }}</span>
+                <span class="w-44 label-text cost-label">{{ _('Day/night window') }}</span>
                 <span class="text-sm">{{ _('dal from') }}</span>
                 <input type="text" inputmode="decimal" name="{{ pr.dal_start.name }}"
-                       class="input input-bordered input-xs w-16 text-right{% if pr.dal_start.invalid %} input-error{% endif %}"
+                       class="input input-bordered input-xs w-16 text-right cost-field{% if pr.dal_start.invalid %} input-error{% endif %}"
                        value="{{ pr.dal_start.value }}" aria-label="{{ _('dal from') }}" />
                 <span class="text-sm">{{ _('to') }}</span>
                 <input type="text" inputmode="decimal" name="{{ pr.dal_end.name }}"
-                       class="input input-bordered input-xs w-16 text-right{% if pr.dal_end.invalid %} input-error{% endif %}"
+                       class="input input-bordered input-xs w-16 text-right cost-field{% if pr.dal_end.invalid %} input-error{% endif %}"
                        value="{{ pr.dal_end.value }}" aria-label="{{ _('to') }}" />
                 <span class="text-sm text-base-content/60">{{ _('h') }}</span>
                 <label class="label cursor-pointer gap-2">
                   <input type="checkbox" name="pricing.dal_weekends" value="1" class="checkbox checkbox-sm"
                          {% if pr.dal_weekends %}checked{% endif %} />
-                  <span class="label-text">{{ _('+ weekends') }}</span>
+                  <span class="label-text cost-label">{{ _('+ weekends') }}</span>
                 </label>
               </div>
               {{ field_messages(pr.dal_start) }}

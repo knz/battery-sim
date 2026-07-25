@@ -41,13 +41,18 @@
        uses it for the feed-in-floor disclosure (follow-up H11), which qualifies the ceiling
        whatever the gloss says and so cannot be folded into it.
 
+     * an optional `cost` flag in the render context, which tints the heading with .cost-label
+       (Phase 7). The CALLER sets it — `{% with cost = true %}` around the money include — rather
+       than the view-model, because which box is a money box is a layout fact this file's two
+       call sites already know, and the view-model carries no presentation flags.
+
    The row VALUES are figures either way — a kWh figure on one box, a euro figure on the other —
    and `msg()` formats both from their own `num()` kind, so the unit is the view-model's business
    and this file never names one. #}
 {% from "_msg.html" import msg with context %}
 <div class="card bg-base-200 border border-base-300">
   <div class="card-body gap-3 p-4">
-    <h3 class="text-sm font-semibold text-base-content/70">{{ _(benchmark.title | default('Benchmark: grid import avoided', true)) }}</h3>
+    <h3 class="text-sm font-semibold {% if cost %}cost-label{% else %}text-base-content/70{% endif %}">{{ _(benchmark.title | default('Benchmark: grid import avoided', true)) }}</h3>
     {% for row in benchmark.rows %}
     <div class="flex items-center gap-3">
       <span class="w-36 text-sm">{{ _(row.label) }}</span>

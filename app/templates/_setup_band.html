@@ -45,7 +45,7 @@
          is an anchor to this control, so a reader who has never scrolled past the band can find
          the switch that produces the section they were just offered. #}
       <div class="flex flex-wrap items-center gap-3" id="setup-simulate-cost">
-        <span class="w-56 label-text">{{ _('Simulate cost savings?') }}</span>
+        <span class="w-56 label-text cost-label">{{ _('Simulate cost savings?') }}</span>
         <label class="label cursor-pointer gap-1">
           <input type="radio" name="setup.simulate_cost" value="yes" form="params-form"
                  class="radio radio-sm" {% if cfg.simulate_cost %}checked{% endif %} />

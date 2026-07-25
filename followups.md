@@ -498,6 +498,25 @@ so, and a future change that made a euro figure survive an unpriced window would
 mis-explain it. A comment or an explicit guard would settle it.
 *Origin:* cost-simulation increment, Phase 6 review (finding 5).
 
+**H18. The dark theme is declared but unreachable, so every dark-mode rule in the stylesheet is
+dormant and unverified.** `index.html` hard-codes `data-theme="light"` on `<html>`, while daisyUI's
+dark rules are scoped to `:root:not([data-theme])` and `[data-theme='dark']` — neither of which can
+match. The `@plugin 'daisyui'` block declares `dark --prefersdark`, so the intent is clearly that
+dark mode exist.
+
+This surfaced building the cost tint (Phase 7), which needs a per-theme split: daisyUI's `accent` is
+the same bright teal in both themes and gives only **1.91:1** on light `base-100` — against WCAG
+AA's 4.5:1 floor for small text — so light mode uses `accent-content` (9.70:1) and dark mode uses
+`accent`. The dark branch is written and compiles, but nobody can see it and its contrast was
+checked arithmetically rather than observed. The same is true of every other dark rule daisyUI
+ships here.
+
+Either wire a theme toggle (or drop the hard-coded attribute so `prefersdark` works) and verify the
+dark palette in a live render, or decide the app is light-only and say so — at which point the dark
+rules are dead weight rather than dormant. Not decided here: it is a product question about whether
+the app supports dark mode at all, which predates this increment.
+*Origin:* cost-simulation increment, Phase 7.
+
 ## Cross-cutting observations
 
 Three clusters account for most of the list, and each has a single root:

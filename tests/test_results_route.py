@@ -21,7 +21,9 @@ Covered:
       on, the "enable cost simulation" affordance offered exactly when it is not, the rendered
       energy half unchanged across the toggle (fixture 18 on the HTML rather than on the data),
       the Charts box gaining a euro option rather than swapping the kWh one, and the money
-      benchmark gated on `simulate_cost` as well as on `with_benchmark`.
+      benchmark gated on `simulate_cost` as well as on `with_benchmark`;
+    * the Phase 7 cost tint: the COST SAVINGS half's divider, headings and MONEY SAVED tile carry
+      .cost-label and their ENERGY SAVINGS counterparts do not.
 """
 
 from __future__ import annotations
@@ -592,6 +594,15 @@ def test_the_money_benchmark_box_renders_from_the_shared_partial(cost_client):
     assert 'data-slot="cost-benchmark-slot"' in r.text
     assert "Benchmark: grid import avoided" in r.text
     assert "Benchmark: money saved" in r.text
+    # The lazily-fetched money box carries the Phase 7 cost tint and the energy box does not —
+    # this is the one path where the flag travels through Python (main.py passes `cost=True` to
+    # the shared partial) rather than through a `{% with %}` in the template.
+    import re
+
+    assert re.search(r'cost-label[^>]*>\s*Benchmark: money saved\s*<', r.text)
+    assert re.search(
+        r'<h3(?![^>]*cost-label)[^>]*>\s*Benchmark: grid import avoided\s*<', r.text
+    )
 
 
 def test_the_benchmark_response_is_a_bare_energy_box_when_cost_is_off(client):
@@ -640,3 +651,44 @@ def test_the_money_box_is_gated_on_simulate_cost_as_well_as_on_with_benchmark(co
     )
     assert "benchmark" in r and "cost_benchmark" in r
     assert r["cost_benchmark"]["title"] == "Benchmark: money saved"
+
+
+def test_the_cost_tint_marks_the_cost_section_and_not_the_energy_one(cost_client):
+    """Phase 7: §2.4's COST SAVINGS half is tinted; the ENERGY SAVINGS half above it is not.
+
+    The RULE, not every occurrence — the point of the change is that the marking is uniform, and
+    pinning each heading would turn any restyling into a test edit. So: the cost divider and the
+    cost headings carry .cost-label, their energy counterparts do not, and with cost simulation
+    off nothing on the page carries it.
+
+    Colour is never the only signal (§2.4 gives the section a divider and a heading, and this test
+    keeps asserting those as text), so a reader who cannot distinguish the hue loses nothing.
+    """
+    import re
+
+    client, store = cost_client
+    on = client.post("/results", json={"period": "last_1_week"}).text
+
+    # The divider that opens the cost half is tinted; the one that opens the energy half is not.
+    assert re.search(r'divider[^"]*cost-label"[^>]*>\s*Cost savings\s*<', on)
+    assert re.search(r'divider(?:(?!cost-label)[^"])*"[^>]*>\s*Energy savings\s*<', on)
+
+    # Headings inside the cost section, and their energy counterparts left plain.
+    for tinted in ("Where the money comes from", "Benchmark: money saved"):
+        assert re.search(r'cost-label[^>]*>\s*%s\s*<' % re.escape(tinted), on), tinted
+    for plain in ("Where the energy comes from", "Secondary metrics", "Caveats for this run"):
+        assert re.search(
+            r'<h3(?![^>]*cost-label)[^>]*>\s*%s\s*<' % re.escape(plain), on
+        ), plain
+
+    # The MONEY SAVED tile's title, beside the untinted energy tiles in the row above it.
+    assert re.search(r'stat-title[^"]*cost-label"[^>]*>\s*MONEY SAVED\s*<', on)
+    assert re.search(r'<div class="stat-title text-xs">\s*GRID IMPORT SAVED\s*<', on)
+
+    # Cost simulation off → the tinted section does not exist, so neither does the tint.
+    from app.domain.simconfig import SimulationConfig
+
+    store.save(SimulationConfig())
+    off = client.post("/results", json={"period": "last_1_week"}).text
+    assert "cost-label" not in off
+    assert "Energy savings" in off      # …and the untinted half is untouched

@@ -12,7 +12,9 @@ Covered:
     * **spec fixture 12** — an approximated run is numerically IDENTICAL to the 3-phase case;
     * a parameter change moves panel ③'s figures (POST /results after POST /params);
     * error paths return clean 4xx, never a 500;
-    * a corrupt stored config still renders GET / (the page must always draw).
+    * a corrupt stored config still renders GET / (the page must always draw);
+    * the Phase 7 cost tint: the Pricing box's headings, labels and inputs carry
+      .cost-label / .cost-field and the Battery and Grid boxes do not.
 """
 
 from __future__ import annotations
@@ -681,3 +683,66 @@ def test_pricing_values_survive_turning_cost_simulation_off_and_on(client):
     assert restored.pricing.degradation_eur_per_kwh == 0.025
     assert restored.economic_guard is True              # the `retained` slot, end to end
     assert 'name="policy.economic_guard"' in r.text and "checked" in r.text
+
+
+def test_the_cost_tint_marks_the_pricing_box_and_only_the_pricing_box(client):
+    """Phase 7: the cost-simulation controls carry .cost-label / .cost-field; the rest do not.
+
+    The rule, not every occurrence: cost inputs are tinted, non-cost inputs are not. Pinning each
+    individual label would make any future restyling a test edit, and the point of the change is
+    that the marking is uniform.
+
+    Colour is an accent on top of structure, never a replacement for it, so this test also holds
+    the structural signals in place — the Pricing box's own heading and its sub-box legends still
+    read as text (see the .cost-label comment in app/static/src/app.tailwind.css).
+    """
+    import re
+
+    # The OFF render first: `_form()`'s `sections` carries no `setup` marker, so it INHERITS the
+    # stored `simulate_cost` (which is the retention behaviour appendix A asks for). Posting it
+    # before the cost form is what makes it an energy-only render rather than an inheriting one.
+    off = client.post("/params", data=_form()).text
+    on = client.post("/params", data=_cost_form()).text
+
+    # Every TEXT input under `pricing.` is tinted. Radios and checkboxes are excluded on purpose:
+    # a border tint on a 16px round control is not legible, so those take the tint on their label
+    # instead — which is where a reader looks for the meaning anyway.
+    priced = [
+        t for t in re.findall(r'<input[^>]*name="pricing\.[^"]*"[^>]*>', on)
+        if 'type="text"' in t
+    ]
+    assert priced, "no pricing text inputs rendered"
+    for tag in priced:
+        assert "cost-field" in tag, tag
+
+    # …and no input outside the cost boxes is. `battery.` and `grid.` are the physical system.
+    for tag in re.findall(r'<input[^>]*name="(?:battery|grid)\.[^"]*"[^>]*>', on):
+        assert "cost-field" not in tag, tag
+
+    # The headings: Pricing is tinted, Battery and Grid connection are not — and all three are
+    # still present as words, which is what a reader who cannot see the hue relies on.
+    assert re.search(r'<h3[^>]*cost-label[^>]*>\s*Pricing\s*</h3>', on)
+    for plain in ("Battery", "Grid connection"):
+        assert re.search(r'<h3(?![^>]*cost-label)[^>]*>\s*%s\s*</h3>' % plain, on), plain
+
+    # The sub-box legends and the Advanced summary inside the Pricing box.
+    for legend in ("Dynamic", "Feed-in"):
+        assert re.search(r'<h4[^>]*cost-label[^>]*>\s*%s\s*</h4>' % legend, on), legend
+    assert re.search(r'collapse-title[^"]*cost-label[^>]*>\s*Advanced\s*<', on)
+
+    # With cost simulation OFF the panel carries no tint at all: the boxes it marks are gone.
+    assert "cost-label" not in off
+    assert "cost-field" not in off
+
+
+def test_the_setup_band_toggle_carries_the_cost_tint(client):
+    """The control that governs the whole thing is marked like what it governs (§2.1).
+
+    It is tinted in BOTH states — it is the switch for cost simulation whether or not cost
+    simulation is currently on — so this is asserted on the off render, where nothing else on the
+    page is marked.
+    """
+    import re
+
+    off = client.get("/").text
+    assert re.search(r'cost-label[^>]*>\s*Simulate cost savings\?\s*<', off)

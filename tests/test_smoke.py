@@ -313,3 +313,49 @@ def test_lang_route_sets_cookie(base_url):
         cookie = e.headers.get("set-cookie", "")
     assert code == 303
     assert "lang=nl" in cookie
+
+
+def test_the_cost_tint_actually_renders_and_is_not_merely_a_class_name(page):
+    """The cost tint has to survive daisyUI's cascade, which class assertions cannot tell you.
+
+    Asserted in a real browser on COMPUTED colour, because the first version of this feature
+    passed every class-name test while rendering nothing: `.cost-field` and `.cost-label` were
+    written into `@layer components`, daisyUI sets `.input`'s border and `.stat-title`'s color in
+    a LATER layer, and a later layer wins over an earlier one however specific the earlier
+    selector is. The cost inputs drew a border byte-identical to every other input's and the
+    MONEY SAVED tile kept the default colour. Nothing in the HTML looked wrong.
+
+    So this pins the OUTCOME, not the markup: a tinted element must differ from its untinted
+    peer. It deliberately does not assert a specific colour value — the token is a design choice
+    and may change, while "the tint is visible" is the requirement.
+    """
+    # The smoke fixture runs on an isolated empty data dir, so `simulate_cost` is at its
+    # appendix-A default of false and no cost control exists yet. Turn it on through the real
+    # control — the setup band's radio, wired in Phase 5 — rather than by writing a config file,
+    # so this also exercises the path a user takes to reach these fields at all.
+    page.locator("#setup-band input[name='setup.simulate_cost'][value='yes']").check()
+    # The POST swaps panel ② in re-collapsed, so re-expand before measuring — a computed style
+    # on a `display:none` subtree is not what the reader sees.
+    page.wait_for_selector("input.cost-field", state="attached", timeout=10000)
+    for cb in page.locator("section.collapse > input[type=checkbox]").all():
+        cb.check()
+    page.wait_for_selector("input.cost-field", timeout=10000)
+
+    tinted_input = page.locator("input.cost-field").first
+    plain_input = page.locator("input[name='battery.usable_capacity_kwh']").first
+    tinted_border = tinted_input.evaluate("e => getComputedStyle(e).borderColor")
+    plain_border = plain_input.evaluate("e => getComputedStyle(e).borderColor")
+    assert tinted_border != plain_border, (
+        f"cost input border {tinted_border} is identical to an untinted input's — the rule is "
+        "being overridden, most likely by a later CSS layer"
+    )
+
+    # A tinted heading must differ from an untinted one, and an untinted one must NOT pick the
+    # tint up — otherwise the marking distinguishes nothing. The MONEY SAVED tile lives in panel
+    # ③ and needs a simulated dataset, which this fixture has no data for; panel ②'s Pricing
+    # heading is on screen and exercises the same rule against the same override risk.
+    plain_h3 = page.locator("h3.text-base-content\\/70").first
+    cost_h3 = page.locator("h3.cost-label").first
+    assert cost_h3.evaluate("e => getComputedStyle(e).color") != plain_h3.evaluate(
+        "e => getComputedStyle(e).color"
+    ), "a cost heading renders the same colour as a plain one"

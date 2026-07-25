@@ -9,7 +9,8 @@
  * live outside this file's directory. daisyUI is loaded as a v4 plugin via `@plugin`.
  *
  * Custom rules below cover the few widgets daisyUI does not provide directly: the
- * illustrated radio-card selectors (§2.5) and the benchmark bars (§2.4).
+ * illustrated radio-card selectors (§2.5), the benchmark bars (§2.4), the tabular figure
+ * columns, and the .cost-label / .cost-field pair that tints the cost-simulation controls.
  */
 
 @import 'tailwindcss';
@@ -62,4 +63,73 @@
   .figure-col {
     @apply text-right font-mono tabular-nums;
   }
+}
+
+/* The cost tint lives in @layer utilities, NOT @layer components, and that is load-bearing.
+   daisyUI sets `.input`'s border and `.stat-title`'s color in ITS utilities layer, and a later
+   layer wins over an earlier one no matter how specific the earlier selector is. Written as
+   components these rules parsed, shipped, and did nothing: the cost inputs rendered a border
+   byte-identical to every other input's, and the MONEY SAVED tile — the headline figure of the
+   whole cost section — kept the default colour, while class-name assertions passed throughout.
+   Unlayered, deliberately. Putting them in `@layer utilities` is not enough either: Tailwind
+   nests daisyUI's own rules in a layer it declares AFTER ours, so a layered block here still
+   loses. Unlayered CSS beats every layered rule regardless of order, which is the one placement
+   that survives daisyUI reordering its internals on an upgrade. The cost is that these rules no
+   longer participate in layer ordering at all, so they must stay few and specific — they are
+   three selectors on classes nothing else uses. */
+/* ── Cost-simulation accent ────────────────────────────────────────────────
+   Everything that only exists because cost simulation is on — panel ②'s Pricing box,
+   panel ③'s COST SAVINGS section, and the setup band's toggle that governs both — carries
+   a shared tint, so a reader scanning the page can see at a glance which controls turn kWh
+   into euros and which describe the physical system.
+
+   It is an accent ON TOP of structure that already says the same thing (the COST SAVINGS
+   divider, the box legends, the section's position below the divider). Colour is never the
+   only signal: a reader who cannot distinguish the hue loses nothing, which is the same rule
+   .radio-card follows for its selected state.
+
+   NOT `primary`: that token is already load-bearing for selection state (.radio-card's
+   checked border, .bench-fill / .bench-dot). Reusing it would make "this is a cost field"
+   and "this is selected" the same colour.
+
+   Why the token differs per theme rather than being a flat `text-accent`. daisyUI's `accent`
+   is oklch(77% .152 181.9) — a bright teal — in BOTH the light and dark themes here. On the
+   dark theme's base-100/200 that is ~8.3:1 against the background, comfortably past WCAG AA.
+   On the light theme's white and near-white bases it is ~1.9:1, which is unreadable for the
+   small text these labels use. So light mode takes `accent-content` (the dark teal daisyUI
+   already pairs with accent, ~9.7:1 on base-100) and dark mode takes `accent` itself. Same
+   hue family, legible either way. The dark rule is written twice because daisyUI's dark theme
+   applies through both the prefers-color-scheme media query and an explicit data-theme. */
+.cost-label {
+  color: var(--color-accent-content);
+}
+.cost-field {
+  @apply border-accent-content/40;
+}
+.cost-field:focus,
+.cost-field:focus-within {
+  @apply outline-accent-content/60;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) .cost-label {
+    color: var(--color-accent);
+  }
+  :root:not([data-theme]) .cost-field {
+    @apply border-accent/50;
+  }
+  :root:not([data-theme]) .cost-field:focus,
+  :root:not([data-theme]) .cost-field:focus-within {
+    @apply outline-accent/70;
+  }
+}
+[data-theme='dark'] .cost-label {
+  color: var(--color-accent);
+}
+[data-theme='dark'] .cost-field {
+  @apply border-accent/50;
+}
+[data-theme='dark'] .cost-field:focus,
+[data-theme='dark'] .cost-field:focus-within {
+  @apply outline-accent/70;
 }

@@ -21,9 +21,14 @@ the `[?]` button in the template). Do **not** delete the control's feature key �
 
 ## What is built, as of 2026-07-25
 
-The **energy path is complete end to end**: panel ② configures a battery, panel ③ simulates it
-against the household's own persisted data and reports what it would have saved, bounded by the
+**Both the energy and the cost paths are complete end to end**: panel ② configures a battery and
+(behind the `simulate_cost` answer) a contract, panel ③ simulates against the household's own
+persisted data and reports what it would have saved in kWh and in euros, each bounded by its own
 §6.12 perfect-foresight benchmark.
+
+The cost path carries one contract type. Only DYNAMIC has a rate source behind it; FIXED and
+VARIABLE are pending controls, blocked on §6.4's `tariff_zone` — a wall-clock dal window this
+UTC-naive pipeline cannot yet express.
 
 | Area | State |
 |---|---|
@@ -32,25 +37,41 @@ against the household's own persisted data and reports what it would have saved,
 | Battery/policy config, appendix-A defaults, §7.3 checks 11/12/18 | built (`app/domain/simconfig.py`) |
 | §6.6–§6.9 policies, battery step, runs A/B/C | built (`app/domain/simulate.py`) |
 | §6.11 energy metrics | built (`app/domain/metrics.py`) |
-| §6.12 perfect-foresight DP — **energy objective (run D) only** | built (`app/domain/benchmark.py`) |
+| §6.12 perfect-foresight DP — both objectives (runs D and E) | built (`app/domain/benchmark.py`) |
+| §6.5 price curves — **DYNAMIC contract only**, FLAT terugleverkosten | built (`app/domain/pricing.py`) |
+| §6.5 feed-in floor, monthly and per-interval assessment | built (`app/domain/pricing.py`) |
+| §6.10 cost accounting and the waterfall | built (`app/domain/costs.py`) |
 | Panel ② form, validation, persistence | built (`app/params_view.py`, `app/simconfig_store.py`) |
-| Panel ③ results, benchmark box | built (`app/results_view.py`) |
+| Panel ③ results, both benchmark boxes, cost savings section | built (`app/results_view.py`) |
 
 `simulate_cost` is no longer a pending control: the setup band's radios POST, and panel ② draws
 §2.3's Pricing box behind the answer. Within that box the two unbuilt contract types (FIXED,
 VARIABLE) and tiered terugleverkosten are themselves pending — only DYNAMIC and FLAT have a rate
 source behind them (§6.5).
 
-**Not built** — the §6.15
-configuration epochs; §6.16's price bracket; §6.13's resolution-bias diagnostic; §6.17's
+**Not built** — the FIXED and VARIABLE contracts and tiered terugleverkosten (see above); §6.15
+configuration epochs; §6.16's price bracket; §6.13's resolution-bias diagnostic (both bases); §6.17's
 timestamp-misalignment detection; §4.6's per-interval CSV export; and CSV ingestion. §6.14 fixtures
-1, 2, 3, 5, 6, 7, 12, 16, 17 and 21 are implemented; the rest belong to those unbuilt areas.
+1, 2, 3, 4, 5, 6, 7, 12, 13, 14, 16, 17, 18, 19, 20 and 21 are implemented; the rest belong to those
+unbuilt areas.
 
-Known gaps in what *is* built, carried as follow-ups rather than silently: runtime-assembled strings
-(caveats, the benchmark gloss, panel ①'s data-quality box) are not translatable, because an
-f-string has no fixed msgid — they need restructuring around `%(name)s` placeholders; and the
-DC-bonus validation warning is unreachable, since panel ② renders no input for
-`roundtrip_dc_bonus`.
+Two findings from building the cost path are corrections to the specification rather than deferred
+work, and are applied there: §6.10's waterfall pseudocode did not close (the standby line must be
+taken on the pre-top-up bills — `top(C)` entered twice otherwise), and §2.3's Pricing wireframe drew
+a "Spot source" control that duplicates panel ①'s slot-first data configuration. Both are recorded
+in `changelog/20260725-cost-simulation.md`.
+
+Known gaps in what *is* built, carried as follow-ups rather than silently. The DC-bonus validation
+warning is unreachable, since panel ② renders no input for `roundtrip_dc_bonus`. `followups.md`
+carries the rest; the ones a reader of this file should know about are that FIXED/VARIABLE inherit
+an unbuilt local-time axis whose DST trap would misprice silently (H1), that §6.12's drift
+correction has no sound euro analogue so the cost capture ratio is unavailable for a liquidating
+policy (H10), and that run E's bound is on the pre-top-up bill in windows where the feed-in floor
+binds (H11).
+
+The runtime-f-string gap this file used to record is **closed**: `app/results_view.py` and
+`app/data_view.py` now emit user-facing sentences as `(msgid, params)` pairs through `_msg`/`_msg_n`
+rather than as f-strings, so they carry stable msgids and are translated.
 
 ## Feature keys — the closed vocabulary
 
