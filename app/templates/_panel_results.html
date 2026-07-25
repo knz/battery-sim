@@ -43,6 +43,12 @@
    the process and never change again (an English-first server shows an English band to
    Dutch users). Covered by test_data_glance_is_translated_in_both_copies. #}
 {% from "_data_glance.html" import data_glance with context %}
+{# `msg()` renders a view-model message: translate the constant msgid, THEN substitute its runtime
+   values. The caveats, the run description, the annualisation notice and two of the KPI fields
+   arrive as (msgid, params) pairs from app/results_view.py for that reason — see _msg.html. Same
+   `with context` requirement as above: without it the macro's gettext functions freeze at the
+   first locale rendered in the process. #}
+{% from "_msg.html" import msg with context %}
 {# The period-preset buttons: (token, label) pairs. The token is the POST request value
    (results_view.PERIOD_DAYS keys); the label is the human text (translated). The active button
    is the one whose token matches the resolved window's preset, mapped from results.period_selected
@@ -99,12 +105,13 @@
 
       {# The selected window, stated ONCE per panel: dates · N days · run description. The day
          count sits here (rather than under the glance heading below, where it used to be
-         repeated) because it describes the range the picker just set. `period_dates`/`period_run`
-         are bare literals; the day count needs ngettext, so the template joins them. Falls back
-         to the whole `period` line if a view-model predates the split. #}
+         repeated) because it describes the range the picker just set. `period_dates` is two ISO
+         dates and is rendered raw; the day count needs ngettext here; `period_run` is a counted
+         message (its own interval count drives its plural), rendered through msg(). Falls back to
+         the whole `period` line if a view-model predates the split. #}
       <span class="text-sm text-base-content/60">
         {%- if results.period_dates -%}
-        {{ results.period_dates }}{% if results.period_days %} · {{ results.period_days }} {{ ngettext('day', 'days', results.period_days) }}{% endif %} · {{ results.period_run }}
+        {{ results.period_dates }}{% if results.period_days %} · {{ results.period_days }} {{ ngettext('day', 'days', results.period_days) }}{% endif %} · {{ msg(results.period_run) }}
         {%- else -%}
         {{ results.period }}
         {%- endif -%}
@@ -116,7 +123,7 @@
        min_annualisation_days. The view-model sets annualisation_disabled + a message. #}
     {% if results.annualisation_disabled %}
     <div role="alert" class="alert alert-info py-2">
-      <span class="text-sm">ⓘ {{ _(results.annualisation_message) }}</span>
+      <span class="text-sm">ⓘ {{ msg(results.annualisation_message) }}</span>
     </div>
     {% endif %}
 
@@ -140,7 +147,9 @@
       <div class="stat">
         <div class="stat-title text-xs">{{ _(k.title) }}</div>
         <div class="stat-value text-2xl">{{ k.value }}{% if k.unit %}<span class="text-base font-normal text-base-content/60"> {{ k.unit }}</span>{% endif %}</div>
-        <div class="stat-desc">{{ k.delta }}{% if k.extra %}<br>{{ _(k.extra) }}{% endif %}</div>
+        {# `delta`/`extra` are either empty or a message (a pair from results_view, or a plain
+           marked string from the sample view-model — msg() takes both). #}
+        <div class="stat-desc">{% if k.delta %}{{ msg(k.delta) }}{% endif %}{% if k.extra %}<br>{{ msg(k.extra) }}{% endif %}</div>
       </div>
       {% endfor %}
     </div>
@@ -248,7 +257,7 @@
       <div class="card-body gap-2 p-4">
         <h3 class="text-sm font-semibold text-base-content/70">{{ _('Caveats for this run') }}</h3>
         {% for c in results.caveats %}
-        <div role="alert" class="alert alert-warning py-2"><span class="text-sm">⚠ {{ _(c) }}</span></div>
+        <div role="alert" class="alert alert-warning py-2"><span class="text-sm">⚠ {{ msg(c) }}</span></div>
         {% endfor %}
       </div>
     </div>

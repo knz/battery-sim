@@ -491,3 +491,78 @@ is a known msgid in `messages.pot`.
 
 Full suite: 476 passed, 2 skipped.
 
+### Step 7 landed first, deliberately RED (the leakage net)
+
+`tests/test_no_english_leakage.py` renders `GET /`, `POST /results` and `POST /results/benchmark`
+under `lang=nl` and asserts nothing reads as English prose. Two complementary checks:
+
+- a **named** list of the exact fragments the investigation measured leaking, so a regression
+  identifies itself rather than surfacing as an opaque marker count;
+- an **open-ended** scan flagging any line carrying ≥2 closed-class English markers (articles,
+  prepositions, auxiliaries — the words a translator always replaces), which can catch strings
+  nobody has noticed yet.
+
+An explicit token allowlist covers what legitimately stays untranslated (units, proper nouns,
+Dutch homographs), so the exemptions are stated rather than silently tolerated. A fourth test
+asserts the *English* page is full of those same markers — without it, a broken text extractor
+would make the Dutch assertions pass vacuously.
+
+Committed red on purpose, ahead of the fix: 6 of 7 failed, the sanity check passed. A later green
+therefore means the strings got translated, not that the scan stopped working.
+
+### Steps 5–6 in progress (sub-agent implementation/review cycles)
+
+Per the user's instruction, the expensive steps run as implement-then-review sub-agent cycles.
+Step 5a (`results_view.py` — 8 caveats, 8 gloss branches, the range label, the KPI deltas, the
+annualisation notice, plus `ngettext` pluralisation) is with an implementation agent. Steps 5b
+(`data_view.py`) and 5c (`sample_data.py`) follow; the catalog pass runs once at the end, after
+all three, so the msgids are extracted a single time.
+
+### Step 5a complete (A1 — `results_view.py`)
+
+Implemented by a sub-agent, then adversarially reviewed by a second one. The implementation agent
+**crashed on an API error before self-verifying**, so its work was checked from scratch rather
+than taken on trust.
+
+**The shape.** `_msg(msgid, **params)` and `_msg_n(singular, plural, n, **params)` return
+`(msgid, params)` pairs; `templates/_msg.html` renders them — translate the constant msgid, then
+substitute. 19 sites converted: 8 caveats, the benchmark gloss's every branch, the range label,
+the KPI delta/extra, the annualisation notice. Two new extraction keywords (`-k _msg`,
+`-k _msg_n:1,2`), documented in `babel.cfg` and `README.md`.
+
+The one `gloss +=` was resolved into two complete msgids rather than concatenated fragments —
+a translator can reorder a whole sentence but not a fragment glued on at runtime.
+
+`_msg_n` fixes D6's "1 intervals" as a side effect: the count reaching `ngettext` and the count
+printed in the text are the same value by construction, so they cannot drift.
+
+**Verification.** English render byte-identical on all three routes (captured before/after and
+diffed). All 19 message sites render without raising, including fault-gloss, zero-battery and
+"n/a" branches no HTTP request reaches. A static AST check confirms every msgid's `%(name)s` set
+equals its passed params — no `KeyError` risk. Extraction: 273 → 292 msgids, 19 added, 0 lost.
+The reviewer independently reproduced all of this and additionally diffed all 10 gloss branches
+and 5 dataset scenarios against a HEAD worktree: identical.
+
+**Two latent hazards the review found, both fixed here:**
+
+1. `msg("")` rendered the catalog's METADATA entry — the whole PO header — onto the page, because
+   in gettext the empty msgid *is* the metadata. `msg(None)` rendered "None". Unreachable today
+   (every producer sets the field) but `_panel_results.html:114` calls `msg(results.period_run)`
+   unguarded, and 5b/5c add callers. Fixed with a falsy guard in the macro, so it is handled once
+   rather than at each call site.
+2. `i18n.interpolate`'s docstring claimed missing *or surplus* keys raise. Only missing ones do.
+   Corrected, and the asymmetry is now stated as a decision: a missing key is a code bug that
+   fails identically in every locale (raise), a surplus key means one catalog's translation
+   dropped a placeholder — degrading to a sentence missing a figure beats a 500 on a page that
+   renders fine in English.
+
+**New tests** (10, in `tests/test_i18n.py`): the empty/None/`{}` guard; plain-string and pair
+rendering; `ngettext` at n=0/1/2 (the counted branch has no natural coverage — the routes only
+ever render it at one count); autoescaping of interpolated values; and a catalog invariant test
+asserting every translation keeps the placeholders its msgid has. That last one is what makes the
+lenient surplus-key behaviour safe, so it was verified by deliberately dropping `%(kw)s` from a
+Dutch string — it fails with the offending msgid named.
+
+Full suite: 486 passed, 2 skipped (leakage test still red, as designed — catalogs not yet
+regenerated).
+

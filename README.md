@@ -59,21 +59,44 @@ files are **committed**, so running the app needs no compile step — only updat
 does:
 
 ```bash
-# 1. extract msgids from templates + sample_data (note the -k _N keyword)
-uv run pybabel extract -F babel.cfg -k _N -o app/locales/messages.pot --sort-output --no-location .
+# 1. extract msgids from templates + the view-models (all three -k keywords are required)
+uv run pybabel extract -F babel.cfg -k _N -k _msg -k _msg_n:1,2 \
+    -o app/locales/messages.pot --sort-output --no-location .
 # 2. merge into the per-language catalogs (--no-fuzzy-matching is REQUIRED, see below)
 uv run pybabel update -i app/locales/messages.pot -d app/locales -l nl --no-fuzzy-matching   # and -l en
 # 3. edit app/locales/nl/LC_MESSAGES/messages.po, then compile
 uv run pybabel compile -d app/locales
 ```
 
-**Both flags on those commands are required, not cosmetic.** `--no-location` keeps the `#:`
-source-location comments out of the committed catalogs, which is the form they are in.
+**The flags and keywords on those commands are required, not cosmetic.** `--no-location` keeps
+the `#:` source-location comments out of the committed catalogs, which is the form they are in.
 `--no-fuzzy-matching` stops `pybabel update` guessing a translation for a new msgid from a
 similar old one: without it, adding "Extra grid import" picked up the existing Dutch for a
 different string and shipped it as "Netafname T2" — marked `#, fuzzy`, but compiled and shown
 to the user all the same. A wrong translation is worse than an untranslated string, because
 nothing flags it on the page.
+
+The three `-k` keywords name the project's own extraction markers, none of which Babel knows by
+default; omitting one drops its msgids silently, and the run still reports success. `_N` is
+`app/sample_data.py`'s no-op tagger for view-model strings the templates translate. `_msg` and
+`_msg_n` are `app/results_view.py`'s message builders: a view-model that needs runtime figures in
+a sentence emits a `(msgid, params)` pair rather than a finished string, so the msgid stays a
+compile-time constant the extractor can see — see **Messages with runtime values** below.
+
+**Messages with runtime values.** A display string built with an f-string has a msgid that exists
+only at runtime, so `pybabel extract` never records it and the template's `_()` around it matches
+nothing — the string renders in English on a Dutch page while every catalog reports 100% translated.
+View-models therefore emit the constant text and the values separately:
+
+```python
+_msg("Your meter recorded %(meter)s imported over this period; …", meter=imp_str)
+_msg_n("simulated %(res)s · %(n)s interval",     # count-driven plural
+       "simulated %(res)s · %(n)s intervals", n_intervals, res=label, n=f"{n_intervals:,}")
+```
+
+and templates render them with the `msg()` macro in `app/templates/_msg.html`, which translates
+the msgid first and substitutes afterwards. The order matters: substituting first rebuilds exactly
+the unextractable runtime string the split exists to avoid.
 
 **Literal percent signs** need no escaping. `_()` does not printf-format its result (the i18n
 extension is installed with `newstyle=False` — see `app/i18n.py`), so a bare ASCII `%` in a

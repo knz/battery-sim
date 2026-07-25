@@ -235,3 +235,96 @@ def test_all_msgids_in_the_block_are_extractable():
     known = {"".join(re.findall(r'"([^"]*)"', k)) for k in known}
     missing = [v for v in _drawer_i18n("en").values() if v and v not in known]
     assert not missing, f"rendered but absent from messages.pot: {missing}"
+
+
+# ── 5. The _msg.html macro and catalog placeholder parity ──────────────────────────────────────
+#
+# View-models that need runtime figures in a sentence emit a (msgid, params) pair rather than a
+# finished string (app/results_view.py's _msg/_msg_n), and `templates/_msg.html` renders it:
+# translate the constant msgid, THEN substitute. These pin the macro's contract and the catalog
+# invariant `i18n.interpolate`'s docstring relies on.
+
+MSG_TPL = '{% from "_msg.html" import msg with context %}{{ msg(m) }}'
+
+
+def _msg_render(code: str, m) -> str:
+    return i18n.env_for(code).from_string(MSG_TPL).render(m=m)
+
+
+@pytest.mark.parametrize("empty", ["", None, {}])
+def test_msg_renders_nothing_for_an_empty_value(empty):
+    """The guard exists because `_('')` returns the catalog's METADATA entry — the whole PO header,
+    "Project-Id-Version: … POT-Creation-Date: …" — dumped onto the page. `None` would render the
+    string "None". A view-model leaving a field unset must produce nothing, not either of those."""
+    out = _msg_render("en", empty)
+    assert out == "", f"expected empty output, got {out[:80]!r}"
+
+
+def test_msg_renders_a_plain_string_through_gettext():
+    assert _msg_render("nl", "Not built yet") == "Nog niet gebouwd"
+
+
+def test_msg_substitutes_pair_params_after_translating():
+    m = {"msgid": "A → max import %(kw)s kW", "params": {"kw": "17.3"}}
+    assert _msg_render("en", m) == "A → max import 17.3 kW"
+    nl = _msg_render("nl", m)
+    assert "17.3" in nl and "%(kw)s" not in nl and "afname" in nl
+
+
+@pytest.mark.parametrize("n,expected", [(1, "1 interval"), (2, "2 intervals"), (0, "0 intervals")])
+def test_msg_uses_ngettext_for_counted_messages(n, expected):
+    """The counted branch is what fixes "1 intervals". It is also the branch with the least natural
+    coverage — the HTTP routes only ever render it at one count — so it is pinned directly."""
+    m = {
+        "msgid": "simulated %(res)s · %(n)s interval",
+        "plural": "simulated %(res)s · %(n)s intervals",
+        "n": n,
+        "params": {"res": "hourly", "n": n},
+    }
+    assert _msg_render("en", m) == f"simulated hourly · {expected}"
+
+
+def test_msg_escapes_interpolated_values():
+    """The macro runs in an autoescaping environment; a value carrying markup must not become live
+    HTML just because it took the translate-then-interpolate path."""
+    m = {"msgid": "value: %(v)s", "params": {"v": "<b>x</b>"}}
+    assert "<b>" not in _msg_render("en", m)
+
+
+def test_catalog_translations_keep_every_placeholder_their_msgid_has():
+    """The invariant `i18n.interpolate` degrades on rather than raising.
+
+    A translation that drops a `%(name)s` renders a sentence missing a figure — readable, but
+    wrong, and only in that language. interpolate() deliberately does not raise for it (that would
+    turn a one-catalog wording defect into a 500), so the catalogs are where it has to be caught.
+    """
+    import re as _re
+    from pathlib import Path as _Path
+
+    failures = []
+    for code in i18n.SUPPORTED:
+        po = _Path(__file__).resolve().parent.parent / "app" / "locales" / code / "LC_MESSAGES" / "messages.po"
+        text = po.read_text(encoding="utf-8")
+        # entries are blank-line separated; join continuation strings per field
+        for entry in text.split("\n\n"):
+            if "msgid " not in entry or "Project-Id-Version" in entry:
+                continue
+
+            def _field(name: str) -> str | None:
+                m = _re.search(rf'^{name}((?:\s*"[^"]*")+)', entry, _re.M)
+                return "".join(_re.findall(r'"([^"]*)"', m.group(1))) if m else None
+
+            src = _field("msgid")
+            if not src:
+                continue
+            want = set(_re.findall(r"%\((\w+)\)s", src))
+            if not want:
+                continue
+            for field in ("msgstr", r"msgstr\[0\]", r"msgstr\[1\]"):
+                got_text = _field(field)
+                if not got_text:
+                    continue
+                got = set(_re.findall(r"%\((\w+)\)s", got_text))
+                if got != want:
+                    failures.append(f"{code}: {src[:60]!r} has {sorted(want)}, translation has {sorted(got)}")
+    assert not failures, "translations dropped or renamed placeholders:\n" + "\n".join(failures)

@@ -18,6 +18,13 @@ each test's comment carries the derivation.
 
 Synthetic SeriesFrames are built in-process (no browser, no real dataset), reusing the frame/dataset
 helpers from tests/test_data_summary.py so the two suites share one construction of a LoadedDataset.
+
+**Caveats and the benchmark gloss are (msgid, params) PAIRS, not finished sentences.** They used to
+be built here with f-strings, which made their msgid a runtime value no `pybabel extract` run could
+see — the whole reason a Dutch reader saw them in English. `_en(m)` below renders a pair the way the
+template does (translate, then interpolate) so these tests keep asserting on the ENGLISH SENTENCE a
+reader sees, rather than being weakened to substring checks against a bare msgid. Where a test is
+about the msgid itself — the wording a translator receives — it says so and reads `m["msgid"]`.
 """
 
 import json
@@ -39,6 +46,24 @@ from tests.test_data_summary import (
 # a literal for the same reason tests/test_simulate.py does: an expectation phrased with the
 # implementation's own formula passes for any implementation using that formula, right or wrong.
 _ETA = 0.9486832980505138
+
+
+def _en(m) -> str:
+    """Render a view-model message as the ENGLISH sentence a reader sees.
+
+    The same two steps templates/_msg.html performs — pick the form, then interpolate — with the
+    null catalog, so the msgid IS the English text. A plain string passes through unchanged, which
+    keeps the helper usable against any view-model field whose shape is still a bare literal.
+    """
+    if not isinstance(m, dict):
+        return m
+    text = m["plural"] if "plural" in m and m["n"] != 1 else m["msgid"]
+    return text % (m.get("params") or {})
+
+
+def _caveats(r) -> list[str]:
+    """Every caveat in a results view-model, rendered to English (see `_en`)."""
+    return [_en(c) for c in r["caveats"]]
 
 
 # ── results_from ─────────────────────────────────────────────────────────────────────────────
@@ -77,8 +102,8 @@ def test_results_reports_a_real_simulated_saving():
 
     cycles = next(k for k in r["kpis"] if k["title"] == "EQUIVALENT FULL CYCLES")
     assert cycles["value"] == "0"          # 0.40 EFC rounds to 0 whole cycles
-    assert cycles["delta"] == "0.40 / day"  # 0.40 over a 1-day window
-    assert cycles["extra"] == "4 kWh throughput"  # round(3.7947) AC delivered
+    assert _en(cycles["delta"]) == "0.40 / day"  # 0.40 over a 1-day window
+    assert _en(cycles["extra"]) == "4 kWh throughput"  # round(3.7947) AC delivered
 
     by_label = {row["label"]: row["value"] for row in r["energy_breakdown"]}
     assert by_label["Grid import, no battery"] == "48 kWh"
@@ -220,7 +245,7 @@ def test_panel_states_the_resolution_loss_between_meter_and_simulated_baseline()
     by_label = {row["label"]: row["value"] for row in r["energy_breakdown"]}
     assert by_label["Grid import, no battery"] == "24 kWh"
 
-    note = next((c for c in r["caveats"] if "no-battery baseline" in c), None)
+    note = next((c for c in _caveats(r) if "no-battery baseline" in c), None)
     assert note is not None, "the measured/simulated import gap must be explained"
     assert "48 kWh" in note and "24 kWh" in note, "both figures must be named"
     assert "24 kWh" in note  # the difference, which here equals the baseline
@@ -229,7 +254,7 @@ def test_panel_states_the_resolution_loss_between_meter_and_simulated_baseline()
     # figures coincide and a caveat about a difference the reader cannot see would be noise.
     clean = _dataset([_energy("grid_import_t1", 2.0), _energy("grid_export_t1", 0.0)])
     r2 = results_from(clean, (_WIN_START, _WIN_END))
-    assert not any("no-battery baseline" in c for c in r2["caveats"])
+    assert not any("no-battery baseline" in c for c in _caveats(r2))
 
 
 def test_self_consumption_compares_one_information_set_on_both_sides():
@@ -372,17 +397,21 @@ def test_kwh_and_signed_kwh_use_the_same_minus_glyph():
 
 
 def test_no_caveat_contains_a_literal_percent_sign():
-    """Regression: a literal "%" in a caveat is EATEN by the template's gettext call.
+    """No literal "%" in a RENDERED caveat, and the real render path is lossless.
 
-    `_panel_results.html` renders every caveat through `_()`, and app/i18n.install_for installs
-    the Jinja i18n extension with `newstyle=True`, which applies %-formatting to the translated
-    result. A caveat reading "90% round-trip" therefore renders as "90{}ound-trip" — "% r" is
-    parsed as a conversion specifier — and "shown as 0%." loses the "%." the same way. The
-    corruption is silent: no exception, just mangled user-facing text.
+    History: this began as a corruption guard. `app/i18n.install_for` used to install the Jinja
+    i18n extension with `newstyle=True`, which %-formatted the translated result, so a caveat
+    reading "90% round-trip" rendered as "90{}ound-trip" — "% r" parsed as a conversion specifier —
+    silently, with no exception. That trap is gone (`newstyle=False`), so the "%"-free wording is
+    now a house style rather than a safety requirement, and the assertion is kept as such: the
+    caveats say "0.90 round-trip" where the tiles say "34.2 %", and a "%" appearing here would
+    mean someone changed a sentence.
 
-    Escaping as "%%" would work but pushes the escape onto every translator of every catalog, so
-    the rule is simply that caveats are worded without the sign. This test enforces it across the
-    scenarios that raise every caveat branch, so a future caveat cannot reintroduce it.
+    What it now also pins is the RENDER PATH, which changed shape. A caveat is a (msgid, params)
+    pair, so the template does `_(msgid) | interpolate(**params)` — translate, then substitute.
+    The round trip below runs exactly that and asserts the result equals the English sentence,
+    which catches a params key that no placeholder consumes, or a placeholder no key fills
+    (`interpolate` raises on the latter).
     """
     from jinja2 import Environment
 
@@ -405,19 +434,24 @@ def test_no_caveat_contains_a_literal_percent_sign():
          _energy("solar_production", 3.0)],
     ]
     env = Environment(extensions=["jinja2.ext.i18n"])
+    env.filters["interpolate"] = i18n.interpolate
     i18n.install_for(env, "en")
-    tmpl = env.from_string("{{ _(c) }}")
+    # The template's own two steps, in order: translate the constant msgid, then substitute.
+    tmpl = env.from_string("{{ _(m.msgid) | interpolate(**(m.params or {})) }}")
 
     seen = 0
     branches: set[str] = set()
     for frames in scenarios:
         r = results_from(_dataset(frames), (_WIN_START, _WIN_END))
-        for c in r["caveats"]:
+        for m in r["caveats"]:
+            c = _en(m)
             seen += 1
             branches.add(c[:40])
-            assert "%" not in c, f"literal % in a caveat will be eaten by gettext: {c!r}"
-            # And the round trip through the template is lossless.
-            assert tmpl.render(c=c) == c
+            assert "%" not in c, f"literal % in a rendered caveat: {c!r}"
+            # Every caveat here is a pair (no counted caveat exists yet), and the real render path
+            # reproduces the English sentence exactly.
+            assert isinstance(m, dict) and "plural" not in m
+            assert tmpl.render(m=m) == c
     assert seen >= 5, "the scenarios above should raise several caveats between them"
     # The newest caveat is genuinely among them — the guard is only worth what it covers, and this
     # one is reachable from exactly one of the scenarios above.
@@ -460,11 +494,11 @@ def test_results_state_the_parameter_set_they_were_computed_under():
     """
     ds = _dataset([_energy("grid_import_t1", 2.0), _energy("grid_export_t1", 0.0)])
     r = results_from(ds, (_WIN_START, _WIN_END))
-    assert not any("No battery is configured" in c for c in r["caveats"])
-    assert not any("every savings figure is zero" in c for c in r["caveats"])
-    assert not any("not wired up yet" in c for c in r["caveats"])
+    assert not any("No battery is configured" in c for c in _caveats(r))
+    assert not any("every savings figure is zero" in c for c in _caveats(r))
+    assert not any("not wired up yet" in c for c in _caveats(r))
     assert any(
-        "10 kWh usable" in c and "5/5 kW" in c and "charge P3" in c for c in r["caveats"]
+        "10 kWh usable" in c and "5/5 kW" in c and "charge P3" in c for c in _caveats(r)
     )
 
 
@@ -519,8 +553,8 @@ def test_results_reports_a_negative_saving_honestly():
     assert by_label["Charged into the battery"] == "5 kWh"    # round(5.2705)
     assert by_label["Discharged from the battery"] == "0 kWh"
 
-    assert any("MORE from the grid" in c for c in r["caveats"])
-    assert any("worth buying" in c for c in r["caveats"])
+    assert any("MORE from the grid" in c for c in _caveats(r))
+    assert any("worth buying" in c for c in _caveats(r))
 
 
 def test_soc_drift_caveat_fires_when_the_battery_ends_more_charged():
@@ -539,7 +573,7 @@ def test_soc_drift_caveat_fires_when_the_battery_ends_more_charged():
         _price("price_spot", 0.02),
     ])
     r = results_from(ds, (_WIN_START, _WIN_END))
-    assert any("more charged than it started" in c for c in r["caveats"])
+    assert any("more charged than it started" in c for c in _caveats(r))
 
 
 def test_negative_saving_never_renders_a_signed_zero():
@@ -588,7 +622,7 @@ def test_self_sufficiency_display_clamp_fires_with_its_caveat():
     assert r is not None
     ss = next(k for k in r["kpis"] if k["title"] == "SELF-SUFFICIENCY")
     assert ss["value"].endswith("→ 0%"), "a negative self-sufficiency must display as 0%"
-    assert any("shown as zero" in c for c in r["caveats"])
+    assert any("shown as zero" in c for c in _caveats(r))
 
     # The underlying metric is untouched — the clamp is presentation only.
     from app.domain.metrics import energy_metrics
@@ -620,7 +654,7 @@ def test_results_short_window_disables_annualisation():
     ds = _dataset([_energy("grid_import_t1", 2.0), _energy("grid_export_t1", 0.0)])
     r = results_from(ds, (_WIN_START, _WIN_END))
     assert r["annualisation_disabled"] is True
-    assert "disabled" in r["annualisation_message"]
+    assert "disabled" in _en(r["annualisation_message"])
 
 
 # ── §2.4's benchmark box, and its conditional fourth row ─────────────────────────────────────
@@ -689,7 +723,7 @@ def test_export_row_renders_when_the_capture_ratios_diverge_beyond_the_threshold
     """
     block = _bench_block(capture=0.70, capture_unconstrained=0.55)
     assert _labels(block)[3] == "…if export allowed"
-    assert "export" in block["gloss"]
+    assert "export" in _en(block["gloss"])
 
 
 def test_export_row_is_omitted_when_the_capture_ratios_barely_differ():
@@ -746,7 +780,7 @@ def test_export_row_is_omitted_when_export_is_allowed():
     """
     block = _bench_block(capture=0.70, capture_unconstrained=None)
     assert "…if export allowed" not in _labels(block)
-    assert "export" not in block["gloss"]
+    assert "export" not in _en(block["gloss"])
 
 
 def test_export_row_is_omitted_end_to_end_when_export_is_allowed():
@@ -774,14 +808,17 @@ def test_export_row_is_omitted_end_to_end_when_export_is_allowed():
 def test_benchmark_gloss_states_the_capture_ratio_and_the_floor_caveat():
     """§2.4's gloss, and §7.2 item 6: the ratio is a FLOOR on achievable improvement, not a target.
 
-    Also asserts the gloss carries no literal "%": `app/i18n.py` installs the Jinja i18n extension
-    with `newstyle=True`, so a "%" before a letter in a string that reaches `_()` raises before it
-    can be rendered. The gloss says "percent" in words instead.
+    Also asserts the RENDERED gloss carries no literal "%". That began as an i18n constraint — the
+    Jinja i18n extension was installed with `newstyle=True`, which %-formatted the translated
+    result, so a "%" before a letter raised at render time — and no longer is one: `app/i18n.py`
+    now installs with `newstyle=False`. The assertion is kept as a wording check, because the box
+    saying "57 percent" and the tiles saying "34.2 %" is a deliberate distinction (prose vs figure)
+    and a "%" appearing here would mean someone changed the sentence.
     """
     block = _bench_block(capture=0.57, capture_unconstrained=None)
-    assert "57 percent" in block["gloss"]
-    assert "floor" in block["gloss"]
-    assert "%" not in block["gloss"]
+    assert "57 percent" in _en(block["gloss"])
+    assert "floor" in _en(block["gloss"])
+    assert "%" not in _en(block["gloss"])
 
 
 def test_benchmark_gloss_has_no_ratio_when_nothing_could_have_been_avoided():
@@ -805,16 +842,18 @@ def test_benchmark_gloss_has_no_ratio_when_nothing_could_have_been_avoided():
         ),
         _ETA,
     )
-    assert "capture ratio" in block["gloss"]
-    assert "percent" not in block["gloss"]
+    assert "capture ratio" in _en(block["gloss"])
+    assert "percent" not in _en(block["gloss"])
     assert all(row["frac"] == 0.0 for row in block["rows"])  # no scale → no bars, not a crash
 
 
 def test_benchmark_strings_contain_no_literal_percent_sign():
-    """The i18n guard, applied to every string the benchmark box sends through `_()`.
+    """No literal "%" in the benchmark box's RENDERED text or its row labels.
 
-    Mirrors `test_no_caveat_contains_a_literal_percent_sign`. The template wraps both the row labels
-    and the gloss in `_()`, so a "%" in either raises at render time under `newstyle=True`.
+    Mirrors `test_no_caveat_contains_a_literal_percent_sign`. Once an i18n safety requirement
+    (`newstyle=True` %-formatted every translated string, so a stray "%" raised); now a wording
+    check, since `app/i18n.py` uses `newstyle=False`. Note this asserts on the RENDERED gloss:
+    the msgid legitimately contains `%(pct)s`, which is the placeholder, not a percent sign.
     """
     ds = _dataset([_energy("grid_import_t1", 2.0), _energy("grid_export_t1", 0.0)])
     # `with_benchmark=True`: the DP is LAZY now (it costs ~4.6 s on a year of hourly data and is
@@ -822,7 +861,7 @@ def test_benchmark_strings_contain_no_literal_percent_sign():
     r = results_from(ds, (_WIN_START, _WIN_END), with_benchmark=True)
     assert r is not None
     block = r["benchmark"]
-    assert "%" not in block["gloss"]
+    assert "%" not in _en(block["gloss"])
     for row in block["rows"]:
         assert "%" not in row["label"]
 
@@ -1021,12 +1060,12 @@ def test_capture_ratio_shape_1_normal_renders_a_plain_percentage():
     made to fire on a perfectly ordinary run.
     """
     block = _shape_block(policy_saved=700.0, pf_saved=1000.0, drift=-1.0)
-    assert "captures 70 percent" in block["gloss"]
-    assert "floor" in block["gloss"]
+    assert "captures 70 percent" in _en(block["gloss"])
+    assert "floor" in _en(block["gloss"])
     # The drift-corrected wording must NOT appear: 1 kWh against a 700 kWh saving is far below
     # §6.11's 2% threshold, so there is nothing to correct for.
-    assert "less charged than it started" not in block["gloss"]
-    assert "%" not in block["gloss"]
+    assert "less charged than it started" not in _en(block["gloss"])
+    assert "%" not in _en(block["gloss"])
 
 
 def test_capture_ratio_shape_2_drift_funded_does_not_render_as_a_plain_percentage():
@@ -1039,12 +1078,12 @@ def test_capture_ratio_shape_2_drift_funded_does_not_render_as_a_plain_percentag
     """
     block = _shape_block(policy_saved=400.0, pf_saved=1000.0, drift=-200.0)
     corrected = (400.0 - 200.0 * _ETA) / 1000.0
-    assert f"captures {round(100 * corrected)} percent" in block["gloss"]
-    assert "captures 40 percent" not in block["gloss"]
+    assert f"captures {round(100 * corrected)} percent" in _en(block["gloss"])
+    assert "captures 40 percent" not in _en(block["gloss"])
     # The correction is stated, not applied silently — §6.11's drift metric is untouched, and the
     # reader has to be able to see that this figure is on a different basis from the rows above.
-    assert "less charged than it started" in block["gloss"]
-    assert "%" not in block["gloss"]
+    assert "less charged than it started" in _en(block["gloss"])
+    assert "%" not in _en(block["gloss"])
 
 
 def test_capture_ratio_shape_2_reproduces_the_reported_defect_end_to_end():
@@ -1073,7 +1112,7 @@ def test_capture_ratio_shape_2_reproduces_the_reported_defect_end_to_end():
     assert bench.capture_ratio == pytest.approx(-4.929, abs=1e-3)
     assert bench.policy_soc_delta_kwh == pytest.approx(-18.0, abs=1e-6)
 
-    gloss = _benchmark_block(bench, cfg.eta_d)["gloss"]
+    gloss = _en(_benchmark_block(bench, cfg.eta_d)["gloss"])
     assert "-493" not in gloss and "−493" not in gloss
     assert "less charged than it started" in gloss
     assert "%" not in gloss
@@ -1090,20 +1129,20 @@ def test_capture_ratio_shape_3_zero_bound_with_a_positive_policy_row_does_not_co
     # The row the gloss must not contradict is still there and still honest.
     assert next(r for r in block["rows"] if r["label"] == "Your policy")["value"] == "9 kWh"
     assert "could not have avoided any grid import, so there is no capture ratio" \
-        not in block["gloss"]
+        not in _en(block["gloss"])
     # It says something TRUE about the situation instead: the saving is not one the benchmark
     # could reproduce under the terminal constraint.
-    assert "9 kWh" in block["gloss"]
-    assert "state of charge it started from" in block["gloss"]
-    assert "no capture ratio" in block["gloss"]
-    assert "%" not in block["gloss"]
+    assert "9 kWh" in _en(block["gloss"])
+    assert "state of charge it started from" in _en(block["gloss"])
+    assert "no capture ratio" in _en(block["gloss"])
+    assert "%" not in _en(block["gloss"])
 
 
 def test_capture_ratio_shape_3_zero_bound_and_zero_policy_keeps_the_plain_sentence():
     """When the policy saved ~0 too, the original wording is true and is kept."""
     block = _shape_block(policy_saved=0.0, pf_saved=0.0, drift=0.0)
-    assert "could not have avoided any grid import" in block["gloss"]
-    assert "percent" not in block["gloss"]
+    assert "could not have avoided any grid import" in _en(block["gloss"])
+    assert "percent" not in _en(block["gloss"])
     assert all(row["frac"] == 0.0 for row in block["rows"])  # no scale → no bars, not a crash
 
 
@@ -1115,10 +1154,10 @@ def test_capture_ratio_shape_4_above_one_is_never_a_plain_percentage():
     because it reads as a finding.
     """
     block = _shape_block(policy_saved=1000.0, pf_saved=35.0, drift=0.0)  # ratio 28.57
-    assert "percent" not in block["gloss"]
-    assert "2857" not in block["gloss"] and "2859" not in block["gloss"]
-    assert "did not come out usable" in block["gloss"]
-    assert "%" not in block["gloss"]
+    assert "percent" not in _en(block["gloss"])
+    assert "2857" not in _en(block["gloss"]) and "2859" not in _en(block["gloss"])
+    assert "did not come out usable" in _en(block["gloss"])
+    assert "%" not in _en(block["gloss"])
     # The ROWS stay honest — the defect was the ratio and the gloss, never the bars.
     assert next(r for r in block["rows"] if r["label"] == "Your policy")["value"] == "1,000 kWh"
     assert next(r for r in block["rows"] if r["label"] == "Perfect foresight")["value"] == "35 kWh"
@@ -1133,8 +1172,8 @@ def test_capture_ratio_exactly_one_is_a_result_not_a_fault():
     `test_capture_ratio_shape_2_reproduces_the_reported_defect_end_to_end`.
     """
     block = _shape_block(policy_saved=1000.0, pf_saved=1000.0, drift=0.0)
-    assert "captures 100 percent" in block["gloss"]
-    assert "did not come out usable" not in block["gloss"]
+    assert "captures 100 percent" in _en(block["gloss"])
+    assert "did not come out usable" not in _en(block["gloss"])
 
 
 def test_positive_drift_does_not_trigger_the_correction():
@@ -1145,8 +1184,8 @@ def test_positive_drift_does_not_trigger_the_correction():
     and correcting it would inflate a figure §6.11 wants reported conservatively.
     """
     block = _shape_block(policy_saved=400.0, pf_saved=1000.0, drift=+200.0)
-    assert "captures 40 percent" in block["gloss"]
-    assert "less charged than it started" not in block["gloss"]
+    assert "captures 40 percent" in _en(block["gloss"])
+    assert "less charged than it started" not in _en(block["gloss"])
 
 
 def test_drift_threshold_is_soc_drift_warn_frac_not_a_second_constant():
@@ -1161,9 +1200,9 @@ def test_drift_threshold_is_soc_drift_warn_frac_not_a_second_constant():
     saving = 1000.0
     below = -(SOC_DRIFT_WARN_FRAC * saving) * 0.9
     above = -(SOC_DRIFT_WARN_FRAC * saving) * 1.1
-    assert "less charged than it started" not in _shape_block(
+    assert "less charged than it started" not in _en(_shape_block(
         policy_saved=saving, pf_saved=2000.0, drift=below
-    )["gloss"]
-    assert "less charged than it started" in _shape_block(
+    )["gloss"])
+    assert "less charged than it started" in _en(_shape_block(
         policy_saved=saving, pf_saved=2000.0, drift=above
-    )["gloss"]
+    )["gloss"])

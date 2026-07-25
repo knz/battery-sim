@@ -173,6 +173,19 @@ _PERIOD_SELECTED_BY_NAME: dict[str, str] = {
     "last_1_year": "1 year",
 }
 
+# The shape-4 benchmark gloss (see `_benchmark_block`), shared by the "ratio above the bound with
+# no drift to explain it" and "drift-corrected ratio is itself out of range" paths. A module
+# constant so both paths reference ONE literal and `pybabel extract` sees one msgid. `_N` because
+# a module-level assignment is not a call the extractor recognises — every other msgid in this file
+# reaches the catalog through `_msg`/`_msg_n`, which are extraction keywords; this one needs its
+# own marker.
+_FAULT_GLOSS = _N(
+    "The comparison against a perfectly-informed battery did not come out usable over this "
+    "period: your policy appears to have avoided more grid import than the best possible "
+    "dispatch, which cannot happen and means the two figures are not comparable here. No "
+    "capture ratio is shown. Selecting a longer period usually resolves it."
+)
+
 # Short calendar-month names for the monthly chart x-axis (index 1..12).
 _MONTH_ABBR = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
                "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -263,6 +276,38 @@ def _period_selected_for(dataset: LoadedDataset, window: tuple[datetime, datetim
     # Nearest preset by day count; ties resolve to the first (shortest) match.
     best_name = min(PERIOD_DAYS, key=lambda n: abs(PERIOD_DAYS[n] - span_days))
     return _PERIOD_SELECTED_BY_NAME.get(best_name, "1 year")
+
+
+def _msg(msgid: str, /, **params) -> dict:
+    """A translatable message as a (msgid, params) pair: `{"msgid": ..., "params": {...}}`.
+
+    The shape every user-facing *sentence* this module emits now takes, and the reason it exists:
+    a display string built at runtime with an f-string is a msgid that no `pybabel extract` run can
+    see, so the template's `_()` around it matches no catalog entry and the string renders in
+    English on a Dutch page. Splitting the constant text from the runtime values makes the msgid a
+    compile-time literal again — extractable, translatable, and reorderable by the translator,
+    which fragment concatenation cannot express.
+
+    The template does the two steps in order: `_(m.msgid) | interpolate(**m.params)` — translate,
+    then substitute (see `app/i18n.interpolate`, and `install_for`'s `newstyle=False`). `params` is
+    always present, `{}` when the msgid carries no placeholders, so the template needs no branch.
+
+    `plural`/`n` are set by `_msg_n` for the counted case; see there.
+    """
+    return {"msgid": msgid, "params": params}
+
+
+def _msg_n(singular: str, plural: str, n: int, /, **params) -> dict:
+    """A COUNTED translatable message: the ngettext counterpart of `_msg`.
+
+    Carries both English forms and the count, so the template can call
+    `ngettext(m.msgid, m.plural, m.n) | interpolate(**m.params)`. Needed because a language picks
+    its plural form from the number, and "1 intervals" is wrong in every language that has one.
+
+    `n` is passed in `params` too under its own name by the caller when the sentence prints it, so
+    the count reaching gettext and the count reaching the text cannot drift apart.
+    """
+    return {"msgid": singular, "plural": plural, "n": n, "params": params}
 
 
 def _g(value) -> str:
@@ -497,10 +542,16 @@ def _benchmark_block(bench: EnergyBenchmark, eta_d: float) -> dict:
     to earn its keep on the §6.12 COST benchmark, where export does pay. That is the threshold
     behaving as designed, not the DP failing to find something.
 
-    **No literal "%" in any string that reaches `_()`.** `app/i18n.py` installs the Jinja i18n
-    extension with `newstyle=True`, which %-formats the translated result, so a "%" before a letter
-    raises. The gloss states the ratio in words ("captures 57 percent of") for the same reason
-    `results_from`'s caveats do.
+    **The gloss is a `_msg` pair, not a string.** Every shape below returns a constant msgid plus
+    its runtime values, so the sentence is extractable and translatable; `_benchmark_box.html`
+    translates the msgid and substitutes afterwards. The one composed shape (the normal case with
+    the export sentence appended) is a msgid of its own rather than two glued together — the two
+    orderings are not interchangeable across languages.
+
+    The gloss states the ratio in words ("captures 57 percent of") rather than with a "%" sign.
+    That began as a workaround for the old `newstyle=True` %-formatting and is no longer required
+    (`app/i18n.py` now installs with `newstyle=False`, so a literal "%" is inert), but the wording
+    is kept: changing it would change the English text, which this restructuring must not do.
     """
     pf = bench.perfect_foresight_saved_kwh
     unc = bench.perfect_foresight_saved_kwh_unconstrained
@@ -536,22 +587,15 @@ def _benchmark_block(bench: EnergyBenchmark, eta_d: float) -> dict:
 
     # ── The gloss (§2.4) — see the docstring's four shapes ─────────────────────────────────────
     #
-    # The standing caveat every shape that states a NUMBER carries: §7.2 item 6 makes the ratio a
-    # floor on achievable improvement, not a target, and a reader who takes it for a target will
-    # under-rate a perfectly reasonable policy.
-    floor_note = (
-        "Perfect foresight knows every future price exactly and no real controller reaches it, so "
-        "treat this as a floor on what a better policy could achieve, not as a target."
-    )
-    # The shape-4 wording, shared by the "ratio > 1 with no drift" and "drift-corrected ratio is
-    # itself out of range" paths. It states NO number: a capture above 100 percent contradicts
-    # fixture 6, so whatever it is, it is not a result.
-    fault_gloss = (
-        "The comparison against a perfectly-informed battery did not come out usable over this "
-        "period: your policy appears to have avoided more grid import than the best possible "
-        "dispatch, which cannot happen and means the two figures are not comparable here. No "
-        "capture ratio is shown. Selecting a longer period usually resolves it."
-    )
+    # Each shape is ONE constant msgid. The §7.2-item-6 floor sentence used to be a `floor_note`
+    # variable appended to two of them; it is now written out inside each, because a msgid assembled
+    # from two fragments is not a sentence a translator can reorder, and gettext has no way to see
+    # the join. Same reason the shape-4 wording, shared by two paths, is a module-level constant
+    # rather than a local: one literal, referenced twice, is still one extractable msgid.
+    #
+    # The shape-4 wording states NO number: a capture above 100 percent contradicts fixture 6, so
+    # whatever it is, it is not a result.
+    fault_gloss = _msg(_FAULT_GLOSS)
 
     # Float slack on the "is the corrected ratio in range" test. The correction subtracts one
     # computed quantity from another and the two can agree to the last bit and still land at
@@ -575,17 +619,18 @@ def _benchmark_block(bench: EnergyBenchmark, eta_d: float) -> dict:
         # avoided, which is a claim about the DP — and it reads as a contradiction whenever the
         # "Your policy" row above shows a positive figure. Branch on the visible row.
         if abs(bench.policy_saved_kwh) <= DIV_GUARD_EPS:
-            gloss = (
+            gloss = _msg(
                 "Over this period even a perfectly-informed battery could not have avoided any "
                 "grid import, so there is no capture ratio to report."
             )
         else:
-            gloss = (
-                f"The best possible dispatch over this period could not have avoided any grid "
-                f"import, yet your policy shows {_fmt_signed_kwh(bench.policy_saved_kwh)} avoided. "
-                f"That figure is not something a perfectly-informed battery could reproduce: the "
-                f"benchmark must return the battery to the state of charge it started from, and "
-                f"your policy did not. There is no capture ratio to report for this period."
+            gloss = _msg(
+                "The best possible dispatch over this period could not have avoided any grid "
+                "import, yet your policy shows %(policy)s avoided. "
+                "That figure is not something a perfectly-informed battery could reproduce: the "
+                "benchmark must return the battery to the state of charge it started from, and "
+                "your policy did not. There is no capture ratio to report for this period.",
+                policy=_fmt_signed_kwh(bench.policy_saved_kwh),
             )
     elif drift_funded:
         # Shape 2: the saving is partly opening charge. State the corrected ratio, and say so.
@@ -594,33 +639,51 @@ def _benchmark_block(bench: EnergyBenchmark, eta_d: float) -> dict:
         ):
             gloss = fault_gloss
         else:
-            gloss = (
-                f"Your battery ended this period "
-                f"{_fmt_kwh(abs(bench.policy_soc_delta_kwh))} less charged than it started, so "
-                f"part of the grid import it avoided was paid for out of the charge it began with "
-                f"rather than earned by its dispatch. The benchmark is not allowed to do that — it "
-                f"must finish at the state of charge it started from — so the two are only "
-                f"comparable once that residual is accounted for. On that basis your policy "
-                f"captures {round(100 * corrected_ratio)} percent of the grid import a "
-                f"perfectly-informed battery could have avoided. {floor_note}"
+            gloss = _msg(
+                "Your battery ended this period "
+                "%(residual)s less charged than it started, so "
+                "part of the grid import it avoided was paid for out of the charge it began with "
+                "rather than earned by its dispatch. The benchmark is not allowed to do that — it "
+                "must finish at the state of charge it started from — so the two are only "
+                "comparable once that residual is accounted for. On that basis your policy "
+                "captures %(pct)s percent of the grid import a "
+                "perfectly-informed battery could have avoided. "
+                "Perfect foresight knows every future price exactly and no real controller "
+                "reaches it, so treat this as a floor on what a better policy could achieve, not "
+                "as a target.",
+                residual=_fmt_kwh(abs(bench.policy_soc_delta_kwh)),
+                pct=round(100 * corrected_ratio),
             )
     elif bench.capture_ratio > 1.0 + RATIO_RANGE_EPS:
         # Shape 4: above the bound with no drift to explain it. Fixture 6 says this cannot happen.
         gloss = fault_gloss
+    elif show_unconstrained and bench.capture_ratio_unconstrained is not None:
+        # Shape 1 with the export sentence. A SEPARATE msgid rather than the plain shape-1 msgid
+        # with a second one concatenated: gettext cannot see a join made in Python, and the two
+        # sentences' order and phrasing are the translator's to decide as one unit.
+        gloss = _msg(
+            "Your policy captures %(pct)s percent of the grid import a "
+            "perfectly-informed battery could have avoided. "
+            "Perfect foresight knows every future price exactly and no real controller reaches "
+            "it, so treat this as a floor on what a better policy could achieve, not as a "
+            "target. Allowed to export, that ceiling rises to %(ceiling)s "
+            "(a %(unc_pct)s percent capture) — the extra "
+            "is arbitrage your export setting currently forbids.",
+            pct=round(100 * bench.capture_ratio),
+            ceiling=_fmt_kwh(unc),
+            unc_pct=round(100 * bench.capture_ratio_unconstrained),
+        )
     else:
         # Shape 1: the normal case. A NEGATIVE ratio reaches here only with an immaterial drift,
         # which means the policy genuinely spent energy (§7.2 item 9) against a positive bound —
         # a real result the negative-saving caveat already explains, and one the reader should see.
-        gloss = (
-            f"Your policy captures {round(100 * bench.capture_ratio)} percent of the grid import a "
-            f"perfectly-informed battery could have avoided. {floor_note}"
+        gloss = _msg(
+            "Your policy captures %(pct)s percent of the grid import a "
+            "perfectly-informed battery could have avoided. "
+            "Perfect foresight knows every future price exactly and no real controller reaches "
+            "it, so treat this as a floor on what a better policy could achieve, not as a target.",
+            pct=round(100 * bench.capture_ratio),
         )
-        if show_unconstrained and bench.capture_ratio_unconstrained is not None:
-            gloss += (
-                f" Allowed to export, that ceiling rises to {_fmt_kwh(unc)} "
-                f"(a {round(100 * bench.capture_ratio_unconstrained)} percent capture) — the extra "
-                f"is arbitrage your export setting currently forbids."
-            )
 
     return {"rows": rows, "gloss": gloss}
 
@@ -694,15 +757,27 @@ def results_from(
 
     # The picker's coverage line, split in two so the template can insert the day count between
     # them: "<dates> · N days · simulated hourly · 8,760 intervals". The day count is the
-    # template's to render because "day"/"days" needs ngettext, whereas these parts are bare
-    # literals. The data-glance section below the picker used to repeat this span; it no longer
-    # does, so the selected range's length is stated once per panel, here.
+    # template's to render (it needs ngettext against `period_days`); `period_dates` is pure data
+    # (two ISO dates) and stays a bare string. The data-glance section below the picker used to
+    # repeat this span; it no longer does, so the selected range's length is stated once per panel.
+    #
+    # `period_run` is a COUNTED message (`_msg_n`): the interval count drives its plural, so a
+    # one-interval window used to read "1 intervals". `res_label` is interpolated as a value; it is
+    # `data_view._fmt_res`'s English label ("hourly", "15-min") and translating that label is
+    # `data_view`'s to do — noted rather than fixed here, since this module must not reach into it.
     period_dates = f"{eff[0].date().isoformat()} → {eff[1].date().isoformat()}"
-    period_run = f"simulated {res_label} · {intervals:,} intervals"
+    period_run = _msg_n(
+        "simulated %(res)s · %(n)s interval",
+        "simulated %(res)s · %(n)s intervals",
+        intervals,
+        res=res_label,
+        n=f"{intervals:,}",
+    )
     period_days = (eff[1] - eff[0]).days
-    # `period` stays the whole line as one string for any consumer that wants it unsplit (and so
-    # the sample view-model's shape is unchanged); the template renders the parts.
-    period = f"{period_dates} · {period_run}"
+    # `period` stays the whole line as one PLAIN string for any consumer that wants it unsplit (the
+    # template falls back to it only for a view-model that predates the split). It is not
+    # translated — the template renders `period_run` instead whenever the split keys are present.
+    period = f"{period_dates} · simulated {res_label} · {intervals:,} intervals"
 
     # ── Run the simulation (§6.9) and compute the §6.11 metrics ────────────────────────────────
     # simulation_frame re-runs reconcile_grid internally rather than taking `rec`. That is one
@@ -750,6 +825,9 @@ def results_from(
         # invented battery numbers rather than raising on a page the user is looking at. This is
         # the ONE place the MEASURED self-sufficiency is shown as a tile value, and it is safe
         # precisely because there is no simulated figure beside it to be compared against.
+        # The tile VALUES stay plain strings. They are figures, not prose: "n/a" is the same
+        # abbreviation in Dutch and the rest are formatted numbers, so there is no msgid to be had.
+        # Only `delta` and `extra`, which carry words ("/ day", "throughput"), become `_msg` pairs.
         ss_str = _fmt_pct(_self_sufficiency(rec))
         kpis = [
             {"title": "GRID IMPORT SAVED", "value": "n/a", "unit": "kWh", "delta": ""},
@@ -804,11 +882,13 @@ def results_from(
             {"title": "SELF-SUFFICIENCY",
              "value": f"{ss_base_str} → {ss_batt_str}",
              "delta": ss_delta},
+            # `delta` and `extra` carry WORDS ("/ day", "throughput"), so they are `_msg` pairs;
+            # the two above carry only formatted numbers and stay plain strings.
             {"title": "EQUIVALENT FULL CYCLES",
              "value": f"{metrics.efc:,.0f}" if metrics.efc is not None else "n/a",
-             "delta": (f"{metrics.cycles_per_day:.2f} / day"
+             "delta": (_msg("%(n)s / day", n=f"{metrics.cycles_per_day:.2f}")
                        if metrics.cycles_per_day is not None else ""),
-             "extra": f"{_fmt_kwh(metrics.throughput_kwh)} throughput"},
+             "extra": _msg("%(kwh)s throughput", kwh=_fmt_kwh(metrics.throughput_kwh))},
         ]
 
         # ── "Where the energy comes from" breakdown (§2.4) ─────────────────────────────────────
@@ -866,18 +946,24 @@ def results_from(
         # "Intervals battery was full / empty" omitted — needs a SoC-bound comparison the metrics
         # layer does not compute yet; omitted rather than guessed.
 
-    # ── Caveats (§2.4). Plain English strings; the template wraps them in _() and a later phase
-    # extracts them to the catalog. Order: reconstruction reliability, price granularity, then the
-    # run-specific notes (negative saving, SoC drift, self-sufficiency clamp), then the standing
-    # note that the battery parameters are defaults rather than the user's.
-    caveats: list[str] = []
+    # ── Caveats (§2.4). Each is a `_msg` (msgid, params) PAIR, not a formatted string: a sentence
+    # assembled here with an f-string is a msgid `pybabel extract` cannot see, so the template's
+    # `_()` around it matched nothing and Dutch readers got all of these in English. The constant
+    # text is the msgid; the figures ride alongside and are substituted after translation
+    # (_msg's docstring, and templates/_msg.html).
+    #
+    # Order: reconstruction reliability, price granularity, then the run-specific notes (negative
+    # saving, SoC drift, self-sufficiency clamp), then the standing note stating the parameter set.
+    caveats: list[dict] = []
     if rec.clamped_frac > CLAMP_UNRELIABLE_FRAC:
-        caveats.append(
-            f"Reconstructed household load was negative in a large share of intervals and clamped "
-            f"to zero ({_fmt_kwh(rec.clamped_kwh)} discarded against {exp_str} exported). This "
-            f"usually means solar export the PV sensor did not report, or an unmapped battery — "
-            f"so the load and self-sufficiency figures here are unreliable."
-        )
+        caveats.append(_msg(
+            "Reconstructed household load was negative in a large share of intervals and clamped "
+            "to zero (%(discarded)s discarded against %(exported)s exported). This "
+            "usually means solar export the PV sensor did not report, or an unmapped battery — "
+            "so the load and self-sufficiency figures here are unreliable.",
+            discarded=_fmt_kwh(rec.clamped_kwh),
+            exported=exp_str,
+        ))
     if metrics is not None:
         # §7.1's own instruction: "Report the observed import alongside it, with the difference
         # labelled as resolution loss." The band above shows the METER's import; the Energy savings
@@ -890,55 +976,77 @@ def results_from(
         # identically and a caveat explaining a difference the reader cannot see would be noise.
         resolution_loss = rec.imp_total - metrics.baseline_import_kwh
         if round(resolution_loss) >= 1:
-            caveats.append(
-                f"Your meter recorded {imp_str} imported over this period; the simulation's "
-                f"no-battery baseline is {_fmt_kwh(metrics.baseline_import_kwh)}. The difference "
-                f"of {_fmt_kwh(resolution_loss)} is energy that flowed both into and out of your "
-                f"house within a single {res_label} interval, which data at this resolution cannot "
-                f"see. Everything under Energy savings is computed from the simulated baseline, so "
-                f"that the battery and no-battery cases are built from the same information; the "
-                f"figures above it are as your meter recorded them. That is why the two sets of "
-                f"numbers do not match exactly."
-            )
+            caveats.append(_msg(
+                "Your meter recorded %(meter)s imported over this period; the simulation's "
+                "no-battery baseline is %(baseline)s. The difference "
+                "of %(difference)s is energy that flowed both into and out of your "
+                "house within a single %(res)s interval, which data at this resolution cannot "
+                "see. Everything under Energy savings is computed from the simulated baseline, so "
+                "that the battery and no-battery cases are built from the same information; the "
+                "figures above it are as your meter recorded them. That is why the two sets of "
+                "numbers do not match exactly.",
+                meter=imp_str,
+                baseline=_fmt_kwh(metrics.baseline_import_kwh),
+                difference=_fmt_kwh(resolution_loss),
+                res=res_label,
+            ))
     price_lost = normalize.price_granularity_lost(dataset.frames, rec.grid_s)
     if price_lost["lost"]:
         native = _fmt_res(price_lost["native_resolution_s"])
-        caveats.append(
-            f"Spot prices are recorded every {native} but the run is {res_label}, so the battery "
-            f"acted on an averaged price and could not chase within-interval swings."
-        )
+        caveats.append(_msg(
+            "Spot prices are recorded every %(native)s but the run is %(res)s, so the battery "
+            "acted on an averaged price and could not chase within-interval swings.",
+            native=native,
+            res=res_label,
+        ))
     if negative_saving and metrics is not None:
         # §7.2 items 9 and 10. Without PV the battery's value is in the price SPREAD — a euro
         # quantity — so an energy-only run measures the cost of moving the energy and none of the
         # benefit. Say that plainly rather than presenting a negative kWh figure as a verdict.
-        caveats.append(
-            f"This battery imported {_fmt_kwh(abs(metrics.saved_kwh))} MORE from the grid than "
-            f"the same household without one. That is a real result, not an error: round-trip "
-            f"losses and standby cost energy, and the value of charging cheaply and discharging "
-            f"when prices are high is a price spread — a euro quantity this energy-only run does "
-            f"not compute. An energy-only run cannot tell you whether the battery is worth buying."
-        )
+        caveats.append(_msg(
+            "This battery imported %(extra)s MORE from the grid than "
+            "the same household without one. That is a real result, not an error: round-trip "
+            "losses and standby cost energy, and the value of charging cheaply and discharging "
+            "when prices are high is a price spread — a euro quantity this energy-only run does "
+            "not compute. An energy-only run cannot tell you whether the battery is worth buying.",
+            extra=_fmt_kwh(abs(metrics.saved_kwh)),
+        ))
     if metrics is not None and metrics.soc_drift_significant:
         # §6.11's SoC drift correction. Without a cost model there is no median import price, so
         # the euro valuation (`soc_delta_value_eur`) is null and is not shown — only the kWh.
-        direction = "more" if metrics.soc_delta_kwh > 0 else "less"
-        caveats.append(
-            f"The battery ended the period {_fmt_kwh(abs(metrics.soc_delta_kwh))} {direction} "
-            f"charged than it started. That residual energy is not part of the saving above and "
-            f"is large relative to it, so the headline figure would move if the period ended at a "
-            f"different state of charge."
-        )
+        #
+        # TWO msgids rather than one with a `%(direction)s` hole. "more"/"less" was previously
+        # substituted as a bare word, which is unextractable and, worse, untranslatable in place:
+        # a language that inflects the adjective or puts it elsewhere in the clause cannot express
+        # either sentence by filling a one-word slot in the other's word order.
+        drift = _fmt_kwh(abs(metrics.soc_delta_kwh))
+        if metrics.soc_delta_kwh > 0:
+            caveats.append(_msg(
+                "The battery ended the period %(drift)s more "
+                "charged than it started. That residual energy is not part of the saving above and "
+                "is large relative to it, so the headline figure would move if the period ended at "
+                "a different state of charge.",
+                drift=drift,
+            ))
+        else:
+            caveats.append(_msg(
+                "The battery ended the period %(drift)s less "
+                "charged than it started. That residual energy is not part of the saving above and "
+                "is large relative to it, so the headline figure would move if the period ended at "
+                "a different state of charge.",
+                drift=drift,
+            ))
     if clamp_fired:
         # §2.3a's display clamp, on EITHER half of the tile. Only the presentation is clamped; the
         # metric itself is negative. Worded to cover both sides rather than naming the battery one:
         # the baseline half is now run A's simulated figure and can clamp too (the same round-trip
         # and drift mechanics apply to a household with an EXISTING battery in the reconstruction).
-        caveats.append(
+        caveats.append(_msg(
             "Self-sufficiency came out below zero and is shown as zero. Grid "
             "import exceeded the reconstructed household load over this period — the battery ended more "
             "charged than it started, or round-trip losses consumed imported energy. It evens out "
             "over full charge/discharge cycles; select a longer period to see it."
-        )
+        ))
     # §2.5(b) / §7.3 check 18: the SOFT block. A user who selected an unsupported phase topology
     # and continued is running the 3-phase model, and `topology.approximated` records that choice.
     # The spec requires the caveat to be PINNED to the results panel, not merely shown once in the
@@ -948,32 +1056,37 @@ def results_from(
     # 12), because v1 has no per-phase model at all. What it cannot capture is the per-phase power
     # limit — a 1-phase battery cannot exceed one phase's fuse rating however the load is spread.
     if cfg.topology.approximated:
-        caveats.append(
+        caveats.append(_msg(
             "Your battery is wired across the phases in a way version 1 does not model, so this "
             "run uses the 3-phase approximation you accepted. Because a smart meter nets across "
             "phases the energy result should be close; what is not modelled is the per-phase "
             "power limit, which a 1-phase battery cannot exceed however the load is distributed."
-        )
+        ))
 
     # State the parameter set the figures were computed under. Stated rather than hidden — a
     # figure computed from an unstated parameter set is the kind of number that propagates
     # unchallenged.
     #
-    # **No literal "%" in any caveat string.** The template renders these through `_()`, and the
-    # Jinja i18n extension is installed with `newstyle=True`, which applies %-formatting to the
-    # translated result: "90% round-trip" comes out as "90{}ound-trip" because "% r" is read as a
-    # conversion specifier. Escaping it as "%%" would work but pushes the escape onto every
-    # translator of every catalog, so the caveats are worded without the sign instead — hence
-    # "0.90 round-trip" below rather than "90% round-trip". (The KPI tiles and breakdown rows are
-    # unaffected: they are values, rendered without `_()`.)
-    caveats.append(
-        f"Computed for the battery configured in the parameters panel — "
-        f"{_g(cfg.battery.usable_capacity_kwh)} kWh usable, "
-        f"{_g(cfg.battery.max_charge_kw)}/{_g(cfg.battery.max_discharge_kw)} kW, "
-        f"{_g(cfg.battery.roundtrip_efficiency)} round-trip efficiency, "
-        f"charge {_policy_key(cfg.policy.charge_policy)} / "
-        f"discharge {_policy_key(cfg.policy.discharge_policy)}."
-    )
+    # The caveats carry no literal "%" sign — the round-trip efficiency reads "0.90 round-trip"
+    # rather than "90% round-trip". That began as a workaround for the old `newstyle=True`
+    # %-formatting, which read "% r" as a conversion specifier and rendered "90{}ound-trip"; it is
+    # no longer needed (`app/i18n.install_for` now uses `newstyle=False`, so a literal "%" is
+    # inert). The wording is kept because changing it would change the English text, which this
+    # restructuring must not do.
+    caveats.append(_msg(
+        "Computed for the battery configured in the parameters panel — "
+        "%(capacity)s kWh usable, "
+        "%(charge_kw)s/%(discharge_kw)s kW, "
+        "%(efficiency)s round-trip efficiency, "
+        "charge %(charge_policy)s / "
+        "discharge %(discharge_policy)s.",
+        capacity=_g(cfg.battery.usable_capacity_kwh),
+        charge_kw=_g(cfg.battery.max_charge_kw),
+        discharge_kw=_g(cfg.battery.max_discharge_kw),
+        efficiency=_g(cfg.battery.roundtrip_efficiency),
+        charge_policy=_policy_key(cfg.policy.charge_policy),
+        discharge_policy=_policy_key(cfg.policy.discharge_policy),
+    ))
 
     # The "Your data at a glance" figures, repeated inside panel ③ but over the SELECTED range (the
     # effective reconcile window), with the spot price clamped to that range too — unlike the
@@ -1019,11 +1132,21 @@ def results_from(
     span_days = (eff[1] - eff[0]).days
     if span_days < min_annualisation_days:
         result["annualisation_disabled"] = True
-        result["annualisation_message"] = (
-            f"Annualised projection is disabled for ranges under {min_annualisation_days} days. "
+        # A COUNTED message: `min_annualisation_days` drives the "days" plural. It is 90 today, so
+        # only the plural form is ever selected — but the count is what gettext needs to pick a
+        # form, and hard-coding the plural would break the moment the constant changes or a
+        # language with a different plural rule is added.
+        result["annualisation_message"] = _msg_n(
+            "Annualised projection is disabled for ranges under %(n)s day. "
             "Battery savings are strongly seasonal; scaling a short window to a year can overstate "
             "annual savings by a factor of roughly 2–3. Select 6 months or 1 year to see an annual "
-            "figure."
+            "figure.",
+            "Annualised projection is disabled for ranges under %(n)s days. "
+            "Battery savings are strongly seasonal; scaling a short window to a year can overstate "
+            "annual savings by a factor of roughly 2–3. Select 6 months or 1 year to see an annual "
+            "figure.",
+            min_annualisation_days,
+            n=min_annualisation_days,
         )
 
     return result

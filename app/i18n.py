@@ -179,9 +179,20 @@ def interpolate(template: str, /, **values) -> str:
     steps rather than one, so only strings that actually carry placeholders are ever %-formatted.
 
     Templates call it as `_('… %(kw)s …') | interpolate(kw=value)`; Python callers building a
-    (msgid, params) pair hand both to the template and let it do the same. Missing or surplus
-    keys raise, which is what we want — a placeholder left unfilled is a bug in the caller, and a
-    silently half-substituted string is worse than a loud failure.
+    (msgid, params) pair hand both to the template and let it do the same.
+
+    The two error cases are deliberately asymmetric, because they are different failures:
+
+    * A **missing** key raises `KeyError`. The string carries `%(kw)s` and nobody supplied `kw`,
+      so the alternative is shipping a literal "%(kw)s" to the user. That is a bug in the calling
+      code, it fails the same way in every locale, and it will be caught the first time the branch
+      renders — so failing loudly is right.
+    * A **surplus** key is ignored. It means a TRANSLATION dropped a placeholder the English msgid
+      has: the sentence is still readable, just missing a figure, and only in that one language.
+      Raising would turn a wording defect in one catalog into a 500 on a page the user is reading,
+      while the same page works in English. Degrading is the better trade. The catalogs are the
+      place to catch it — `tests/test_i18n.py` asserts placeholder parity across locales for the
+      strings that carry them.
     """
     return template % values
 

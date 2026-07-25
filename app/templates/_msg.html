@@ -1,0 +1,49 @@
+{#
+  _msg.html — render a view-model message: translate first, then interpolate.
+
+  One macro, `msg(m)`, and one reason for it: view-models used to hand the templates display
+  strings they had already assembled with f-strings, so the msgid the template's `_()` looked up
+  was a runtime value that matched no catalog entry. `pybabel extract` never saw those strings and
+  a Dutch reader got them in English. The fix is for the view-model to emit the constant msgid and
+  the runtime values SEPARATELY — `app/results_view._msg` / `._msg_n` build the pair — and for the
+  rendering to do the two steps in order:
+
+      translate the msgid  →  substitute %(name)s  (app/i18n.interpolate, newstyle=False)
+
+  Not the other way round: substituting first would produce the same unextractable runtime string
+  the defect is made of.
+
+  `msg(m)` accepts either shape, deliberately:
+
+    * a PAIR — {"msgid": …, "params": {…}}, optionally with "plural" + "n" for a count-driven
+      message, which is rendered through ngettext so "1 interval" / "2 intervals" both come out
+      right (and so a language with three plural forms can have them);
+    * a BARE STRING — translated through `_()` alone.
+
+  The bare-string branch is not legacy tolerance for its own sake: the sample view-model
+  (app/sample_data.py) still emits pre-formatted `_N`-marked strings, and panel ①'s view-model is
+  converted separately, so both shapes are live at once. It also means a caller with nothing to
+  interpolate need not wrap a plain literal in a dict.
+
+  `params` may be absent or empty; `template % {}` is a no-op, so no branch is needed for it.
+
+  EMPTY AND MISSING VALUES RENDER AS NOTHING, and that guard is load-bearing rather than defensive
+  tidiness. In gettext the empty msgid is the catalog's own METADATA entry, so `_('')` returns the
+  whole PO header — "Project-Id-Version: … POT-Creation-Date: …" — straight onto the page. A None
+  renders the string "None". Both are the kind of thing a caller produces by accident (a field the
+  view-model left unset), and neither should ever be visible, so they are filtered here once rather
+  than guarded at each of the call sites.
+#}
+{%- macro msg(m) -%}
+{%- if not m -%}
+{#- empty / None / missing: render nothing. See the header — `_('')` is the PO metadata block. -#}
+{%- elif m is mapping -%}
+{%- if m.plural is defined -%}
+{{- ngettext(m.msgid, m.plural, m.n) | interpolate(**(m.params or {})) -}}
+{%- else -%}
+{{- _(m.msgid) | interpolate(**(m.params or {})) -}}
+{%- endif -%}
+{%- else -%}
+{{- _(m) -}}
+{%- endif -%}
+{%- endmacro -%}
