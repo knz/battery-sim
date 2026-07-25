@@ -450,19 +450,22 @@ def test_results_pv_shows_self_consumption_equal_halves():
     assert sc["value"] == "100% → 100%"
 
 
-def test_results_no_longer_claims_the_battery_is_unconfigured():
-    """The zero-battery caveat is GONE — the battery now runs — and is replaced by the honest one.
+def test_results_state_the_parameter_set_they_were_computed_under():
+    """The caveat names the battery the figures are for — it is no longer a placeholder.
 
-    What replaces it is narrower and true: the parameters are appendix-A defaults because panel ②
-    is not wired to a config object yet (Phase 6), so the figures are for a default battery rather
-    than a chosen one. That distinction has to stay visible; a computed number whose parameter set
-    is unstated is exactly the kind of figure that propagates unchallenged.
+    Two earlier wordings are gone: the zero-battery caveat (the battery runs now) and the
+    "parameters panel is not wired up yet" one (Phase 6 wired it). What must stay is the fact
+    itself: a computed number whose parameter set is unstated is exactly the kind of figure that
+    propagates unchallenged, so the caveat still names capacity, powers, efficiency and policies.
     """
     ds = _dataset([_energy("grid_import_t1", 2.0), _energy("grid_export_t1", 0.0)])
     r = results_from(ds, (_WIN_START, _WIN_END))
     assert not any("No battery is configured" in c for c in r["caveats"])
     assert not any("every savings figure is zero" in c for c in r["caveats"])
-    assert any("default battery" in c and "10 kWh usable" in c for c in r["caveats"])
+    assert not any("not wired up yet" in c for c in r["caveats"])
+    assert any(
+        "10 kWh usable" in c and "5/5 kW" in c and "charge P3" in c for c in r["caveats"]
+    )
 
 
 def test_results_reports_a_negative_saving_honestly():

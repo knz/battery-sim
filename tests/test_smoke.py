@@ -191,8 +191,11 @@ def test_new_pending_controls_marked(page):
 
 def test_thumbsup_acknowledges_in_place(page):
     # Clicking the thumbs-up flips the button to "✓ Noted" and shows the thanks line, without
-    # reporting any failure. Uses the Allow-export control so it is independent of other tests.
-    page.locator("[data-feature-key=discharge_allow_export]").click()
+    # reporting any failure. Uses the setup band's "Simulate cost savings" control: it is in a
+    # region no other test mutates, and the cost machinery genuinely is still unbuilt. (This test
+    # used the Allow-export checkbox until panel ② was wired — that control is a real dispatch
+    # setting now, so it no longer carries a pending affordance.)
+    page.locator("[data-feature-key=simulate_cost]").click()
     dialog = page.locator("#pending-dialog")
     assert dialog.get_by_role("heading", name="Not built yet").is_visible()
     dialog.get_by_role("button", name="I want this").click()

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-25 01:07+0200\n"
+"POT-Creation-Date: 2026-07-25 11:03+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -44,13 +44,22 @@ msgstr ""
 msgid "1-phase"
 msgstr ""
 
+msgid "1-phase battery"
+msgstr ""
+
 msgid "2,410 kWh throughput"
 msgstr ""
 
 msgid "3 months"
 msgstr ""
 
+msgid "3 × 1-phase batteries"
+msgstr ""
+
 msgid "3-phase"
+msgstr ""
+
+msgid "3-phase inverter"
 msgstr ""
 
 msgid "6 months"
@@ -73,9 +82,6 @@ msgid "AC-to-AC at the meter"
 msgstr ""
 
 msgid "About"
-msgstr ""
-
-msgid "Allow export to grid"
 msgstr ""
 
 msgid "Allow export to grid during D2/D3"
@@ -123,16 +129,31 @@ msgstr ""
 msgid "Cancel"
 msgstr ""
 
+msgid "Cannot be negative."
+msgstr ""
+
 msgid "Caveats for this run"
 msgstr ""
 
+#, python-format
+msgid ""
+"Charge band [%(a)s, %(b)s] and discharge band [%(c)s, %(d)s] do not "
+"overlap. ✓"
+msgstr ""
+
 msgid "Charge policy"
+msgstr ""
+
+msgid "Charge when A ≤ spot ≤ B. Compared against EPEX spot."
 msgstr ""
 
 msgid "Charged"
 msgstr ""
 
 msgid "Charged into the battery"
+msgstr ""
+
+msgid "Charges from the grid, discharges to the house. One conversion each way."
 msgstr ""
 
 msgid "Choose a source"
@@ -154,6 +175,9 @@ msgid "Confirm"
 msgstr ""
 
 msgid "Consumption"
+msgstr ""
+
+msgid "Continue with a 3-phase approximation"
 msgstr ""
 
 msgid "Conversion losses"
@@ -206,6 +230,9 @@ msgstr ""
 msgid "EQUIVALENT FULL CYCLES"
 msgstr ""
 
+msgid "Economic guard: never discharge at a loss"
+msgstr ""
+
 msgid "Enable cost simulation"
 msgstr ""
 
@@ -213,6 +240,9 @@ msgid "Energy flows"
 msgstr ""
 
 msgid "Energy savings"
+msgstr ""
+
+msgid "Enter a number."
 msgstr ""
 
 msgid "Entity"
@@ -292,6 +322,9 @@ msgstr ""
 msgid "Grid power"
 msgstr ""
 
+msgid "Grid-coupled battery"
+msgstr ""
+
 msgid "Home Assistant"
 msgstr ""
 
@@ -310,9 +343,15 @@ msgstr ""
 msgid "How is your PV connected to the battery?"
 msgstr ""
 
+msgid "How is your battery connected across the phases?"
+msgstr ""
+
 msgid ""
 "If you would use it, say so. It tells us what to build next, and it is "
 "the only signal we get."
+msgstr ""
+
+msgid "Import limit override"
 msgstr ""
 
 msgid "Imported"
@@ -354,7 +393,19 @@ msgstr ""
 msgid "Min state of charge"
 msgstr ""
 
+msgid "Minimum state of charge must be below the maximum."
+msgstr ""
+
 msgid "Monthly savings"
+msgstr ""
+
+msgid "Must be a whole number of at least 2."
+msgstr ""
+
+msgid "Must be between 0 and 100."
+msgstr ""
+
+msgid "Must be greater than zero."
 msgstr ""
 
 msgid ""
@@ -413,6 +464,12 @@ msgid ""
 "connection is reused across every slot that uses it."
 msgstr ""
 
+msgid ""
+"Please tell us about your setup — inverter model, phase allocation, and "
+"whether you have per-phase sensors. It directly determines whether this "
+"lands in version 2."
+msgstr ""
+
 msgid "Preset historical (Energy-Charts NL)"
 msgstr ""
 
@@ -440,6 +497,9 @@ msgstr ""
 msgid "Round-trip efficiency"
 msgstr ""
 
+msgid "Round-trip efficiency must be above 50 and at most 100."
+msgstr ""
+
 msgid "SELF-SUFFICIENCY"
 msgstr ""
 
@@ -459,6 +519,9 @@ msgid "Series"
 msgstr ""
 
 msgid "Series slots"
+msgstr ""
+
+msgid "Serve house load"
 msgstr ""
 
 msgid "Serve house load when consumption exceeds solar"
@@ -524,6 +587,9 @@ msgstr ""
 msgid "Standby draw"
 msgstr ""
 
+msgid "Standby draw cannot be negative."
+msgstr ""
+
 msgid ""
 "Stays in your browser. It is sent only to your Home Assistant, never to "
 "this app."
@@ -533,6 +599,30 @@ msgid "Test connection"
 msgstr ""
 
 msgid "Thanks. We have recorded that you want this."
+msgstr ""
+
+msgid ""
+"The charge band and the discharge band overlap; charge and discharge "
+"requests will be netted against each other."
+msgstr ""
+
+msgid "The connection must be 1-phase or 3-phase."
+msgstr ""
+
+msgid ""
+"The initial state of charge is outside the operating window and will be "
+"clamped at the first interval."
+msgstr ""
+
+msgid "The lower bound is above the upper bound, so this band never fires."
+msgstr ""
+
+msgid "The perfect-foresight benchmark could not be computed for this period."
+msgstr ""
+
+msgid ""
+"The round-trip efficiency plus the DC bonus exceeds 100, so the DC charge"
+" path would create energy."
 msgstr ""
 
 msgid "The run uses"
@@ -556,6 +646,11 @@ msgid ""
 "These come from the battery you already own. The consumption and self-"
 "consumption figures above are reconstructed net of it, so they describe "
 "the house rather than the meter."
+msgstr ""
+
+msgid ""
+"These parameters could not be saved and will be lost when the app "
+"restarts. Check that the data directory is writable."
 msgstr ""
 
 msgid "These two answers decide what the app asks you for below."
@@ -585,6 +680,9 @@ msgstr ""
 msgid "Usable capacity"
 msgstr ""
 
+msgid "Usable capacity must be greater than zero."
+msgstr ""
+
 msgid ""
 "Uses the shared Home Assistant connection — configure it once (the button"
 " above), then fetch history for all Home Assistant slots together."
@@ -594,6 +692,11 @@ msgid "Want to know what this is worth in euros?"
 msgstr ""
 
 msgid "Where the energy comes from"
+msgstr ""
+
+msgid ""
+"Without solar there is no surplus to capture, so grid charging is the "
+"only way to fill the battery."
 msgstr ""
 
 msgid "Yes"
@@ -624,6 +727,16 @@ msgid ""
 "swings."
 msgstr ""
 
+msgid "Your setup — battery on the AC side, no solar"
+msgstr ""
+
+msgid ""
+"Your smart meter nets across phases, so the financial result would be "
+"close to the 3-phase case. What we cannot model without per-phase data is"
+" the per-phase power limit — a 1-phase battery cannot exceed one phase’s "
+"fuse rating no matter how the load is distributed."
+msgstr ""
+
 msgid ""
 "Your smart meter only sees energy crossing the grid connection, so "
 "household consumption is reconstructed: load = grid import − grid export "
@@ -650,6 +763,9 @@ msgid "choose entity…"
 msgstr ""
 
 msgid "close"
+msgstr ""
+
+msgid "computing the perfect-foresight benchmark…"
 msgstr ""
 
 msgid "day"
@@ -689,13 +805,25 @@ msgstr ""
 msgid "last 6 months"
 msgstr ""
 
+msgid "leave empty for the same as import"
+msgstr ""
+
+msgid "leave empty to derive from the fuse"
+msgstr ""
+
 msgid "long-lived access token"
 msgstr ""
 
 msgid "low"
 msgstr ""
 
+msgid "needs attention"
+msgstr ""
+
 msgid "net of your existing battery"
+msgstr ""
+
+msgid "not in v1"
 msgstr ""
 
 msgid "not nameplate"
@@ -716,13 +844,16 @@ msgstr ""
 msgid "required if you have PV"
 msgstr ""
 
-msgid "same as import"
+msgid "saving…"
 msgstr ""
 
-msgid "see §2.5"
+msgid "set by the topology selector below"
 msgstr ""
 
 msgid "since"
+msgstr ""
+
+msgid "supported"
 msgstr ""
 
 msgid "valid"
@@ -737,9 +868,6 @@ msgstr ""
 msgid "…if export allowed"
 msgstr ""
 
-msgid "← Back"
-msgstr ""
-
 msgid "≈260 kWh/yr"
 msgstr ""
 
@@ -752,8 +880,11 @@ msgstr ""
 
 #, python-format
 msgid ""
-"⚠ Charge band [%(a)s, %(b)s] and discharge band [%(c)s, %(d)s] do not "
-"overlap. ✓"
+"⚠ Charge band [%(a)s, %(b)s] and discharge band [%(c)s, %(d)s] overlap. "
+"Charge and discharge requests will be netted against each other."
+msgstr ""
+
+msgid "⚠ This topology is not fully supported in version 1."
 msgstr ""
 
 msgid "✓ Connected"

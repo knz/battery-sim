@@ -53,14 +53,23 @@ msgstr "1 jaar"
 msgid "1-phase"
 msgstr "1-fase"
 
+msgid "1-phase battery"
+msgstr "1-fase batterij"
+
 msgid "2,410 kWh throughput"
 msgstr "2.410 kWh doorzet"
 
 msgid "3 months"
 msgstr "3 maanden"
 
+msgid "3 × 1-phase batteries"
+msgstr "3 × 1-fase batterijen"
+
 msgid "3-phase"
 msgstr "3-fase"
+
+msgid "3-phase inverter"
+msgstr "3-fase omvormer"
 
 msgid "6 months"
 msgstr "6 maanden"
@@ -86,9 +95,6 @@ msgstr "AC-naar-AC bij de meter"
 
 msgid "About"
 msgstr "Over"
-
-msgid "Allow export to grid"
-msgstr "Teruglevering aan net toestaan"
 
 msgid "Allow export to grid during D2/D3"
 msgstr "Teruglevering aan net toestaan tijdens D2/D3"
@@ -135,17 +141,32 @@ msgstr "Berekenen →"
 msgid "Cancel"
 msgstr "Annuleren"
 
+msgid "Cannot be negative."
+msgstr "Mag niet negatief zijn."
+
 msgid "Caveats for this run"
 msgstr "Kanttekeningen bij deze berekening"
 
+#, python-format
+msgid ""
+"Charge band [%(a)s, %(b)s] and discharge band [%(c)s, %(d)s] do not "
+"overlap. ✓"
+msgstr "Laadband [%(a)s, %(b)s] en ontlaadband [%(c)s, %(d)s] overlappen niet. ✓"
+
 msgid "Charge policy"
 msgstr "Laadstrategie"
+
+msgid "Charge when A ≤ spot ≤ B. Compared against EPEX spot."
+msgstr "Laden wanneer A ≤ spot ≤ B. Vergeleken met de EPEX-spotprijs."
 
 msgid "Charged"
 msgstr "Geladen"
 
 msgid "Charged into the battery"
 msgstr "In de batterij geladen"
+
+msgid "Charges from the grid, discharges to the house. One conversion each way."
+msgstr "Laadt vanaf het net, ontlaadt naar de woning. Eén conversie per richting."
 
 msgid "Choose a source"
 msgstr "Kies een bron"
@@ -167,6 +188,9 @@ msgstr "Bevestigen"
 
 msgid "Consumption"
 msgstr "Verbruik"
+
+msgid "Continue with a 3-phase approximation"
+msgstr "Doorgaan met een 3-fase benadering"
 
 msgid "Conversion losses"
 msgstr "Omzettingsverliezen"
@@ -221,6 +245,9 @@ msgstr "Heb je zonnepanelen?"
 msgid "EQUIVALENT FULL CYCLES"
 msgstr "EQUIVALENTE VOLLEDIGE CYCLI"
 
+msgid "Economic guard: never discharge at a loss"
+msgstr "Economische bewaking: nooit met verlies ontladen"
+
 msgid "Enable cost simulation"
 msgstr "Kostensimulatie inschakelen"
 
@@ -229,6 +256,9 @@ msgstr "Energiestromen"
 
 msgid "Energy savings"
 msgstr "Energiebesparing"
+
+msgid "Enter a number."
+msgstr "Voer een getal in."
 
 msgid "Entity"
 msgstr "Entiteit"
@@ -312,6 +342,9 @@ msgstr "Netafname, met batterij"
 msgid "Grid power"
 msgstr "Netvermogen"
 
+msgid "Grid-coupled battery"
+msgstr "Netgekoppelde batterij"
+
 msgid "Home Assistant"
 msgstr "Home Assistant"
 
@@ -330,12 +363,18 @@ msgstr "Huishouden"
 msgid "How is your PV connected to the battery?"
 msgstr "Hoe zijn je zonnepanelen met de batterij verbonden?"
 
+msgid "How is your battery connected across the phases?"
+msgstr "Hoe is uw batterij over de fasen aangesloten?"
+
 msgid ""
 "If you would use it, say so. It tells us what to build next, and it is "
 "the only signal we get."
 msgstr ""
 "Als je dit zou gebruiken, laat het weten. Het vertelt ons wat we hierna "
 "moeten bouwen, en het is het enige signaal dat we krijgen."
+
+msgid "Import limit override"
+msgstr "Afwijkende afnamelimiet"
 
 msgid "Imported"
 msgstr "Afgenomen"
@@ -376,8 +415,20 @@ msgstr "Meterstanden"
 msgid "Min state of charge"
 msgstr "Min. laadtoestand"
 
+msgid "Minimum state of charge must be below the maximum."
+msgstr "De minimale laadtoestand moet onder de maximale liggen."
+
 msgid "Monthly savings"
 msgstr "Maandelijkse besparing"
+
+msgid "Must be a whole number of at least 2."
+msgstr "Moet een geheel getal van minstens 2 zijn."
+
+msgid "Must be between 0 and 100."
+msgstr "Moet tussen 0 en 100 liggen."
+
+msgid "Must be greater than zero."
+msgstr "Moet groter dan nul zijn."
 
 msgid ""
 "NL day-ahead spot prices from 2023 to today: committed on disk and "
@@ -449,6 +500,15 @@ msgstr ""
 "Assistant maak je één keer verbinding vanuit de bronlade (Configureren), "
 "en die verbinding wordt hergebruikt voor elke plaats die het gebruikt."
 
+msgid ""
+"Please tell us about your setup — inverter model, phase allocation, and "
+"whether you have per-phase sensors. It directly determines whether this "
+"lands in version 2."
+msgstr ""
+"Vertel ons over uw opstelling — omvormermodel, verdeling over de fasen, "
+"en of u sensoren per fase heeft. Dat bepaalt rechtstreeks of dit in "
+"versie 2 terechtkomt."
+
 msgid "Preset historical (Energy-Charts NL)"
 msgstr "Vaste historische reeks (Energy-Charts NL)"
 
@@ -479,6 +539,9 @@ msgstr "Rol"
 msgid "Round-trip efficiency"
 msgstr "Retourrendement"
 
+msgid "Round-trip efficiency must be above 50 and at most 100."
+msgstr "Het retourrendement moet boven de 50 en ten hoogste 100 zijn."
+
 msgid "SELF-SUFFICIENCY"
 msgstr "ZELFVOORZIENING"
 
@@ -499,6 +562,9 @@ msgstr "Reeks"
 
 msgid "Series slots"
 msgstr "Reeksplaatsen"
+
+msgid "Serve house load"
+msgstr "Huisverbruik dekken"
 
 msgid "Serve house load when consumption exceeds solar"
 msgstr "Huisverbruik dekken wanneer het verbruik de opwek overtreft"
@@ -570,6 +636,9 @@ msgstr "Sluipverbruik"
 msgid "Standby draw"
 msgstr "Sluipverbruik"
 
+msgid "Standby draw cannot be negative."
+msgstr "Het standby-verbruik mag niet negatief zijn."
+
 msgid ""
 "Stays in your browser. It is sent only to your Home Assistant, never to "
 "this app."
@@ -582,6 +651,40 @@ msgstr "Verbinding testen"
 
 msgid "Thanks. We have recorded that you want this."
 msgstr "Bedankt. We hebben genoteerd dat u dit wilt."
+
+msgid ""
+"The charge band and the discharge band overlap; charge and discharge "
+"requests will be netted against each other."
+msgstr ""
+"Het laadband en het ontlaadband overlappen; laad- en ontlaadverzoeken "
+"worden tegen elkaar weggestreept."
+
+msgid "The connection must be 1-phase or 3-phase."
+msgstr "De aansluiting moet 1-fase of 3-fase zijn."
+
+msgid ""
+"The initial state of charge is outside the operating window and will be "
+"clamped at the first interval."
+msgstr ""
+"De begin-laadtoestand ligt buiten het werkbereik en wordt bij het eerste"
+" interval afgekapt."
+
+msgid "The lower bound is above the upper bound, so this band never fires."
+msgstr ""
+"De ondergrens ligt boven de bovengrens, dus deze band treedt nooit in "
+"werking."
+
+msgid "The perfect-foresight benchmark could not be computed for this period."
+msgstr ""
+"De perfecte-vooruitzichtbenchmark kon voor deze periode niet worden "
+"berekend."
+
+msgid ""
+"The round-trip efficiency plus the DC bonus exceeds 100, so the DC charge"
+" path would create energy."
+msgstr ""
+"Het retourrendement plus de DC-bonus komt boven de 100, waardoor het DC-"
+"laadpad energie zou creëren."
 
 msgid "The run uses"
 msgstr "De berekening gebruikt"
@@ -619,6 +722,13 @@ msgstr ""
 "zelfconsumptiecijfers hierboven zijn hierop gecorrigeerd, zodat ze het "
 "huis beschrijven en niet de meter."
 
+msgid ""
+"These parameters could not be saved and will be lost when the app "
+"restarts. Check that the data directory is writable."
+msgstr ""
+"Deze parameters konden niet worden opgeslagen en gaan verloren wanneer de"
+" app opnieuw start. Controleer of de datamap beschrijfbaar is."
+
 msgid "These two answers decide what the app asks you for below."
 msgstr "Deze twee antwoorden bepalen wat de app hieronder van je vraagt."
 
@@ -646,6 +756,9 @@ msgstr "CSV uploaden"
 msgid "Usable capacity"
 msgstr "Bruikbare capaciteit"
 
+msgid "Usable capacity must be greater than zero."
+msgstr "De bruikbare capaciteit moet groter dan nul zijn."
+
 msgid ""
 "Uses the shared Home Assistant connection — configure it once (the button"
 " above), then fetch history for all Home Assistant slots together."
@@ -659,6 +772,13 @@ msgstr "Wil je weten wat dit in euro's waard is?"
 
 msgid "Where the energy comes from"
 msgstr "Waar de energie vandaan komt"
+
+msgid ""
+"Without solar there is no surplus to capture, so grid charging is the "
+"only way to fill the battery."
+msgstr ""
+"Zonder zon is er geen overschot om op te vangen, dus laden vanaf het net"
+" is de enige manier om de batterij te vullen."
 
 msgid "Yes"
 msgstr "Ja"
@@ -694,6 +814,21 @@ msgstr ""
 "Je prijzen wijzigen elke 15 minuten, maar je meter registreert per uur. "
 "De berekening ziet dus één gemiddelde prijs per uur en kan niet inspelen "
 "op schommelingen binnen het uur."
+
+msgid "Your setup — battery on the AC side, no solar"
+msgstr "Uw opstelling — batterij aan de AC-zijde, geen zon"
+
+msgid ""
+"Your smart meter nets across phases, so the financial result would be "
+"close to the 3-phase case. What we cannot model without per-phase data is"
+" the per-phase power limit — a 1-phase battery cannot exceed one phase’s "
+"fuse rating no matter how the load is distributed."
+msgstr ""
+"Uw slimme meter saldeert over de fasen heen, dus het financiële "
+"resultaat ligt dicht bij dat van het 3-fase geval. Wat we zonder "
+"gegevens per fase niet kunnen modelleren, is de vermogensgrens per fase "
+"— een 1-fase batterij kan de zekeringwaarde van één fase niet "
+"overschrijden, hoe de belasting ook verdeeld is."
 
 msgid ""
 "Your smart meter only sees energy crossing the grid connection, so "
@@ -733,6 +868,9 @@ msgstr "kies entiteit…"
 
 msgid "close"
 msgstr "sluiten"
+
+msgid "computing the perfect-foresight benchmark…"
+msgstr "de perfecte-vooruitzichtbenchmark berekenen…"
 
 msgid "day"
 msgid_plural "days"
@@ -774,14 +912,26 @@ msgstr "laatste 30 dagen"
 msgid "last 6 months"
 msgstr "laatste 6 maanden"
 
+msgid "leave empty for the same as import"
+msgstr "laat leeg voor gelijk aan afname"
+
+msgid "leave empty to derive from the fuse"
+msgstr "laat leeg om af te leiden uit de hoofdzekering"
+
 msgid "long-lived access token"
 msgstr "long-lived access token (langlevend toegangstoken)"
 
 msgid "low"
 msgstr "laag"
 
+msgid "needs attention"
+msgstr "vereist aandacht"
+
 msgid "net of your existing battery"
 msgstr "na aftrek van uw bestaande batterij"
+
+msgid "not in v1"
+msgstr "niet in v1"
 
 msgid "not nameplate"
 msgstr "niet de nominale waarde"
@@ -801,14 +951,17 @@ msgstr "vereist"
 msgid "required if you have PV"
 msgstr "vereist als je zonnepanelen hebt"
 
-msgid "same as import"
-msgstr "gelijk aan afname"
+msgid "saving…"
+msgstr "opslaan…"
 
-msgid "see §2.5"
-msgstr "zie §2.5"
+msgid "set by the topology selector below"
+msgstr "ingesteld door de topologiekeuze hieronder"
 
 msgid "since"
 msgstr "sinds"
+
+msgid "supported"
+msgstr "ondersteund"
 
 msgid "valid"
 msgstr "geldig"
@@ -821,9 +974,6 @@ msgstr "— geen —"
 
 msgid "…if export allowed"
 msgstr "…als teruglevering toegestaan"
-
-msgid "← Back"
-msgstr "← Terug"
 
 msgid "≈260 kWh/yr"
 msgstr "≈260 kWh/jaar"
@@ -842,9 +992,14 @@ msgstr ""
 
 #, python-format
 msgid ""
-"⚠ Charge band [%(a)s, %(b)s] and discharge band [%(c)s, %(d)s] do not "
-"overlap. ✓"
-msgstr "⚠ Laadband [%(a)s, %(b)s] en ontlaadband [%(c)s, %(d)s] overlappen niet. ✓"
+"⚠ Charge band [%(a)s, %(b)s] and discharge band [%(c)s, %(d)s] overlap. "
+"Charge and discharge requests will be netted against each other."
+msgstr ""
+"⚠ Laadband [%(a)s, %(b)s] en ontlaadband [%(c)s, %(d)s] overlappen. Laad-"
+" en ontlaadverzoeken worden tegen elkaar weggestreept."
+
+msgid "⚠ This topology is not fully supported in version 1."
+msgstr "⚠ Deze topologie wordt in versie 1 niet volledig ondersteund."
 
 msgid "✓ Connected"
 msgstr "✓ Verbonden"
@@ -855,8 +1010,3 @@ msgstr "✓ Genoteerd"
 msgid "👍 I want this"
 msgstr "👍 Ik wil dit"
 
-msgid "computing the perfect-foresight benchmark…"
-msgstr "de perfecte-vooruitzichtbenchmark berekenen…"
-
-msgid "The perfect-foresight benchmark could not be computed for this period."
-msgstr "De perfecte-vooruitzichtbenchmark kon voor deze periode niet worden berekend."

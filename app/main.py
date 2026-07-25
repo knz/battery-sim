@@ -29,8 +29,17 @@ spot price) and merges the resulting series into the latest dataset via dataset.
 without a browser round-trip and without discarding the other series. browser_fetch sources
 (Home Assistant) are NOT loaded here; their frames still arrive over WS /data/ingest/ws.
 
+Beyond panel ③, this layer serves **panel ② — the parameter form** (specs §2.3, §2.5, §3.2
+`PARAMS_CHANGED`). POST /params coerces the submitted fields (app/params_view.py — coercion is the
+form layer's job, `simconfig` rejects `str` on purpose), builds a `SimulationConfig`, validates it
+against §7.3 checks 11/12, persists it ONLY when valid (app/simconfig_store.py) and returns the
+re-rendered panel. An invalid submission re-renders with the user's own values still in the fields
+and the errors bound inline per field. The persisted config drives panel ③: index(), POST /results
+and POST /results/benchmark all read the same one, so a parameter change moves the results.
+
 Routes:
     GET  /                          → the full page (index.html)
+    POST /params                    → validate + persist panel ②; return the HTML fragment
     POST /results                   → recompute panel ③ over a window; return the HTML fragment
     POST /results/benchmark         → the §6.12 perfect-foresight box for that window (slow; lazy)
     GET  /lang/{code}               → set the language cookie, redirect back
@@ -43,6 +52,7 @@ Run:  uv run uvicorn app.main:app --reload
 """
 
 import asyncio
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -60,7 +70,9 @@ from app import (
     i18n,
     ingest_ws,
     interest,
+    params_view,
     results_view,
+    simconfig_store,
     summary_view,
 )
 from app.domain import normalize
@@ -71,6 +83,8 @@ from app.sources import registry
 from app.sources.base import SourceKind
 
 BASE_DIR = Path(__file__).resolve().parent
+
+log = logging.getLogger(__name__)
 
 app = FastAPI(title="Home Battery Simulator")
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
@@ -92,6 +106,16 @@ def index(request: Request):
     i18n.install_for(templates.env, locale)
 
     ctx = sample_view()
+
+    # Panel ② (§2.3) renders from the PERSISTED parameter set — appendix-A defaults until the
+    # user submits the form, and appendix-A defaults again if the stored file is unreadable
+    # (simconfig_store.load never raises, so the page always renders). The setup band above panel
+    # ① reads has_pv / simulate_cost off the same config, so `cfg` is replaced too: it used to be
+    # the static sample dict, and leaving it would let the band and the panel disagree.
+    cfg = simconfig_store.load()
+    ctx["params"] = params_view.params_view(cfg)
+    ctx["cfg"] = {"has_pv": cfg.has_pv, "simulate_cost": cfg.simulate_cost}
+
     # If a real dataset has been fetched and persisted, panel ① renders from it (specs §3.5);
     # otherwise it keeps the static sample as the empty state. Params/results stay sample until
     # their own increments land. A load failure falls back to the sample rather than 500ing.
@@ -114,7 +138,7 @@ def index(request: Request):
             # data_summary, results_from returns None when the frames yield no simulatable grid —
             # in that case the sample ctx["results"] stays as the empty-state fallback.
             computed_results = results_view.results_from(
-                loaded, results_view.resolve_window(loaded)
+                loaded, results_view.resolve_window(loaded), cfg=cfg
             )
             if computed_results is not None:
                 ctx["results"] = computed_results
@@ -130,6 +154,77 @@ def index(request: Request):
     # source customizations. Bumped only by a persisted HA fetch; 0 before the first one.
     ctx["source_generation"] = db.source_generation()
     return templates.TemplateResponse(request, "index.html", ctx)
+
+
+@app.post("/params", response_class=HTMLResponse)
+async def params(request: Request):
+    """Validate and persist the panel-② parameter set, and return the re-rendered panel (§3.2).
+
+    **Why a form POST returning a fragment, and not JSON.** Panel ② is a form of ~20 inputs whose
+    re-render has to carry per-field errors next to the inputs that caused them. Sending JSON and
+    re-rendering client-side would mean a second, JS-side copy of the label/gating/translation
+    logic that `params_view` already owns; returning the rendered panel keeps ONE renderer. It is
+    also the pattern already established for panel ③ (`POST /results` → fragment → `outerHTML`
+    swap, delegated listeners in index.html), so the browser side is three lines.
+
+    The sequence, which is §3.2's `PARAMS_CHANGED` ("Validate; persist; if valid → INPUT_CHANGED"):
+
+        1. read the submitted form and COERCE it (params_view.parse_form) — `"3"` → `3`, an empty
+           field → None, a non-numeric entry left as the RAW STRING so the user sees it back;
+        2. build the candidate on top of the STORED config, so settings this form does not draw
+           (the cost-only parameters appendix A says are retained) survive;
+        3. `validate()` — §7.3 checks 11 and 12;
+        4. persist ONLY when nothing blocks. Warnings (check 12: band overlap) do not block, per
+           §6.7, so an overlapping configuration IS saved and IS simulated;
+        5. re-render the panel from the CANDIDATE either way. On failure that is what puts the
+           user's own values back in the fields with the errors attached — re-rendering the
+           STORED config instead would silently discard what they typed.
+
+    Construction never raises whatever is submitted (that is `SimulationConfig`'s guarantee, and
+    this route depends on it), so there is no 500 path here: a malformed body is a 400 from
+    Starlette's form parser, and any other value becomes a field error. A data directory that
+    cannot be written is not a 500 either — the panel comes back with a notice saying the values
+    apply but were not stored (step 4 above).
+
+    Response: the rendered `_panel_params.html`, with `X-Params-Valid: 1|0` so the browser knows
+    whether to refresh panel ③ without parsing the HTML. A 200 is returned in both cases — an
+    invalid submission is a rendered form, not a failed request.
+    """
+    try:
+        form = await request.form()
+    except Exception as exc:  # an unparseable body is a client error, not a server one
+        raise HTTPException(status_code=400, detail=f"invalid form body: {exc}") from exc
+
+    stored = simconfig_store.load()
+    candidate = params_view.parse_form(form, stored)
+    result = candidate.validate()
+    save_error = False
+
+    if not result.blocking:
+        try:
+            # `guard_submitted` reports whether THIS form drew the economic-guard checkbox, which
+            # is the only way the store can tell an unticked box from an absent control — see
+            # simconfig_store's carry-forward rule and appendix A's retention requirement.
+            simconfig_store.save(
+                candidate, guard_submitted=params_view.guard_was_submitted(form, stored)
+            )
+        except OSError as exc:
+            # A save that silently did nothing would tell the user their parameters were stored
+            # when they were not — so this is reported, never swallowed. But a data directory that
+            # is read-only or full is a foreseeable local condition, not a bug in the server, and
+            # a 500 would leave the panel showing the submitted values with no explanation. It is
+            # surfaced instead as a panel-level notice beside the form, which is the same place
+            # every other non-field problem is reported.
+            log.warning("could not save parameters: %s", exc)
+            save_error = True
+
+    locale = i18n.resolve_locale(request)
+    i18n.install_for(templates.env, locale)
+    html = templates.env.get_template("_panel_params.html").render(
+        params=params_view.params_view(candidate, result, save_error=save_error),
+        cfg={"has_pv": candidate.has_pv, "simulate_cost": candidate.simulate_cost},
+    )
+    return HTMLResponse(html, headers={"X-Params-Valid": "0" if result.blocking else "1"})
 
 
 @app.post("/results", response_class=HTMLResponse)
@@ -158,7 +253,9 @@ def results(request: Request, body: dict = Body(...)):
     """
     loaded, window = _resolve_results_window(body)
 
-    result = results_view.results_from(loaded, window)
+    # The SAME persisted parameter set index() and /results/benchmark read, so the three cannot
+    # disagree about which battery the panel is describing.
+    result = results_view.results_from(loaded, window, cfg=simconfig_store.load())
     if result is None:
         raise HTTPException(status_code=409, detail="no simulatable data")
 
@@ -240,7 +337,9 @@ def results_benchmark(request: Request, body: dict = Body(...)):
     """
     loaded, window = _resolve_results_window(body)
 
-    result = results_view.results_from(loaded, window, with_benchmark=True)
+    result = results_view.results_from(
+        loaded, window, cfg=simconfig_store.load(), with_benchmark=True
+    )
     if result is None or "benchmark" not in result:
         raise HTTPException(status_code=409, detail="no simulatable data")
 

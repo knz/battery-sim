@@ -13,12 +13,12 @@ The pipeline per request:
     energy_metrics   →  the §6.11 figures
     (here)           →  KPI tiles, the energy breakdown, secondary metrics, caveats
 
-**The configuration is appendix-A defaults, not the user's.** Panel ② is not wired to a config
-object yet (Phase 6), so `SimulationConfig()` is constructed with its documented defaults — 10 kWh
-usable, 10–100% SoC, 5/5 kW, 90% round trip, 30 W standby, charge P3, discharge D1, no grid export,
-1×25 A connection, cost simulation off. The figures below are therefore "what THIS battery would
-have done", not "what YOUR battery would have done", and a caveat says so until Phase 6 binds the
-form. That is a deliberately visible placeholder rather than a hidden assumption.
+**The configuration is the USER'S, threaded in by the caller.** `results_from` takes a
+`SimulationConfig` and no longer constructs one: panel ② is wired now (app/params_view.py,
+app/simconfig_store.py), and every route that renders panel ③ passes the same persisted config, so
+a parameter change moves these figures. `cfg=None` falls back to `SimulationConfig()` — the
+appendix-A defaults — which is the state a workspace is in before anything has been configured and
+which keeps every existing caller and test valid.
 
 Panel ③ also now carries §2.4's **"Benchmark: grid import avoided"** box, from the §6.12
 perfect-foresight DP (`app/domain/benchmark.py`, run D). The `benchmark` key the template has been
@@ -265,6 +265,25 @@ def _period_selected_for(dataset: LoadedDataset, window: tuple[datetime, datetim
     # Nearest preset by day count; ties resolve to the first (shortest) match.
     best_name = min(PERIOD_DAYS, key=lambda n: abs(PERIOD_DAYS[n] - span_days))
     return _PERIOD_SELECTED_BY_NAME.get(best_name, "1 year")
+
+
+def _g(value) -> str:
+    """A config value for a caveat sentence: `%g`-style when numeric, as-is otherwise.
+
+    Only VALID configs are persisted, so in practice these are always numbers. But
+    `SimulationConfig` is constructible from anything (its construction never raises, by design),
+    and a caller may hand this function a config that has not been validated — an f-string `:g`
+    on a `None` or a raw string would raise on a page the user is looking at. Formatting defensively
+    is cheaper than a 500.
+    """
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return f"{value:g}"
+    return "—" if value is None else str(value)
+
+
+def _policy_key(value) -> str:
+    """A policy enum's short key ("P3"), or the raw stored value. Same defensiveness as `_g`."""
+    return value.value if hasattr(value, "value") else str(value)
 
 
 def _fmt_kwh(total: float) -> str:
@@ -639,6 +658,7 @@ def results_from(
     dataset: LoadedDataset,
     window: tuple[datetime, datetime],
     *,
+    cfg: SimulationConfig | None = None,
     with_benchmark: bool = False,
 ) -> dict | None:
     """Build the panel-③ ENERGY SAVINGS view-model over `window` from a real run (specs §2.4).
@@ -656,9 +676,9 @@ def results_from(
     reconcile_grid returns None (no simulatable grid) — the caller then falls back to the empty
     state, exactly like data_summary_from.
 
-    The battery figures come from runs A/B/C over a `SimulationFrame` under appendix-A defaults;
-    see the module comment for why the config is not the user's yet, and for the sign, clamp and
-    omit rules the presentation below obeys.
+    The battery figures come from runs A/B/C over a `SimulationFrame` under `cfg` — the caller's
+    persisted panel-② parameter set, or appendix-A defaults when it is None (nothing configured
+    yet). See the module comment, and for the sign, clamp and omit rules the presentation obeys.
 
     `should_cancel` is deliberately not passed to `run_all`: there is no run-orchestration layer
     (§3.3/§5.3) to cancel from, and a hook nothing can trip would be dead weight. The run is
@@ -693,7 +713,11 @@ def results_from(
     # module's signature, which is out of scope here. Both paths run the SAME reconcile_grid over
     # the SAME window, so the band's numbers and the run's cannot disagree.
     frame = simulation_frame(dataset, window)
-    cfg = SimulationConfig()  # appendix-A defaults; Phase 6 binds the panel-② form
+    # The caller's config (the persisted panel-② parameter set). None means "nothing configured
+    # yet", which is exactly appendix-A defaults — the same object this function used to build
+    # unconditionally, so an un-updated caller gets its previous behaviour rather than a crash.
+    if cfg is None:
+        cfg = SimulationConfig()
     # The PV series' own coverage as a per-interval mask (§2.3a). Handed to `energy_metrics` so BOTH
     # scenarios' self-consumption is measured over that one window; see `_pv_coverage_mask`.
     pv_mask = _pv_coverage_mask(dataset, rec)
@@ -917,9 +941,25 @@ def results_from(
             "charged than it started, or round-trip losses consumed imported energy. It evens out "
             "over full charge/discharge cycles; select a longer period to see it."
         )
-    # Standing note until Phase 6 binds panel ② to a config object: the battery above is the
-    # appendix-A default, not the user's. Stated rather than hidden — a figure computed from an
-    # unstated parameter set is the kind of number that propagates unchallenged.
+    # §2.5(b) / §7.3 check 18: the SOFT block. A user who selected an unsupported phase topology
+    # and continued is running the 3-phase model, and `topology.approximated` records that choice.
+    # The spec requires the caveat to be PINNED to the results panel, not merely shown once in the
+    # dialog they clicked through — so it is emitted here, on every result computed under it.
+    #
+    # What the approximation costs: the run is numerically identical to the 3-phase case (fixture
+    # 12), because v1 has no per-phase model at all. What it cannot capture is the per-phase power
+    # limit — a 1-phase battery cannot exceed one phase's fuse rating however the load is spread.
+    if cfg.topology.approximated:
+        caveats.append(
+            "Your battery is wired across the phases in a way version 1 does not model, so this "
+            "run uses the 3-phase approximation you accepted. Because a smart meter nets across "
+            "phases the energy result should be close; what is not modelled is the per-phase "
+            "power limit, which a 1-phase battery cannot exceed however the load is distributed."
+        )
+
+    # State the parameter set the figures were computed under. Stated rather than hidden — a
+    # figure computed from an unstated parameter set is the kind of number that propagates
+    # unchallenged.
     #
     # **No literal "%" in any caveat string.** The template renders these through `_()`, and the
     # Jinja i18n extension is installed with `newstyle=True`, which applies %-formatting to the
@@ -929,12 +969,12 @@ def results_from(
     # "0.90 round-trip" below rather than "90% round-trip". (The KPI tiles and breakdown rows are
     # unaffected: they are values, rendered without `_()`.)
     caveats.append(
-        f"These figures are for a default battery — {cfg.battery.usable_capacity_kwh:g} kWh usable, "
-        f"{cfg.battery.max_charge_kw:g}/{cfg.battery.max_discharge_kw:g} kW, "
-        f"{cfg.battery.roundtrip_efficiency:.2f} round-trip efficiency, "
-        f"charge {cfg.policy.charge_policy.value} / discharge {cfg.policy.discharge_policy.value} — "
-        f"because the parameters panel is not wired up yet. They are not yet based on a battery "
-        f"you chose."
+        f"Computed for the battery configured in the parameters panel — "
+        f"{_g(cfg.battery.usable_capacity_kwh)} kWh usable, "
+        f"{_g(cfg.battery.max_charge_kw)}/{_g(cfg.battery.max_discharge_kw)} kW, "
+        f"{_g(cfg.battery.roundtrip_efficiency)} round-trip efficiency, "
+        f"charge {_policy_key(cfg.policy.charge_policy)} / "
+        f"discharge {_policy_key(cfg.policy.discharge_policy)}."
     )
 
     # The "Your data at a glance" figures, repeated inside panel ③ but over the SELECTED range (the

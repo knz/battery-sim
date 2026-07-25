@@ -655,6 +655,108 @@ Suite: **384 passed, 2 skipped**.
   second DP really does optimise over a superset and simply cannot improve an import-minimising
   objective. That is an argument, not a proof, and it is what experiment X10 exists to settle.
 
+## Phase 6 — panel ② wired (form, persistence, validation, re-simulation)
+
+> Detail records: [20260725-panel2-parameters-phase6.md](20260725-panel2-parameters-phase6.md),
+> [20260725-phase6-review-defects.md](20260725-phase6-review-defects.md),
+> [20260725-phase6-remaining-translations.md](20260725-phase6-remaining-translations.md).
+
+**Built.** New `app/simconfig_store.py` (one versioned JSON document per workspace, written
+atomically, degrading to appendix-A defaults on every corruption mode) and `app/params_view.py` (the
+panel-② view-model). `_panel_params.html` rewritten as a real form whose every input carries the
+dotted config path as its `name` — the same key `ConfigIssue.field` uses, so an inline error finds
+its input with no second mapping. `POST /params` coerces → builds on the stored config → validates →
+persists **only when nothing blocks** → re-renders from the *candidate* either way, so a rejected
+value is echoed back with its error rather than discarded. `X-Params-Valid` tells the browser whether
+to refresh panel ③. `results_from` now takes the config; `index()`, `/results` and
+`/results/benchmark` all pass the same one, so the benchmark cannot describe a different battery than
+the KPIs.
+
+**Orchestrator-verified live:** a valid submit persists and moves panel ③ (10 kWh/5 kW → **341 kWh**
+saved; 20 kWh/8 kW → **317 kWh**); an invalid submit returns `x-params-valid: 0` with the typed value
+preserved (`value="40"`, `input-error`, `aria-invalid="true"`), the error bound to the right field,
+and **nothing written to disk**.
+
+**Correction to the orchestrator's own record.** An earlier note cited "20 kWh/8 kW → 1,582 kWh
+saved". That was wrong — misread off an HTML fragment. The correct figure is 317 kWh: the saving
+DECREASES with a bigger battery, because grid-charge round-trip loss plus standby outgrow the gain.
+The reviewer caught the error. This also confirms why
+`test_a_parameter_change_moves_panel_3s_figures` asserts movement rather than direction — tuning the
+fixture until the sign looked agreeable would have tested the fixture.
+
+### Adversarial review verdict: DEFECT FOUND — three defects, two returning HTTP 500
+
+1. **Concurrent saves collided on a fixed temp filename** (`simconfig_store.py:381`). Two overlapping
+   writers both wrote `simconfig.json.tmp`; the first `os.replace` consumed it and the second raised
+   `FileNotFoundError` — which IS an `OSError`, so the route's handler turned it into a 500. Measured
+   over HTTP with three concurrent submitters: **44% of requests failed**. Two browser tabs or a
+   double-click on "Calculate →" reproduce it. Fixed with `tempfile.mkstemp` (unique name per writer)
+   + `unlink(missing_ok=True)`, keeping the verified-atomic fsync-then-rename. After: 90/90 succeeded.
+2. **A long numeric input raised `OverflowError` → 500.** `coerce_number` tries `int(text)` first,
+   which succeeds up to Python's 4300-digit limit; `_finite` then calls `float()` on that unbounded
+   int and raises before its `isfinite` guard. This broke the contract both modules rest on —
+   Phase 2's "construction never raises". **Fixing `_finite` alone would have been insufficient:** the
+   fix agent tested a long value against EVERY field and found three more overflow sites in the
+   *render* path (`_fmt`, `_g`, the percent scaling), which runs even for a rejected config, so the
+   route would still have 500ed.
+3. **A forged `sections` hidden field cleared the retained `economic_guard`** — the marker is
+   client-controlled while the server already knows whether it could have drawn the Pricing box.
+   Fixed by cross-checking `stored.simulate_cost` server-side.
+
+**Verified correct by the review:** all 21 rendered form controls reach `SimulationConfig` with
+**zero rendered-but-dropped fields** (traced individually — the highest-value attack in this phase);
+persistence survives truncated/non-JSON/wrong-version/wrong-type documents; path traversal blocked;
+coercion correct including the deliberate refusal to guess at `"10,5"`; check 11 blocks and check 12
+warns-and-persists; fixture 12 byte-identical to the 3-phase case; gating consumes the config's own
+offerability queries rather than a second copy of the rules; the submit handler survives a panel-②
+swap; both `.mo` files match their `.po`.
+
+### The retention question, settled by the review
+
+The implementer could not meet appendix A's retention rule inside `SimulationConfig` — `_force_invariants`
+normalises `economic_guard` to False on every load while cost simulation is off — and solved it with a
+`retained` block in the store, flagging that the same pattern would have to scale to twelve more
+cost-only parameters.
+
+**The review found the fact that settles it: `economic_guard` is NOT on appendix A's retained list.**
+The spec names it separately — "`economic_guard` is *additionally* **forced** off rather than merely
+hidden, because it reads a cost-model output". The twelve are merely INERT; nothing normalises them
+away, so they retain themselves through `parse_form`'s existing inherit-if-absent rule, already
+implemented and tested. Generalising the `retained` block would build a shadow copy of the parameter
+set with its own drift surface for no benefit. It is now documented as **single-purpose** — one slot
+for the one field the config object forces away — with the twelve named explicitly as MUST NOT be
+added here.
+
+### Phase 6's i18n had never actually been regenerated
+
+The phase's own changelog recorded the catalogs as extracted, translated and recompiled. They were
+not: `pybabel extract` surfaced **31 missing msgids** — every panel-② label, every validation message,
+the soft-block dialog. A Dutch user would have seen the entire parameters panel in English. After the
+fix pass the orchestrator re-checked and found **five still untranslated** (band-overlap warning,
+initial-SoC warning, no-PV hint, phase-approximation soft block, pending prompt) — the "all 31
+translated" claim was overstated. A follow-up completed them plus a sixth.
+
+Both catalogs verified by the orchestrator: **260 msgids, 0 untranslated, 0 fuzzy** in EN and NL. The
+five entries that disappeared relative to the committed catalog were confirmed to be the OLD panel-②
+markup Phase 6 replaced (`pybabel extract` correctly dropping msgids no longer in source), not
+regressions — their successors are present and translated.
+
+Suite: **458 passed, 2 skipped**.
+
+### Phase 6 follow-ups (deferred, not blocking)
+
+- **The DC-bonus warning is unreachable in the UI.** Its issue keys `battery.roundtrip_dc_bonus`, for
+  which the form renders no input, so the warning has no slot. The check does fire in `validate()`
+  (rte 0.99 + bonus 0.05 → `eta_c_dc` 1.0198 → warning raised). Translated anyway; the missing control
+  is an open question.
+- **CSRF is deliberately absent.** Local-only app, `workspace_id` is the hardcoded `"local"` and never
+  user-influenced, no exfiltration path (the response is same-origin-read-blocked), and the worst
+  outcome is a rewritten local parameter set. Decision recorded rather than a token added.
+- A rapid second valid submit landing inside an in-flight `/results` recompute could leave panel ③
+  stale (~0.13 s window); fixed by parking the newest body and re-firing on settle.
+- `coerce_number` previously accepted `"1_000"` → 1000 and Arabic-Indic digits; now shape-checked
+  against a narrow ASCII numeric pattern so they fall through to the raw-string error path.
+
 ## Status
 
 **Phase 1 complete** — implemented, adversarially reviewed, fixes applied and verified, committed
@@ -666,5 +768,7 @@ without moving any number, committed (`bf52cb4`).
 **Phase 4 complete** — implemented, adversarially reviewed (DEFECT FOUND: observed/simulated mixing),
 all defects fixed and verified, committed (`18d5f7a`).
 **Phase 5 complete** — implemented, adversarially reviewed (DEFECT FOUND: drift-funded capture ratio),
-fixed, benchmark box lazy-loaded on the user's decision, verified live, committed.
-Next: Phase 6 (panel ② wired), then Phase 7 (i18n + full-suite pass).
+fixed, benchmark box lazy-loaded on the user's decision, verified live, committed (`db9a4d4`).
+**Phase 6 complete** — implemented, adversarially reviewed (DEFECT FOUND: three, two returning 500),
+all fixed and verified, Phase 6's own missing i18n completed, committed.
+Next: Phase 7 (i18n sweep + full-suite pass + changelog finalisation).

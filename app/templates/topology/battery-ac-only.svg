@@ -1,0 +1,25 @@
+<!-- Grid-coupled battery, no PV (specs/03-topology-selector.md §2.5a′).
+     Shown in place of the PV-coupling pair when has_pv is false. There is nothing to choose —
+     the option is single and preselected — but it is rendered so a user who has just said they
+     have no solar can see that the app understood them.
+     240×160 viewBox, single currentColor stroke at 2px, no fills, no external deps. -->
+<svg viewBox="0 0 240 160" role="img" aria-label="Grid-coupled battery: the battery feeds a battery inverter onto the AC side, where grid and household load meet. One conversion each way." xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round">
+  <!-- Battery -->
+  <rect x="16" y="26" width="48" height="30" rx="3"/>
+  <text x="40" y="46" font-size="11" text-anchor="middle" fill="currentColor" stroke="none">BAT</text>
+  <!-- DC line into the battery inverter -->
+  <line x1="64" y1="41" x2="100" y2="41"/>
+  <!-- Battery inverter -->
+  <rect x="100" y="22" width="76" height="38" rx="4"/>
+  <text x="138" y="46" font-size="10" text-anchor="middle" fill="currentColor" stroke="none">batt inv</text>
+  <!-- AC leg down to the bus -->
+  <line x1="138" y1="60" x2="138" y2="98"/>
+  <text x="156" y="90" font-size="8" text-anchor="middle" fill="currentColor" stroke="none">AC</text>
+  <!-- AC bus -->
+  <line x1="60" y1="98" x2="216" y2="98"/>
+  <!-- grid / load legs -->
+  <line x1="84" y1="98" x2="84" y2="130"/>
+  <text x="84" y="144" font-size="9" text-anchor="middle" fill="currentColor" stroke="none">grid</text>
+  <line x1="192" y1="98" x2="192" y2="130"/>
+  <text x="192" y="144" font-size="9" text-anchor="middle" fill="currentColor" stroke="none">load</text>
+</svg>

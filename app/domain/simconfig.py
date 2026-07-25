@@ -222,7 +222,16 @@ def _finite(value: object) -> float | None:
     """
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
-    f = float(value)
+    try:
+        f = float(value)
+    except OverflowError:
+        # A Python int is unbounded; a float is not. `int("9" * 400)` is a perfectly ordinary
+        # value for this funnel to be handed (the form layer parses digit strings with `int()`
+        # first, and succeeds up to Python's 4300-digit limit), and `float()` on it raises
+        # rather than returning inf. Without this the module's central guarantee — construction
+        # never raises, any unusable value becomes a field error — would have a hole in it that
+        # an ordinary long numeric input falls straight through.
+        return None
     if not math.isfinite(f):  # nan and ±inf
         return None
     return f

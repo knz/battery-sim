@@ -183,6 +183,29 @@ def test_ten_kwh_round_trip_loses_exactly_one_kwh():
     assert stored == pytest.approx(9.48683298, abs=1e-6)
 
 
+def test_finite_returns_none_for_an_int_too_large_to_be_a_float():
+    """The numeric funnel's contract is "None for anything unusable", never an exception.
+
+    A Python int is unbounded; a float is not. The form layer parses digit strings with `int()`
+    first, which succeeds up to Python's 4300-digit limit, so an int with no float representation
+    is an ORDINARY value for this funnel to be handed — and `float()` on it raises `OverflowError`
+    rather than returning inf. Unguarded, that reached the web route as a 500.
+    """
+    from app.domain.simconfig import _finite
+
+    assert _finite(int("9" * 400)) is None
+    assert _finite(int("9" * 4000)) is None
+    assert _finite(-int("9" * 400)) is None
+    assert _finite(10**308) == pytest.approx(1e308)   # still inside float range, still a number
+
+
+def test_a_config_holding_an_unfloatable_int_is_constructible_and_blocks():
+    """Same guarantee one level up: construction never raises, `validate()` reports it."""
+    cfg = SimulationConfig(battery=BatteryConfig(usable_capacity_kwh=int("9" * 4000)))
+    assert cfg.validate().blocking
+    assert cfg.battery.soc_max_kwh == 0.0    # the funnel's 0.0 substitute, not a crash
+
+
 def test_invalid_efficiency_does_not_raise_on_construction():
     """A nonsense RTE must be CONSTRUCTIBLE so the form can render it back with its error."""
     cfg = SimulationConfig(battery=BatteryConfig(roundtrip_efficiency=-0.5))

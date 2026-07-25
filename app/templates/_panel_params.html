@@ -1,36 +1,104 @@
 {#
   _panel_params.html — Panel ② Parameter configuration (specs/02-ux-wireframes.md §2.3, §2.5).
 
-  Collapsed to a one-line summary ending "energy only" (cost simulation off). Expands to the
-  Battery, Grid connection, Installation topology, Charge policy and Discharge policy boxes.
-  The has_pv / simulate_cost choices are NOT here — they live in the setup band above panel ①
-  (_setup_band.html, §2.1); this panel only reads cfg.* to decide what to render. Because this
-  sample has simulate_cost=False, the entire Pricing box is ABSENT (§2.3 "Without cost
-  simulation"), not greyed.
+  A REAL FORM now, not a static render. Every input carries the dotted config path as its `name`
+  ("battery.min_soc_pct"), which is the same key `ConfigIssue.field` uses — so an inline error
+  finds its input without any second mapping. The form POSTs to /params, which coerces, validates
+  (§7.3 checks 11 and 12), persists only when nothing blocks, and returns THIS template rendered
+  again. On a blocking failure it re-renders the SUBMITTED values, not the stored ones, so the
+  user's typing survives and the errors sit under the fields that caused them.
 
-  The Installation topology box shows the illustrated PV-coupling selector (§2.5a). The
-  battery-phase selector (§2.5b) is absent because this sample is 1-phase. The topology SVGs
-  are inlined (not <img>) so they inherit currentColor.
+  The whole panel is the swap target: the root <section> carries id="panel-params", and
+  index.html's delegated submit handler replaces its outerHTML with the response, then refreshes
+  panel ③. All behaviour lives in index.html (never swapped) — an inline <script> here would
+  re-insert but not re-execute after a swap.
 
-  UI chrome is wrapped in _() for translation; numeric field values and band figures stay
-  literal. Policy labels come pre-marked from sample_data and are translated here via _().
+  The view-model is app/params_view.py. Field entries are dicts: `.name` (the dotted path),
+  `.value` (what to render — a formatted number, or the raw string the user typed), `.errors` /
+  `.warnings` (already-English messages the template translates via _()), `.invalid`.
+
+  Gating comes from the CONFIG's own queries, not from re-derived rules here:
+    * `params.charge_policies` is already filtered to `offerable_charge_policies()`; without PV it
+      holds P2 alone and `params.charge_single` says to draw it as a single labelled option rather
+      than a one-item radio group (§2.3 "Without PV").
+    * `params.battery_phases_offered` is `cfg.battery_phases_offered` (3-phase connections only).
+    * The Pricing box is ABSENT — not greyed — while cfg.simulate_cost is false, and
+      `economic_guard` with it (§2.3 "Without cost simulation").
+
+  The `sections` hidden field echoes back which boxes this render drew, so the route can tell an
+  unticked checkbox from a control this build never showed (an unchecked checkbox is simply not
+  submitted). Without it an energy-only submission would clear the user's stored economic_guard,
+  which is exactly the reset appendix A forbids.
+
+  UI chrome is wrapped in _() for translation. Field VALUES and band figures stay literal, and the
+  collapsed summary line is a computed technical readout that deliberately does not pass through
+  _() (it carries a literal "%", which gettext's newstyle formatting would eat or raise on).
 #}
-<section class="collapse collapse-arrow bg-base-100 border border-base-300 rounded-box">
-  <input type="checkbox" aria-label="{{ _('Toggle Parameters panel') }}" />
+
+{# One field's inline messages, rendered under its input. Errors block (check 11), warnings do
+   not (check 12). Both come pre-worded from params_view keyed by ConfigIssue.code. #}
+{% macro field_messages(f) %}
+  {% for msg in f.errors %}
+  <p class="text-xs text-error" data-field-error="{{ f.name }}">{{ _(msg) }}</p>
+  {% endfor %}
+  {% for msg in f.warnings %}
+  <p class="text-xs text-warning" data-field-warning="{{ f.name }}">{{ _(msg) }}</p>
+  {% endfor %}
+{% endmacro %}
+
+{# A labelled numeric input bound to its dotted path, with its unit, optional hint and messages. #}
+{% macro num_field(f, label, unit, hint='', width='w-20', label_width='w-44') %}
+<div class="flex flex-col gap-1">
+  <div class="flex items-center gap-2">
+    <span class="{{ label_width }} label-text">{{ label }}</span>
+    <input type="text" inputmode="decimal" name="{{ f.name }}"
+           class="input input-bordered input-xs {{ width }} text-right{% if f.invalid %} input-error{% endif %}"
+           value="{{ f.value }}"
+           aria-label="{{ label }}"
+           {% if f.invalid %}aria-invalid="true"{% endif %} />
+    <span class="text-sm text-base-content/60">{{ unit }}</span>
+    {% if hint %}<span class="text-xs text-base-content/50">ⓘ {{ hint }}</span>{% endif %}
+  </div>
+  {{ field_messages(f) }}
+</div>
+{% endmacro %}
+
+<section id="panel-params" class="collapse collapse-arrow bg-base-100 border border-base-300 rounded-box">
+  <input type="checkbox" aria-label="{{ _('Toggle Parameters panel') }}" {% if not params.valid %}checked{% endif %} />
   <div class="collapse-title flex flex-wrap items-center gap-x-3 gap-y-1">
     <span class="badge badge-neutral">②</span>
     <span class="font-semibold">{{ _('PARAMETERS') }}</span>
+    {% if params.valid %}
     <span class="text-success">✓ {{ _('valid') }}</span>
+    {% else %}
+    <span class="text-error">✕ {{ _('needs attention') }}</span>
+    {% endif %}
+    {# The collapsed summary line (§2.3), computed from the config. Not translated: it is built at
+       runtime from the user's own numbers and carries a literal percent sign. #}
     <span class="text-base-content/60">{{ params.summary }}</span>
   </div>
 
   <div class="collapse-content">
-    <div class="flex flex-col gap-4 pt-2">
+    <form id="params-form" method="post" action="/params" class="flex flex-col gap-4 pt-2">
+      {# Which boxes this render drew — see the header comment and params_view._section. #}
+      <input type="hidden" name="sections" value="{{ params.sections }}" />
 
-      {# The has_pv and simulate_cost choices are set in the setup band above panel ①
-         (_setup_band.html, §2.1) — not here. The "What to simulate" and "Solar PV" boxes
-         that used to hold them have been removed; this panel only reads cfg.* to decide
-         which boxes to render (§2.3 "Without PV" / "Without cost simulation"). #}
+      {# Issues that key a field this form does not draw (e.g. the DP grid sizes). Surfaced rather
+         than dropped, so nothing blocks the run invisibly. #}
+      {% if params.other_errors %}
+      <div role="alert" class="alert alert-error py-2 text-sm">
+        <span>{% for msg in params.other_errors %}{{ _(msg) }} {% endfor %}</span>
+      </div>
+      {% endif %}
+
+      {# The parameters were valid but could not be written to disk (a read-only or full data
+         directory). Shown rather than swallowed: they apply to this session's results, but they
+         will NOT be there after a restart, and saying so is the whole point. #}
+      {% if params.save_error %}
+      <div role="alert" class="alert alert-warning py-2 text-sm">
+        <span>{{ _('These parameters could not be saved and will be lost when the app restarts. Check that the data directory is writable.') }}</span>
+      </div>
+      {% endif %}
 
       <div class="grid gap-4 lg:grid-cols-2">
         {# ── Battery ───────────────────────────────────────────────────── #}
@@ -38,27 +106,25 @@
           <div class="card-body gap-2 p-4">
             <h3 class="text-sm font-semibold text-base-content/70">{{ _('Battery') }}</h3>
             {% set b = params.battery %}
-            {% for label, value, unit, hint in [
-              (_('Usable capacity'), b.capacity, "kWh", _('not nameplate')),
-              (_('Min state of charge'), b.min_soc, "%", ""),
-              (_('Max state of charge'), b.max_soc, "%", ""),
-              (_('Max charge power'), b.max_charge, "kW", ""),
-              (_('Max discharge power'), b.max_discharge, "kW", ""),
-              (_('Round-trip efficiency'), b.rte, "%", _('AC-to-AC at the meter')),
-              (_('Standby draw'), b.standby, "W", _('≈260 kWh/yr')),
-              (_('Initial SoC'), b.initial_soc, "%", ""),
-            ] %}
-            <div class="flex items-center gap-2">
-              <span class="w-44 label-text">{{ label }}</span>
-              <input type="text" class="input input-bordered input-xs w-20 text-right" value="{{ value }}" />
-              <span class="text-sm text-base-content/60">{{ unit }}</span>
-              {% if hint %}<span class="text-xs text-base-content/50">ⓘ {{ hint }}</span>{% endif %}
-            </div>
-            {% endfor %}
+            {{ num_field(b.capacity, _('Usable capacity'), 'kWh', _('not nameplate')) }}
+            {{ num_field(b.min_soc, _('Min state of charge'), '%') }}
+            {{ num_field(b.max_soc, _('Max state of charge'), '%') }}
+            {{ num_field(b.max_charge, _('Max charge power'), 'kW') }}
+            {{ num_field(b.max_discharge, _('Max discharge power'), 'kW') }}
+            {{ num_field(b.rte, _('Round-trip efficiency'), '%', _('AC-to-AC at the meter')) }}
+            {{ num_field(b.standby, _('Standby draw'), 'W', _('≈260 kWh/yr')) }}
+            {{ num_field(b.initial_soc, _('Initial SoC'), '%') }}
+            {# Coupling mirrors the illustrated §2.5(a) selector below; it is set from there when
+               there is PV, so the plain radios are shown only without PV — where §2.5(a′) makes
+               the choice single and forced to AC anyway, and the control is read-only. #}
             <div class="flex items-center gap-3">
               <span class="w-44 label-text">{{ _('Coupling') }}</span>
-              <label class="label cursor-pointer gap-1"><input type="radio" name="coupling" class="radio radio-xs" checked /><span class="label-text">{{ _('AC-coupled') }}</span></label>
-              <label class="label cursor-pointer gap-1"><input type="radio" name="coupling" class="radio radio-xs" /><span class="label-text">{{ _('DC / hybrid') }}</span></label>
+              <span class="text-sm text-base-content/70">
+                {% if b.coupling == 'dc_hybrid' %}{{ _('DC / hybrid') }}{% else %}{{ _('AC-coupled') }}{% endif %}
+              </span>
+              {% if cfg.has_pv %}
+              <span class="text-xs text-base-content/50">ⓘ {{ _('set by the topology selector below') }}</span>
+              {% endif %}
             </div>
           </div>
         </div>
@@ -67,37 +133,61 @@
         <div class="card bg-base-200 border border-base-300">
           <div class="card-body gap-2 p-4">
             <h3 class="text-sm font-semibold text-base-content/70">{{ _('Grid connection') }}</h3>
-            <div class="flex items-center gap-3">
-              <span class="w-28 label-text">{{ _('Phases') }}</span>
-              <label class="label cursor-pointer gap-1"><input type="radio" name="phases" class="radio radio-xs" checked /><span class="label-text">{{ _('1-phase') }}</span></label>
-              <label class="label cursor-pointer gap-1"><input type="radio" name="phases" class="radio radio-xs" /><span class="label-text">{{ _('3-phase') }}</span></label>
+            <div class="flex flex-col gap-1">
+              <div class="flex items-center gap-3">
+                <span class="w-28 label-text">{{ _('Phases') }}</span>
+                <label class="label cursor-pointer gap-1">
+                  <input type="radio" name="grid.phases" value="1" class="radio radio-xs"
+                         {% if params.grid.phases == '1' %}checked{% endif %} />
+                  <span class="label-text">{{ _('1-phase') }}</span>
+                </label>
+                <label class="label cursor-pointer gap-1">
+                  <input type="radio" name="grid.phases" value="3" class="radio radio-xs"
+                         {% if params.grid.phases == '3' %}checked{% endif %} />
+                  <span class="label-text">{{ _('3-phase') }}</span>
+                </label>
+              </div>
+              {{ field_messages(params.grid.phases_field) }}
             </div>
-            <div class="flex items-center gap-2">
-              <span class="w-28 label-text">{{ _('Fuse rating') }}</span>
-              <input type="text" class="input input-bordered input-xs w-16 text-right" value="{{ params.grid.fuse }}" />
-              <span class="text-sm text-base-content/60">{{ _('A → max import %(kw)s kW', kw=params.grid.max_import) }}</span>
+            <div class="flex flex-col gap-1">
+              <div class="flex items-center gap-2">
+                <span class="w-28 label-text">{{ _('Fuse rating') }}</span>
+                <input type="text" inputmode="decimal" name="{{ params.grid.fuse.name }}"
+                       class="input input-bordered input-xs w-16 text-right{% if params.grid.fuse.invalid %} input-error{% endif %}"
+                       value="{{ params.grid.fuse.value }}" aria-label="{{ _('Fuse rating') }}" />
+                {# The ROUNDED display figure (connection_capacity_kw_display); the exact value is
+                   what §6.8 step 6 compares against and is never printed. #}
+                <span class="text-sm text-base-content/60">{{ _('A → max import %(kw)s kW', kw=params.grid.max_import) }}</span>
+              </div>
+              {{ field_messages(params.grid.fuse) }}
             </div>
-            <div class="flex items-center gap-2">
-              <span class="w-28 label-text">{{ _('Export limit') }}</span>
-              <span class="text-sm">{{ _('same as import') }}</span>
-            </div>
+            {{ num_field(params.grid.max_import_override, _('Import limit override'), 'kW',
+                         _('leave empty to derive from the fuse'), 'w-20', 'w-28') }}
+            {{ num_field(params.grid.max_export, _('Export limit'), 'kW',
+                         _('leave empty for the same as import'), 'w-20', 'w-28') }}
           </div>
         </div>
       </div>
 
-      {# ── Installation topology — illustrated PV coupling selector (§2.5a) ── #}
-      {% if cfg.has_pv %}
+      {# ── Installation topology (§2.5) ──────────────────────────────────────
+         Absent entirely when there is no PV AND no phase choice to make — §2.3 "Without PV":
+         "on a 1-phase connection [the box] empties entirely — in that case do not render it".
+         §2.5(a′) supplies the grid-only illustration shown in the PV selector's place. #}
+      {% if cfg.has_pv or params.battery_phases_offered %}
       <div class="card bg-base-200 border border-base-300">
         <div class="card-body gap-3 p-4">
           <div class="flex items-center justify-between">
             <h3 class="text-sm font-semibold text-base-content/70">{{ _('Installation topology') }}</h3>
-            <span class="text-xs text-base-content/50">{{ _('see §2.5') }}</span>
           </div>
+
+          {% if cfg.has_pv %}
+          {# (a) PV coupling — an illustrated radio group (§2.5a). #}
           <p class="text-sm">{{ _('How is your PV connected to the battery?') }}</p>
           <div class="grid gap-4 sm:grid-cols-2">
             <label class="radio-card">
               <span class="flex items-center gap-2 font-medium">
-                <input type="radio" name="pvcoupling" class="radio radio-sm" checked />
+                <input type="radio" name="topology.pv_coupling" value="dc_hybrid" class="radio radio-sm"
+                       {% if params.pv_coupling == 'dc_hybrid' %}checked{% endif %} />
                 {{ _('DC-coupled / hybrid') }}
               </span>
               {% include "topology/pv-dc.svg" %}
@@ -105,7 +195,8 @@
             </label>
             <label class="radio-card">
               <span class="flex items-center gap-2 font-medium">
-                <input type="radio" name="pvcoupling" class="radio radio-sm" />
+                <input type="radio" name="topology.pv_coupling" value="ac" class="radio radio-sm"
+                       {% if params.pv_coupling == 'ac' %}checked{% endif %} />
                 {{ _('AC-coupled') }}
               </span>
               {% include "topology/pv-ac.svg" %}
@@ -115,6 +206,63 @@
           <p class="text-xs text-base-content/60">
             {{ _('DC-coupled skips an inversion on the solar charging path — typically +3 to +5 percentage points on that path only. Grid charging is unaffected.') }}
           </p>
+          {% else %}
+          {# (a′) Without PV there is nothing to choose, but the arrangement is shown anyway so a
+             user who has just said they have no solar sees that the app understood them (§2.5a′).
+             No input: pv_coupling is forced null and coupling forced AC by the config itself. #}
+          <p class="text-sm">{{ _('Your setup — battery on the AC side, no solar') }}</p>
+          <div class="grid gap-4 sm:grid-cols-2">
+            <label class="radio-card">
+              <span class="flex items-center gap-2 font-medium">
+                <input type="radio" class="radio radio-sm" checked disabled />
+                {{ _('Grid-coupled battery') }}
+              </span>
+              {% include "topology/battery-ac-only.svg" %}
+              <span class="text-xs text-base-content/60">{{ _('Charges from the grid, discharges to the house. One conversion each way.') }}</span>
+            </label>
+          </div>
+          {% endif %}
+
+          {% if params.battery_phases_offered %}
+          {# (b) Battery phases — 3-phase connections only. Only the 3-phase inverter is modelled
+             in v1; the other two carry the "not in v1" label and raise the soft block below. #}
+          <p class="mt-2 text-sm">{{ _('How is your battery connected across the phases?') }}</p>
+          <div class="grid gap-4 sm:grid-cols-3">
+            {% for p in params.battery_phases %}
+            <label class="radio-card">
+              <span class="flex items-center gap-2 font-medium">
+                <input type="radio" name="topology.battery_phases" value="{{ p.key }}" class="radio radio-sm"
+                       {% if p.selected %}checked{% endif %} />
+                {{ _(p.label) }}
+              </span>
+              {% if p.key == 'one_phase' %}{% include "topology/phase-1.svg" %}
+              {% elif p.key == 'three_phase' %}{% include "topology/phase-3.svg" %}
+              {% else %}{% include "topology/phase-3x1.svg" %}{% endif %}
+              <span class="text-xs {% if p.supported %}text-success{% else %}text-warning{% endif %}">
+                {% if p.supported %}✓ {{ _('supported') }}{% else %}⚠ {{ _('not in v1') }}{% endif %}
+              </span>
+            </label>
+            {% endfor %}
+          </div>
+
+          {% if params.phase_unsupported %}
+          {# §7.3 check 18 — a SOFT block, not a hard one (§2.5b). Given phase netting, refusing to
+             compute would deny the user a number that is probably accurate to within a few
+             percent. Continuing sets topology.approximated, which propagates into the result
+             object and pins a caveat to panel ③. The checkbox IS that "Continue" — it records a
+             deliberate choice, which is why `approximated` is never derived from the selection. #}
+          <div role="alert" class="alert alert-warning flex flex-col items-start gap-2 py-2 text-sm">
+            <span class="font-medium">{{ _('⚠ This topology is not fully supported in version 1.') }}</span>
+            <span>{{ _('Your smart meter nets across phases, so the financial result would be close to the 3-phase case. What we cannot model without per-phase data is the per-phase power limit — a 1-phase battery cannot exceed one phase’s fuse rating no matter how the load is distributed.') }}</span>
+            <span>{{ _('Please tell us about your setup — inverter model, phase allocation, and whether you have per-phase sensors. It directly determines whether this lands in version 2.') }}</span>
+            <label class="label cursor-pointer justify-start gap-3">
+              <input type="checkbox" name="topology.approximated" value="1" class="checkbox checkbox-sm"
+                     {% if params.approximated %}checked{% endif %} />
+              <span class="label-text">{{ _('Continue with a 3-phase approximation') }}</span>
+            </label>
+          </div>
+          {% endif %}
+          {% endif %}
         </div>
       </div>
       {% endif %}
@@ -124,22 +272,40 @@
         <div class="card bg-base-200 border border-base-300">
           <div class="card-body gap-2 p-4">
             <h3 class="text-sm font-semibold text-base-content/70">{{ _('Charge policy') }}</h3>
+            {% if params.charge_single %}
+            {# §2.3 "Without PV": the box collapses to P2 alone, "rendered as a single labelled
+               option rather than a one-item radio group". The value still has to reach the POST,
+               hence the hidden input. #}
+            {% set only = params.charge_policies[0] %}
+            <input type="hidden" name="policy.charge_policy" value="{{ only.key }}" />
+            <p class="label-text"><b>{{ only.key }}</b> {{ _(only.label) }}</p>
+            <p class="text-xs text-base-content/60">
+              ⓘ {{ _('Without solar there is no surplus to capture, so grid charging is the only way to fill the battery.') }}
+            </p>
+            {% else %}
             {% for p in params.charge_policies %}
-              {% if not p.pv_only or cfg.has_pv %}
-              <label class="label cursor-pointer justify-start gap-3">
-                <input type="radio" name="charge" class="radio radio-sm" {% if p.selected %}checked{% endif %} />
-                <span class="label-text"><b>{{ p.key }}</b> {{ _(p.label) }}</span>
-                {% if p.pv_only %}<span class="badge badge-ghost badge-xs">{{ _('PV only') }}</span>{% endif %}
-              </label>
-              {% endif %}
+            <label class="label cursor-pointer justify-start gap-3">
+              <input type="radio" name="policy.charge_policy" value="{{ p.key }}" class="radio radio-sm"
+                     {% if p.selected %}checked{% endif %} />
+              <span class="label-text"><b>{{ p.key }}</b> {{ _(p.label) }}</span>
+              {% if p.pv_only %}<span class="badge badge-ghost badge-xs">{{ _('PV only') }}</span>{% endif %}
+            </label>
             {% endfor %}
+            {% endif %}
             <div class="mt-1 flex flex-wrap items-center gap-2 text-sm">
               <span>{{ _('Band A') }}</span>
-              <input type="text" class="input input-bordered input-xs w-24 text-right" value="{{ params.charge_band.a }}" />
+              <input type="text" inputmode="decimal" name="{{ params.charge_band.a.name }}"
+                     class="input input-bordered input-xs w-24 text-right{% if params.charge_band.a.invalid %} input-error{% endif %}"
+                     value="{{ params.charge_band.a.value }}" aria-label="{{ _('Band A') }}" />
               <span>{{ _('B') }}</span>
-              <input type="text" class="input input-bordered input-xs w-24 text-right" value="{{ params.charge_band.b }}" />
+              <input type="text" inputmode="decimal" name="{{ params.charge_band.b.name }}"
+                     class="input input-bordered input-xs w-24 text-right{% if params.charge_band.b.invalid %} input-error{% endif %}"
+                     value="{{ params.charge_band.b.value }}" aria-label="{{ _('B') }}" />
               <span class="text-base-content/60">€/kWh</span>
             </div>
+            {{ field_messages(params.charge_band.a) }}
+            {{ field_messages(params.charge_band.b) }}
+            <p class="text-xs text-base-content/60">{{ _('Charge when A ≤ spot ≤ B. Compared against EPEX spot.') }}</p>
           </div>
         </div>
 
@@ -149,37 +315,69 @@
             <h3 class="text-sm font-semibold text-base-content/70">{{ _('Discharge policy') }}</h3>
             {% for p in params.discharge_policies %}
             <label class="label cursor-pointer justify-start gap-3">
-              <input type="radio" name="discharge" class="radio radio-sm" {% if p.selected %}checked{% endif %} />
+              <input type="radio" name="policy.discharge_policy" value="{{ p.key }}" class="radio radio-sm"
+                     {% if p.selected %}checked{% endif %} />
               <span class="label-text"><b>{{ p.key }}</b> {{ _(p.label) }}</span>
             </label>
             {% endfor %}
             <div class="mt-1 flex flex-wrap items-center gap-2 text-sm">
               <span>{{ _('Band C') }}</span>
-              <input type="text" class="input input-bordered input-xs w-24 text-right" value="{{ params.discharge_band.c }}" />
+              <input type="text" inputmode="decimal" name="{{ params.discharge_band.c.name }}"
+                     class="input input-bordered input-xs w-24 text-right{% if params.discharge_band.c.invalid %} input-error{% endif %}"
+                     value="{{ params.discharge_band.c.value }}" aria-label="{{ _('Band C') }}" />
               <span>{{ _('D') }}</span>
-              <input type="text" class="input input-bordered input-xs w-24 text-right" value="{{ params.discharge_band.d }}" />
+              <input type="text" inputmode="decimal" name="{{ params.discharge_band.d.name }}"
+                     class="input input-bordered input-xs w-24 text-right{% if params.discharge_band.d.invalid %} input-error{% endif %}"
+                     value="{{ params.discharge_band.d.value }}" aria-label="{{ _('D') }}" />
               <span class="text-base-content/60">€/kWh</span>
             </div>
-            {# Economic guard is absent without cost simulation (§2.3). "Allow export"
-               remains as a dispatch setting, shown here as a pending example. #}
+            {{ field_messages(params.discharge_band.c) }}
+            {{ field_messages(params.discharge_band.d) }}
+
             <label class="label cursor-pointer justify-start gap-3">
-              <input type="checkbox" class="checkbox checkbox-sm" disabled />
-              <span class="label-text text-base-content/50">{{ _('Allow export to grid during D2/D3') }}</span>
-              <button type="button" class="btn btn-ghost btn-xs" data-pending-name="{{ _('Allow export to grid') }}" data-feature-key="discharge_allow_export">[?]</button>
+              <input type="checkbox" name="policy.allow_grid_export" value="1" class="checkbox checkbox-sm"
+                     {% if params.allow_grid_export %}checked{% endif %} />
+              <span class="label-text">{{ _('Allow export to grid during D2/D3') }}</span>
             </label>
-            <div role="alert" class="alert alert-success py-1 text-sm">
-              <span>{{ _('⚠ Charge band [%(a)s, %(b)s] and discharge band [%(c)s, %(d)s] do not overlap. ✓', a=params.charge_band.a, b=params.charge_band.b, c=params.discharge_band.c, d=params.discharge_band.d) }}</span>
+
+            {# `economic_guard` is ABSENT without a cost model (§2.3 "Without cost simulation"):
+               it is a statement about p_export_net, which does not exist in an energy-only run,
+               and the config forces it off on read. The user's stored choice is retained on disk
+               (appendix A) so enabling cost simulation restores it. #}
+            {% if cfg.simulate_cost %}
+            <label class="label cursor-pointer justify-start gap-3">
+              <input type="checkbox" name="policy.economic_guard" value="1" class="checkbox checkbox-sm"
+                     {% if params.economic_guard %}checked{% endif %} />
+              <span class="label-text">{{ _('Economic guard: never discharge at a loss') }}</span>
+            </label>
+            {% endif %}
+
+            {# §7.3 check 12 — reflects the ACTUAL bands now, not a literal. Overlap warns and
+               still allows: §6.7 nets the two requests at runtime, so an overlapping band pair is
+               a configuration worth flagging, not a broken one. #}
+            {% if params.bands_overlap %}
+            <div role="alert" class="alert alert-warning py-1 text-sm">
+              <span>{{ _('⚠ Charge band [%(a)s, %(b)s] and discharge band [%(c)s, %(d)s] overlap. Charge and discharge requests will be netted against each other.', a=params.band_values.a, b=params.band_values.b, c=params.band_values.c, d=params.band_values.d) }}</span>
             </div>
+            {% else %}
+            <div role="alert" class="alert alert-success py-1 text-sm">
+              <span>{{ _('Charge band [%(a)s, %(b)s] and discharge band [%(c)s, %(d)s] do not overlap. ✓', a=params.band_values.a, b=params.band_values.b, c=params.band_values.c, d=params.band_values.d) }}</span>
+            </div>
+            {% endif %}
           </div>
         </div>
       </div>
 
-      {# ── Pricing box is ABSENT: simulate_cost is off (§2.3 "Without cost simulation"). #}
+      {# ── The Pricing box is ABSENT while cost simulation is off (§2.3 "Without cost
+         simulation") — absent, not greyed: there is nothing here a user can usefully look at
+         without opting in. The band parameters above STAY, because they are dispatch parameters
+         that change which kWh move. #}
 
-      <div class="flex justify-between">
-        <button class="btn btn-ghost btn-sm">{{ _('← Back') }}</button>
-        <button class="btn btn-primary btn-sm">{{ _('Calculate →') }}</button>
+      <div class="flex items-center justify-between">
+        <span id="params-saving" class="hidden text-sm text-base-content/60">⟳ {{ _('saving…') }}</span>
+        <span></span>
+        <button type="submit" class="btn btn-primary btn-sm">{{ _('Calculate →') }}</button>
       </div>
-    </div>
+    </form>
   </div>
 </section>

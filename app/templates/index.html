@@ -390,14 +390,22 @@
       window.loadBenchmark = loadBenchmark;
 
       var recalcInFlight = false;
+      var recalcPending = null;
 
       // Recompute panel ③ over `body` (either {period} or {start,end}) and swap the panel in.
       // The "⟳ recalculating…" affordance is toggled for the request's duration. On failure the
       // panel is left as-is (the picker simply does nothing) — a recompute error must not blank
       // the last good results.
+      //
+      // A request arriving while one is in flight is PARKED, not dropped, and re-fired when the
+      // current one settles. Dropping it left the panel showing an older answer than the one the
+      // store holds — narrow (the window is one round-trip) but real, and reachable by a second
+      // parameter submit landing during the first submit's refresh. Only the NEWEST parked body
+      // is kept: an intermediate window nobody is waiting for any more is not worth a round-trip.
       function recompute(body) {
-        if (recalcInFlight) return;
+        if (recalcInFlight) { recalcPending = body; return; }
         recalcInFlight = true;
+        recalcPending = null;
         var spinner = document.getElementById('results-recalculating');
         if (spinner) spinner.classList.remove('hidden');
         fetch('/results', {
@@ -427,6 +435,10 @@
             recalcInFlight = false;
             var s = document.getElementById('results-recalculating');
             if (s) s.classList.add('hidden');
+            // Something asked for a newer window while this one was out; serve it now. The
+            // spinner is re-shown by the recursive call, so it flickers off for one frame rather
+            // than staying on across both — a visible, honest boundary between the two requests.
+            if (recalcPending) recompute(recalcPending);
           });
       }
 
@@ -448,6 +460,67 @@
             end: end.value + 'T23:59:59Z'
           });
         }
+      });
+
+      // ── Panel ② — the parameter form (specs §2.3, §3.2 PARAMS_CHANGED) ──────────────────────
+      //
+      // Submit is intercepted so the page does not navigate: POST /params returns the panel
+      // re-rendered (with inline errors if anything blocks) and we swap #panel-params by
+      // outerHTML, exactly as panel ③ is swapped. The listener is DELEGATED from document and
+      // lives here, outside both swappable panels, so it survives every swap with no re-binding.
+      //
+      // On a VALID submission the config has been persisted, so panel ③ is now stale: we re-run
+      // recompute() over the window panel ③ is currently showing. That re-fires the lazy benchmark
+      // too (recompute's success path calls loadBenchmark), which is the required behaviour — a
+      // params change must re-FETCH the benchmark, not compute it inline. On an INVALID submission
+      // nothing was persisted and panel ③ still describes the last good config, so it is left
+      // alone; re-rendering it would imply the bad values had taken effect.
+      //
+      // `X-Params-Valid` carries that decision so we do not have to parse the returned HTML.
+      var paramsInFlight = false;
+
+      // The window panel ③ is currently showing, as a POST /results body. Read off the benchmark
+      // placeholder, which already carries exactly that (data-benchmark-body); falling back to the
+      // default preset when the placeholder is absent (no dataset, or the sample view-model).
+      function currentResultsBody() {
+        var slot = document.getElementById('benchmark-slot');
+        var raw = slot && slot.getAttribute('data-benchmark-body');
+        if (raw) { try { return JSON.parse(raw); } catch (e) { /* fall through */ } }
+        var active = document.querySelector('#panel-results [data-period].btn-active');
+        if (active) return { period: active.getAttribute('data-period') };
+        return null;
+      }
+
+      document.addEventListener('submit', function (ev) {
+        var form = ev.target;
+        if (!form || form.id !== 'params-form') return;
+        ev.preventDefault();
+        if (paramsInFlight) return;
+        paramsInFlight = true;
+        var saving = document.getElementById('params-saving');
+        if (saving) saving.classList.remove('hidden');
+
+        var valid = false;
+        fetch('/params', { method: 'POST', body: new FormData(form) })
+          .then(function (resp) {
+            if (!resp.ok) throw new Error('params failed: ' + resp.status);
+            valid = resp.headers.get('X-Params-Valid') === '1';
+            return resp.text();
+          })
+          .then(function (html) {
+            var panel = document.getElementById('panel-params');
+            if (!panel) return;
+            panel.outerHTML = html;
+            if (!valid) return;   // nothing persisted; panel ③ still reflects the stored config
+            var body = currentResultsBody();
+            if (body) recompute(body);
+          })
+          .catch(function () { /* leave the panel as the user left it */ })
+          .finally(function () {
+            paramsInFlight = false;
+            var s = document.getElementById('params-saving');
+            if (s) s.classList.add('hidden');
+          });
       });
 
       // Initial draw once the page (and Plotly) are ready, plus the first benchmark fetch.
