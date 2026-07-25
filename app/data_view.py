@@ -182,7 +182,8 @@ def panel_data_from(dataset: LoadedDataset) -> dict:
     # Mapping table: the FULL slot roster (specs §2.2 slot-first). One row per SERIES_SLOTS
     # entry whether or not a series is present, so the user can pick a source for a slot that has
     # no data yet. A present slot carries its fetched entity string and persisted source; an
-    # absent slot carries entity=None and source=None. The template gates pv_only/cost_only rows.
+    # absent slot carries entity=None and source=None. The template gates the pv_only /
+    # battery_only / cost_only rows against the setup answers.
     from app.domain.series_vocab import SERIES_SLOTS
 
     present = {f.name: f for f in frames}
@@ -213,6 +214,7 @@ def panel_data_from(dataset: LoadedDataset) -> dict:
                     else None
                 ),
                 "pv_only": slot.pv_only,
+                "battery_only": slot.battery_only,
                 "cost_only": slot.cost_only,
                 # Slot-first provenance (specs §2.2): the source that produced this series (its
                 # descriptor key, or None when the slot is unfilled), and the sources the drawer

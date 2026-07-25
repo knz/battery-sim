@@ -18,9 +18,9 @@
   `.warnings` (already-English messages the template translates via _()), `.invalid`.
 
   Gating comes from the CONFIG's own queries, not from re-derived rules here:
-    * `params.charge_policies` is already filtered to `offerable_charge_policies()`; without PV it
-      holds P2 alone and `params.charge_single` says to draw it as a single labelled option rather
-      than a one-item radio group (§2.3 "Without PV").
+    * `params.charge_policies` always holds ALL THREE policies. Those needing PV carry
+      `disabled` (plus an `info` blurb) when the household has no PV, so the box greys them out
+      instead of dropping them — §2.3 updated, see the Charge policy box below.
     * `params.battery_phases_offered` is `cfg.battery_phases_offered` (3-phase connections only).
     * The Pricing box is ABSENT — not greyed — while cfg.simulate_cost is false, and
       `economic_guard` with it (§2.3 "Without cost simulation").
@@ -272,26 +272,32 @@
         <div class="card bg-base-200 border border-base-300">
           <div class="card-body gap-2 p-4">
             <h3 class="text-sm font-semibold text-base-content/70">{{ _('Charge policy') }}</h3>
-            {% if params.charge_single %}
-            {# §2.3 "Without PV": the box collapses to P2 alone, "rendered as a single labelled
-               option rather than a one-item radio group". The value still has to reach the POST,
-               hence the hidden input. #}
-            {% set only = params.charge_policies[0] %}
-            <input type="hidden" name="policy.charge_policy" value="{{ only.key }}" />
-            <p class="label-text"><b>{{ only.key }}</b> {{ _(only.label) }}</p>
-            <p class="text-xs text-base-content/60">
-              ⓘ {{ _('Without solar there is no surplus to capture, so grid charging is the only way to fill the battery.') }}
-            </p>
-            {% else %}
+            {# All three policies are always listed. The PV-requiring ones are DISABLED, not
+               removed, when the household has no PV (params_view builds the flag): a vanished
+               option leaves the user unable to tell whether the app has the feature at all,
+               whereas a greyed one with a reason says what to change to get it. Each disabled row
+               carries an ⓘ opening the shared #slot-info-dialog with that reason — the same
+               delegated .slot-info-btn handler as the slot roster, so no new JS.
+
+               A disabled radio is never submitted, so a config whose stored charge_policy is one
+               of the disabled ones would post nothing for this field and `parse_form` would keep
+               the stored value — which is the behaviour we want (§6.6: the dispatch already
+               computes the right answer for P1/P3 without PV, so the stored answer is preserved
+               for when PV is turned back on). #}
             {% for p in params.charge_policies %}
-            <label class="label cursor-pointer justify-start gap-3">
+            <label class="label justify-start gap-3{% if not p.disabled %} cursor-pointer{% endif %}">
               <input type="radio" name="policy.charge_policy" value="{{ p.key }}" class="radio radio-sm"
-                     {% if p.selected %}checked{% endif %} />
-              <span class="label-text"><b>{{ p.key }}</b> {{ _(p.label) }}</span>
+                     {% if p.selected %}checked{% endif %}{% if p.disabled %} disabled{% endif %} />
+              <span class="label-text{% if p.disabled %} text-base-content/50{% endif %}"><b>{{ p.key }}</b> {{ _(p.label) }}</span>
               {% if p.pv_only %}<span class="badge badge-ghost badge-xs">{{ _('PV only') }}</span>{% endif %}
+              {% if p.disabled and p.info %}
+              <button type="button" class="btn btn-ghost btn-xs btn-circle align-middle slot-info-btn"
+                      aria-label="{{ _('About') }} {{ _(p.label) }}"
+                      data-info-title="{{ _(p.label) }}"
+                      data-info-body="{{ _(p.info) }}">ⓘ</button>
+              {% endif %}
             </label>
             {% endfor %}
-            {% endif %}
             <div class="mt-1 flex flex-wrap items-center gap-2 text-sm">
               <span>{{ _('Band A') }}</span>
               <input type="text" inputmode="decimal" name="{{ params.charge_band.a.name }}"

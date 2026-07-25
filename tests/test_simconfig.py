@@ -897,3 +897,47 @@ def test_a_broken_override_falls_back_to_the_fuse_rather_than_to_zero():
     result = cfg.validate()
     assert result.blocking
     assert "grid.max_import_kw_override" in result.fields_with_errors()
+
+
+# ── has_battery: the setup-band answer that gates the existing-battery slots (§2.1) ──────────
+
+
+def test_has_battery_defaults_off_and_round_trips_through_the_store(tmp_path, monkeypatch):
+    """It must survive save→load. A field the store forgets silently reverts to its default on
+    every page render, which is precisely the failure the inert has_pv toggle had.
+    """
+    monkeypatch.setenv("BATTERY_SIM_DATA_DIR", str(tmp_path))
+    import importlib
+    import app.config as config
+    importlib.reload(config)
+    import app.db as db
+    importlib.reload(db)
+    import app.simconfig_store as store
+    importlib.reload(store)
+
+    assert SimulationConfig().has_battery is False, "appendix-A default: no existing battery"
+
+    store.save(SimulationConfig(has_battery=True))
+    assert store.load().has_battery is True
+    store.save(SimulationConfig(has_battery=False))
+    assert store.load().has_battery is False
+
+
+def test_clone_preserves_has_battery():
+    """`clone` is what /params builds its candidate on, so a field it drops is cleared by any
+    parameter submission — a cross-panel data loss that no panel-② test would catch.
+    """
+    from app.simconfig_store import clone
+    assert clone(SimulationConfig(has_battery=True)).has_battery is True
+
+
+def test_has_battery_does_not_touch_the_dispatch_config():
+    """It gates SLOTS only. The simulated battery replaces any existing one (§2.1), so no
+    forced invariant and no offerable-policy answer may depend on it.
+    """
+    on = SimulationConfig(has_battery=True)
+    off = SimulationConfig(has_battery=False)
+    assert on.offerable_charge_policies() == off.offerable_charge_policies()
+    assert on.offerable_discharge_policies() == off.offerable_discharge_policies()
+    assert on.coupling is off.coupling
+    assert on.pv_coupling == off.pv_coupling

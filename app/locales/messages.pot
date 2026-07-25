@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-25 14:39+0200\n"
+"POT-Creation-Date: 2026-07-25 15:48+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -34,6 +34,16 @@ msgid ""
 "sufficiency could not be reconstructed reliably and are hidden. This "
 "usually means a solar sensor is not reporting all of your production, or "
 "a battery is not mapped. Check your data sources."
+msgstr ""
+
+#, python-format
+msgid ""
+"%(export)s was exported to the grid, but you have not supplied any solar "
+"data — so the household consumption and self-sufficiency could not be "
+"reconstructed reliably and are hidden. A meter does not export energy the"
+" house did not generate, so either you do have solar panels (answer "
+"\"yes\" above and map the sensor), or an existing battery is feeding the "
+"grid and is not mapped."
 msgstr ""
 
 #, python-format
@@ -165,6 +175,15 @@ msgid_plural ""
 " year to see an annual figure."
 msgstr[0] ""
 msgstr[1] ""
+
+msgid ""
+"Answer yes only to supply your existing battery's charge and discharge "
+"series. They are used solely to work out what your house actually "
+"consumed — the app adds them back when reconstructing load from your grid"
+" meter, which only sees energy crossing the connection. The simulation "
+"below does not build on your existing battery: it assumes that battery is"
+" replaced by the one you configure in the parameters panel."
+msgstr ""
 
 msgid "Apply"
 msgstr ""
@@ -324,6 +343,9 @@ msgstr ""
 msgid "Data quality"
 msgstr ""
 
+msgid "Discharge battery to cover house load"
+msgstr ""
+
 msgid "Discharge policy"
 msgstr ""
 
@@ -331,6 +353,9 @@ msgid "Discharged"
 msgstr ""
 
 msgid "Discharged from the battery"
+msgstr ""
+
+msgid "Do you already have a battery?"
 msgstr ""
 
 msgid "Do you have solar PV?"
@@ -686,9 +711,6 @@ msgstr ""
 msgid "Series slots"
 msgstr ""
 
-msgid "Serve house load"
-msgstr ""
-
 msgid "Serve house load when consumption exceeds solar"
 msgstr ""
 
@@ -856,6 +878,11 @@ msgid ""
 msgstr ""
 
 msgid ""
+"These answers decide which series are asked for below. They are saved "
+"when you fetch your data."
+msgstr ""
+
+msgid ""
 "These come from the battery you already own. The consumption and self-"
 "consumption figures above are reconstructed net of it, so they describe "
 "the house rather than the meter."
@@ -866,7 +893,7 @@ msgid ""
 "restarts. Check that the data directory is writable."
 msgstr ""
 
-msgid "These two answers decide what the app asks you for below."
+msgid "This answer decides whether the app reports euros as well as kWh."
 msgstr ""
 
 #, python-format
@@ -880,6 +907,20 @@ msgid ""
 msgstr ""
 
 msgid "This control"
+msgstr ""
+
+msgid ""
+"This option needs solar panels: it charges the battery only from solar "
+"surplus, so without PV it would never charge at all. Answer \"Yes\" to "
+"\"Do you have solar PV?\" at the top of the Data panel to use it."
+msgstr ""
+
+msgid ""
+"This option needs solar panels: it combines solar-surplus charging with "
+"grid charging. Without PV only the grid half would run, which is exactly "
+"what \"Grid charge when spot price is in band\" already does. Answer "
+"\"Yes\" to \"Do you have solar PV?\" at the top of the Data panel to use "
+"it."
 msgstr ""
 
 msgid "To"
@@ -917,11 +958,6 @@ msgstr ""
 msgid "Where the energy comes from"
 msgstr ""
 
-msgid ""
-"Without solar there is no surplus to capture, so grid charging is the "
-"only way to fill the battery."
-msgstr ""
-
 msgid "Yes"
 msgstr ""
 
@@ -954,6 +990,22 @@ msgid "Your energy use during the selected period"
 msgstr ""
 
 msgid "Your existing battery"
+msgstr ""
+
+msgid ""
+"Your existing battery's charge series. It is used only to work out what "
+"your house actually consumed: the app adds it back when reconstructing "
+"load from your grid meter. The battery simulated below does not build on "
+"it — the simulation assumes your existing battery is replaced by the one "
+"you configure."
+msgstr ""
+
+msgid ""
+"Your existing battery's discharge series. It is used only to work out "
+"what your house actually consumed: the app subtracts it when "
+"reconstructing load from your grid meter. The battery simulated below "
+"does not build on it — the simulation assumes your existing battery is "
+"replaced by the one you configure."
 msgstr ""
 
 #, python-format
@@ -1194,9 +1246,10 @@ msgstr ""
 
 msgid ""
 "● = required.  ○ = optional.  ◐ = required only if you have solar PV.  ◒ "
-"= offered only if you simulate costs (intra-hour price bracketing). Both "
-"answers come from the setup band above. Spot price drives the charge and "
-"discharge bands, so it is required whether or not you simulate costs."
+"= offered only if you simulate costs (intra-hour price bracketing). Which"
+" rows appear comes from the answers in the setup band above. Spot price "
+"drives the charge and discharge bands, so it is required whether or not "
+"you simulate costs."
 msgstr ""
 
 #, python-format

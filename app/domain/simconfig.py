@@ -575,6 +575,12 @@ class SimulationConfig:
                       `SimulationFrame.has_pv_series` reports the DATA side of the same question;
                       the two can legitimately disagree (a user with PV whose sensor is unmapped),
                       and neither overrides the other.
+        has_battery   whether the household ALREADY owns a battery, default false. Like `has_pv`
+                      it is asked explicitly, never inferred (§8.16), and it gates only which
+                      slots panel ① offers: the existing battery's charge/discharge series are
+                      used to reconstruct house load net of it (§6.3). It says nothing about the
+                      battery being SIMULATED — panel ②'s battery is a replacement, so no part of
+                      the dispatch core reads this flag.
         simulate_cost appendix A default false — energy-only, so a first result needs no contract
                       knowledge (§8.18).
         dp_soc_levels / dp_action_levels   §6.12's DP discretisation, appendix A's 101 and 41.
@@ -589,6 +595,7 @@ class SimulationConfig:
     policy: PolicyConfig = field(default_factory=PolicyConfig)
     topology: TopologyConfig = field(default_factory=TopologyConfig)
     has_pv: bool = True
+    has_battery: bool = False
     simulate_cost: bool = False
     # §6.12's DP discretisation, appendix A: `dp_soc_levels` 101, `dp_action_levels` 41, both
     # "shared by both perfect-foresight runs". They sit flat on SimulationConfig rather than in one
@@ -803,6 +810,24 @@ class SimulationConfig:
         if self.has_pv:
             return (ChargePolicy.P1, ChargePolicy.P2, ChargePolicy.P3)
         return (ChargePolicy.P2,)
+
+    @property
+    def effective_charge_policy(self) -> ChargePolicy:
+        """The charge policy that will actually RUN, as opposed to the one stored.
+
+        Without PV, P1 charges nothing and P3 is indistinguishable from P2 (§6.6), so both behave
+        as P2 — which is exactly why `_force_invariants` does NOT rewrite the stored field: the
+        run is already correct, and keeping the answer means turning PV back on restores the
+        user's choice rather than silently resetting it to P2.
+
+        That preservation is right for storage and wrong for DISPLAY. A collapsed summary reading
+        `charge P3` beside a panel showing P3 greyed out and P2 selected contradicts itself. This
+        property is the display-side answer; it is deliberately NOT read by the dispatch core,
+        which §6.6 requires to acquire no `has_pv` branch at all.
+        """
+        if not self.has_pv and self.policy.charge_policy in (ChargePolicy.P1, ChargePolicy.P3):
+            return ChargePolicy.P2
+        return self.policy.charge_policy
 
     def offerable_discharge_policies(self) -> tuple[DischargePolicy, ...]:
         """Which discharge policies panel ② should offer — all three, always (§6.7).

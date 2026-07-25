@@ -113,7 +113,11 @@ def index(request: Request):
     # the static sample dict, and leaving it would let the band and the panel disagree.
     cfg = simconfig_store.load()
     ctx["params"] = params_view.params_view(cfg)
-    ctx["cfg"] = {"has_pv": cfg.has_pv, "simulate_cost": cfg.simulate_cost}
+    ctx["cfg"] = {
+        "has_pv": cfg.has_pv,
+        "has_battery": cfg.has_battery,
+        "simulate_cost": cfg.simulate_cost,
+    }
 
     # If a real dataset has been fetched and persisted, panel ① renders from it (specs §3.5);
     # otherwise it keeps the static sample as the empty state. Params/results stay sample until
@@ -220,7 +224,11 @@ async def params(request: Request):
     locale = i18n.resolve_locale(request)
     html = i18n.env_for(locale).get_template("_panel_params.html").render(
         params=params_view.params_view(candidate, result, save_error=save_error),
-        cfg={"has_pv": candidate.has_pv, "simulate_cost": candidate.simulate_cost},
+        cfg={
+            "has_pv": candidate.has_pv,
+            "has_battery": candidate.has_battery,
+            "simulate_cost": candidate.simulate_cost,
+        },
     )
     return HTMLResponse(html, headers={"X-Params-Valid": "0" if result.blocking else "1"})
 
@@ -422,6 +430,18 @@ async def data_ingest_ws(ws: WebSocket):
                     # locally-saved source customization tagged with an older generation yields to
                     # the server after this. This is the ONLY bump site.
                     generation = await asyncio.to_thread(db.bump_source_generation)
+                    # The setup-band answers this fetch carried (specs §2.1): persisted HERE,
+                    # after the dataset, because the fetch button is what commits the whole data
+                    # configuration and these two answers are part of it.
+                    #
+                    # Deliberately AFTER the save and outside its all-or-nothing guarantee: a
+                    # failed fetch must leave the answers alone (nothing was loaded to describe),
+                    # while a config that cannot be written must not discard a dataset that was.
+                    # The mismatch it risks — a stored dataset whose answers did not persist — is
+                    # self-correcting, since the next fetch writes both again.
+                    await asyncio.to_thread(
+                        _persist_setup_answers, session.setup_has_pv, session.setup_has_battery
+                    )
                     report = normalize.grid_report(frames, window)
                     await ws.send_json(
                         {
@@ -444,6 +464,39 @@ async def data_ingest_ws(ws: WebSocket):
     except WebSocketDisconnect:
         # Client vanished mid-stream; nothing was persisted, nothing to clean up.
         return
+
+
+def _persist_setup_answers(has_pv: bool | None, has_battery: bool | None) -> None:
+    """Write the setup-band answers a fetch carried onto the stored config (specs §2.1).
+
+    Called from the WS `done` handler on a worker thread (file I/O). Either answer may be None,
+    meaning the header did not carry it — an older client — in which case the stored answer is
+    left as it is rather than reset to a default.
+
+    NEVER RAISES. It runs after the dataset has already been persisted and the source generation
+    bumped, so an exception here would fail a fetch whose real work succeeded, and the browser
+    would report LOAD_FAILED for a dataset that is on disk. A data directory that cannot be
+    written is logged and the answers are simply not updated; the next fetch writes them again.
+
+    `guard_submitted=False` is correct: this path draws no panel-② form at all, so it must take
+    the store's carry-forward branch for `economic_guard` rather than claim the box was shown and
+    left unticked (which would clear a setting appendix A says is retained).
+    """
+    if has_pv is None and has_battery is None:
+        return
+    try:
+        stored = simconfig_store.load()
+        if has_pv is not None:
+            stored.has_pv = has_pv
+        if has_battery is not None:
+            stored.has_battery = has_battery
+        # Re-clone before saving. has_pv drives forced invariants (§2.5: pv_coupling → None,
+        # coupling → AC), and assigning the field above bypasses `__post_init__` — so a household
+        # that just turned PV off would otherwise keep a stored DC coupling for an array it does
+        # not have. `clone` reconstructs through the dataclass, which re-applies the forcing.
+        simconfig_store.save(simconfig_store.clone(stored), guard_submitted=False)
+    except Exception:  # pragma: no cover - defensive, see the docstring
+        log.warning("could not persist setup answers after fetch", exc_info=True)
 
 
 def _jsonable_grid(report: dict) -> dict:

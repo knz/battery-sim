@@ -47,28 +47,57 @@ recalculation.
 
 ### The setup band
 
-The band carries the two choices that decide the *shape* of everything below it — which
-series the data panel asks for, which boxes the parameter panel shows, and which sections
-the results panel renders:
+Three choices decide the *shape* of everything below them — which series the data panel asks
+for, which boxes the parameter panel shows, and which sections the results panel renders:
 
-- **`has_pv`** — *do you have solar PV?*
+- **`has_pv`** — *do you have solar PV?* (default on)
+- **`has_battery`** — *do you already have a battery?* (default off)
 - **`simulate_cost`** — *simulate cost savings?* (default off)
 
-It is a **scope selector, not a stepper panel**: it does not collapse to a summary, does
-not carry a `[?]` or a CTA, and is not numbered. It sits above panel ① because the natural
-order of use is to answer it first — a user cannot sensibly map sensors or upload files
-before the app knows whether it should be asking for a solar series or for cost-only
-inputs. The band is the **single source of truth** for both choices; they appear nowhere
-else as controls.
+**They are not all in the same place, and the split is deliberate.** `has_pv` and
+`has_battery` exist to decide which **slots panel ① asks for**, and they are committed by that
+panel's fetch button — so they are rendered **inside panel ①, directly below its title**, above
+the roster they govern. Putting a question in a band above the panel it configures separates
+the answer from its consequence and from the button that commits it.
 
-**The band is editable at any time**, including after data is loaded. Changing either
-answer re-derives the panels below in place — showing or hiding rows and boxes against the
-new answer — **retains** any values already entered in still-applicable fields, and marks
+`simulate_cost` stays **in the band**: it shapes panels ② and ③ as well as ①, so it belongs to
+no single panel. The band is therefore a one-question strip in the shipped UI.
+
+**`has_battery` is about reconstruction, not about the simulation.** It gates only the two
+existing-battery slots in §2.2. Those series exist so [§6.3](08-simulation-core.md)'s load
+reconstruction can strip a battery the household already owns, recovering what the *house*
+consumed from a meter that only sees the grid connection. The battery being simulated is the
+one configured in panel ②, and the simulation assumes it **replaces** any existing battery —
+it never builds on the existing battery's state. The question invites the opposite reading on
+a page whose whole subject is a battery, so the control carries an ⓘ saying exactly this.
+
+The band is a **scope selector, not a stepper panel**: it does not collapse to a summary, does
+not carry a `[?]` or a CTA, and is not numbered. Each answer is the **single source of truth**
+for what it controls and appears exactly once as a control, whether in the band or at the top
+of panel ①.
+
+**The band is editable at any time**, including after data is loaded. Changing an answer
+re-derives the panels below in place — showing or hiding rows and boxes against the new
+answer — **retains** any values already entered in still-applicable fields, and marks
 results stale so they recalculate ([§3.2](04-state-machine.md#32-events)). It never
 discards a loaded dataset or resets the configuration; a user who toggles a choice and
 toggles it back finds their earlier inputs where they left them. What each answer controls
 is set out per panel in §2.2 (data slots), §2.3 (parameter boxes) and §2.4 (result
 sections).
+
+**When the answers are committed.** `has_pv` and `has_battery` re-gate panel ①'s slot roster
+**immediately**, client-side, so the user sees which series the app is asking for as they
+answer. They are **persisted with the fetch**, as fields on the ingest hand-off
+([§4.3](05-data-formats.md)): the fetch button is what commits the whole data configuration,
+and these answers are part of that configuration rather than a separate round-trip of their
+own. Two consequences, both intended:
+
+- Panels ② and ③ render the **stored** answers until the next fetch. They describe a
+  simulation over data that has actually been loaded, so re-deriving them from an answer
+  that has not been committed would describe a run that does not exist.
+- A slot whose row is gated out is **not fetched**, even if a source was staged for it before
+  the answer changed. The staged choice is retained, not cleared, so turning the answer back
+  on restores it.
 
 The panel ① summary line reports the **simulation grid**, not any one series' native
 resolution — one line cannot carry a per-series fact, and the grid is the figure that
@@ -99,9 +128,19 @@ The soft block has one instance, the unsupported battery phase topologies in
 two states it sits between.
 
 **Inapplicable is hidden, never greyed.** With `has_pv` off there is no solar row; with
-`simulate_cost` off there is no Pricing box. A greyed control invites the user to work out
-how to un-grey it, and here there is nothing to work out that the toggle does not already
-say. This rule is applied throughout §2.2, §2.3 and §2.4.
+`has_battery` off there are no existing-battery rows; with `simulate_cost` off there is no
+Pricing box. A greyed control invites the user to work out how to un-grey it, and here there
+is nothing to work out that the toggle does not already say. This rule is applied throughout
+§2.2, §2.3 and §2.4.
+
+**The exception: a control the user can unlock is Blocked, not Inapplicable.** The rule above
+holds for whole rows and boxes, whose absence the adjacent toggle fully explains. It does
+*not* hold for one option inside a group the user is already looking at — there, absence is
+indistinguishable from the feature not existing. The PV-requiring **charge policies** P1 and
+P3 are therefore rendered **Blocked** (greyed, with an ⓘ naming the answer that unlocks
+them), not hidden; see [§2.3 "Without PV"](#without-pv). The distinguishing test is whether
+the user is looking at a place where the missing thing *would* be: a solar row in a roster
+they may never have seen has no such place, a greyed P1 between P2 and P3 does.
 
 **Blocked is greyed, because the user can clear it.** `[ Load data ]` while a slot is empty,
 the annualised figure under `min_annualisation_days`. The greying is the message: this becomes available when
@@ -694,8 +733,11 @@ Two data problems the summary must surface rather than present as clean numbers,
 
 ### The pre-existing battery, and what "net of your battery" means
 
-The user **may already own a battery**. When they do, its charge/discharge sensors are mapped into
-the `battery_charge` / `battery_discharge` slots ([§4.1](05-data-formats.md#41-the-series-vocabulary)),
+The user **may already own a battery**. They declare it with `has_battery` in the setup band
+([§2.1](#the-setup-band)), which is what makes the two slots appear at all — with the answer off
+they are gated out of the roster exactly as the solar row is without PV. When they do, its
+charge/discharge sensors are mapped into the
+`battery_charge` / `battery_discharge` slots ([§4.1](05-data-formats.md#41-the-series-vocabulary)),
 and [§6.3](09-ingest-algorithms.md#63-household-load-reconstruction) reconstructs household load by
 *stripping* that battery: `load = import − export + pv + battery_discharge − battery_charge`. The
 household consumption and self-consumption figures are therefore **derived from the existing
@@ -865,35 +907,47 @@ off, along with everything else in that box.
 ### Without PV
 
 `has_pv` is set in the setup band ([§2.1](#the-setup-band)); this panel reads it and does
-not ask again. The `[PV only]` markers above are not rendered; those options are **absent**.
-With `has_pv = false` the panel changes as follows, and nothing else changes:
+not ask again. With `has_pv = false` the panel changes as follows, and nothing else changes:
 
 ```
   ┌─ Charge policy ────────────────────────────────────────────────────────┐
+  │  (   ) P1  Solar surplus only (net zero at the grid)   [PV only] ⓘ     │  ← greyed
   │  ( • ) P2  Grid charge when spot price is in band                      │
+  │  (   ) P3  Both                                        [PV only] ⓘ     │  ← greyed
   │                                                                        │
   │        Band A (lower) [ -0.050 ] €/kWh   B (upper) [ 0.040 ] €/kWh     │
   │        Charge when  A ≤ spot ≤ B.  Compared against EPEX spot.         │
-  │                                                                        │
-  │  ⓘ Without solar there is no surplus to capture, so grid charging is   │
-  │    the only way to fill the battery.                                   │
   └────────────────────────────────────────────────────────────────────────┘
 
   ┌─ Discharge policy ─────────────────────────────────────────────────────┐
-  │  ( • ) D1  Serve house load                                            │
+  │  ( • ) D1  Discharge battery to cover house load                       │
   │  (   ) D2  Maximise discharge when spot price is in band               │
   │  (   ) D3  Both                                                        │
   └────────────────────────────────────────────────────────────────────────┘
 ```
 
-- **Charge policy** collapses to P2 alone, preselected and rendered as a single labelled
-  option rather than a one-item radio group. P1 and P3 are hidden: with no solar there is
-  no surplus, so P1 would charge nothing and P3 would be P2 under a different name. Showing
-  a user a policy that provably does nothing is a defect, not a courtesy.
-- **D1 is relabelled** from "Serve house load when consumption exceeds solar" to "Serve
-  house load". The behaviour is unchanged — the deficit `max(0, load − pv)` is just the
-  whole load when `pv = 0` — but the original label refers to a comparison the user has
-  told us does not exist. All three discharge policies remain available and meaningfully
+- **The PV-requiring charge policies are DISABLED, not removed.** P1 and P3 stay listed,
+  greyed out, keeping their `[PV only]` marker and gaining an ⓘ that explains why they are
+  unavailable and which answer to change to get them. P2 is preselected.
+
+  This reverses an earlier decision to collapse the box to P2 alone as a single labelled
+  option. The argument for collapsing was that showing a policy which provably does nothing
+  is a defect rather than a courtesy — true of the *option as an actionable control*, but it
+  optimises the wrong thing: an option that vanishes tells the user nothing, leaving them
+  unable to distinguish "this app cannot do solar-surplus charging" from "this app is not
+  offering it to me right now". A greyed option with a stated reason answers both questions
+  and names the toggle that unlocks it. The dispatch semantics are untouched — see
+  [§6.6](../specs/08-simulation-core.md) — since a disabled radio is never submitted and the
+  stored answer survives for when PV is turned back on.
+
+  Note the split this implies in the code: `offerable_charge_policies()` remains the
+  **simulation-side** gate (which policies are meaningfully distinct) and is *not* inverted
+  into a UI-shape query; panel ② turns its answer into a `disabled` flag rather than a filter.
+- **D1 is relabelled** from "Serve house load when consumption exceeds solar" to "Discharge
+  battery to cover house load". The behaviour is unchanged — the deficit `max(0, load − pv)`
+  is just the whole load when `pv = 0` — but the original label refers to a comparison the
+  user has told us does not exist, and the replacement names the action without mentioning
+  solar production at all. All three discharge policies remain available and meaningfully
   distinct. Whether D1 should instead be merged with D3 here is
   [open question §8.17](17-open-questions.md).
 - **The Installation topology box** loses the PV coupling row and shows only the battery

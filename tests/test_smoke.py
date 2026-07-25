@@ -118,15 +118,53 @@ def test_cost_section_absent(page):
 
 def test_solar_row_present(page):
     # has_pv is on: the solar sensor row and the PV-coupling selector are shown.
-    assert page.get_by_text("Solar production").count() >= 1
+    # VISIBILITY, not presence: gated rows are now rendered-and-hidden so the setup radios can
+    # re-gate them client-side, so a `.count()` assertion would pass even with the row hidden.
+    assert page.locator('.slot-row[data-slot-row="solar_production"]').is_visible()
     assert page.get_by_text("How is your PV connected to the battery?").count() >= 1
+
+
+def test_existing_battery_rows_are_hidden_until_declared(page):
+    # has_battery defaults off, so the two existing-battery slots are gated out of the roster.
+    for slot in ("battery_charge", "battery_discharge"):
+        assert not page.locator(f'.slot-row[data-slot-row="{slot}"]').is_visible()
+
+
+def test_the_setup_toggles_re_gate_the_roster_live(page):
+    """The regression this whole change exists for: the toggles must actually DO something.
+
+    They were previously inert — no form, no handler, no route — so clicking one changed nothing
+    and the radio snapped back on the next render. Here the roster must re-gate immediately,
+    client-side, with no round-trip (the answers are persisted later, by the fetch button).
+    """
+    solar = page.locator('.slot-row[data-slot-row="solar_production"]')
+    charge = page.locator('.slot-row[data-slot-row="battery_charge"]')
+
+    assert solar.is_visible() and not charge.is_visible()
+
+    # "No" to PV hides the solar row; "Yes" to an existing battery reveals its two slots.
+    page.locator('input[name="setup_haspv"][value="0"]').check()
+    page.locator('input[name="setup_hasbattery"][value="1"]').check()
+    assert not solar.is_visible(), "answering No to PV must hide the solar slot"
+    assert charge.is_visible(), "declaring a battery must reveal its slots"
+
+    # Toggling back restores both — the answers gate the view, they do not destroy state.
+    page.locator('input[name="setup_haspv"][value="1"]').check()
+    page.locator('input[name="setup_hasbattery"][value="0"]').check()
+    assert solar.is_visible()
+    assert not charge.is_visible()
 
 
 def test_slot_info_affordance(page):
     # The two corroboration slots (Grid power, House load) carry an `info` blurb, so the demo
     # renders an ⓘ button next to each. Clicking one fills and opens the shared #slot-info-dialog.
-    info_btns = page.locator(".slot-info-btn")
-    assert info_btns.count() == 2  # exactly the two rows with a blurb; no icon on the others
+    #
+    # Counted over VISIBLE buttons only. The setup band's "Do you already have a battery?" ⓘ uses
+    # the same shared affordance, and the two existing-battery slots carry blurbs of their own —
+    # but those rows are gated out while has_battery is false (the appendix-A default this demo
+    # runs with), so they are rendered-but-hidden and must not be counted here.
+    visible_info_btns = page.locator("#slot-roster .slot-info-btn:visible")
+    assert visible_info_btns.count() == 2  # exactly the two visible rows with a blurb
     page.get_by_role("button", name="About House load").click()
     dialog = page.locator("#slot-info-dialog")
     assert dialog.get_by_text("House load", exact=True).is_visible()

@@ -145,8 +145,9 @@ reassembled per-resolution register, so a chunk edge is not a series edge.
 The browser streams the fetched rows to the backend over a **WebSocket** (`WS
 /data/ingest/ws`). WebSocket, not a streamed HTTP body: it is supported by every browser
 without the HTTP/2 request-streaming dependency, and it gives per-chunk progress back to the
-UI. The protocol is a `header` (the requested window), then per mapped series a `series`
-declaration followed by one or more `rows` batches (each labelled with its `period`), then a
+UI. The protocol is a `header` (the requested window, plus the setup-band answers this fetch
+commits — see below), then per mapped series a `series` declaration followed by one or more
+`rows` batches (each labelled with its `period`), then a
 `done`. The backend accumulates per series, builds `SeriesFrame`s on `done`, persists them
 ([§5.1](08-architecture.md#51-diagram), [§3.5](04-state-machine.md#35-persistence-points)),
 and replies with the dataset id and the panel-① granularity report, or an `error` that maps
@@ -154,6 +155,21 @@ to `LOAD_FAILED` ([§3.2](04-state-machine.md#32-events)). The payload stays bou
 the 5-minute copy is capped to the trailing `ha_fine_window_days`; a two-year hourly window
 plus a ten-day fine window is on the order of tens of thousands of rows per series, low tens
 of megabytes in total.
+
+**The `header` also carries the setup-band answers**, `has_pv` and `has_battery`
+([§2.1](02-ux-wireframes.md#the-setup-band)). The fetch is what commits the whole data
+configuration, and these two answers are part of it — they decide which slots the roster
+offered in the first place, so persisting them anywhere else would let the stored answers
+disagree with the dataset they produced. Both fields are **optional**: a client that omits one
+leaves the stored answer unchanged, so an older browser cannot silently reset the user's
+configuration.
+
+They are persisted **after** the dataset is written and the source generation bumped, and
+deliberately outside the all-or-nothing guarantee that covers the frames. A failed fetch must
+leave the answers alone — nothing was loaded for them to describe — while a configuration that
+cannot be written must not discard a dataset that already was. The residual risk is a stored
+dataset whose answers did not persist; it is self-correcting, since the next fetch writes both
+again.
 
 ## Which statistics columns actually exist — this is not uniform
 

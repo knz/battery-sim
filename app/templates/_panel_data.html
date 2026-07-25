@@ -26,9 +26,20 @@
   reuses that connection — the drawer's single entity <select> is filled by ha_fetch.js from that
   connection, and Confirm for an HA slot needs both a tested connection and a chosen entity.
 
-  The slot roster is gated by the setup band (§2.2, §2.1): the solar row shows only when
-  cfg.has_pv, and the two Spot price (min/max) rows are offered only when cfg.simulate_cost.
-  Those choices live in the band above panel ① (_setup_band.html), not here.
+  The panel OPENS with its two scope questions (§2.1) — "Do you have solar PV?" (cfg.has_pv) and
+  "Do you already have a battery?" (cfg.has_battery) — placed directly below the panel title,
+  above the roster they govern. They are committed by this panel's own fetch button. The third
+  scope choice, cfg.simulate_cost, stays in the setup band above (_setup_band.html) because it
+  shapes panels ② and ③ too rather than being a data-step question.
+
+  The slot roster is gated by all three (§2.2, §2.1): the solar row shows only when cfg.has_pv,
+  the two existing-battery rows only when cfg.has_battery, and the two Spot price (min/max) rows
+  only when cfg.simulate_cost.
+
+  Gated rows are rendered but carry `hidden`, so the band's radios can re-gate the table
+  client-side without a round-trip (ha_fetch.js `applySetupGating`). The server computes the
+  initial hidden state, so the first paint is right with JS off. A hidden row is not fetchable:
+  ha_fetch.js skips hidden rows when collecting the slots to stream.
 
   UI chrome is wrapped in _() for translation (English/Dutch); data values (entity IDs, numbers)
   stay literal. Role labels and source labels/blurbs are English source strings translated here
@@ -80,6 +91,54 @@
   <div class="collapse-content">
     <div class="flex flex-col gap-4 pt-2">
 
+      {# ── Scope questions (§2.1) ──────────────────────────────────────────────
+         `has_pv` and `has_battery` live HERE, at the top of panel ①, rather than in the setup
+         band above it: both answers exist to decide which SLOTS this panel asks for, and the
+         answer belongs next to the roster it governs. `simulate_cost` stays in the setup band —
+         it shapes panels ② and ③ as well, so it is not a data-step question.
+
+         Both re-gate the roster below immediately (ha_fetch.js `applySetupGating`) and are
+         COMMITTED by the fetch button at the bottom of this panel, along with the rest of the
+         data configuration. See _setup_band.html's header for the full rationale. #}
+      <div class="flex flex-col gap-2" id="setup-scope">
+        <div class="flex flex-wrap items-center gap-3">
+          <span class="w-56 label-text">{{ _('Do you have solar PV?') }}</span>
+          <label class="label cursor-pointer gap-1">
+            <input type="radio" name="setup_haspv" value="1" class="radio radio-sm" {% if cfg.has_pv %}checked{% endif %} />
+            <span class="label-text">{{ _('Yes') }}</span>
+          </label>
+          <label class="label cursor-pointer gap-1">
+            <input type="radio" name="setup_haspv" value="0" class="radio radio-sm" {% if not cfg.has_pv %}checked{% endif %} />
+            <span class="label-text">{{ _('No') }}</span>
+          </label>
+        </div>
+
+        {# The ⓘ is not decoration: "do you have a battery?" on a battery simulator invites the
+           wrong reading — that it configures the SIMULATED battery. It does not; it only decides
+           whether the existing battery's series are asked for, so load can be reconstructed net
+           of it (§6.3). Uses the shared .slot-info-btn / #slot-info-dialog pair. #}
+        <div class="flex flex-wrap items-center gap-3">
+          <span class="w-56 label-text">
+            {{ _('Do you already have a battery?') }}
+            <button type="button" class="btn btn-ghost btn-xs btn-circle align-middle slot-info-btn"
+                    aria-label="{{ _('About') }} {{ _('Do you already have a battery?') }}"
+                    data-info-title="{{ _('Do you already have a battery?') }}"
+                    data-info-body="{{ _('Answer yes only to supply your existing battery\'s charge and discharge series. They are used solely to work out what your house actually consumed — the app adds them back when reconstructing load from your grid meter, which only sees energy crossing the connection. The simulation below does not build on your existing battery: it assumes that battery is replaced by the one you configure in the parameters panel.') }}">ⓘ</button>
+          </span>
+          <label class="label cursor-pointer gap-1">
+            <input type="radio" name="setup_hasbattery" value="1" class="radio radio-sm" {% if cfg.has_battery %}checked{% endif %} />
+            <span class="label-text">{{ _('Yes') }}</span>
+          </label>
+          <label class="label cursor-pointer gap-1">
+            <input type="radio" name="setup_hasbattery" value="0" class="radio radio-sm" {% if not cfg.has_battery %}checked{% endif %} />
+            <span class="label-text">{{ _('No') }}</span>
+          </label>
+        </div>
+        <p class="text-xs text-base-content/60">
+          ⓘ {{ _('These answers decide which series are asked for below. They are saved when you fetch your data.') }}
+        </p>
+      </div>
+
       {# ── Intro ───────────────────────────────────────────────────────────── #}
       <p class="text-sm text-base-content/70">
         {{ _('Pick where each series comes from. Choose a source per slot; for Home Assistant, connect once from the source drawer (Configure) and that connection is reused across every slot that uses it.') }}
@@ -113,8 +172,19 @@
               </thead>
               <tbody>
                 {% for row in data.mapping %}
-                  {% if (not row.pv_only or cfg.has_pv) and (not row.cost_only or cfg.simulate_cost) %}
-                  <tr>
+                  {# Gated rows are RENDERED and hidden with a class, not omitted: the setup-band
+                     radios re-gate this table client-side as the user answers (ha_fetch.js
+                     `applySetupGating`), and a row that was never rendered could not come back
+                     without a round-trip. The data-*-only attributes tell JS which answer each row
+                     depends on; the server still computes the initial hidden state below, so the
+                     first paint is correct with JS disabled. A hidden row's slot is skipped by
+                     mappedSlots()/stagedBackendSlots(), so it is never fetched. #}
+                  {% set row_hidden = (row.pv_only and not cfg.has_pv) or (row.battery_only and not cfg.has_battery) or (row.cost_only and not cfg.simulate_cost) %}
+                  <tr class="slot-row{% if row_hidden %} hidden{% endif %}"
+                      data-slot-row="{{ row.name }}"
+                      {% if row.pv_only %}data-pv-only="1"{% endif %}
+                      {% if row.battery_only %}data-battery-only="1"{% endif %}
+                      {% if row.cost_only %}data-cost-only="1"{% endif %}>
                     {# Role label, plus an optional ⓘ info affordance. The icon renders only when
                        the slot's view-model carries an `info` blurb (specs §4.1), so the roster
                        is generic: a future series gets an icon by populating SlotSpec.info, with
@@ -178,14 +248,13 @@
                       </button>
                     </td>
                   </tr>
-                  {% endif %}
                 {% endfor %}
               </tbody>
             </table>
           </div>
 
           <p class="text-xs text-base-content/60">
-            {{ _('● = required.  ○ = optional.  ◐ = required only if you have solar PV.  ◒ = offered only if you simulate costs (intra-hour price bracketing). Both answers come from the setup band above. Spot price drives the charge and discharge bands, so it is required whether or not you simulate costs.') }}
+            {{ _('● = required.  ○ = optional.  ◐ = required only if you have solar PV.  ◒ = offered only if you simulate costs (intra-hour price bracketing). Which rows appear comes from the answers in the setup band above. Spot price drives the charge and discharge bands, so it is required whether or not you simulate costs.') }}
           </p>
 
           {# Fetch progress — hidden until a fetch starts (ha_fetch.js). "Fetch history" pulls

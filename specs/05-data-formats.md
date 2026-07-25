@@ -26,8 +26,8 @@ its own series name.
 | `grid_export_t1` | yes¹ | cumulative/delta | |
 | `grid_export_t2` | expected⁴ | cumulative/delta | |
 | `solar_production` | conditional² | cumulative/delta | AC output of the PV inverter. Required when the household declares PV, absent otherwise |
-| `battery_charge` | no | cumulative/delta | **AC-side.** See [§7.2](15-data-quality-and-limits.md#72-known-modelling-limitations--state-these-in-the-ui-not-just-here) item 2 |
-| `battery_discharge` | no | cumulative/delta | **AC-side.** |
+| `battery_charge` | no⁶ | cumulative/delta | **AC-side.** See [§7.2](15-data-quality-and-limits.md#72-known-modelling-limitations--state-these-in-the-ui-not-just-here) item 2 |
+| `battery_discharge` | no⁶ | cumulative/delta | **AC-side.** |
 | `price_spot` | yes³ | price | Bare EPEX, excl. markup, tax and VAT |
 | `price_spot_min` | no⁵ | price | Intra-interval minimum. Enables [§6.16](14-diagnostics.md#616-price-bracketing-under-settlementresolution-mismatch) bracketing; cost simulation only |
 | `price_spot_max` | no⁵ | price | Intra-interval maximum. Enables [§6.16](14-diagnostics.md#616-price-bracketing-under-settlementresolution-mismatch) bracketing; cost simulation only |
@@ -63,6 +63,17 @@ enables cost simulation in the setup band ([§2.1](02-ux-wireframes.md#the-setup
 `cfg.simulate_cost`), since the bracketing they feed qualifies a euro figure and has no
 meaning in an energy-only run. With cost simulation off the slots are absent from the data
 step; with it on they appear as optional. Supplying them is always optional even then.
+
+⁶ Never required. The two existing-battery slots are *offered* in the data step only when the
+household declares an existing battery in the setup band
+([§2.1](02-ux-wireframes.md#the-setup-band), `cfg.has_battery`); with the answer off they are
+absent from the roster, with it on they appear as optional. They exist solely so
+[§6.3](09-ingest-algorithms.md#63-household-load-reconstruction) can strip a battery the
+household already owns from the reconstructed load. They say nothing about the battery being
+**simulated**: panel ② configures that one, and the simulation assumes it replaces any
+existing battery rather than building on its state. Unlike `solar_production` (footnote 2)
+there is no consistency check against the declaration, because neither direction is an error —
+a household with a battery may legitimately not have collected its sensors.
 
 ## 4.2 The per-series file format
 

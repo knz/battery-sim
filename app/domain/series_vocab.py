@@ -47,9 +47,10 @@ Requirement = Literal["required", "conditional", "cost_optional", "optional"]
 class SlotSpec:
     """One series slot (specs §4.1 row): its internal name, kind, and requirement level.
 
-    `pv_only` marks a slot present only when the household declared PV (cfg.has_pv); `cost_only`
-    marks a slot offered only under cost simulation (cfg.simulate_cost). These gate whether the
-    slot appears in the mapping roster (specs §2.2), not whether an ingest carrying it is
+    `pv_only` marks a slot present only when the household declared PV (cfg.has_pv);
+    `battery_only` a slot present only when it declared an EXISTING battery (cfg.has_battery);
+    `cost_only` a slot offered only under cost simulation (cfg.simulate_cost). These gate whether
+    the slot appears in the mapping roster (specs §2.2), not whether an ingest carrying it is
     accepted — a payload naming a valid slot is always parsed.
 
     `info` is an optional one- or two-sentence explanation of why the slot is offered, shown by
@@ -63,6 +64,7 @@ class SlotSpec:
     kind: SeriesKind
     requirement: Requirement
     pv_only: bool = False
+    battery_only: bool = False
     cost_only: bool = False
     info: str | None = None
 
@@ -74,8 +76,33 @@ SERIES_SLOTS: tuple[SlotSpec, ...] = (
     SlotSpec("grid_export_t1", "energy", "required"),
     SlotSpec("grid_export_t2", "energy", "optional"),
     SlotSpec("solar_production", "energy", "conditional", pv_only=True),
-    SlotSpec("battery_charge", "energy", "optional"),
-    SlotSpec("battery_discharge", "energy", "optional"),
+    # The two existing-battery slots. They exist ONLY to reconstruct house load net of a battery
+    # the household already owns (§6.3) — the simulator below assumes that battery is replaced by
+    # the one configured in panel ②, so nothing here feeds the simulated battery's state.
+    SlotSpec(
+        "battery_charge",
+        "energy",
+        "optional",
+        battery_only=True,
+        info=_N(
+            "Your existing battery's charge series. It is used only to work out what your house "
+            "actually consumed: the app adds it back when reconstructing load from your grid "
+            "meter. The battery simulated below does not build on it — the simulation assumes "
+            "your existing battery is replaced by the one you configure."
+        ),
+    ),
+    SlotSpec(
+        "battery_discharge",
+        "energy",
+        "optional",
+        battery_only=True,
+        info=_N(
+            "Your existing battery's discharge series. It is used only to work out what your "
+            "house actually consumed: the app subtracts it when reconstructing load from your "
+            "grid meter. The battery simulated below does not build on it — the simulation "
+            "assumes your existing battery is replaced by the one you configure."
+        ),
+    ),
     SlotSpec("price_spot", "price", "required"),
     SlotSpec("price_spot_min", "price", "cost_optional", cost_only=True),
     SlotSpec("price_spot_max", "price", "cost_optional", cost_only=True),

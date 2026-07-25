@@ -682,3 +682,104 @@ def test_the_load_unreliable_warning_renders_its_figure_not_a_dict():
         assert "72 kWh" in html or "72 kWh".replace(",", ".") in html, (
             f"[{locale}] the exported total is missing from the warning"
         )
+
+
+# ── Requirements 4 and 7: no PV-related figures reach the page without PV ────────────────────
+#
+# These VERIFY rather than gate. The glance band and panel ③ were already data-driven — the solar
+# group renders under `{% if data_summary.solar %}` and panel ③'s self-consumption row under
+# `_pv_present()` — so hiding the solar SLOT (has_pv=False → no solar series fetched) should be
+# enough on its own. That is a claim about behaviour nobody had asserted, and it is exactly the
+# kind of claim that quietly stops being true, so it is pinned here in both locales.
+
+
+def test_without_a_solar_series_the_glance_band_shows_no_solar_figures():
+    """The panel-① band: no Solar group, no self-consumption, no PV caveat — in both locales.
+
+    Rendered through the real macro rather than asserted on the view-model, because the question
+    is what a reader SEES. A household with no PV also has no export, which keeps the §6.3 clamp
+    quiet and leaves consumption and self-sufficiency present — those are grid-meter figures and
+    must NOT disappear with the solar ones (see the consumption test below).
+    """
+    ds = _dataset([_energy("grid_import_t1", 1.0), _energy("grid_export_t1", 0.0)])
+    summary = data_summary_from(ds)
+    assert summary["solar"] is None, "no solar slot mapped, so the group must be omitted entirely"
+
+    for locale in i18n.SUPPORTED:
+        html = i18n.env_for(locale).from_string(
+            '{% from "_data_glance.html" import data_glance with context %}'
+            "{{ data_glance(data_summary) }}"
+        ).render(data_summary=summary)
+        for word in ("Solar", "Zon", "Self-consumption", "Zelfconsumptie"):
+            assert word not in html, f"[{locale}] PV wording {word!r} leaked into a no-PV band"
+
+
+def test_consumption_survives_without_pv():
+    """Consumption is a GRID-meter figure and must not vanish with the solar ones.
+
+    Regression guard for a plausible-looking mistake: gating the Household group on PV alongside
+    the Solar group. Load reconstruction is `imp − exp + pv + …`; with no PV and no export it is
+    just the import, which is perfectly reliable. Suppression is driven ONLY by the §6.3 clamp
+    (`clamped_frac > CLAMP_UNRELIABLE_FRAC`), never by has_pv.
+    """
+    ds = _dataset([_energy("grid_import_t1", 1.0), _energy("grid_export_t1", 0.0)])
+    summary = data_summary_from(ds)
+    assert summary["household"]["consumption"] == {"num": float(HOURS), "fmt": "kwh"}
+    assert summary["household"]["self_sufficiency"] is not None
+    assert summary["notes"] == [], "a clean no-PV household should raise no data-quality note"
+
+
+def test_without_a_battery_series_the_glance_band_shows_no_existing_battery_group():
+    """has_battery=False → the two slots are never fetched → the group is omitted (omit-don't-zero).
+
+    Also asserts the "net of your existing battery" captions are absent: they are driven by
+    `household.net_battery`, which is False when neither battery slot is mapped.
+    """
+    ds = _dataset([_energy("grid_import_t1", 1.0), _energy("grid_export_t1", 0.0)])
+    summary = data_summary_from(ds)
+    assert summary["battery"] is None
+    assert summary["household"]["net_battery"] is False
+
+    for locale in i18n.SUPPORTED:
+        html = i18n.env_for(locale).from_string(
+            '{% from "_data_glance.html" import data_glance with context %}'
+            "{{ data_glance(data_summary) }}"
+        ).render(data_summary=summary)
+        # The GROUP HEADING and the "net of…" captions, not the word "battery" on its own: the
+        # self-sufficiency ⓘ legitimately mentions an existing battery while explaining the
+        # formula in general terms, and asserting on the bare word would forbid that.
+        for heading in ("Your existing battery", "Je bestaande batterij"):
+            assert heading not in html, f"[{locale}] the battery GROUP rendered with no battery"
+        for caption in ("net of your existing battery", "na aftrek van je bestaande batterij"):
+            assert caption not in html, f"[{locale}] a net-of-battery caption leaked: {caption!r}"
+
+
+def test_the_load_unreliable_note_does_not_blame_a_solar_sensor_that_was_never_mapped():
+    """Two diagnoses, chosen by whether a solar series exists — not by `cfg.has_pv`.
+
+    Unexplained export is equally unreliable either way, so the SUPPRESSION is unchanged; what
+    changes is the advice. Telling a household that answered "no PV" to check "a solar sensor"
+    names a device they just said they do not have, and the actionable reading is the opposite:
+    a meter does not export what the house did not generate, so the answer is probably wrong.
+    """
+    no_pv = data_summary_from(_dataset([_energy("grid_import_t1", 1.0), _energy("grid_export_t1", 3.0)]))
+    note = next(n for n in no_pv["notes"] if n["key"] == "load_unreliable")
+    assert note["has_pv_series"] is False
+
+    html = i18n.env_for("en").from_string(
+        '{% from "_data_glance.html" import data_glance with context %}{{ data_glance(data_summary) }}'
+    ).render(data_summary=no_pv)
+    assert "you have not supplied any solar data" in html
+    assert "a solar sensor is not reporting" not in html, "blamed a sensor that was never mapped"
+
+    # With a solar series mapped but under-reporting, the original sensor diagnosis is right.
+    with_pv = data_summary_from(_dataset([
+        _energy("grid_import_t1", 1.0), _energy("grid_export_t1", 3.0),
+        _energy("solar_production", 0.001),
+    ]))
+    note2 = next(n for n in with_pv["notes"] if n["key"] == "load_unreliable")
+    assert note2["has_pv_series"] is True
+    html2 = i18n.env_for("en").from_string(
+        '{% from "_data_glance.html" import data_glance with context %}{{ data_glance(data_summary) }}'
+    ).render(data_summary=with_pv)
+    assert "a solar sensor is not reporting" in html2

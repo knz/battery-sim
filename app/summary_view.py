@@ -269,6 +269,12 @@ def data_summary_from(
             "key": "load_unreliable",
             "clamped_kwh": _fmt_kwh(clamped_kwh),
             "export_kwh": _fmt_kwh(exp_total),
+            # Whether a PV slot was mapped at all, which selects WHICH diagnosis the note gives.
+            # With a solar series present, unexplained export points at a sensor under-reporting.
+            # With NONE — the household said it has no PV — the far likelier reading is that the
+            # answer is wrong: a meter does not export what a house did not generate. Blaming "a
+            # solar sensor" there names a device the user has just told us does not exist.
+            "has_pv_series": by_name.get("solar_production") is not None,
         })
 
     _add_solar(summary, by_name.get("solar_production"), pv, exp, grid_s, window)

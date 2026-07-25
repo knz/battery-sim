@@ -292,21 +292,38 @@ def test_summary_line_survives_an_invalid_config():
 # ── UI gating (§2.3 "Without PV" / "Without cost simulation", §2.5) ──────────────────────────
 
 
-def test_without_pv_only_p2_is_offered_and_the_topology_box_empties():
-    """§2.3 "Without PV": P1/P3 absent, D1 relabelled, pv_coupling null, topology box not drawn.
+def test_without_pv_p1_and_p3_are_disabled_not_dropped():
+    """§2.3 "Without PV": all three charge policies are still LISTED, but P1/P3 come back
+    disabled and carrying a reason, D1 is relabelled, pv_coupling is null, and the topology box
+    is not drawn.
 
-    Every one of these comes from the config's OWN gating queries rather than a rule restated in
-    the view layer, which is what keeps the two from drifting.
+    The disable-don't-hide shape is a deliberate departure from §2.3's original "collapses to P2
+    alone": an option that vanishes leaves the user unable to tell the feature exists, whereas a
+    greyed one with a reason says what to change. `offerable_charge_policies()` still reports
+    only P2 — it stayed the SIMULATION-side gate — and this view layer turns that into a
+    `disabled` flag rather than a filter.
     """
     cfg = SimulationConfig(has_pv=False)
     view = params_view.params_view(cfg)
-    assert [p["key"] for p in view["charge_policies"]] == ["P2"]
-    assert view["charge_single"] is True
-    assert view["discharge_policies"][0]["label"] == "Serve house load"
+    assert [p["key"] for p in view["charge_policies"]] == ["P1", "P2", "P3"]
+    disabled = {p["key"]: p["disabled"] for p in view["charge_policies"]}
+    assert disabled == {"P1": True, "P2": False, "P3": True}
+    # Each disabled option explains itself; the usable one carries no blurb.
+    for p in view["charge_policies"]:
+        assert bool(p["info"]) is p["disabled"]
+    assert view["discharge_policies"][0]["label"] == "Discharge battery to cover house load"
     assert view["pv_coupling"] is None
     assert cfg.coupling is Coupling.AC
     # 1-phase connection + no PV → the box is empty, so it is not rendered (§2.3).
     assert "topology" not in view["sections"].split()
+
+
+def test_with_pv_every_charge_policy_is_enabled():
+    """The counterpart: with PV nothing is greyed, and no option carries a "needs PV" blurb."""
+    view = params_view.params_view(SimulationConfig(has_pv=True))
+    assert [p["key"] for p in view["charge_policies"]] == ["P1", "P2", "P3"]
+    assert not any(p["disabled"] for p in view["charge_policies"])
+    assert not any(p["info"] for p in view["charge_policies"])
 
 
 def test_without_pv_a_three_phase_connection_still_shows_the_phase_selector():
@@ -593,3 +610,42 @@ def test_the_saved_document_uses_the_same_mode_as_the_rest_of_the_data_dir(store
     assert stat.S_IMODE(store.config_path().stat().st_mode) == stat.S_IMODE(
         control.stat().st_mode
     )
+
+
+def test_the_summary_reports_the_effective_charge_policy_not_the_stored_one():
+    """A stored P3 with no PV runs as P2 (§6.6), and the summary must say so.
+
+    Caught by eyeballing a rendered no-PV page: the collapsed line read `charge P3` while the
+    charge box below showed P3 greyed out and P2 selected — the summary contradicting the panel
+    it summarises. The stored answer is deliberately preserved (turning PV back on restores the
+    user's choice), so this is a DISPLAY fix, not a normalisation.
+    """
+    cfg = SimulationConfig(has_pv=False, policy=PolicyConfig(charge_policy=ChargePolicy.P3))
+    assert cfg.policy.charge_policy is ChargePolicy.P3, "the stored answer must be preserved"
+    assert cfg.effective_charge_policy is ChargePolicy.P2
+    assert "charge P2" in params_view.summary_line(cfg)
+    assert "charge P3" not in params_view.summary_line(cfg)
+
+
+def test_no_disabled_charge_policy_is_ever_rendered_as_selected():
+    """The radio group must always have exactly one enabled, checked option.
+
+    Checking a disabled radio both misreports what will run and leaves the box with no usable
+    selection — the user sees a greyed tick they cannot move.
+    """
+    for stored in (ChargePolicy.P1, ChargePolicy.P2, ChargePolicy.P3):
+        view = params_view.params_view(
+            SimulationConfig(has_pv=False, policy=PolicyConfig(charge_policy=stored))
+        )
+        selected = [p for p in view["charge_policies"] if p["selected"]]
+        assert len(selected) == 1, f"stored={stored}: expected exactly one selected option"
+        assert selected[0]["disabled"] is False, f"stored={stored}: a disabled option was checked"
+        assert selected[0]["key"] == "P2"
+
+
+def test_with_pv_the_stored_charge_policy_is_reported_unchanged():
+    """The counterpart: with PV, effective == stored for every policy."""
+    for stored in (ChargePolicy.P1, ChargePolicy.P2, ChargePolicy.P3):
+        cfg = SimulationConfig(has_pv=True, policy=PolicyConfig(charge_policy=stored))
+        assert cfg.effective_charge_policy is stored
+        assert f"charge {stored.value}" in params_view.summary_line(cfg)

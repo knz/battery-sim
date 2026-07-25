@@ -122,7 +122,8 @@
   var fetchStatus = document.getElementById("ha-fetch-status");
   var progressEl = document.getElementById("ha-fetch-progress");
 
-  // Slot info ⓘ affordance (specs §4.1). A single #slot-info-dialog (in _panel_data.html) serves
+  // Slot info ⓘ affordance (specs §4.1). A single #slot-info-dialog (page level, in index.html,
+  // so it survives every fragment swap and serves panels ①, ② and ③ alike) serves
   // every row's ⓘ button; a delegated click reads the (server-side, already-translated) title and
   // body off the clicked .slot-info-btn's data-* and opens the modal — same shared-dialog pattern
   // as #pending-dialog. Generic: any row whose view-model carries `info` renders a button, so no
@@ -482,11 +483,76 @@
 
   // Slots whose chosen source is Home Assistant AND that have an entity chosen (slotState). This
   // is the sole source of truth for the HA arm of the fetch — there is no per-row DOM select.
+  // ── Setup-band answers (specs §2.1) ────────────────────────────────────────────────────────
+  //
+  // The two shape-determining answers — has_pv and has_battery — live as radio groups in
+  // _setup_band.html. They are NOT a form and post nowhere on change. Instead:
+  //
+  //   * changing one re-gates panel ①'s slot roster IMMEDIATELY (applySetupGating below), so the
+  //     user sees which series the app is asking for as they answer; and
+  //   * the answers are PERSISTED with the fetch, as fields on the ingest WS `header` message —
+  //     the fetch button commits the whole data configuration, and these are part of it.
+  //
+  // Panels ② and ③ keep showing the STORED answers until the next fetch. That is deliberate:
+  // they describe a simulation over data that has actually been loaded, so re-deriving them from
+  // an uncommitted answer would describe a run that does not exist yet.
+
+  // One setup answer as a boolean, read off the checked radio. Defaults matter: an absent group
+  // (a template that did not render it) must not silently flip the answer, so each caller passes
+  // the same default the server-side config uses.
+  function setupAnswer(name, dflt) {
+    var checked = document.querySelector('input[name="' + name + '"]:checked');
+    if (!checked) return dflt;
+    return checked.value === "1";
+  }
+
+  function hasPv() { return setupAnswer("setup_haspv", true); }
+  function hasBattery() { return setupAnswer("setup_hasbattery", false); }
+
+  // Is this slot's row currently gated out? A hidden row's slot must never be fetched, even if a
+  // source was staged for it before the answer changed — otherwise turning PV off after choosing
+  // a solar source would still stream solar data. The staged state is deliberately NOT cleared,
+  // so turning the answer back on restores the user's choice.
+  function slotHidden(name) {
+    var row = document.querySelector('.slot-row[data-slot-row="' + cssEscape(name) + '"]');
+    return !!(row && row.classList.contains("hidden"));
+  }
+
+  // Minimal attribute-value escape for the querySelector above. Slot names come from the closed
+  // server-side vocabulary (lowercase + underscore), so this only has to be safe, not complete.
+  function cssEscape(s) {
+    return String(s).replace(/["\\]/g, "\\$&");
+  }
+
+  // Show/hide each gated slot row against the current answers. The server rendered the initial
+  // state, so this is a no-op on load and only does work once a radio changes.
+  function applySetupGating() {
+    var pv = hasPv(), batt = hasBattery();
+    Array.prototype.slice.call(document.querySelectorAll(".slot-row")).forEach(function (row) {
+      var hide =
+        (row.hasAttribute("data-pv-only") && !pv) ||
+        (row.hasAttribute("data-battery-only") && !batt);
+      // cost_only rows are left exactly as the server rendered them: simulate_cost is a pending
+      // feature whose control is disabled, so it cannot change client-side.
+      if (row.hasAttribute("data-pv-only") || row.hasAttribute("data-battery-only")) {
+        row.classList.toggle("hidden", hide);
+      }
+    });
+    // Hiding a staged row can remove the last fetchable slot, so the button must re-evaluate.
+    updateFetchEnabled();
+  }
+
+  document.addEventListener("change", function (ev) {
+    var el = ev.target;
+    if (!el || el.type !== "radio") return;
+    if (el.name === "setup_haspv" || el.name === "setup_hasbattery") applySetupGating();
+  });
+
   function mappedSlots() {
     return Object.keys(slotState)
       .filter(function (name) {
         var st = slotState[name];
-        return st && st.source === "home_assistant" && st.statId;
+        return st && st.source === "home_assistant" && st.statId && !slotHidden(name);
       })
       .map(function (name) {
         var st = slotState[name];
@@ -512,7 +578,7 @@
     return Object.keys(slotState)
       .filter(function (name) {
         var st = slotState[name];
-        return st && st.source && backendSourceKeys[st.source];
+        return st && st.source && backendSourceKeys[st.source] && !slotHidden(name);
       })
       .map(function (name) { return { name: name, source: slotState[name].source }; });
   }
@@ -560,7 +626,12 @@
 
       var w = historyWindow();
       var win = { start: w.start, end: w.end };
-      backend.send(JSON.stringify({ type: "header", source: "home_assistant", window: win }));
+      // The setup-band answers ride along with the header: this fetch is what commits them
+      // (specs §2.1), alongside the dataset itself and the source-generation bump.
+      backend.send(JSON.stringify({
+        type: "header", source: "home_assistant", window: win,
+        has_pv: hasPv(), has_battery: hasBattery()
+      }));
 
       // HA arm: stream the mapped slots' statistics.
       var total = slots.length, done = 0;

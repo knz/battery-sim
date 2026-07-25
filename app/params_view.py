@@ -506,13 +506,20 @@ def summary_line(cfg: SimulationConfig) -> str:
 
     The percentage is written with the `%` character directly into a plain f-string that never
     reaches gettext, which is safe; nothing here is wrapped in `_()`.
+
+    **The charge policy reported is the EFFECTIVE one, not the stored one.** Without PV the panel
+    disables P1/P3 but deliberately leaves the stored answer alone (§6.6: dispatch already
+    computes the right result, and preserving it means turning PV back on restores the user's
+    choice). A summary echoing the raw field then reads `charge P3` while the box shows P3 greyed
+    out and P2 selected — the line contradicting the panel it summarises. `effective_charge_policy`
+    reports what will actually run.
     """
     cap = _fmt(cfg.battery.usable_capacity_kwh, 1)
     chg = _fmt(cfg.battery.max_charge_kw, 1)
     dis = _fmt(cfg.battery.max_discharge_kw, 1)
     rte_pct = _frac_to_pct(cfg.battery.roundtrip_efficiency)
     rte = _fmt(rte_pct, 0)
-    charge = _policy_key(cfg.policy.charge_policy)
+    charge = _policy_key(cfg.effective_charge_policy)
     discharge = _policy_key(cfg.policy.discharge_policy)
     mode = "energy only" if not cfg.simulate_cost else "cost"
     return (
@@ -538,6 +545,28 @@ _CHARGE_LABELS: dict[ChargePolicy, str] = {
 }
 _CHARGE_PV_ONLY = frozenset({ChargePolicy.P1, ChargePolicy.P3})
 
+# Why a PV-requiring option is shown greyed out rather than removed, one blurb per policy. Shown
+# by the ⓘ affordance next to the disabled radio (the shared #slot-info-dialog, so no new JS).
+#
+# These exist because panel ② now DISABLES P1/P3 without PV instead of collapsing the box to P2
+# alone — a deliberate departure from §2.3's original "rendered as a single labelled option",
+# updated in the spec alongside this code. The reasoning behind the change: an option that
+# silently disappears leaves the user unable to tell whether the app has the feature at all,
+# whereas a greyed-out option with a reason tells them what to change to get it.
+_CHARGE_DISABLED_INFO: dict[ChargePolicy, str] = {
+    ChargePolicy.P1: _N(
+        "This option needs solar panels: it charges the battery only from solar surplus, so "
+        "without PV it would never charge at all. Answer \"Yes\" to \"Do you have solar PV?\" at the "
+        "top of the Data panel to use it."
+    ),
+    ChargePolicy.P3: _N(
+        "This option needs solar panels: it combines solar-surplus charging with grid charging. "
+        "Without PV only the grid half would run, which is exactly what \"Grid charge when spot "
+        "price is in band\" already does. Answer \"Yes\" to \"Do you have solar PV?\" at the top of "
+        "the Data panel to use it."
+    ),
+}
+
 # D1's label CHANGES without PV (§2.3 "Without PV"): the original names a comparison against
 # solar that the user has told us does not exist. Behaviour is identical either way.
 _DISCHARGE_LABELS: dict[DischargePolicy, str] = {
@@ -545,7 +574,7 @@ _DISCHARGE_LABELS: dict[DischargePolicy, str] = {
     DischargePolicy.D2: _N("Maximise discharge when spot price is in band"),
     DischargePolicy.D3: _N("Both"),
 }
-_D1_LABEL_NO_PV = _N("Serve house load")
+_D1_LABEL_NO_PV = _N("Discharge battery to cover house load")
 
 _PHASE_LABELS: dict[BatteryPhases, str] = {
     BatteryPhases.ONE_PHASE: _N("1-phase battery"),
@@ -599,15 +628,26 @@ def params_view(
             "invalid": bool(msg.get("errors")),
         }
 
-    offerable_charge = cfg.offerable_charge_policies()
+    # ALL three charge policies are emitted, always. The ones that need PV are marked `disabled`
+    # (with a reason) rather than dropped — see `_CHARGE_DISABLED_INFO` for why, and note that
+    # `offerable_charge_policies()` is deliberately NOT inverted to do this: it remains the
+    # simulation-side gate that §6.6 relies on, and turning it into a UI-shape query would push a
+    # presentation decision into the config object. The two answers agree on which policies are
+    # usable; they differ only in what the panel does with an unusable one.
+    offerable_charge = frozenset(cfg.offerable_charge_policies())
     charge_policies = [
         {
             "key": p.value,
             "label": _CHARGE_LABELS[p],
             "pv_only": p in _CHARGE_PV_ONLY,
-            "selected": cfg.policy.charge_policy == p,
+            "disabled": p not in offerable_charge,
+            "info": _CHARGE_DISABLED_INFO.get(p) if p not in offerable_charge else None,
+            # The EFFECTIVE policy, so the checked radio is never a disabled one. A stored P3 with
+            # no PV runs as P2 (§6.6), and checking a greyed P3 would both misreport the run and
+            # leave the box with no enabled selection.
+            "selected": cfg.effective_charge_policy == p,
         }
-        for p in offerable_charge
+        for p in ChargePolicy
     ]
     discharge_policies = [
         {
@@ -621,11 +661,6 @@ def params_view(
         }
         for p in cfg.offerable_discharge_policies()
     ]
-
-    # §2.3 "Without PV": the charge box collapses to P2 alone, "rendered as a single labelled
-    # option rather than a one-item radio group". The template needs to know which shape to draw,
-    # and the honest test is whether the config offers exactly one — not `not has_pv` restated.
-    charge_single = len(charge_policies) == 1
 
     phases_offered = cfg.battery_phases_offered
     battery_phases = [
@@ -670,7 +705,6 @@ def params_view(
             "export_follows_import": cfg.grid.max_export_kw is None,
         },
         "charge_policies": charge_policies,
-        "charge_single": charge_single,
         "charge_band": {"a": field("policy.band_a", 3), "b": field("policy.band_b", 3)},
         "discharge_policies": discharge_policies,
         "discharge_band": {"c": field("policy.band_c", 3), "d": field("policy.band_d", 3)},

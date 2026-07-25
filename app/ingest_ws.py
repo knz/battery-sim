@@ -138,6 +138,11 @@ class IngestSession:
     window: tuple[datetime, datetime] | None = None
     buffers: dict[str, _SeriesBuffer] = field(default_factory=dict)
     backend_loads: dict[str, BackendLoadRequest] = field(default_factory=dict)
+    # The setup-band answers this fetch commits (specs §2.1), or None when the header carried
+    # none. None means "leave the stored answer alone" — an older client that does not send them
+    # must not silently reset the user's configuration. The route persists them on `done`.
+    setup_has_pv: bool | None = None
+    setup_has_battery: bool | None = None
     _header_seen: bool = False
 
     def on_header(self, msg: dict) -> None:
@@ -153,6 +158,14 @@ class IngestSession:
         if end <= start:
             raise IngestError("header window end must be after start")
         self.window = (start, end)
+        # The setup-band answers (specs §2.1). Absent → None → the stored answer is kept, so a
+        # client that predates this field cannot reset the user's configuration. Anything present
+        # is coerced with bool(), which is what a JSON true/false already is; a malformed value is
+        # not worth failing an otherwise-good fetch over.
+        if "has_pv" in msg:
+            self.setup_has_pv = bool(msg.get("has_pv"))
+        if "has_battery" in msg:
+            self.setup_has_battery = bool(msg.get("has_battery"))
         self._header_seen = True
 
     def on_series(self, msg: dict) -> None:

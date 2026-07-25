@@ -301,3 +301,94 @@ def test_fetch_backend_failure_is_all_or_nothing(client):
     assert msg["type"] == "error"
     # Nothing persisted — the HA series did not sneak through.
     assert dataset.load_latest() is None
+
+
+# ── The setup-band answers ride on the header and are committed by the fetch (§2.1) ──────────
+
+
+def _drive_with_setup(ws, **setup):
+    """`_drive_valid_ingest` with extra header fields — the setup answers this fetch commits."""
+    ws.send_json({
+        "type": "header", "source": "home_assistant",
+        "window": {"start": "2026-07-20T00:00:00+00:00", "end": "2026-07-20T02:00:00+00:00"},
+        **setup,
+    })
+    ws.send_json({"type": "series", "name": "grid_import_t1", "kind": "energy", "unit": "kWh"})
+    ws.send_json({"type": "rows", "name": "grid_import_t1",
+                  "rows": [[1784505600000, 5127.0], [1784509200000, 5127.5]]})
+    assert ws.receive_json()["type"] == "progress"
+    ws.send_json({"type": "series", "name": "grid_export_t1", "kind": "energy", "unit": "kWh"})
+    ws.send_json({"type": "rows", "name": "grid_export_t1",
+                  "rows": [[1784505600000, 590.0], [1784509200000, 590.0]]})
+    assert ws.receive_json()["type"] == "progress"
+    ws.send_json({"type": "done"})
+    return ws.receive_json()
+
+
+def test_the_fetch_commits_the_setup_answers(client):
+    """The whole point of the change: the answers reach disk, and the toggle is no longer inert."""
+    tc, main, _dataset = client
+    import app.simconfig_store as store
+
+    assert store.load().has_pv is True          # appendix-A defaults before any fetch
+    assert store.load().has_battery is False
+
+    with tc.websocket_connect("/data/ingest/ws") as ws:
+        assert _drive_with_setup(ws, has_pv=False, has_battery=True)["type"] == "result"
+
+    cfg = store.load()
+    assert cfg.has_pv is False
+    assert cfg.has_battery is True
+
+
+def test_a_header_without_the_setup_fields_leaves_the_stored_answers_alone(client):
+    """Absent ≠ false. An older client that does not send the fields must not silently reset the
+    user's configuration — the reason `on_header` distinguishes missing from present-and-false.
+    """
+    tc, main, _dataset = client
+    import app.simconfig_store as store
+    from app.domain.simconfig import SimulationConfig
+
+    store.save(SimulationConfig(has_pv=False, has_battery=True))
+    with tc.websocket_connect("/data/ingest/ws") as ws:
+        assert _drive_valid_ingest(ws)["type"] == "result"   # no has_pv/has_battery in its header
+
+    cfg = store.load()
+    assert cfg.has_pv is False
+    assert cfg.has_battery is True
+
+
+def test_committing_no_pv_normalises_the_stored_coupling(client):
+    """§2.5: without PV, pv_coupling is forced null and battery coupling AC. The commit path
+    assigns the field directly, so it must re-run the invariants before writing — otherwise a
+    household that just turned PV off keeps a stored DC coupling for an array it does not have.
+    """
+    tc, main, _dataset = client
+    import app.simconfig_store as store
+    from app.domain.simconfig import Coupling, PvCoupling, SimulationConfig, TopologyConfig
+
+    store.save(SimulationConfig(
+        has_pv=True, topology=TopologyConfig(pv_coupling=PvCoupling.DC_HYBRID)
+    ))
+    with tc.websocket_connect("/data/ingest/ws") as ws:
+        assert _drive_with_setup(ws, has_pv=False)["type"] == "result"
+
+    cfg = store.load()
+    assert cfg.has_pv is False
+    assert cfg.pv_coupling is None
+    assert cfg.coupling is Coupling.AC
+
+
+def test_the_ingest_session_records_the_setup_answers():
+    """Unit-level counterpart: the session distinguishes absent from present-and-false."""
+    from app.ingest_ws import IngestSession
+
+    win = {"start": "2026-07-20T00:00:00+00:00", "end": "2026-07-20T02:00:00+00:00"}
+
+    absent = IngestSession()
+    absent.on_header({"type": "header", "window": win})
+    assert absent.setup_has_pv is None and absent.setup_has_battery is None
+
+    present = IngestSession()
+    present.on_header({"type": "header", "window": win, "has_pv": False, "has_battery": True})
+    assert present.setup_has_pv is False and present.setup_has_battery is True
