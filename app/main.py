@@ -6,9 +6,10 @@ from a *static* sample view-model (app/sample_data.py). No service layer, no dom
 no persistence yet — the page shows the intended shape of the product, not real results.
 
 The UI is bilingual (English / Dutch). Translation is server-side gettext (app/i18n.py): the
-active locale is resolved per request (cookie → Accept-Language → English) and its catalog is
-installed on the Jinja environment before rendering. The header carries a language toggle that
-posts to /lang/{code}, which sets the `lang` cookie.
+active locale is resolved per request (cookie → Accept-Language → English) and the matching
+per-locale Jinja environment renders the response. Environments are built once per locale and
+never mutated, so mixed-locale concurrent requests cannot cross-contaminate. The header carries
+a language toggle that posts to /lang/{code}, which sets the `lang` cookie.
 
 Beyond the scaffold, this layer now serves the pending affordance's back end
 (specs/02-ux-wireframes.md §2.1, specs/08-architecture.md §5.1): POST /feature-interest/{key}
@@ -59,7 +60,6 @@ from pathlib import Path
 from fastapi import Body, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 
 from app import (
     config,
@@ -93,17 +93,16 @@ app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 # on first run (app/config.py) so it is stable across restarts.
 CONFIG = config.load()
 
-# Jinja with the i18n extension so templates can call _() / gettext(). The active catalog is
-# installed per request in index(), since it depends on the request's resolved locale.
-templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
-templates.env.add_extension("jinja2.ext.i18n")
+# Jinja environments live in app/i18n.py: one per locale, built on first use from this package's
+# templates/ directory and never mutated afterwards, so concurrent requests in different languages
+# cannot interleave a catalog install with someone else's render (see i18n.env_for). Routes render
+# via `i18n.env_for(locale).get_template(...)`; there is no shared mutable environment here.
 
 
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
     """Render the whole page from the static sample view-model, in the request's locale."""
     locale = i18n.resolve_locale(request)
-    i18n.install_for(templates.env, locale)
 
     ctx = sample_view()
 
@@ -153,7 +152,7 @@ def index(request: Request):
     # The source generation (specs §2.2): rendered so the browser can reconcile its locally-saved
     # source customizations. Bumped only by a persisted HA fetch; 0 before the first one.
     ctx["source_generation"] = db.source_generation()
-    return templates.TemplateResponse(request, "index.html", ctx)
+    return HTMLResponse(i18n.env_for(locale).get_template("index.html").render(**ctx))
 
 
 @app.post("/params", response_class=HTMLResponse)
@@ -219,8 +218,7 @@ async def params(request: Request):
             save_error = True
 
     locale = i18n.resolve_locale(request)
-    i18n.install_for(templates.env, locale)
-    html = templates.env.get_template("_panel_params.html").render(
+    html = i18n.env_for(locale).get_template("_panel_params.html").render(
         params=params_view.params_view(candidate, result, save_error=save_error),
         cfg={"has_pv": candidate.has_pv, "simulate_cost": candidate.simulate_cost},
     )
@@ -259,14 +257,10 @@ def results(request: Request, body: dict = Body(...)):
     if result is None:
         raise HTTPException(status_code=409, detail="no simulatable data")
 
-    # Install the request locale on the Jinja env (as index() does), then render the template
-    # standalone. templates.env already has jinja2.ext.i18n; install_for makes _() resolve.
-    # (The shared-env gettext install is a per-request mutation of module-level state — a
-    # pre-existing app-wide concern index() already has; not worsened in kind here. See the
-    # changelog follow-up.) The fragment reads only `results.*`, so no other context is passed.
+    # Render the fragment standalone from the request locale's environment (as index() does).
+    # The fragment reads only `results.*`, so that is the whole context.
     locale = i18n.resolve_locale(request)
-    i18n.install_for(templates.env, locale)
-    html = templates.env.get_template("_panel_results.html").render(results=result)
+    html = i18n.env_for(locale).get_template("_panel_results.html").render(results=result)
     return HTMLResponse(html)
 
 
@@ -344,11 +338,9 @@ def results_benchmark(request: Request, body: dict = Body(...)):
         raise HTTPException(status_code=409, detail="no simulatable data")
 
     locale = i18n.resolve_locale(request)
-    i18n.install_for(templates.env, locale)
     # The partial reads `benchmark.*` only (it is written to be renderable standalone), so that is
-    # the whole context. Same shared-env locale-install caveat as index()/results(); see the
-    # changelog follow-up.
-    html = templates.env.get_template("_benchmark_box.html").render(
+    # the whole context.
+    html = i18n.env_for(locale).get_template("_benchmark_box.html").render(
         benchmark=result["benchmark"]
     )
     return HTMLResponse(html)

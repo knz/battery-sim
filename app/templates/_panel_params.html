@@ -157,7 +157,7 @@
                        value="{{ params.grid.fuse.value }}" aria-label="{{ _('Fuse rating') }}" />
                 {# The ROUNDED display figure (connection_capacity_kw_display); the exact value is
                    what §6.8 step 6 compares against and is never printed. #}
-                <span class="text-sm text-base-content/60">{{ _('A → max import %(kw)s kW', kw=params.grid.max_import) }}</span>
+                <span class="text-sm text-base-content/60">{{ _('A → max import %(kw)s kW') | interpolate(kw=params.grid.max_import) }}</span>
               </div>
               {{ field_messages(params.grid.fuse) }}
             </div>
@@ -357,11 +357,11 @@
                a configuration worth flagging, not a broken one. #}
             {% if params.bands_overlap %}
             <div role="alert" class="alert alert-warning py-1 text-sm">
-              <span>{{ _('⚠ Charge band [%(a)s, %(b)s] and discharge band [%(c)s, %(d)s] overlap. Charge and discharge requests will be netted against each other.', a=params.band_values.a, b=params.band_values.b, c=params.band_values.c, d=params.band_values.d) }}</span>
+              <span>{{ _('⚠ Charge band [%(a)s, %(b)s] and discharge band [%(c)s, %(d)s] overlap. Charge and discharge requests will be netted against each other.') | interpolate(a=params.band_values.a, b=params.band_values.b, c=params.band_values.c, d=params.band_values.d) }}</span>
             </div>
             {% else %}
             <div role="alert" class="alert alert-success py-1 text-sm">
-              <span>{{ _('Charge band [%(a)s, %(b)s] and discharge band [%(c)s, %(d)s] do not overlap. ✓', a=params.band_values.a, b=params.band_values.b, c=params.band_values.c, d=params.band_values.d) }}</span>
+              <span>{{ _('Charge band [%(a)s, %(b)s] and discharge band [%(c)s, %(d)s] do not overlap. ✓') | interpolate(a=params.band_values.a, b=params.band_values.b, c=params.band_values.c, d=params.band_values.d) }}</span>
             </div>
             {% endif %}
           </div>

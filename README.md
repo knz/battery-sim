@@ -61,16 +61,24 @@ does:
 ```bash
 # 1. extract msgids from templates + sample_data (note the -k _N keyword)
 uv run pybabel extract -F babel.cfg -k _N -o app/locales/messages.pot --sort-output --no-location .
-# 2. merge into the per-language catalogs
-uv run pybabel update -i app/locales/messages.pot -d app/locales -l nl   # and -l en
+# 2. merge into the per-language catalogs (--no-fuzzy-matching is REQUIRED, see below)
+uv run pybabel update -i app/locales/messages.pot -d app/locales -l nl --no-fuzzy-matching   # and -l en
 # 3. edit app/locales/nl/LC_MESSAGES/messages.po, then compile
 uv run pybabel compile -d app/locales
 ```
 
-**Literal percent signs** in translatable strings use the fullwidth `％` (U+FF05), not ASCII
-`%`. Jinja's newstyle gettext runs printf substitution on every `_()` result, and Babel's
-`.po` compiler rejects a bare ASCII `%` as an incompatible format placeholder; `％` sidesteps
-both. Use `%(name)s` + `_('...', name=value)` only for genuine interpolation.
+**Both flags on those commands are required, not cosmetic.** `--no-location` keeps the `#:`
+source-location comments out of the committed catalogs, which is the form they are in.
+`--no-fuzzy-matching` stops `pybabel update` guessing a translation for a new msgid from a
+similar old one: without it, adding "Extra grid import" picked up the existing Dutch for a
+different string and shipped it as "Netafname T2" — marked `#, fuzzy`, but compiled and shown
+to the user all the same. A wrong translation is worse than an untranslated string, because
+nothing flags it on the page.
+
+**Literal percent signs** need no escaping. `_()` does not printf-format its result (the i18n
+extension is installed with `newstyle=False` — see `app/i18n.py`), so a bare ASCII `%` in a
+translatable string is safe. For genuine interpolation, build the string with `%(name)s`
+placeholders and substitute explicitly after translation via `app.i18n.interpolate()`.
 
 ## Self-testing (browser automation)
 

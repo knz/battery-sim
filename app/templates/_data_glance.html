@@ -207,7 +207,7 @@
     {% for note in data_summary.notes %}
       {% if note.key == 'load_unreliable' %}
       <div role="alert" class="alert alert-warning text-sm">
-        <span>⚠ {{ _('%(export)s was exported to the grid but your solar (and battery) data does not account for it, so the household consumption and self-sufficiency could not be reconstructed reliably and are hidden. This usually means a solar sensor is not reporting all of your production, or a battery is not mapped. Check your data sources.', export=note.export_kwh) }}</span>
+        <span>⚠ {{ _('%(export)s was exported to the grid but your solar (and battery) data does not account for it, so the household consumption and self-sufficiency could not be reconstructed reliably and are hidden. This usually means a solar sensor is not reporting all of your production, or a battery is not mapped. Check your data sources.') | interpolate(export=note.export_kwh) }}</span>
       </div>
       {% elif note.key == 'solar_empty' %}
       <p class="text-xs text-base-content/50">ⓘ {{ _('A solar sensor is mapped but reported almost no production over this period, so the Solar figures are hidden. It may not be wired up correctly.') }}</p>
