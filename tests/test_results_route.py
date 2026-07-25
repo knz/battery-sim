@@ -130,7 +130,7 @@ def test_results_fragment_includes_data_glance_band(client):
     # since it is scoped to the selected range.
     r = client.post("/results", json={"period": "last_1_week"})
     assert r.status_code == 200
-    # The panel-③ section heading (default EN locale). Its NL is "Uw energieverbruik in de
+    # The panel-③ section heading (default EN locale). Its NL is "Je energieverbruik in de
     # geselecteerde periode".
     assert "Your energy use during the selected period" in r.text
     # Panel ①'s own title must NOT leak into panel ③'s copy.
@@ -192,18 +192,18 @@ def test_data_glance_is_translated_in_both_copies(client):
     assert "Your data at a glance" in client.get("/", headers={"Cookie": "lang=en"}).text
     r = client.get("/", headers={"Cookie": "lang=nl"})
     assert r.status_code == 200
-    assert "Uw gegevens in één oogopslag" in r.text  # the section title (panel ①)
+    assert "Je gegevens in één oogopslag" in r.text  # the section title (panel ①)
     assert ">Net<" in r.text and ">Huishouden<" in r.text  # group headings from the macro body
     assert "Your data at a glance" not in r.text
     # The Grid group's "as your meter recorded them" caption is in the macro body too, so it must
     # translate in both copies like every other string there.
-    assert "zoals uw meter ze heeft geregistreerd" in r.text
+    assert "zoals je meter ze heeft geregistreerd" in r.text
     assert "as your meter recorded them" not in r.text
     # The panel-③ fragment renders the same macro through a different route.
     r3 = client.post("/results", json={"period": "last_1_week"}, headers={"Cookie": "lang=nl"})
-    assert "Uw energieverbruik in de geselecteerde periode" in r3.text
+    assert "Je energieverbruik in de geselecteerde periode" in r3.text
     assert ">Net<" in r3.text
-    assert "zoals uw meter ze heeft geregistreerd" in r3.text
+    assert "zoals je meter ze heeft geregistreerd" in r3.text
 
 
 def test_range_picker_states_the_day_count(client):
