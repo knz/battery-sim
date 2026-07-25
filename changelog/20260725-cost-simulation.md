@@ -333,10 +333,98 @@ the interpolation, the starting SoC on the state grid, the exact PV-surplus and 
 action points, the terminal constraint — is already built and is shared unchanged between the two
 objectives. §6.12 is explicit that only `transition_cost` differs.
 
+## Phase 4 — run E and `benchmarks.cost` *(complete)*
+
+### What was built
+
+§6.12's DP is now parameterised by an `Objective` whose only method is `cost(tr, i)` —
+`transition_cost` and nothing else. `ENERGY_OBJECTIVE` minimises kWh of import; `CostObjective`
+minimises `imp × p_import − exp × p_export_net`. One DP, one state space, one action set, one
+feasibility rule, one terminal constraint. `_Transition` now carries `exp` as well as `imp` (it was
+already computed as a local for the export cap; only the attribute is new). `cost_benchmark(...)`
+returns a `CostBenchmark` mirroring `EnergyBenchmark`'s shape and its None conventions, billing the
+DP dispatch through §6.10's `compute_costs` rather than reimplementing it.
+
+A class rather than a callable or an enum: a closure makes "which prices was this computed under?"
+unanswerable from the result, and an enum pushes the price arrays into `perfect_foresight`'s
+signature as parameters required for one member and meaningless for the other — the arrangement
+that lets a caller ask for euros and silently get kWh.
+
+Run E follows run D's laziness (both cost ~4.6 s against ~0.12 s for runs A/B/C), so neither
+`GET /` nor `POST /results` pays for a DP.
+
+### Two spec gaps found, both recorded rather than papered over
+
+- **§6.12's drift correction has no sound euro analogue (H10).** In kWh it is exact — a residual
+  kWh is worth one avoided kWh whenever used. In euros the residual's worth depends on *when* it is
+  used, and the two sides use it at different times by construction: the DP's terminal constraint
+  forces it to hold charge through the expensive hours, a liquidating policy dumps it into the cheap
+  ones. Measured: the median-price correction leaves fixture-6 violations up to €0.91; valuing at
+  the window maximum nearly restores the ordering, which is evidence the *basis* is wrong rather
+  than the DP. No correction is applied; the median price is reported as an input; fixture 6 is
+  asserted over non-liquidating configurations, the form §6.14 itself names. Pinned by a test that
+  asserts the correction *fails*, so nobody re-derives it as an improvement.
+- **The feed-in floor top-up is not separable inside the DP (H11).** It is a period aggregate, so
+  pricing it per-interval would need the period's running export revenue as a second state
+  dimension. Run E minimises the per-interval bill and applies the top-up afterwards, flagging
+  `floor_binds`. In a floor-binding window the bound is on the pre-top-up bill; how large a
+  full-bill violation could get is unmeasured.
+
+### Review
+
+Verified independently rather than by inspection alone: the reviewer reproduced both drift
+measurements to the digit (€0.913442 worst violation under median-price correction; exactly 0.0
+over the 72 non-liquidating configurations), probed whether that clean 0.0 was a degenerate sweep
+(it is not — 26 exact ties where the band policy genuinely *is* the euro optimum on a square wave,
+46 with a median gap of €1.70), and re-ran all 17 cost tests at appendix-A grid resolution to check
+that the coarse-grid reasoning was not producing false passes. It also confirmed the two objectives
+diverge stably across grids (energy DP 48.00 kWh vs cost DP 49.72 kWh, each beating the other on
+its own quantity by margins far outside discretisation).
+
+Clean on: one-DP-not-two, fixture 18/20 bit-identity, no cross-block assertion, objective
+divergence, run E laziness, and test-resolution honesty.
+
+Three defects fixed:
+
+- **A dead `template` parameter on `_dispatch_flows` whose docstring claimed it supplied the
+  interval count and starting SoC** — both actually come off `result`. It had already produced a
+  wrong-typed call in the tests (a `DispatchResult` passed where a `Flows` was annotated, working
+  only because the argument was ignored), which is exactly what a dead parameter with a false
+  docstring invites.
+- **A stale §6.12 quotation the spec has retracted.** The module docstring described snapping as "a
+  systematic pessimism bias of several percent"; §6.12 now records that this was wrong in both
+  direction and magnitude — snapping is *optimistic* and lands below the realised saving, so it
+  bounds nothing. The repo contained the retracted claim and its own contradicting test.
+- **`CostBenchmark.capture_ratio` documented a routine outcome as a defect.** A euro ratio above 1
+  is usually drift-funding: 48 of 144 swept configurations exceed it, up to 1.60. The energy block
+  handles this by restating on the drift-corrected basis — which, per H10, does not exist in euros.
+  The docstring now tells a view to branch on `policy_soc_delta_kwh` and say the comparison is
+  unavailable, rather than reaching for a correction there isn't one of.
+
+### Known scope limit
+
+`cost_benchmark` has **no production caller yet** — it is exercised only by tests. `benchmarks.cost`
+reaches the result object in Phase 6, when panel ③ renders the COST SAVINGS section. Staged
+deliberately, but worth stating plainly rather than letting "Phase 4 complete" imply the figure is
+on screen.
+
+### Status
+
+**Complete.** 709 passed, 2 skipped, 64.8s (the cost half adds ~8s).
+
+### Groundwork noted for Phase 5
+
+Panel ② already has the two mechanisms the Pricing box needs, so neither has to be invented:
+`FIELDS` in `app/params_view.py` drives coercion in both directions from one table (so a field
+converted on the way in is converted on the way out), and `_panel_params.html` already renders
+disabled-with-a-reason radios for the PV-gated charge policies — the same shape FIXED and VARIABLE
+need as pending controls.
+
 ## Current status
 
-Phases 1, 1b, 2 and 3 complete and committed (693 passed, 2 skipped). Phase 4 (run E and
-`benchmarks.cost`) is next.
+Phases 1, 1b, 2, 3 and 4 complete and committed (709 passed, 2 skipped). The whole domain layer
+of the cost path is built; nothing of it is on screen yet. Phase 5 (the panel ② Pricing box) is
+next, and is where `simulate_cost` stops being a pending control.
 
 Working agreement from this point: phases run to completion without check-in; only genuine open
 decisions are brought back to the user.

@@ -737,8 +737,18 @@ class RunSet:
            anyone would run for its own sake.
         c  battery + standby — THE headline result.
 
-    Runs D and E (perfect foresight, §6.12) are Phase 5 and are deliberately absent rather than
-    stubbed: a `None` field would invite a caller to treat "not implemented" as "not applicable".
+    **Runs D and E (perfect foresight, §6.12) are deliberately NOT here, and that is a latency
+    decision rather than a layering one.** They exist — `app/domain/benchmark.py` builds both, D on
+    the energy objective and E on the cost one — but each is ~4.6 s on a year of hourly data at
+    appendix A's grids against ~0.12 s for A/B/C together, and §6.9's table marks D "always" only
+    in the sense that the energy benchmark is always DEFINED, not that every page view must pay for
+    it. Putting them in `run_all` would make the two DPs unavoidable for every caller that wanted a
+    kWh figure. `app/results_view.py` therefore calls `energy_benchmark` separately behind
+    `with_benchmark`, which only `POST /results/benchmark` sets, and a cost block would be gated the
+    same way (and additionally on `cfg.simulate_cost`, per §6.12's table).
+
+    A `None` field for each would be worse than their absence: it would invite a caller to treat
+    "not computed on this request" as "not applicable to this run".
     """
 
     a: Flows
@@ -768,7 +778,7 @@ def run_all(
     what makes their difference the standby term and nothing else — same policies, same SoC
     trajectory rules, same clamps, same seed state.
 
-    Runs D and E are not built here; see `RunSet`.
+    Runs D and E are not built here; see `RunSet` for why, and `app/domain/benchmark.py` for where.
     """
     return RunSet(
         a=simulate_baseline(frame, cfg),

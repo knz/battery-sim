@@ -148,9 +148,13 @@ in `app/features.py`. Named as newly pending in `specs/implementation-progress.m
 *Origin:* `20260724-panel3-battery-simulation.md` (Phase 7),
 `20260725-spec-corrections-from-implementation.md`.
 
-**C3. Run E / the cost DP, and any euro figure, are not built.** Deliberately out of scope for
-Phase 5. `specs/implementation-progress.md` now names the whole cost path as not built, alongside
-epochs, the price bracket, the resolution-bias and misalignment diagnostics, and CSV ingest/export.
+**C3. Run E / the cost DP, and any euro figure, are not built.** — **DONE** (cost-simulation
+increment, Phases 2–4). §6.5's price curves, §6.10's cost accounting and waterfall, and run E with
+`benchmarks.cost` are all built; §6.12's DP is now parameterised by its objective rather than
+duplicated, so runs D and E share one state space, action set and terminal constraint. Two spec
+gaps surfaced doing it and are carried as H10 (no sound euro drift correction) and H11 (the feed-in
+floor is not separable inside the DP). The remaining unbuilt items this entry lists — epochs, the
+price bracket, the resolution-bias and misalignment diagnostics, CSV — stay out of scope (H3).
 *Origin:* `20260725-perfect-foresight-benchmark-phase5.md`,
 `20260725-spec-corrections-from-implementation.md`.
 
@@ -402,6 +406,37 @@ hours, which is rare — but the statute's period is a Dutch calendar month, so 
 small correctness gap rather than a modelling choice. Belongs with H1: whoever adds the UTC →
 `Europe/Amsterdam` conversion should re-bucket the floor in the same pass.
 *Origin:* cost-simulation increment, Phase 2.
+
+**H10. §6.12 states its drift correction only in kWh, and there is no sound euro analogue.** The
+spec corrects both sides by `saved_kwh + soc_delta_kwh × eta_d` before asserting fixture 6, because
+the DP's terminal constraint binds it and nothing binds the policy run. In kWh that correction is
+exact: a residual kWh is worth exactly one avoided kWh whenever it is used. **In euros the
+residual's worth depends on *when* it is used, and the two sides use it at different times by
+construction** — the DP's terminal constraint forces it to hold charge through (or repurchase at)
+the expensive hours, while a liquidating policy dumps it into the cheap ones and never buys back.
+No single scalar price can value both correctly.
+
+Measured, not assumed: valuing at §6.11's median import price leaves fixture-6 violations up to
+€0.91; valuing at the window maximum nearly restores the ordering, which is itself evidence that
+the *basis* is wrong rather than the DP. So `cost_benchmark` reports
+`median_import_price_eur_kwh` as an input and applies no correction, and the euro fixture 6 is
+asserted over non-liquidating configurations — the form §6.14 itself names. A defensible euro
+correction would value each side's residual at that side's own marginal continuation value, which
+the DP has (`V`'s slope at the terminal SoC) and the policy run does not. Pinned by
+`test_the_euro_drift_correction_does_not_restore_the_bound_for_a_liquidating_policy` so nobody
+re-derives the median-price form as an improvement.
+*Origin:* cost-simulation increment, Phase 4.
+
+**H11. The feed-in floor top-up is not separable, so run E's bound is on the pre-top-up bill.** The
+top-up is `max(0, −Σ_period export × compensation)` — a function of a whole assessment period's
+dispatch, so pricing it inside `transition_cost` would need the period's running export revenue as
+a second DP state dimension. Run E therefore minimises the per-interval bill and the top-up is
+applied afterwards. In a window where the floor binds, the two bases diverge and a policy could in
+principle beat the full-bill bound by stumbling into a larger top-up than the DP's dispatch earns.
+`CostBenchmark.floor_binds` flags those windows so the figure is not read as unqualified, but **how
+large such a violation could get has not been measured**. §6.12 does not discuss the interaction at
+all.
+*Origin:* cost-simulation increment, Phase 4.
 
 ## Cross-cutting observations
 

@@ -1,18 +1,40 @@
-"""§6.12's perfect-foresight benchmark — run D, the ENERGY objective.
+"""§6.12's perfect-foresight benchmarks — run D (the ENERGY objective) and run E (the COST one).
 
 The headline "1,412 kWh saved" is uninterpretable on its own. §6.12's whole purpose is to make it
 "1,412 kWh of a possible 1,988", which requires knowing what the best possible dispatch over this
 exact window would have avoided. That best possible dispatch is what this module computes, by
-dynamic programming over a discretised state of charge.
+dynamic programming over a discretised state of charge. The same applies to "€331", which §6.12
+wants read as "€331 of a theoretical €478" — hence the second objective.
 
-**This module implements the ENERGY benchmark only** (`transition_cost` = kWh of grid import in the
-interval). §6.12's cost benchmark — run E, minimising euros — is a sibling that shares this DP's
-state space, action set and feasibility rules and differs only in the objective. It is not built
-here because `cfg.simulate_cost` is false in this increment and there is no §6.10 price model for
-it to minimise. §6.12 is explicit that the two must be SEPARATE runs, not one retargeted run: a
+## One DP, two objectives, two runs
+
+§6.12: "Both are well-formed minimisation problems over the same state space, the same action set
+and the same feasibility constraints, so the DP below, its terminal constraint and its
+interpolation serve both unchanged — **only `transition_cost` differs**." That sentence is the
+shape of this module. `perfect_foresight` takes an `Objective` and everything else — the state
+grid, the per-interval action set, the SoC-grid snap, `V` interpolation, the terminal constraint,
+the gap rule, the two export baselines, the forward pass — is shared code that neither objective
+can specialise. A second DP written out for euros would have been the wrong shape: the two would
+drift, and the six paragraphs below documenting why the shared machinery is correct would then
+document only half of it.
+
+    ENERGY (run D)   `transition_cost` = kWh of grid import in the interval. Always run.
+    COST   (run E)   `transition_cost` = `imp × p_import[i] − exp × p_export_net[i]` EUR in the
+                     interval. Run only when `cfg.simulate_cost` (§6.12's table).
+
+**They are two RUNS, not one retargeted run** — §6.12 is explicit, and fixture 20 pins it. A
 cost-optimal dispatch imports more during cheap hours and therefore avoids LESS import, so a single
-DP following `simulate_cost` would hand the energy section a ceiling that moved when the user asked
-for euros. That is the invariant the split protects, and it is why nothing here reads a price.
+DP whose objective followed `simulate_cost` would hand the energy section a ceiling that moved when
+the user asked for euros: a kWh figure changing for a reason that has nothing to do with the
+household's battery. `energy_benchmark` therefore never reads a price, under any config, and
+`benchmarks.energy` is bit-identical with and without cost simulation.
+
+**The cost objective prices BOTH grid directions, which is why `_Transition` carries `exp`.** The
+energy objective needs import alone; euros need the export term too, and §6.5 clamps nothing, so
+`p_export_net` is frequently negative — exporting during a negative-price hour ADDS to the bill
+(§6.10's "one of the more important things this tool can show a user"). A cost DP that dropped the
+export term, or clamped it at zero, would be optimising a different problem and would miss exactly
+the effect the tool exists to surface.
 
 ## The optimisation, and the four things that make it correct rather than merely plausible
 
@@ -22,12 +44,22 @@ liquidates the battery and inflates the bound." A DP free to end the window empt
 upper bound on anything a real battery could have done over the same window. `V` is therefore
 seeded `+INF` below the starting SoC, so no trajectory that ends below it is ever selected.
 
-**2. `V` is INTERPOLATED, never snapped to the nearest SoC level.** §6.12: interpolation "avoids a
-systematic pessimism bias of several percent". Snapping rounds every transition's landing point to
-a grid node, and the rounding is not unbiased in its effect on the value — the DP can only realise
-value at the discretised points, so a fine action grid buys nothing and the bound comes out below
-the truth. `np.interp` is linear in `V` between the bracketing levels, which is exact whenever `V`
-is locally linear in SoC and close otherwise.
+**2. `V` is INTERPOLATED, never snapped to the nearest SoC level.** Snapping rounds every
+transition's landing SoC to a grid node, and rounds *upward* about as often as downward — an upward
+round credits the battery with energy it does not have, a small leak at every transition that
+compounds over the window. So the snapped figure is **optimistic, and lands BELOW the realised
+saving**: it bounds nothing, which is the one thing this run exists to do. It also converges upward
+as the grid refines rather than settling, so a finer grid does not rescue it — §6.12 measures
+snapping still 0.5 kWh short at 401 levels where interpolation is stable from 11 on.
+
+Do not read snapping as the cheap conservative option; it is neither. (§6.12's earlier drafts
+called the snapping error "a systematic pessimism bias of several percent" and that quotation
+survived in this docstring for a while — it was **wrong in both direction and magnitude**, and the
+spec retracted it from measurement. `test_interpolating_v_differs_measurably_from_nearest_snapping`
+and `test_interpolation_is_stable_under_soc_grid_refinement` are the local demonstrations.)
+
+`np.interp` is linear in `V` between the bracketing levels, which is exact whenever `V` is locally
+linear in SoC and close otherwise.
 
 **3. The DP obeys the SAME physical limits as run C, and NOT the user's price bands.** Rated charge
 and discharge power, the SoC window, the import and export connection caps, the PV-first charge
@@ -76,21 +108,48 @@ because it is expected to be close. When export is OFF (the default) both run, a
 `unconstrained ≥ inheriting` holds because the unconstrained DP optimises over a superset of
 actions.
 
+## The one thing the cost objective CANNOT see: §6.5's feed-in floor top-up
+
+`compute_costs` subtracts a period-level top-up from the bill — the statutory floor, assessed on a
+whole assessment period's export revenue at once (§6.5). It is **not separable across intervals**,
+so a DP whose state is the SoC cannot represent it: `max(0, −Σ_period exp × compensation)` depends
+on the whole period's dispatch, and pricing it inside `transition_cost` would require carrying the
+period's running export revenue as a second state dimension. Run E therefore minimises the
+per-interval part of the bill and the top-up is applied afterwards, when the realised dispatch's
+export array exists.
+
+That is a real, documented limitation rather than an oversight, and `CostBenchmark` carries both
+bases so a consumer can see which one it is reading. In every window where the floor does not bind
+— which is almost all of them; the floor binds only where a whole period's export earned a net
+negative amount — the two bases are identical and the distinction is invisible. Where it does bind,
+run E is optimal for the pre-top-up bill and merely very good for the full one, so the FULL-bill
+bound can in principle be beaten by a policy that stumbles into a larger top-up. §6.12 does not
+address this at all; see `CostBenchmark` for the fields and `cost_benchmark` for what is asserted.
+
 ## What is deliberately NOT here
 
-    run E / the cost DP        needs §6.10's price model; `simulate_cost` is false. See above.
-    any euro figure            nothing here reads a price, by design.
-    a cache                    the DP is recomputed per request. See `perfect_foresight`'s note on
-                               the measured cost before adding one.
+    a cache                    the DPs are recomputed per request. See `perfect_foresight`'s note
+                               on the measured cost before adding one.
+    the euro drift correction  `CostBenchmark` carries the inputs (§6.11's median import price and
+                               each side's SoC drift) but does not apply it: §6.12 states the
+                               correction only in kWh, so applying a euro analogue silently inside
+                               the block would present a reasoned extension as a spec figure.
+    §4.5's `benchmarks` assembly, `null`-when-energy-only   a view/result-object concern.
 
 Main items:
     DP_INF                 the +INF sentinel the backward pass uses for infeasible transitions.
+    Objective              §6.12's `transition_cost`, as the ONE thing the two runs differ in.
+    ENERGY_OBJECTIVE       run D's: kWh of grid import.
+    CostObjective          run E's: EUR per interval, from the §6.5 price arrays.
     _DpLimits              the per-run constants hoisted out of the config once (cf. `_StepLimits`).
     _transition()          §6.8 steps 2–7, vectorised over (n_soc × n_actions).
-    DispatchResult         one DP run's outcome: the import array, the SoC trace, the gap mask.
-    perfect_foresight()    §6.12's DP — backward pass then `_roll_forward`.
+    DispatchResult         one DP run's outcome: the import and export arrays, the SoC trace, the
+                           gap mask.
+    perfect_foresight()    §6.12's DP under a given objective — backward pass then `_roll_forward`.
     EnergyBenchmark        the §6.12 energy block: both bounds, both capture ratios.
-    energy_benchmark()     runs the one or two DPs and assembles the block.
+    energy_benchmark()     runs the one or two ENERGY DPs and assembles the block.
+    CostBenchmark          the §6.12 cost block, §4.5's `benchmarks.cost`.
+    cost_benchmark()       runs the one or two COST DPs and assembles the block.
 """
 
 from __future__ import annotations
@@ -99,6 +158,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from app.domain.costs import compute_costs
+from app.domain.pricing import PriceCurves
 from app.domain.reconcile import DIV_GUARD_EPS
 from app.domain.simconfig import Coupling, SimulationConfig
 from app.domain.simframe import SimulationFrame
@@ -276,18 +337,29 @@ class _Transition:
     """What one interval's (state × action) grid evaluates to. All arrays are (n_soc, n_actions).
 
         soc_next    the SoC each (state, action) pair lands on, already clamped by every §6.8 limit.
-        imp         kWh imported — §6.12's `transition_cost` for the ENERGY objective.
+        imp         kWh imported — §6.12's `transition_cost` for the ENERGY objective, and the
+                    priced-at-`p_import` half of the COST one.
+        exp         kWh exported, after §6.8 step 6's cap and curtailment. **Carried because the
+                    cost objective prices BOTH directions**: euros are
+                    `imp × p_import − exp × p_export_net`, and `p_export_net` is frequently
+                    negative (§6.5 clamps nothing), so export is not a term a euro-minimising DP
+                    may drop. The energy objective ignores it; it is computed either way as a local
+                    inside `_transition` — §6.8 step 6's export cap needs it — so returning it
+                    costs nothing but the attribute.
         feasible    False where the action cannot be taken at all (see `_transition`).
 
-    A small class rather than a tuple so the three arrays are named at every use; the DP evaluates
+    A small class rather than a tuple so the four arrays are named at every use; the DP evaluates
     it once per interval and discards it, so the allocation is not on any hot path worth defending.
     """
 
-    __slots__ = ("soc_next", "imp", "feasible")
+    __slots__ = ("soc_next", "imp", "exp", "feasible")
 
-    def __init__(self, soc_next: np.ndarray, imp: np.ndarray, feasible: np.ndarray) -> None:
+    def __init__(
+        self, soc_next: np.ndarray, imp: np.ndarray, exp: np.ndarray, feasible: np.ndarray
+    ) -> None:
         self.soc_next = soc_next
         self.imp = imp
+        self.exp = exp
         self.feasible = feasible
 
 
@@ -406,7 +478,107 @@ def _transition(
         # Battery energy leaving the premises is what the permission governs; PV export is not.
         feasible = dis_to_grid <= SOC_COMPARE_EPS_KWH
 
-    return _Transition(soc_next=soc_next, imp=imp, feasible=feasible)
+    return _Transition(soc_next=soc_next, imp=imp, exp=exp, feasible=feasible)
+
+
+# ── §6.12's `transition_cost`: THE one thing runs D and E differ in ───────────────────────────
+
+
+class Objective:
+    """§6.12's `transition_cost` — the per-interval quantity the DP minimises, and nothing else.
+
+    §6.12: "Both are well-formed minimisation problems over the same state space, the same action
+    set and the same feasibility constraints, so the DP below, its terminal constraint and its
+    interpolation serve both unchanged — only `transition_cost` differs." This class is that
+    sentence made structural. An objective may supply ONE thing: `cost(tr, i)`, an (n_soc,
+    n_actions) array of the interval's cost for every (state, action) pair. It gets no hook into
+    the grids, the feasibility rule, the terminal constraint or the two passes, so there is no
+    seam along which run D and run E can come to disagree about the physics.
+
+    **A class rather than a plain callable or an enum, and both alternatives were considered.** A
+    bare callable would do the job — `cost(tr, i)` is the whole interface — but the cost objective
+    has to carry two price arrays with it, so it would have to be a closure, and a closure is
+    exactly the shape that makes "which prices was this bound computed under?" unanswerable from
+    the result. An enum would push the price arrays back into `perfect_foresight`'s signature as
+    optional parameters that are required for one member and meaningless for the other, which is
+    the arrangement that lets a caller ask for euros and silently get kWh. A small object carries
+    its own data, names itself in a traceback, and is trivially inspectable.
+
+    Subclasses are `_EnergyObjective` (run D) and `CostObjective` (run E).
+    """
+
+    #: Short name for messages and for the `DispatchResult` a run carries, so a bound can always
+    #: say which quantity it is a bound ON.
+    name: str = "abstract"
+
+    def cost(self, tr: _Transition, i: int) -> np.ndarray:
+        """The interval's cost for every (state, action) pair — same shape as `tr.imp`."""
+        raise NotImplementedError
+
+
+class _EnergyObjective(Objective):
+    """Run D: `transition_cost` is kWh of grid import in the interval (§6.12's table).
+
+    Not a "degraded substitute for the cost one" (§6.12): minimising grid import is what a
+    household optimising for self-sufficiency rather than for money would want, and the capture
+    ratio it produces is a real measurement in every run.
+
+    Stateless, so `ENERGY_OBJECTIVE` below is the single shared instance.
+    """
+
+    name = "energy"
+
+    def cost(self, tr: _Transition, i: int) -> np.ndarray:
+        return tr.imp
+
+
+#: The one energy objective. A module-level singleton because it holds no state: two instances
+#: could not differ, and a fresh one per DP run would only obscure that.
+ENERGY_OBJECTIVE = _EnergyObjective()
+
+
+class CostObjective(Objective):
+    """Run E: `transition_cost` is EUR spent in the interval (§6.12's table).
+
+        cost_i = imp × p_import[i] − exp × p_export_net[i]
+
+    which is `costs.compute_costs`' per-interval integrand, term for term, so the DP minimises
+    exactly the quantity the bill is later computed from. Deriving the two independently is how a
+    "bound" that the bill disagrees with gets built.
+
+    **The export term is SUBTRACTED and is NOT clamped**, for §6.10's reason: §6.5 clamps nothing,
+    `p_export_net = compensation − terugleverkosten` goes negative well above the negative-price
+    range, and subtracting a negative export term ADDS to the bill. A DP with a `max(0, .)` here
+    would believe exporting is always weakly good and would happily dump energy onto the grid in
+    hours where doing so costs the household money — which is the specific behaviour this tool
+    exists to let a user see, so a benchmark blind to it would bound the wrong problem.
+
+    **NaN prices are treated as zero cost, matching §6.10's gap rule.** §4.4 writes NaN into `spot`
+    where no price covers the interval and it propagates through every §6.5 array; `costs._nansum`
+    excludes those intervals from the bill entirely. The DP has to agree, or its bound would be
+    summed over a different interval set than the bill it bounds — the same reasoning that makes
+    both skip §6.9's gaps. `np.nan_to_num` on the two scalars is where that happens, and it means
+    an uncovered interval is one in which the DP is free to do anything: it is, and the bill will
+    charge it nothing either way.
+
+    The floor top-up is NOT here; see the module comment on why it cannot be (it is a period
+    aggregate, not a per-interval term) and `cost_benchmark` for what is done about it.
+    """
+
+    name = "cost"
+
+    __slots__ = ("p_import", "p_export_net")
+
+    def __init__(self, p_import: np.ndarray, p_export_net: np.ndarray) -> None:
+        # Copied into float64 arrays here rather than trusted as passed: the DP indexes them 8,760
+        # times and a list or an integer dtype would be a per-interval surprise.
+        self.p_import = np.asarray(p_import, dtype=np.float64)
+        self.p_export_net = np.asarray(p_export_net, dtype=np.float64)
+
+    def cost(self, tr: _Transition, i: int) -> np.ndarray:
+        p_imp = float(np.nan_to_num(self.p_import[i], nan=0.0))
+        p_exp = float(np.nan_to_num(self.p_export_net[i], nan=0.0))
+        return tr.imp * p_imp - tr.exp * p_exp
 
 
 @dataclass(frozen=True)
@@ -415,6 +587,11 @@ class DispatchResult:
 
         imp        kWh imported per interval, NaN on gap intervals (matching `Flows`, §6.9's
                    convention: a gap is an interval nobody evaluated, and 0 would be a claim).
+        exp        kWh exported per interval, NaN on gaps, after §6.8 step 6's cap. Populated for
+                   BOTH objectives — the arithmetic is the same either way — because the cost
+                   block has to price the realised dispatch's export, and because a caller that
+                   wants a euro figure for an ENERGY-optimal dispatch (§6.13's basis question, a
+                   plausible future consumer) can get one without a third DP.
         soc        kWh state of charge at the END of each interval, populated on gaps too (the SoC
                    carried forward), so the trace is a continuous line.
         gap        the intervals skipped, identical to run C's mask by construction.
@@ -422,14 +599,22 @@ class DispatchResult:
         import_kwh Σ `imp` over the non-gap intervals — the figure §6.11's saving subtracts.
         allow_grid_export   which export reading this run was made under. Carried so a caller
                    cannot mix up the inheriting and unconstrained results.
+        objective  the name of the objective this dispatch was optimal FOR ("energy" / "cost").
+                   Carried for the same reason `allow_grid_export` is: the two runs' results are
+                   the same type and are otherwise indistinguishable, and §6.12's whole point is
+                   that they are different dispatches. Fixture 20 asserts they differ; this is the
+                   field that makes a mix-up at a call site a visible error rather than a plausible
+                   number.
     """
 
     imp: np.ndarray
+    exp: np.ndarray
     soc: np.ndarray
     gap: np.ndarray
     soc_start: float
     import_kwh: float
     allow_grid_export: bool
+    objective: str = ENERGY_OBJECTIVE.name
 
     @property
     def soc_end(self) -> float:
@@ -444,8 +629,15 @@ def perfect_foresight(
     cfg: SimulationConfig,
     *,
     allow_grid_export: bool | None = None,
+    objective: Objective = ENERGY_OBJECTIVE,
 ) -> DispatchResult:
-    """§6.12's DP: the dispatch that minimises kWh of grid import over the whole window.
+    """§6.12's DP: the dispatch that minimises `objective` over the whole window.
+
+    `objective` is §6.12's `transition_cost` and is the ONLY thing runs D and E differ in — see
+    `Objective`. It defaults to `ENERGY_OBJECTIVE` (run D, kWh of grid import) because that is the
+    run §6.12's table marks "always"; `CostObjective` gives run E. Everything below is written once
+    and serves both: a change to the terminal constraint, the interpolation, the action set or the
+    gap rule reaches the two runs together or not at all.
 
     `allow_grid_export` selects the §6.12 export baseline: None (the default) INHERITS
     `cfg.allow_grid_export` — the primary reading — and True forces the unconstrained one. There is
@@ -453,13 +645,18 @@ def perfect_foresight(
 
     ## The two passes
 
-    **Backward.** `V[j]` is the minimum total future import achievable from SoC level `j` at the
-    current interval boundary. It is seeded at the terminal boundary with 0 for every level at or
-    above the starting SoC and `+INF` below it — §6.12's terminal constraint, without which "the DP
-    simply liquidates the battery and inflates the bound". Then, walking backwards, each interval
-    evaluates every (level, action) pair at once, interpolates `V` at the landing SoC, adds the
-    interval's import, and takes the per-level minimum. The chosen action index is recorded so the
-    forward pass can replay it.
+    **Backward.** `V[j]` is the minimum total future OBJECTIVE achievable from SoC level `j` at the
+    current interval boundary — kWh of import under run D, euros under run E. It is seeded at the
+    terminal boundary with 0 for every level at or above the starting SoC and `+INF` below it —
+    §6.12's terminal constraint, without which "the DP simply liquidates the battery and inflates
+    the bound". Then, walking backwards, each interval evaluates every (level, action) pair at
+    once, interpolates `V` at the landing SoC, adds the interval's cost, and takes the per-level
+    minimum. The chosen action index is recorded so the forward pass can replay it.
+
+    **Note `V` may be NEGATIVE under the cost objective**, and nothing here assumes otherwise: an
+    hour of negative `p_import` or of positive `p_export_net` is money made, not spent. `DP_INF` is
+    `np.inf` rather than a large finite number precisely so a genuinely large negative continuation
+    value can never sort below an infeasibility (module note on `DP_INF`).
 
     **Forward.** `_roll_forward` starts from the actual (clamped) initial SoC and, at each
     interval, reads the policy at the SoC level nearest the current SoC, applies that action through
@@ -503,11 +700,13 @@ def perfect_foresight(
     if n == 0:
         return DispatchResult(
             imp=np.zeros(0),
+            exp=np.zeros(0),
             soc=np.zeros(0),
             gap=gap,
             soc_start=soc_start,
             import_kwh=0.0,
             allow_grid_export=allow_grid_export,
+            objective=objective.name,
         )
 
     soc_col = lim.soc_levels[:, None]  # (n_soc, 1)
@@ -537,11 +736,15 @@ def perfect_foresight(
         # outside the grid, which is correct here: `soc_next` is inside the window by construction
         # (asserted in `_transition`) and the ends of `soc_levels` ARE the window's ends.
         vn = np.interp(tr.soc_next, lim.soc_levels, V)
-        tot = np.where(tr.feasible, tr.imp + vn, DP_INF)
+        # §6.12's `tot = cost + Vn`. `objective.cost` is the ONE call that differs between runs D
+        # and E; everything above and below it is shared.
+        tot = np.where(tr.feasible, objective.cost(tr, i) + vn, DP_INF)
         V = tot.min(axis=1)
         values[i] = V
 
-    return _roll_forward(values, frame, load, gap, lim, soc_start, allow_grid_export)
+    return _roll_forward(
+        values, frame, load, gap, lim, soc_start, allow_grid_export, objective
+    )
 
 
 def _roll_forward(
@@ -552,6 +755,7 @@ def _roll_forward(
     lim: _DpLimits,
     soc_start: float,
     allow_grid_export: bool,
+    objective: Objective,
 ) -> DispatchResult:
     """§6.12's `roll_forward` — replay the optimal policy from the real initial SoC.
 
@@ -560,6 +764,11 @@ def _roll_forward(
     used, adds the interpolated continuation value `values[i+1]`, and takes the best. Because the
     transition is the same function, the trajectory is feasible under exactly the limits run C
     obeys — so the import total it produces is a real dispatch's, not the DP's estimate of one.
+
+    `objective` must be the SAME one the backward pass used, since `values` is the value function
+    it produced; re-solving the one-step problem under a different objective would pick actions
+    against a continuation value computed for a different quantity. It is passed rather than
+    re-derived for that reason, and `perfect_foresight` is the only caller.
 
     **Re-solving beats replaying a stored action table, and the difference is not academic.**
     §6.12's pseudocode stores `policy[i] = tot.argmin(axis=1)` and the obvious forward pass reads
@@ -572,6 +781,7 @@ def _roll_forward(
     """
     n = frame.intervals
     imp = np.full(n, np.nan, dtype=np.float64)
+    exp = np.full(n, np.nan, dtype=np.float64)
     soc_trace = np.empty(n, dtype=np.float64)
     soc = soc_start
     for i in range(n):
@@ -585,19 +795,22 @@ def _roll_forward(
         one = np.array([[soc]], dtype=np.float64)
         tr = _transition(one, act_row, float(load[i]), float(frame.pv[i]), lim)
         vn = np.interp(tr.soc_next, lim.soc_levels, values[i + 1])
-        tot = np.where(tr.feasible, tr.imp + vn, DP_INF)
+        tot = np.where(tr.feasible, objective.cost(tr, i) + vn, DP_INF)
         k = int(np.argmin(tot[0]))
         imp[i] = float(tr.imp[0, k])
+        exp[i] = float(tr.exp[0, k])
         soc = float(tr.soc_next[0, k])
         soc_trace[i] = soc
 
     return DispatchResult(
         imp=imp,
+        exp=exp,
         soc=soc_trace,
         gap=gap,
         soc_start=soc_start,
         import_kwh=float(np.nansum(imp)),
         allow_grid_export=allow_grid_export,
+        objective=objective.name,
     )
 
 
@@ -685,18 +898,26 @@ def energy_benchmark(
     `unconstrained ≥ inheriting` — is a property of the action sets, and it is asserted in
     `tests/test_benchmark.py` rather than here: a runtime assertion on a user-facing page would turn
     a numerical near-tie into a crash.
+
+    **`ENERGY_OBJECTIVE` is passed explicitly and `cfg.simulate_cost` is not read anywhere in this
+    function.** That is fixture 18/20's invariant expressed in code rather than in a comment: this
+    block is bit-identical whether or not the user asked for euros. Relying on the default argument
+    would give the same numbers today and would leave the invariant resting on a default nobody is
+    reading, which is how "a cost benchmark was added" becomes "the benchmark was re-aimed".
     """
     baseline_import = float(np.nansum(baseline.imp))
     policy_import = float(np.nansum(policy.imp))
     policy_saved = baseline_import - policy_import
 
-    inheriting = perfect_foresight(frame, cfg)
+    inheriting = perfect_foresight(frame, cfg, objective=ENERGY_OBJECTIVE)
     pf_saved = baseline_import - inheriting.import_kwh
 
     unconstrained_saved: float | None = None
     unconstrained_import: float | None = None
     if not cfg.allow_grid_export:
-        unconstrained = perfect_foresight(frame, cfg, allow_grid_export=True)
+        unconstrained = perfect_foresight(
+            frame, cfg, allow_grid_export=True, objective=ENERGY_OBJECTIVE
+        )
         unconstrained_import = unconstrained.import_kwh
         unconstrained_saved = baseline_import - unconstrained.import_kwh
 
@@ -716,5 +937,252 @@ def energy_benchmark(
         soc_end_kwh=inheriting.soc_end,
         # The POLICY run's drift, from the same `Flows` the saving is computed from — see the
         # field's note on why the ratio is uninterpretable without it.
+        policy_soc_delta_kwh=policy.soc_end - policy.soc_start,
+    )
+
+
+# ── The §6.12 cost benchmark block (run E) ───────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class CostBenchmark:
+    """§6.12's `benchmarks.cost` (§4.5) — the euro bound, the capture ratio, and their twins.
+
+    The exact sibling of `EnergyBenchmark`, field for field and convention for convention, in
+    euros instead of kWh. Every figure is a SAVING relative to run A's bill, matching §4.5's
+    example, where `benchmarks.cost.policy_eur` is the same 331.10 as `cost.saved_eur`:
+
+        no_battery_eur   0.0 by construction — run A's saving against itself. §4.5 lists it, and it
+                   is carried rather than left implicit for the same reason §4.5 lists it: it is the
+                   origin the other two figures are measured from, and a reader comparing the block
+                   against §4.5 should find every field §4.5 shows. `EnergyBenchmark` omits its
+                   twin; that asymmetry is worth a note rather than a silent alignment either way,
+                   since removing a field from a shipped block is not this phase's business.
+        policy_eur   `cost(A) − cost(C)`: what the user's policy actually saved, in euros. The
+                   §6.10 bill on both sides, computed here through `compute_costs` from the same
+                   `Flows` the energy block reads, so the two blocks describe one pair of runs.
+        perfect_foresight_eur   `cost(A) − cost(E)` under the INHERITING export reading. The
+                   primary bound. Fixture 6, in EUROS: this is ≥ `policy_eur` for every
+                   configuration. **Never compared against the energy block** — §6.12: "the
+                   cost-optimal dispatch routinely avoids less import than the import-optimal one",
+                   so a cross-block assertion fails correctly-built code.
+        capture_ratio   `policy_eur / perfect_foresight_eur`, None when the bound is ~0. Same
+                   `_capture_ratio` the energy block uses, so the two cannot acquire different
+                   guard conventions.
+        perfect_foresight_eur_unconstrained / capture_ratio_unconstrained   the same two under the
+                   unconstrained reading. **Both None when `allow_grid_export` is on** — the second
+                   DP is provably identical and is not run (§6.12), and "equal and present" would
+                   claim two DPs ran and agreed.
+
+                   Note the unconstrained reading bites HARDER here than on the energy side. An
+                   export permission cannot change an import-minimising dispatch (exporting earns
+                   revenue but avoids no import), so the energy block's two bounds are usually
+                   equal; on euros, exporting into a high-price hour is the whole arbitrage case,
+                   so a real gap is expected. That is §8.2/X10's question, and this block is where
+                   the euro half of the answer accumulates.
+        bound_eur / bound_eur_unconstrained   the DP runs' own BILLS (not savings), kept for the
+                   same reason `bound_import_kwh` is: a saving is a difference and a reader
+                   checking one wants both terms.
+        baseline_eur   run A's bill, the term both savings subtract from.
+        policy_bill_eur   run C's bill. With `baseline_eur` it makes `policy_eur` checkable by eye.
+        soc_start_kwh / soc_end_kwh   the inheriting cost DP's SoC endpoints — where §6.12's
+                   terminal constraint is observable for THIS run. Not the energy DP's: the two
+                   dispatches differ, which is fixture 20's point.
+        policy_soc_delta_kwh   run C's drift, carried for exactly the reason `EnergyBenchmark`
+                   carries it: the terminal constraint is asymmetric, so a policy that liquidates
+                   its opening charge books a euro saving the DP is forbidden to book.
+        median_import_price_eur_kwh   the median of `p_import` over the window, or None when no
+                   interval had a price. **The one input a euro-side drift correction needs, and
+                   the reason it is a field rather than an applied correction.** §6.12 states the
+                   drift correction only in kWh (`saved_kwh + soc_delta_kwh × eta_d`); it says
+                   nothing about the euro block. The natural analogue is
+                   `saved_eur + soc_delta_kwh × eta_d × median(p_import)` — the residual stored
+                   energy, converted to the AC side by `eta_d` exactly as the kWh form does, and
+                   valued at the price §6.11 already chose for residual SoC when it defined
+                   `soc_delta_value_eur` as the drift "valued at the median import price". So the
+                   valuation basis is a spec figure, borrowed from §6.11; APPLYING it inside a
+                   §6.12 block is the part the spec does not settle. It is therefore offered, not
+                   imposed: the fields needed to compute it are all here, `tests/test_benchmark.py`
+                   asserts fixture 6 on it, and a view that wants the corrected figure computes it
+                   where the choice is visible. Median rather than mean because §6.11 says median.
+        floor_binds   True when either bill's feed-in floor top-up was nonzero, i.e. when the
+                   period aggregate the cost DP cannot see actually did something. **The flag that
+                   says whether `perfect_foresight_eur` is a bound on the quantity it names.** Run
+                   E minimises the per-interval bill; the top-up is a period aggregate and is not
+                   separable across intervals (module comment), so it is applied afterwards. When
+                   this is False — which is the ordinary case, since the floor binds only where a
+                   whole assessment period's export earned a net negative amount — the two bases
+                   coincide and the bound is exact up to discretisation. When it is True the bound
+                   is on the pre-top-up bill and a policy could in principle beat the full-bill
+                   figure by stumbling into a larger top-up. §6.12 does not discuss this; the flag
+                   is how the block says so rather than presenting an unqualified number.
+
+    Nothing here is clamped, on the same reasoning as `EnergyBenchmark`: clamping would turn a
+    detectable condition into a plausible number. A NEGATIVE euro saving is not a defect — §7.2
+    item 9's case, in euros — and passes through with its sign.
+
+    **A euro capture ratio above 1 is USUALLY drift-funding, not a fault — and unlike the energy
+    block, there is no corrected basis to restate it on.** A policy that ends emptier than it
+    started spent its opening charge, which the DP's terminal constraint forbids; measured over
+    `_fixture_6_cost_configs`' 144-configuration sweep, 48 exceed 1 (up to 1.60), all of them in
+    the liquidating half. `EnergyBenchmark`'s twin has the same property and `results_view`
+    restates it on §6.12's drift-corrected kWh figures — but that correction has **no sound euro
+    analogue** (see `median_import_price_eur_kwh` above, and
+    `test_the_euro_drift_correction_does_not_restore_the_bound_for_a_liquidating_policy`), because
+    a residual kWh's euro worth depends on when it is used and the two sides use it at different
+    times by construction.
+
+    So a view MUST NOT print this as a plain percentage, and must not reach for a drift-corrected
+    euro restatement either — there is not one to reach for. Branch on `policy_soc_delta_kwh`:
+    when the drift is materially negative, say the battery ended less charged than it started and
+    that the comparison is not available in euros on that basis. A ratio above 1 with
+    NON-negative drift is the case that is a genuine fault.
+    """
+
+    no_battery_eur: float
+    policy_eur: float
+    perfect_foresight_eur: float
+    capture_ratio: float | None
+    perfect_foresight_eur_unconstrained: float | None
+    capture_ratio_unconstrained: float | None
+    bound_eur: float
+    bound_eur_unconstrained: float | None
+    baseline_eur: float
+    policy_bill_eur: float
+    soc_start_kwh: float
+    soc_end_kwh: float
+    median_import_price_eur_kwh: float | None
+    floor_binds: bool
+    policy_soc_delta_kwh: float = 0.0
+
+
+def _dispatch_flows(result: DispatchResult) -> Flows:
+    """A `Flows` carrying the DP dispatch's grid exchange, so `compute_costs` can bill it.
+
+    §6.10's `compute_costs` reads `flows.imp` and `flows.exp` and passes `flows.exp` on to §6.5's
+    floor assessment; nothing else on `Flows` is touched. Rather than reimplement that arithmetic
+    against a `DispatchResult` — which would be a second bill computation, free to disagree with
+    the one the headline euro figure comes from — the dispatch is dressed as a `Flows` and billed
+    by the SAME function. That is the same discipline `energy_benchmark` follows by taking runs A
+    and C as `Flows` instead of re-running them.
+
+    Everything comes off `result` — the interval count, the starting SoC, and the four arrays
+    below. There is deliberately no `template` parameter: an earlier draft took the policy run as
+    one and never read it, which is exactly the dead argument that invites a caller to pass
+    something plausible and believe it matters. The remaining flow arrays stay at `Flows.empty`'s
+    NaN, which is correct rather than lazy: the DP does not decompose its
+    dispatch into `chg_pv` / `dis_home` / `withdrawn` (a signed AC action has no such split — see
+    `_transition`'s note on the missing netting step), and NaN is §6.9's marker for "the simulation
+    declined to assert anything here". A caller reaching for `withdrawn` on this object — to price
+    degradation, say — gets NaN rather than a fabricated zero.
+    """
+    flows = Flows.empty(result.imp.shape[0], soc_start=result.soc_start)
+    flows.imp = result.imp
+    flows.exp = result.exp
+    flows.soc = result.soc
+    flows.gap = result.gap
+    return flows
+
+
+def cost_benchmark(
+    baseline: Flows,
+    policy: Flows,
+    frame: SimulationFrame,
+    cfg: SimulationConfig,
+    curves: PriceCurves,
+) -> CostBenchmark:
+    """Run §6.12's COST DP(s) over `frame` and assemble §4.5's `benchmarks.cost`.
+
+    The exact sibling of `energy_benchmark`: `baseline` is run A, `policy` is run C, both passed in
+    rather than re-run so this block describes the same pair of runs every other figure does. It
+    differs in two things and only two: the objective handed to `perfect_foresight`, and the fact
+    that a euro figure needs `curves` (§6.5's per-interval price arrays for this window).
+
+    **The caller decides whether to call this at all.** §6.12's table says the cost benchmark runs
+    "only when `cfg.simulate_cost`", and this function does not check the flag — the same division
+    of labour `compute_costs` follows, and the reason is that a function which silently returned
+    `None` on a config flag would make "cost simulation is off" and "the DP failed" the same
+    result. Calling it with `simulate_cost` false is not an error (the prices are whatever the
+    caller built), it is simply not what §4.5 asks for.
+
+    One DP when `cfg.allow_grid_export` is on, two when it is off — §6.12's two export baselines,
+    with the same skip-because-provably-identical rule the energy block applies.
+
+    **Cost, and why the caller must be lazy about it.** This is a second pair of DP passes at the
+    same price as the first: ~2.3 s per pass on a year of hourly data at appendix A's 101 × 41
+    grids, so ~4.6 s here on top of the energy block's ~4.6 s. `app/results_view.py` already gates
+    the energy block behind `with_benchmark` for exactly this reason; a caller that ran this one
+    eagerly would put the whole ~9 s on every request.
+    """
+    p_import = np.asarray(curves.p_import, dtype=np.float64)
+    p_export_net = np.asarray(curves.p_export_net, dtype=np.float64)
+    objective = CostObjective(p_import, p_export_net)
+
+    def bill(flows: Flows):
+        """One run's §6.10 bill, through the SAME `compute_costs` the headline euro figure uses."""
+        return compute_costs(
+            flows, p_import, p_export_net, curves.compensation, frame.index, cfg.pricing
+        )
+
+    baseline_cost = bill(baseline)
+    policy_cost = bill(policy)
+    policy_saved = baseline_cost.eur - policy_cost.eur
+
+    inheriting = perfect_foresight(frame, cfg, objective=objective)
+    inheriting_cost = bill(_dispatch_flows(inheriting))
+    pf_saved = baseline_cost.eur - inheriting_cost.eur
+
+    unconstrained_saved: float | None = None
+    unconstrained_bill: float | None = None
+    unconstrained_topup = 0.0
+    if not cfg.allow_grid_export:
+        unconstrained = perfect_foresight(
+            frame, cfg, allow_grid_export=True, objective=objective
+        )
+        unconstrained_cost = bill(_dispatch_flows(unconstrained))
+        unconstrained_bill = unconstrained_cost.eur
+        unconstrained_saved = baseline_cost.eur - unconstrained_cost.eur
+        unconstrained_topup = unconstrained_cost.topup_eur
+
+    # §6.11's basis for valuing residual SoC — the median IMPORT price over the window, gaps and
+    # uncovered intervals excluded. None when nothing was priced at all, so a consumer cannot
+    # value a drift against a number that does not exist. See the field's note: this is offered as
+    # the input to a euro drift correction, not applied here.
+    priced = p_import[~np.isnan(p_import)]
+    median_price = float(np.median(priced)) if priced.size else None
+
+    # Did the period aggregate the DP cannot see actually do anything? Checked across every bill
+    # computed here, not only run A's: the floor is assessed per run, and a top-up that appears in
+    # exactly one of them is the case where the pre-top-up and full-bill bases diverge.
+    floor_binds = (
+        max(
+            baseline_cost.topup_eur,
+            policy_cost.topup_eur,
+            inheriting_cost.topup_eur,
+            unconstrained_topup,
+        )
+        > 0.0
+    )
+
+    return CostBenchmark(
+        # Run A's saving against itself. §4.5 shows it as 0.0 and it is 0.0 by construction, not by
+        # measurement — writing `baseline_cost.eur - baseline_cost.eur` would suggest otherwise.
+        no_battery_eur=0.0,
+        policy_eur=policy_saved,
+        perfect_foresight_eur=pf_saved,
+        capture_ratio=_capture_ratio(policy_saved, pf_saved),
+        perfect_foresight_eur_unconstrained=unconstrained_saved,
+        capture_ratio_unconstrained=(
+            None if unconstrained_saved is None
+            else _capture_ratio(policy_saved, unconstrained_saved)
+        ),
+        bound_eur=inheriting_cost.eur,
+        bound_eur_unconstrained=unconstrained_bill,
+        baseline_eur=baseline_cost.eur,
+        policy_bill_eur=policy_cost.eur,
+        soc_start_kwh=inheriting.soc_start,
+        soc_end_kwh=inheriting.soc_end,
+        median_import_price_eur_kwh=median_price,
+        floor_binds=floor_binds,
         policy_soc_delta_kwh=policy.soc_end - policy.soc_start,
     )

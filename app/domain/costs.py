@@ -83,7 +83,10 @@ negative kWh saving is a legitimate result on the energy side.
 ## What is deliberately NOT here
 
     fixed costs                  excluded on purpose; see above. Not a gap to be filled.
-    runs D and E, the cost benchmark   §6.12, Phase 4.
+    runs D and E, the cost benchmark   §6.12, in `app/domain/benchmark.py`. Run E consumes this
+                                 module — `cost_benchmark` bills its DP dispatch through
+                                 `compute_costs` rather than reimplementing §6.10's arithmetic —
+                                 so the dependency runs that way and must not be reversed.
     the "enabled": false presentation of a zero degradation line   §4.5 shows the line carrying
                                  that flag; deciding a line is disabled is a statement about the
                                  CONFIG (`degradation_eur_per_kwh == 0`, appendix A's default), not
