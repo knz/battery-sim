@@ -393,6 +393,16 @@ H1's work. Flagged so that implementer decides deliberately rather than discover
 boundary.
 *Origin:* cost-simulation increment, Phase 1 review (finding 14).
 
+**H9. The feed-in floor buckets on UTC calendar months, not Amsterdam ones.** `feedin_floor_topup`
+uses `astype("datetime64[M]")`, so an assessment period starts 1–2 h after the Dutch calendar month
+does. Measured, not theoretical: an interval at 2026-03-31T23:00Z is 1 April CEST, and in a
+constructed case moving it across the boundary changes the month's top-up from €0.30 to €0.60. It
+only bites when the floor actually binds *and* the binding period's sign turns on those one or two
+hours, which is rare — but the statute's period is a Dutch calendar month, so this is a real if
+small correctness gap rather than a modelling choice. Belongs with H1: whoever adds the UTC →
+`Europe/Amsterdam` conversion should re-bucket the floor in the same pass.
+*Origin:* cost-simulation increment, Phase 2.
+
 ## Cross-cutting observations
 
 Three clusters account for most of the list, and each has a single root:

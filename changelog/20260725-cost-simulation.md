@@ -131,6 +131,82 @@ unpinned warning assertion), four filed as H5–H8.
 
 **Complete.** 638 passed, 2 skipped (the 2 skips pre-existing; suite was 617 before this work).
 
+## Phase 2 — the §6.5 pricing module *(complete)*
+
+### What was built
+
+`app/domain/pricing.py` — `bare_supply_price` (DYNAMIC branch only), `import_price`,
+`feedin_compensation` (unclamped), `export_price_net` (FLAT terugleverkosten only), and
+`feedin_floor_topup` with both assessment modes. FIXED, VARIABLE and TIERED raise
+`NotImplementedError` rather than falling back to a number, so an unbuilt contract cannot produce a
+confident wrong figure. `tariff_zone` is not built (followup H1); DYNAMIC never reads it.
+
+### Decisions and rationales
+
+- **`PriceCurves`, a frozen bundle, rather than a tuple of arrays.** `compensation` and
+  `p_export_net` are both EUR/kWh, both frequently negative, and differ by a constant — a
+  transposed pair at a call site is invisible by inspection and would produce a wrong bill closing
+  against a wrong waterfall. Named fields make that a typo instead of a silent sign error.
+- **The top-up returns as a separate scalar**, never folded into `p_export_net`. §6.10 is explicit
+  that there is no correct per-interval allocation of it, only conventions, and folding it in would
+  turn the waterfall's exact identity into one. `FeedinFloorResult` carries the two §4.5
+  diagnostics alongside it so they cannot drift from the number they describe.
+- **`cfg` is `PricingConfig`, not `SimulationConfig`.** Nothing here reads outside the pricing
+  group, and the narrower parameter makes the module testable without building a whole config.
+- **NaN propagates through the price functions; the floor excludes it from its sums.** Matches
+  `simulate.py`, which writes NaN into flow arrays and has consumers use `np.nansum`. A NaN top-up
+  would poison the euro figure for a window priced almost everywhere.
+- **`shorter_than_period` is derived from the window's duration, not its bucket count** (see
+  below).
+
+### Obstacles and solutions
+
+- **The §7.4 short-window flag missed every sub-month window straddling a month boundary.** It was
+  computed only in the single-bucket branch, so a 3-day run over 30 Jan → 2 Feb reported
+  `shorter_than_period=False`. That is the case the flag most needs to fire on: such a window is
+  assessed as two sub-month *fragments*, a weaker constraint than the same three days inside one
+  month — which the bucket-count reading did flag. Now measured against the shortest month the
+  window touches, which is the conservative direction (a window between the shortest and longest
+  touched month is not flagged, since it may well cover a whole period). Any run started mid-month
+  and shorter than a month hit this.
+- **UTC month buckets are not Amsterdam month buckets.** Measured rather than assumed: an interval
+  at 2026-03-31T23:00Z is 1 April CEST, and moving it across the boundary changes a constructed
+  month's top-up from €0.30 to €0.60. Filed as H9 to be fixed alongside H1's timezone work, since
+  both need the same conversion.
+
+### Review
+
+One review pass, adversarial, mutation-tested. It confirmed by mutation that the two floor modes
+are not transposed (swapping them turns 9 tests red), that no clamp crept into the per-interval
+compensation, that every unbuilt path raises rather than returning, and that each arithmetic term
+is pinned — dropping the tax, dropping VAT, applying VAT before tax, or flipping any sign turns
+tests red. It independently recomputed every asserted constant.
+
+One real defect (the short-window flag, fixed above) and two cosmetic findings, both fixed: a
+module-docstring adjacency that read as though FIXED's rates were missing when only VARIABLE's
+schedule is, and a contiguity precondition on `index` that lived in a comment inside the function
+rather than in its docstring where a caller would look.
+
+### Status
+
+**Complete.** 672 passed, 2 skipped.
+
+### Note on fixture 18, for Phase 3
+
+Fixture 18 (cost-invariance of the energy results) is stricter than a spot check: it requires
+asserting `window`, `series`, `energy`, `ratios`, `battery`, `benchmarks.energy`, `epochs`,
+`topology` and `diagnostics` block by block, plus a bit-identical per-interval SoC trace — "not a
+sample, each of the three known ways to break this lands in a different one". The three failure
+modes it distinguishes: a difference in `energy` or the SoC trace means a cost term leaked into
+dispatch (most likely `economic_guard`); one in `benchmarks.energy` means the DP was retargeted at
+euros instead of a second DP being added; one in `diagnostics` means §6.13 selects its basis from
+`simulate_cost`. Written down here because the fixture becomes runnable in Phase 3 and its value
+lies in the discrimination, not in the pass/fail.
+
 ## Current status
 
-Phase 1 and 1b complete and committed. Phase 2 (the §6.5 pricing module, DYNAMIC only) is next.
+Phases 1, 1b and 2 complete and committed (672 passed, 2 skipped). Phase 3 (§6.10 cost
+accounting and the waterfall, fixtures 4 and 14) is next.
+
+Working agreement from this point: phases run to completion without check-in; only genuine open
+decisions are brought back to the user.
