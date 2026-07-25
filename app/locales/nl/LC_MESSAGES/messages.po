@@ -855,3 +855,8 @@ msgstr "✓ Genoteerd"
 msgid "👍 I want this"
 msgstr "👍 Ik wil dit"
 
+msgid "computing the perfect-foresight benchmark…"
+msgstr "de perfecte-vooruitzichtbenchmark berekenen…"
+
+msgid "The perfect-foresight benchmark could not be computed for this period."
+msgstr "De perfecte-vooruitzichtbenchmark kon voor deze periode niet worden berekend."

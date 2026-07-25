@@ -174,25 +174,42 @@
       </div>
     </div>
 
-    {# ── Benchmark: grid import avoided ─────────────────────────────────────
-       GUARDED: the §6.12 perfect-foresight DP is not built this increment, so the computed
-       view-model emits no `benchmark` key. Only render this card when one is present (the
-       static sample still carries it; the computed view-model does not). #}
+    {# ── Benchmark: grid import avoided (§2.4, bounded by §6.12's run-D DP) ──
+       The card body lives in _benchmark_box.html, because it is rendered from TWO places: here
+       when the view-model already carries a `benchmark` key, and standalone by
+       POST /results/benchmark.
+
+       **The key is normally ABSENT and that is not an error.** §6.12's DP costs ~4.6 s on a year of
+       hourly data against ~0.12 s for the rest of this panel, so `results_from` skips it unless
+       asked (`with_benchmark=True`) and GET / and POST /results do not ask. The `{% if %}` branch
+       below therefore fires for the STATIC SAMPLE view-model (app/sample_data.py still supplies a
+       benchmark) and for any caller that did ask; everything else takes the {% else %} branch and
+       gets the lazy-fetch placeholder.
+
+       The placeholder carries the window request as JSON in `data-benchmark-body`, so the fetcher
+       — which lives in index.html, never in this swapped fragment — knows which window to ask for
+       without holding any state of its own. It re-reads the attribute off the freshly-swapped node
+       after every range change, so the box re-fires with the right window each time. #}
     {% if results.benchmark %}
-    <div class="card bg-base-200 border border-base-300">
-      <div class="card-body gap-3 p-4">
-        <h3 class="text-sm font-semibold text-base-content/70">{{ _('Benchmark: grid import avoided') }}</h3>
-        {% for row in results.benchmark.rows %}
-        <div class="flex items-center gap-3">
-          <span class="w-36 text-sm">{{ _(row.label) }}</span>
-          <span class="w-20 figure-col text-sm">{{ row.value }}</span>
-          <div class="bench-track">
-            <div class="bench-fill" style="width: {{ (row.frac * 100) | round(1) }}%"></div>
-            {% if row.dot %}<div class="bench-dot" style="left: {{ (row.frac * 100) | round(1) }}%"></div>{% endif %}
-          </div>
+    {# `with` binds the partial's `benchmark` name; the partial is written against a bare
+       `benchmark` so POST /results/benchmark can render it with nothing else in scope. #}
+    {% with benchmark = results.benchmark %}
+    <div id="benchmark-slot">{% include "_benchmark_box.html" %}</div>
+    {% endwith %}
+    {% else %}
+    {# `| e` explicitly: the value is a JSON string full of double quotes, and it has to survive as
+       a double-quoted HTML attribute. Autoescape covers it, but stating the filter makes the
+       requirement legible — dropping it silently produces an attribute that terminates early and a
+       fetcher that reads "{". #}
+    <div id="benchmark-slot" data-benchmark-body="{{ results.benchmark_request | default('{}', true) | e }}">
+      <div class="card bg-base-200 border border-base-300">
+        <div class="card-body gap-3 p-4">
+          <h3 class="text-sm font-semibold text-base-content/70">{{ _('Benchmark: grid import avoided') }}</h3>
+          {# Matches the panel's existing "⟳ recalculating…" idiom (the range picker above). The
+             benchmark DP is the slowest thing on the page, so the wait is stated rather than left
+             as an empty gap the reader might take for a missing feature. #}
+          <p class="text-sm text-base-content/70">⟳ {{ _('computing the perfect-foresight benchmark…') }}</p>
         </div>
-        {% endfor %}
-        <p class="text-sm text-base-content/70">{{ _(results.benchmark.gloss) }}</p>
       </div>
     </div>
     {% endif %}

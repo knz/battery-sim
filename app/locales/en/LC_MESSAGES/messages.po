@@ -844,3 +844,8 @@ msgstr "✓ Noted"
 msgid "👍 I want this"
 msgstr "👍 I want this"
 
+msgid "computing the perfect-foresight benchmark…"
+msgstr "computing the perfect-foresight benchmark…"
+
+msgid "The perfect-foresight benchmark could not be computed for this period."
+msgstr "The perfect-foresight benchmark could not be computed for this period."

@@ -20,9 +20,20 @@ usable, 10–100% SoC, 5/5 kW, 90% round trip, 30 W standby, charge P3, discharg
 have done", not "what YOUR battery would have done", and a caveat says so until Phase 6 binds the
 form. That is a deliberately visible placeholder rather than a hidden assumption.
 
+Panel ③ also now carries §2.4's **"Benchmark: grid import avoided"** box, from the §6.12
+perfect-foresight DP (`app/domain/benchmark.py`, run D). The `benchmark` key the template has been
+guarding on is emitted, with the wireframe's rows and the capture-ratio gloss.
+
+**The DP is LAZY.** It is ~4.6 s against ~0.12 s for everything else, so `results_from` runs it
+only under `with_benchmark=True`, which only `POST /results/benchmark` passes. `GET /` and
+`POST /results` paint panel ③ without it and the box fills in afterwards. Nothing is cached.
+
+`_benchmark_block` does NOT print the capture ratio unconditionally: §6.12's terminal constraint is
+asymmetric with the policy run, so a policy that liquidates its opening charge can produce a ratio
+no percentage can mean. See that function for the four shapes and why the fix belongs in the view.
+
 What is NOT emitted this increment (later phases):
-  * the §6.12 perfect-foresight benchmark box — the DP is not built, so no `benchmark` key is
-    emitted (the template guards on it). We do not invent benchmark numbers.
+  * the §6.12 COST benchmark (run E) and any euro figure — `simulate_cost` is false.
   * the "intervals battery was full / empty" secondary row — it needs a SoC-bound comparison the
     metrics layer does not own yet; omitted rather than guessed.
   * annualisation — a short-window run (< min_annualisation_days) sets `annualisation_disabled`
@@ -87,13 +98,15 @@ Main items:
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
 
 from app.dataset import LoadedDataset
 from app.domain import normalize
-from app.domain.metrics import EnergyMetrics, energy_metrics
+from app.domain.benchmark import EnergyBenchmark, _capture_ratio, energy_benchmark
+from app.domain.metrics import SOC_DRIFT_WARN_FRAC, EnergyMetrics, energy_metrics
 from app.domain.reconcile import (
     CLAMP_UNRELIABLE_FRAC,
     DIV_GUARD_EPS,
@@ -123,6 +136,15 @@ PV_PRESENT_FLOOR_KWH = 1.0
 # flag just lets the template show the §2.4 short-window info box. There is no config field for this
 # yet, so it is a module constant matching the spec default.
 min_annualisation_days = 90
+
+# §2.4: the "…if export allowed" benchmark row renders only when the unconstrained fields are
+# non-null AND the two capture ratios differ by more than this. Appendix A's
+# `benchmark_divergence_display_threshold`, default 0.02 and flagged there as **provisional** — an
+# untested guess that experiment X10 is meant to revisit once real runs show how far the two bounds
+# usually sit apart. A PRESENTATION constant: it changes no computed number, only whether a
+# near-duplicate line that "says nothing" (§2.4) is shown, which is why it lives here rather than on
+# SimulationConfig beside dp_soc_levels.
+benchmark_divergence_display_threshold = 0.02
 
 # Preset periods, anchored to the END of data coverage (§7.4 — NOT now()). Span in days each preset
 # reaches back from the coverage end. The names are the request tokens; the wireframe's human labels
@@ -354,6 +376,238 @@ def _pv_present(rec: ReconciledGrid, pv_mask: np.ndarray | None) -> bool:
     return float(rec.pv[pv_mask].sum()) >= PV_PRESENT_FLOOR_KWH
 
 
+def _drift_is_material(bench: EnergyBenchmark) -> bool:
+    """Is the POLICY run's SoC drift materially NEGATIVE — i.e. did it fund part of its saving?
+
+    The gate on the capture ratio's presentation (see `_benchmark_block`). Two conditions:
+
+      * **The drift is negative.** Only a battery that ended MORE EMPTY than it started can have
+        booked import-avoidance it did not pay to store. A POSITIVE drift makes the policy look
+        WORSE than it was (energy it bought and still holds is counted as consumed), which needs no
+        intervention: the ratio is then conservative, and understating a policy is not the failure
+        mode this guards.
+      * **It is large relative to the saving**, by §6.11's OWN threshold. `SOC_DRIFT_WARN_FRAC` (2%)
+        is reused rather than a second constant being invented: §6.11 already defines it as the
+        point at which residual SoC is large enough to matter to the headline figure, and a ratio
+        built on that headline figure inherits exactly the same question. Using one threshold also
+        means the box's drift-corrected wording and the panel's SoC-drift caveat fire together,
+        rather than the reader seeing one without the other.
+
+    The degenerate branch matches `metrics.soc_drift_significant`'s: with no saving to be relative
+    to, any drift above `DIV_GUARD_EPS` counts, because there is nothing for it to be small against.
+    """
+    delta = bench.policy_soc_delta_kwh
+    if delta >= 0:
+        return False
+    base = abs(bench.policy_saved_kwh)
+    if base > DIV_GUARD_EPS:
+        return abs(delta) > SOC_DRIFT_WARN_FRAC * base
+    return abs(delta) > DIV_GUARD_EPS
+
+
+def _benchmark_block(bench: EnergyBenchmark, eta_d: float) -> dict:
+    """§2.4's "Benchmark: grid import avoided" box, from the §6.12 energy block.
+
+    Four rows in the wireframe's order — No battery, Your policy, Perfect foresight, and the
+    conditional "…if export allowed" — plus the capture-ratio gloss beneath them.
+
+    ## The capture ratio is NOT printed unconditionally, and that is the point of most of this
+
+    `EnergyBenchmark.capture_ratio` is deliberately unclamped — its docstring says a value > 1 is a
+    detectable fault and a clamp would turn it into a plausible number. That is right for a test
+    consumer. It is wrong for a page: printing it raw produced "captures −493 percent" on a
+    reproducible configuration, and, in the `None` case, a gloss reading "even a perfectly-informed
+    battery could not have avoided any grid import" directly above a visible row reading "Your
+    policy 9 kWh". So the metric keeps its honesty and the FIX is here, in the view.
+
+    The mechanism is §6.12's terminal constraint being **asymmetric with the policy run**: the DP
+    must end at or above its starting SoC, the policy run need not, and §6.11 deliberately does not
+    net the drift out. A policy that liquidates its opening charge therefore books a saving the DP
+    is forbidden to book, and the ratio divides a drift-FUNDED numerator by a drift-NEUTRAL
+    denominator. The spec does not address this; it is recorded as a spec finding in the phase-5
+    changelog.
+
+    **The resolution: restate the ratio on drift-corrected figures rather than suppress it.** The
+    correction is `saved + soc_delta × eta_d` — the residual SoC valued at what the inverter could
+    still have delivered — which is the same basis `tests/test_benchmark._saving_drift_corrected`
+    already asserts fixture 6 on, so the box and the test agree on what a comparable saving is.
+
+    **Why this does not violate §6.11's "report drift rather than net it out".** §6.11's rule
+    governs the drift METRIC, and that metric is untouched: `metrics.soc_delta_kwh` is reported in
+    full and the panel's SoC-drift caveat states it in kWh, unnetted, beside this box. What is
+    corrected here is a RATIO whose denominator is drift-constrained by §6.12's terminal
+    constraint. Leaving the numerator uncorrected does not preserve information — it produces a
+    quotient of two incompatible quantities, which is not a measurement of anything. The box says
+    in words that the figure is drift-corrected, so nothing is netted out silently.
+
+    Four shapes, each with its own gloss:
+
+      1. **normal** — drift immaterial and `0 ≤ ratio ≤ 1`. Renders as a plain percentage.
+      2. **drift-funded** — `_drift_is_material`. Renders the DRIFT-CORRECTED ratio, labelled as
+         such, with a sentence naming the opening charge. Falls through to shape 4 if the
+         corrected ratio is itself out of range.
+      3. **bound ≈ 0** (`capture_ratio is None`). The gloss BRANCHES on the policy saving: the old
+         "could not have avoided any grid import" wording is true only when the policy saved ~0
+         too. With a visible positive policy row it contradicts the page, so the box instead says
+         the policy's apparent saving is not one a perfectly-informed battery could reproduce under
+         the terminal constraint.
+      4. **ratio > 1 with no drift to explain it** — a fault (fixture 6 says the bound cannot be
+         beaten). No number is stated; the box says the comparison did not come out usable over
+         this period. Presenting a fault as a result is the one thing the box must not do.
+
+    The ROWS are unaffected in all four shapes. They are honest figures — §7.2 item 9 makes a
+    negative saving a legitimate result and the drift caveat explains it — and the defect was never
+    the bars.
+
+    **`frac` is the bar fill relative to the WIDEST baseline shown**, not to the perfect-foresight
+    bound. The bars are a visual comparison of the rows against each other, so they have to share
+    one scale; scaling to the inheriting bound would push a larger unconstrained row past the end of
+    its track. The "No battery" row is 0 by definition (§2.4 prints "0 kWh"), which anchors the
+    left end.
+
+    **A negative saving is floored to 0 for the BAR only.** §7.2 item 9 makes a negative saving a
+    legitimate result, and the row's VALUE carries the sign — but a bar cannot render a negative
+    width, and a bar clipped to zero beside a signed number is legible where a negative width is
+    not. Nothing here changes the figure.
+
+    **The conditional fourth row** (§2.4). It renders only when the unconstrained fields are
+    non-null — i.e. `allow_grid_export` is off, so a second DP actually ran — AND the two capture
+    ratios differ by more than `benchmark_divergence_display_threshold`. Otherwise it is omitted,
+    because §2.4 is explicit that a near-duplicate line in a dense box "says nothing". Note that on
+    the ENERGY objective the two dispatches usually coincide exactly even with export off:
+    exporting battery energy earns revenue but avoids no grid import, so the export permission
+    cannot change an import-minimising dispatch. The row is therefore expected to be rare here and
+    to earn its keep on the §6.12 COST benchmark, where export does pay. That is the threshold
+    behaving as designed, not the DP failing to find something.
+
+    **No literal "%" in any string that reaches `_()`.** `app/i18n.py` installs the Jinja i18n
+    extension with `newstyle=True`, which %-formats the translated result, so a "%" before a letter
+    raises. The gloss states the ratio in words ("captures 57 percent of") for the same reason
+    `results_from`'s caveats do.
+    """
+    pf = bench.perfect_foresight_saved_kwh
+    unc = bench.perfect_foresight_saved_kwh_unconstrained
+
+    show_unconstrained = (
+        unc is not None
+        and bench.capture_ratio is not None
+        and bench.capture_ratio_unconstrained is not None
+        and abs(bench.capture_ratio - bench.capture_ratio_unconstrained)
+        > benchmark_divergence_display_threshold
+    )
+
+    # The shared bar scale: the widest row actually shown. Guarded against a non-positive maximum
+    # (every bound ~0 or negative), where every bar is simply empty rather than a division by zero.
+    scale = max(bench.policy_saved_kwh, pf, unc if show_unconstrained else pf, 0.0)
+
+    def frac(value: float) -> float:
+        if scale <= DIV_GUARD_EPS:
+            return 0.0
+        return max(0.0, min(1.0, value / scale))
+
+    rows = [
+        {"label": "No battery", "value": _fmt_kwh(0.0), "frac": 0.0, "dot": False},
+        {"label": "Your policy", "value": _fmt_signed_kwh(bench.policy_saved_kwh),
+         "frac": frac(bench.policy_saved_kwh), "dot": True},
+        {"label": "Perfect foresight", "value": _fmt_signed_kwh(pf),
+         "frac": frac(pf), "dot": True},
+    ]
+    if show_unconstrained:
+        assert unc is not None  # narrowed by show_unconstrained; restated for the type reader
+        rows.append({"label": "…if export allowed", "value": _fmt_signed_kwh(unc),
+                     "frac": frac(unc), "dot": True})
+
+    # ── The gloss (§2.4) — see the docstring's four shapes ─────────────────────────────────────
+    #
+    # The standing caveat every shape that states a NUMBER carries: §7.2 item 6 makes the ratio a
+    # floor on achievable improvement, not a target, and a reader who takes it for a target will
+    # under-rate a perfectly reasonable policy.
+    floor_note = (
+        "Perfect foresight knows every future price exactly and no real controller reaches it, so "
+        "treat this as a floor on what a better policy could achieve, not as a target."
+    )
+    # The shape-4 wording, shared by the "ratio > 1 with no drift" and "drift-corrected ratio is
+    # itself out of range" paths. It states NO number: a capture above 100 percent contradicts
+    # fixture 6, so whatever it is, it is not a result.
+    fault_gloss = (
+        "The comparison against a perfectly-informed battery did not come out usable over this "
+        "period: your policy appears to have avoided more grid import than the best possible "
+        "dispatch, which cannot happen and means the two figures are not comparable here. No "
+        "capture ratio is shown. Selecting a longer period usually resolves it."
+    )
+
+    # Float slack on the "is the corrected ratio in range" test. The correction subtracts one
+    # computed quantity from another and the two can agree to the last bit and still land at
+    # 1.0000000000000024 — measured on the 20 kWh / 100→10 percent SoC reproduction, where the
+    # corrected saving and the bound are the SAME number to 14 digits. Without the slack a ratio of
+    # exactly 1 is reported as a fault, which is the opposite of the truth: a policy that matches
+    # the bound is the best possible outcome, not a broken one. The tolerance is a display
+    # tolerance on a rounding artefact, not a correctness allowance — a genuine breach of fixture 6
+    # is orders of magnitude larger (the raw ratios reproduced were −4.93 and 28.59).
+    RATIO_RANGE_EPS = 1e-6
+    drift_funded = _drift_is_material(bench)
+    # The drift-corrected pair. Only the NUMERATOR needs correcting: §6.12's terminal constraint
+    # already holds the DP to a non-negative drift, so its saving is on the corrected basis
+    # already. `× eta_d` because the residual is STORED energy and only that fraction of it would
+    # ever have reached the AC bus, which is the side the saving is measured on.
+    corrected_saved = bench.policy_saved_kwh + bench.policy_soc_delta_kwh * eta_d
+    corrected_ratio = _capture_ratio(corrected_saved, pf)
+
+    if bench.capture_ratio is None:
+        # Shape 3: the bound is ~0. The old single wording asserted that nothing could have been
+        # avoided, which is a claim about the DP — and it reads as a contradiction whenever the
+        # "Your policy" row above shows a positive figure. Branch on the visible row.
+        if abs(bench.policy_saved_kwh) <= DIV_GUARD_EPS:
+            gloss = (
+                "Over this period even a perfectly-informed battery could not have avoided any "
+                "grid import, so there is no capture ratio to report."
+            )
+        else:
+            gloss = (
+                f"The best possible dispatch over this period could not have avoided any grid "
+                f"import, yet your policy shows {_fmt_signed_kwh(bench.policy_saved_kwh)} avoided. "
+                f"That figure is not something a perfectly-informed battery could reproduce: the "
+                f"benchmark must return the battery to the state of charge it started from, and "
+                f"your policy did not. There is no capture ratio to report for this period."
+            )
+    elif drift_funded:
+        # Shape 2: the saving is partly opening charge. State the corrected ratio, and say so.
+        if corrected_ratio is None or not (
+            -RATIO_RANGE_EPS <= corrected_ratio <= 1.0 + RATIO_RANGE_EPS
+        ):
+            gloss = fault_gloss
+        else:
+            gloss = (
+                f"Your battery ended this period "
+                f"{_fmt_kwh(abs(bench.policy_soc_delta_kwh))} less charged than it started, so "
+                f"part of the grid import it avoided was paid for out of the charge it began with "
+                f"rather than earned by its dispatch. The benchmark is not allowed to do that — it "
+                f"must finish at the state of charge it started from — so the two are only "
+                f"comparable once that residual is accounted for. On that basis your policy "
+                f"captures {round(100 * corrected_ratio)} percent of the grid import a "
+                f"perfectly-informed battery could have avoided. {floor_note}"
+            )
+    elif bench.capture_ratio > 1.0 + RATIO_RANGE_EPS:
+        # Shape 4: above the bound with no drift to explain it. Fixture 6 says this cannot happen.
+        gloss = fault_gloss
+    else:
+        # Shape 1: the normal case. A NEGATIVE ratio reaches here only with an immaterial drift,
+        # which means the policy genuinely spent energy (§7.2 item 9) against a positive bound —
+        # a real result the negative-saving caveat already explains, and one the reader should see.
+        gloss = (
+            f"Your policy captures {round(100 * bench.capture_ratio)} percent of the grid import a "
+            f"perfectly-informed battery could have avoided. {floor_note}"
+        )
+        if show_unconstrained and bench.capture_ratio_unconstrained is not None:
+            gloss += (
+                f" Allowed to export, that ceiling rises to {_fmt_kwh(unc)} "
+                f"(a {round(100 * bench.capture_ratio_unconstrained)} percent capture) — the extra "
+                f"is arbitrage your export setting currently forbids."
+            )
+
+    return {"rows": rows, "gloss": gloss}
+
+
 def _monthly_import(rec: ReconciledGrid) -> dict:
     """Monthly Σ grid-import over the window for the chart, as {"months": [...], "values": [...]}.
 
@@ -382,12 +636,23 @@ def _monthly_import(rec: ReconciledGrid) -> dict:
 
 
 def results_from(
-    dataset: LoadedDataset, window: tuple[datetime, datetime]
+    dataset: LoadedDataset,
+    window: tuple[datetime, datetime],
+    *,
+    with_benchmark: bool = False,
 ) -> dict | None:
     """Build the panel-③ ENERGY SAVINGS view-model over `window` from a real run (specs §2.4).
 
-    Shape-compatible with sample_data._panel_results() EXCEPT: no `benchmark` key (the §6.12 DP is
-    Phase 5) and the "intervals battery full/empty" secondary row is omitted. Returns None when
+    **`with_benchmark` defaults to False and that is the whole latency story.** §6.12's DP is
+    ~2.3 s per pass on a year of hourly data against ~0.13 s for everything else on this page, and
+    it ran inline on every `GET /` — measured at 4.72 s. The box is now fetched separately (`POST
+    /results/benchmark`, which calls this with `with_benchmark=True`) and fills in when ready, so
+    the panel paints from the §6.11 figures at the old speed. Cost scales linearly with window
+    length (1 week 0.04 s, 1 year 2.29 s per DP), so only long windows were ever slow. No cache was
+    added — see the phase-5 changelog; lazy loading was the option chosen.
+
+    Shape-compatible with sample_data._panel_results() EXCEPT: the "intervals battery full/empty"
+    secondary row is omitted. Returns None when
     reconcile_grid returns None (no simulatable grid) — the caller then falls back to the empty
     state, exactly like data_summary_from.
 
@@ -397,8 +662,9 @@ def results_from(
 
     `should_cancel` is deliberately not passed to `run_all`: there is no run-orchestration layer
     (§3.3/§5.3) to cancel from, and a hook nothing can trip would be dead weight. The run is
-    ~0.1 s over a year of hourly data (measured, changelog 20260725), which is why this is
-    computed inline per request rather than behind a cache.
+    ~0.1 s over a year of hourly data (measured, changelog 20260725). The §6.12 DP added below is
+    the part that is NOT cheap — ~4.5 s for the two passes — and it too is computed inline per
+    request rather than behind a cache; see the note at its call site.
     """
     rec = reconcile_grid(dataset, window)
     if rec is None:
@@ -433,10 +699,22 @@ def results_from(
     pv_mask = _pv_coverage_mask(dataset, rec)
     pv_present = _pv_present(rec, pv_mask)
     metrics: EnergyMetrics | None = None
+    bench: EnergyBenchmark | None = None
     if frame is not None and frame.intervals > 0:
         # `rec` and `frame` come from the same reconcile_grid over the same window, so `pv_mask`
         # (built against `rec`) indexes `frame`'s arrays too — same length, same interval starts.
-        metrics = energy_metrics(run_all(frame, cfg), frame, cfg, pv_mask=pv_mask)
+        runs = run_all(frame, cfg)
+        metrics = energy_metrics(runs, frame, cfg, pv_mask=pv_mask)
+        # §6.12's perfect-foresight DP — ONLY when the caller asked for it. Runs A and C are
+        # passed in rather than re-run, so the policy saving inside the benchmark block is the
+        # SAME number the KPI tile shows.
+        #
+        # **This is the expensive part of the request**: the A/B/C runs take 0.12 s and the two
+        # DPs take ~4.6 s on a year of hourly data at appendix A's 101 × 41 grids. It is therefore
+        # off by default and fetched separately; see this function's docstring and the phase-5
+        # changelog. Nothing is cached — that option was considered and not chosen.
+        if with_benchmark:
+            bench = energy_benchmark(runs.a, runs.c, frame, cfg)
 
     imp_str = _fmt_kwh(rec.imp_total)
     exp_str = _fmt_kwh(rec.exp_total)
@@ -678,11 +956,25 @@ def results_from(
         "data_summary": data_summary,
         "kpis": kpis,
         "energy_breakdown": energy_breakdown,
-        # No `benchmark` key this increment (§6.12 DP not built); Phase 2 guards the template.
         "secondary": secondary,
         "chart": _monthly_import(rec),
         "caveats": caveats,
+        # The window request the lazy benchmark fetch should re-send, as a JSON string the template
+        # drops straight into a data-* attribute. It is the EFFECTIVE window (what was actually
+        # reconciled and simulated), stated as an explicit start/end rather than as the preset the
+        # caller may have used — so the box is computed over exactly the window the rows beside it
+        # describe, even where reconciliation narrowed the requested one. `resolve_window` clamps
+        # both ends to coverage, so re-sending an already-clamped window is a no-op.
+        "benchmark_request": json.dumps(
+            {"start": eff[0].isoformat(), "end": eff[1].isoformat()}
+        ),
     }
+
+    # §2.4's benchmark box. Absent — not zeroed — when there was no simulation to bound; the
+    # template guards on `results.benchmark`, so an absent key simply omits the card rather than
+    # rendering a box of invented numbers.
+    if bench is not None:
+        result["benchmark"] = _benchmark_block(bench, cfg.eta_d)
 
     # Short-window guard (§7.4): below min_annualisation_days annualisation is disabled. We annualise
     # nothing here; the flag + message let the template show the §2.4 info box. Uses the EFFECTIVE

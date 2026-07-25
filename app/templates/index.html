@@ -324,6 +324,71 @@
       // Exposed so the fetch handler (and any future caller) can redraw after a swap.
       window.drawMonthlyChart = drawMonthlyChart;
 
+      // ── The §6.12 perfect-foresight benchmark box, fetched LAZILY ───────────────────────────
+      //
+      // Why separately at all: the DP behind that box costs ~2.3 s per pass on a year of hourly
+      // data (~4.6 s for both export baselines) against ~0.12 s for everything else on the panel.
+      // Running it inline made GET / take 4.72 s. So _panel_results.html renders a placeholder
+      // (#benchmark-slot, with a "⟳ computing…" line) carrying the window request in
+      // data-benchmark-body, and this fetches POST /results/benchmark to fill it in.
+      //
+      // This function lives HERE, in index.html, and not in the fragment — a swapped-in <script>
+      // re-inserts but does NOT re-execute, so anything inside #panel-results would run once and
+      // never again. It is called on initial load and from recompute()'s success path, so the box
+      // re-fires after every panel-③ range-change swap. It holds no state: the window comes off
+      // the freshly-swapped node's data attribute each time.
+      //
+      // Timeout so a slow or wedged DP cannot leave "⟳ computing…" on the page forever. 20 s is
+      // comfortably above the ~4.6 s worst case measured on a full year.
+      var BENCHMARK_TIMEOUT_MS = 20000;
+
+      function loadBenchmark() {
+        var slot = document.getElementById('benchmark-slot');
+        // Absent when the view-model already carried a rendered box (the static sample), in which
+        // case there is nothing to fetch.
+        if (!slot) return;
+        var raw = slot.getAttribute('data-benchmark-body');
+        if (!raw) return;
+        var body;
+        try { body = JSON.parse(raw); } catch (e) { return; }
+
+        // Tag the in-flight request so a swap that happens mid-flight cannot have a stale response
+        // written into it: the response only lands if the slot is still the one we started on.
+        var token = String(Date.now()) + ':' + Math.random();
+        slot.setAttribute('data-benchmark-token', token);
+
+        var ctl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+        var timer = setTimeout(function () { if (ctl) ctl.abort(); }, BENCHMARK_TIMEOUT_MS);
+
+        fetch('/results/benchmark', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+          signal: ctl ? ctl.signal : undefined
+        })
+          .then(function (resp) {
+            if (!resp.ok) throw new Error('benchmark failed: ' + resp.status);
+            return resp.text();
+          })
+          .then(function (html) {
+            var cur = document.getElementById('benchmark-slot');
+            if (!cur || cur.getAttribute('data-benchmark-token') !== token) return;
+            // Fill the slot's CONTENTS, not its outerHTML, so the slot node (and the next swap's
+            // ability to find it) survives.
+            cur.innerHTML = html;
+          })
+          .catch(function () {
+            // Degrade gracefully: say the box could not be computed and leave the REST of panel ③
+            // exactly as it is. This handler writes to no other node.
+            var cur = document.getElementById('benchmark-slot');
+            if (!cur || cur.getAttribute('data-benchmark-token') !== token) return;
+            var p = cur.querySelector('p');
+            if (p) p.textContent = {{ _('The perfect-foresight benchmark could not be computed for this period.') | tojson }};
+          })
+          .finally(function () { clearTimeout(timer); });
+      }
+      window.loadBenchmark = loadBenchmark;
+
       var recalcInFlight = false;
 
       // Recompute panel ③ over `body` (either {period} or {start,end}) and swap the panel in.
@@ -353,6 +418,9 @@
             // The swapped-in <script id="monthly-data"> did not run, but its DATA is in the DOM;
             // redraw from it. Delegated listeners need no re-binding.
             drawMonthlyChart();
+            // The benchmark box is INSIDE #panel-results, so the swap replaced it with a fresh
+            // placeholder for the new window. Re-fire the lazy fetch against it.
+            loadBenchmark();
           })
           .catch(function () { /* leave the last good panel in place */ })
           .finally(function () {
@@ -382,11 +450,12 @@
         }
       });
 
-      // Initial draw once the page (and Plotly) are ready.
+      // Initial draw once the page (and Plotly) are ready, plus the first benchmark fetch.
+      function initPanelResults() { drawMonthlyChart(); loadBenchmark(); }
       if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', drawMonthlyChart);
+        document.addEventListener('DOMContentLoaded', initPanelResults);
       } else {
-        drawMonthlyChart();
+        initPanelResults();
       }
     })();
   </script>

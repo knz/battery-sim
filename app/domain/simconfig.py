@@ -568,6 +568,9 @@ class SimulationConfig:
                       and neither overrides the other.
         simulate_cost appendix A default false — energy-only, so a first result needs no contract
                       knowledge (§8.18).
+        dp_soc_levels / dp_action_levels   §6.12's DP discretisation, appendix A's 101 and 41.
+                      Shared by BOTH perfect-foresight runs (D and E) — the two objectives differ
+                      only in `transition_cost`, so a single pair of grid sizes is correct.
 
     Construction NEVER raises, even on nonsense input: see the module comment and `validate()`.
     """
@@ -578,6 +581,14 @@ class SimulationConfig:
     topology: TopologyConfig = field(default_factory=TopologyConfig)
     has_pv: bool = True
     simulate_cost: bool = False
+    # §6.12's DP discretisation, appendix A: `dp_soc_levels` 101, `dp_action_levels` 41, both
+    # "shared by both perfect-foresight runs". They sit flat on SimulationConfig rather than in one
+    # of the four groups because the groups mirror panel-②'s form boxes one-to-one and these are not
+    # a form box — they are run-wide numerical tuning, in the same category as `simulate_cost`.
+    # Stored as given rather than derived: the grid sizes ARE the parameters, and appendix A's two
+    # numbers are what fixture 6's bound is measured at.
+    dp_soc_levels: int = 101
+    dp_action_levels: int = 41
 
     def __post_init__(self) -> None:
         """Defensively copy the four sub-configs, then normalise the forced settings.
@@ -1043,6 +1054,24 @@ class SimulationConfig:
             )
         # `_finite` first so `phases=True` is rejected as non-numeric rather than passing this
         # test as 1 — the derivation and the check have to agree on what a phase count is.
+        # §6.12's DP grids. Two levels is the smallest discretisation that still HAS an interior —
+        # a single SoC level or a single action would make the DP's state or action space
+        # degenerate and its answer meaningless rather than merely coarse. Blocking rather than
+        # warning because there is no correct number to report from such a run; note the DP's own
+        # `linspace` would also divide by `n − 1`.
+        for name, value in (
+            ("dp_soc_levels", self.dp_soc_levels),
+            ("dp_action_levels", self.dp_action_levels),
+        ):
+            if isinstance(value, bool) or not isinstance(value, int) or value < 2:
+                errors.append(
+                    ConfigIssue(
+                        name,
+                        "dp_levels_too_few",
+                        f"{name} must be an integer of at least 2 (got {value!r})",
+                    )
+                )
+
         if numeric("grid.phases") and g.phases not in (1, 3):
             errors.append(
                 ConfigIssue(

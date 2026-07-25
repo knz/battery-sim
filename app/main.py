@@ -32,6 +32,7 @@ without a browser round-trip and without discarding the other series. browser_fe
 Routes:
     GET  /                          → the full page (index.html)
     POST /results                   → recompute panel ③ over a window; return the HTML fragment
+    POST /results/benchmark         → the §6.12 perfect-foresight box for that window (slow; lazy)
     GET  /lang/{code}               → set the language cookie, redirect back
     POST /feature-interest/{key}    → record interest in a pending control; 204 on success
     WS   /data/ingest/ws            → stream browser-fetched HA rows in; persist SeriesFrames
@@ -150,14 +151,50 @@ def results(request: Request, body: dict = Body(...)):
         * a bad request (unknown preset, empty/out-of-coverage range, both period and range) →
           400 (resolve_window raises ValueError);
         * frames that yield no simulatable grid → 409 (results_from returns None).
+
+    The §6.12 benchmark box is NOT computed here — see `results_benchmark`. The fragment carries a
+    placeholder the browser fills in with a second request, so a range change repaints at ~0.13 s
+    instead of waiting ~4.6 s for the DP.
+    """
+    loaded, window = _resolve_results_window(body)
+
+    result = results_view.results_from(loaded, window)
+    if result is None:
+        raise HTTPException(status_code=409, detail="no simulatable data")
+
+    # Install the request locale on the Jinja env (as index() does), then render the template
+    # standalone. templates.env already has jinja2.ext.i18n; install_for makes _() resolve.
+    # (The shared-env gettext install is a per-request mutation of module-level state — a
+    # pre-existing app-wide concern index() already has; not worsened in kind here. See the
+    # changelog follow-up.) The fragment reads only `results.*`, so no other context is passed.
+    locale = i18n.resolve_locale(request)
+    i18n.install_for(templates.env, locale)
+    html = templates.env.get_template("_panel_results.html").render(results=result)
+    return HTMLResponse(html)
+
+
+def _resolve_results_window(body: dict):
+    """Turn a `POST /results`-shaped body into (loaded_dataset, window), or raise a clean 4xx.
+
+    Shared by `POST /results` and `POST /results/benchmark` so the two cannot drift on which
+    requests they accept or on which status code each failure gets. The contract, unchanged from
+    what `/results` already had:
+
+        {"period": "<preset>"}             — one of results_view.PERIOD_DAYS, coverage-anchored, OR
+        {"start": "<iso>", "end": "<iso>"} — an explicit range (tz-aware UTC, like _parse_window).
+
+    Errors are clean 4xx/409, never a 500 stack trace:
+        * no persisted dataset → 409;
+        * an unparseable date → 400;
+        * an unknown preset, an empty/out-of-coverage range, or both period and range → 400
+          (resolve_window raises ValueError).
     """
     loaded = dataset.load_latest()
     if loaded is None or not loaded.frames:
         raise HTTPException(status_code=409, detail="no dataset")
 
-    # Parse the request into resolve_window's kwargs. period XOR (start, end); resolve_window
-    # enforces the mutual exclusivity and validates, so we just marshal the ISO datetimes here
-    # (tz-aware UTC, same convention as _parse_window / _as_utc).
+    # period XOR (start, end); resolve_window enforces the mutual exclusivity and validates, so we
+    # just marshal the ISO datetimes here (tz-aware UTC, same convention as _parse_window/_as_utc).
     period = body.get("period")
     start_raw = body.get("start")
     end_raw = body.get("end")
@@ -178,18 +215,43 @@ def results(request: Request, body: dict = Body(...)):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    result = results_view.results_from(loaded, window)
-    if result is None:
+    return loaded, window
+
+
+@app.post("/results/benchmark", response_class=HTMLResponse)
+def results_benchmark(request: Request, body: dict = Body(...)):
+    """Compute §6.12's perfect-foresight benchmark over a window and return just that card.
+
+    **This route exists because the DP is slow.** It costs ~2.3 s per pass on a year of hourly data
+    — ~4.6 s for both export baselines — against ~0.12 s for everything else panel ③ shows, and
+    running it inline made `GET /` take 4.72 s against 0.13 s without it. Cost scales linearly with
+    window length (1 week 0.04 s, 30 days 0.19 s, 3 months 0.57 s, 1 year 2.29 s per DP), so only
+    long windows are affected. The panel now paints from the §6.11 figures immediately and the
+    browser fetches this afterwards, filling the `#benchmark-slot` placeholder in. Nothing is
+    cached — that option was considered and lazy loading was chosen instead.
+
+    Same request shape and the same clean 4xx/409 error conditions as `POST /results` (both go
+    through `_resolve_results_window`), so a window the panel could render is never one the box
+    rejects. The response body is `_benchmark_box.html` alone, not the whole panel.
+
+    A window with no simulatable grid → 409, exactly as `/results`. The benchmark key can also be
+    absent when there WAS a grid but no intervals to simulate; that is a 409 too, since there is no
+    box to return and the placeholder's failure path is the honest outcome.
+    """
+    loaded, window = _resolve_results_window(body)
+
+    result = results_view.results_from(loaded, window, with_benchmark=True)
+    if result is None or "benchmark" not in result:
         raise HTTPException(status_code=409, detail="no simulatable data")
 
-    # Install the request locale on the Jinja env (as index() does), then render the template
-    # standalone. templates.env already has jinja2.ext.i18n; install_for makes _() resolve.
-    # (The shared-env gettext install is a per-request mutation of module-level state — a
-    # pre-existing app-wide concern index() already has; not worsened in kind here. See the
-    # changelog follow-up.) The fragment reads only `results.*`, so no other context is passed.
     locale = i18n.resolve_locale(request)
     i18n.install_for(templates.env, locale)
-    html = templates.env.get_template("_panel_results.html").render(results=result)
+    # The partial reads `benchmark.*` only (it is written to be renderable standalone), so that is
+    # the whole context. Same shared-env locale-install caveat as index()/results(); see the
+    # changelog follow-up.
+    html = templates.env.get_template("_benchmark_box.html").render(
+        benchmark=result["benchmark"]
+    )
     return HTMLResponse(html)
 
 

@@ -264,3 +264,108 @@ def test_results_no_dataset_409(tmp_path, monkeypatch):
     c = TestClient(main.app)
     r = c.post("/results", json={"period": "last_1_week"})
     assert r.status_code == 409
+
+
+# ── POST /results/benchmark — the lazily-fetched §6.12 box ────────────────────────────────────
+#
+# Why the route exists: the DP behind that box costs ~2.3 s per pass on a year of hourly data
+# (~4.6 s for both export baselines) against ~0.12 s for everything else on panel ③, and running it
+# inline made GET / take 4.72 s. The panel now paints without it and the browser fetches this
+# afterwards. These tests pin the contract that makes that safe: the same request shape and the same
+# clean 4xx/409 conditions as POST /results, so a window the panel can render is never one the box
+# rejects — and never a 500.
+
+
+def test_results_omits_the_benchmark_and_carries_the_lazy_placeholder(client):
+    """POST /results must NOT run the DP, and must leave the fetcher what it needs."""
+    r = client.post("/results", json={"period": "last_1_week"})
+    assert r.status_code == 200
+    html = r.text
+    # The placeholder, its window request, and the loading state the fetcher replaces.
+    assert 'id="benchmark-slot"' in html
+    assert "data-benchmark-body=" in html
+    assert "⟳" in html
+    # None of the rendered box's own content is present — that is the DP not having run.
+    assert "bench-track" not in html
+
+
+def test_benchmark_route_returns_the_rendered_box(client):
+    r = client.post("/results/benchmark", json={"period": "last_1_week"})
+    assert r.status_code == 200
+    html = r.text
+    assert "Benchmark: grid import avoided" in html
+    # The three unconditional §2.4 rows, and the bars the panel fragment did not have.
+    for label in ("No battery", "Your policy", "Perfect foresight"):
+        assert label in html
+    assert "bench-track" in html
+    # The response is the BOX ALONE, not the whole panel — that is what makes it swappable into
+    # #benchmark-slot without disturbing anything else.
+    assert 'id="panel-results"' not in html
+    assert "GRID IMPORT SAVED" not in html
+
+
+def test_benchmark_route_accepts_an_explicit_range(client):
+    r = client.post(
+        "/results/benchmark",
+        json={"start": "2026-01-05T00:00:00Z", "end": "2026-01-12T00:00:00Z"},
+    )
+    assert r.status_code == 200
+    assert "Benchmark: grid import avoided" in r.text
+
+
+def test_benchmark_route_accepts_the_placeholders_own_window_request(client):
+    """The round trip the browser actually makes: read data-benchmark-body, POST it back.
+
+    `results_from` emits the EFFECTIVE window (already clamped to coverage) rather than the preset,
+    so the box is computed over exactly the window the rows beside it describe. Re-sending an
+    already-clamped window must be accepted, not rejected as out of range.
+    """
+    import json
+    import re
+
+    panel = client.post("/results", json={"period": "last_1_week"})
+    assert panel.status_code == 200
+    m = re.search(r'data-benchmark-body="([^"]*)"', panel.text)
+    assert m, "the placeholder carries no window request for the fetcher to use"
+    body = json.loads(m.group(1).replace("&#34;", '"').replace("&quot;", '"'))
+    assert set(body) == {"start", "end"}
+    r = client.post("/results/benchmark", json=body)
+    assert r.status_code == 200
+    assert "Benchmark: grid import avoided" in r.text
+
+
+def test_benchmark_route_unknown_period_400(client):
+    r = client.post("/results/benchmark", json={"period": "last_5_centuries"})
+    assert r.status_code == 400
+
+
+def test_benchmark_route_period_and_range_together_400(client):
+    r = client.post(
+        "/results/benchmark",
+        json={"period": "last_1_week", "start": "2026-01-05T00:00:00Z"},
+    )
+    assert r.status_code == 400
+
+
+def test_benchmark_route_inverted_range_400(client):
+    r = client.post(
+        "/results/benchmark",
+        json={"start": "2026-01-12T00:00:00Z", "end": "2026-01-05T00:00:00Z"},
+    )
+    assert r.status_code == 400
+
+
+def test_benchmark_route_bad_date_400(client):
+    r = client.post(
+        "/results/benchmark", json={"start": "not-a-date", "end": "2026-01-12T00:00:00Z"}
+    )
+    assert r.status_code == 400
+
+
+def test_benchmark_route_no_dataset_409(tmp_path, monkeypatch):
+    """A cleared dataset must degrade to a clean 409, so the box says so and the panel is unharmed."""
+    monkeypatch.setenv("BATTERY_SIM_DATA_DIR", str(tmp_path))
+    from app import main
+    c = TestClient(main.app)
+    r = c.post("/results/benchmark", json={"period": "last_1_week"})
+    assert r.status_code == 409

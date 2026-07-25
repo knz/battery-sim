@@ -550,6 +550,111 @@ Suite: **328 passed, 2 skipped**.
   `--no-fuzzy-matching` (fuzzy matching mistranslated "Extra grid import" as "Netafname T2"). Worth
   documenting in `babel.cfg`'s workflow; not changed here.
 
+## Phase 5 — §6.12 perfect-foresight energy DP (run D) + the benchmark box
+
+> Detailed per-decision record: [20260725-perfect-foresight-benchmark-phase5.md](20260725-perfect-foresight-benchmark-phase5.md).
+
+**Built.** New `app/domain/benchmark.py` — the §6.12 DP minimising kWh of grid import, backward pass
+vectorised over (n_soc × n_actions), `np.interp` on V, terminal constraint seeded as `+INF` below the
+starting SoC, and both export baselines (inheriting + unconstrained; the second skipped as provably
+identical when `allow_grid_export` is on). `dp_soc_levels` (101) / `dp_action_levels` (41) added to
+`simconfig`. `results_view.py` emits the `benchmark` key the template already guarded.
+
+**Real-dataset figures** (orchestrator-verified live): baseline import 3,864 kWh, policy saved 341,
+perfect-foresight bound 603, capture ratio **0.567**, DP SoC 5.00 → 9.47 (terminal constraint binds
+non-trivially). A 57% capture on a fixed-band P3/D1 policy is consistent with §6.7's remark that fixed
+bands approximate a daily-moving price signal poorly — a figure near 1.0 would have been the
+suspicious one. The "…if export allowed" row correctly does not render: both bounds are identical, so
+divergence is 0 and §2.4's 0.02 threshold omits it.
+
+### Four defects the implementer found by measurement (each broke the upper bound)
+
+1. **Starting SoC not on the state grid** — §6.12's plain `linspace` rarely contains
+   `initial_soc_kwh`, which the terminal constraint is stated against, so the DP had to charge before
+   acting and returned a bound *below* standing still. Fixed by snapping the nearest level onto it.
+2. **The forward pass snapped the policy lookup**, reintroducing the discretisation interpolation
+   removes. Now re-solves at the true continuous SoC against a stored per-interval V (~7 MB, verified).
+3. **The 41-action grid cannot represent the PV surplus or household deficit** the policies dispatch
+   on, so the DP came out ~3% BELOW a P1/D1 policy. `_interval_actions` appends both exact points.
+4. **A 0.025 kWh residual** from "return exactly to the starting SoC" being state-dependent;
+   `_DP_SLACK_KWH = 0.03` absorbs it.
+
+### Adversarial review verdict: DEFECT FOUND (presentation) — the DP itself verified sound
+
+The review attacked the DP hard and cleared it: a **16,000-pair fuzz** of `_transition` against
+`battery_step` across 400 randomised configs found **zero divergence**, including the clamp paths the
+shipped fixture missed; the stored-V index has no off-by-one (backward value 7.000000 vs forward
+realised 7.000000, diff 0.00e+00); appended actions cannot break the bound (they strictly enlarge the
+set both passes minimise over); the terminal constraint binds; both hand fixtures recompute; the DP
+never reads price (all-NaN spot gives bit-identical import). **The slack constant survived a mutation
+attack** — it shrinks with `dp_action_levels` (0.025 → 0.0031 at 41 → 321) and is invariant to
+`dp_soc_levels`, exactly as a discretisation artefact should be, while injected defects blew through
+it by 2.17 and 4.80 kWh. It leaks into no reported figure (test-only).
+
+**The defect: the implementer found §6.12's terminal-constraint asymmetry, fixed it in the TESTS, and
+did not follow it into the VIEW.** The DP must end at or above its starting SoC; run C need not. So a
+policy that liquidates its opening charge books a "saving" the benchmark is forbidden to match, and
+the capture ratio becomes meaningless. Orchestrator-reproduced (20 kWh battery, 100% initial SoC, 96
+intervals): policy saved 14.20 kWh funded by an **−18.00 kWh drift**, bound −2.88, ratio −4.93 → the
+panel printed **"captures -493 percent"**. The review found three further shapes including
+"2859 percent" and — worst — a `None` ratio glossing "even a perfectly-informed battery could not have
+avoided any grid import" directly above a row reading "Your policy 9 kWh". Reachable with only a high
+initial SoC and a short window, both of which the range picker and Phase 6's form expose.
+
+**Fixed in the view, not the metric** (`capture_ratio` stays unclamped — correct for a test consumer
+that wants to see a fault). Drift-correction was chosen over suppression on the review's argument:
+§6.11's "report drift rather than net it out" governs the drift METRIC, which is untouched and still
+reported unnetted by its own caveat; what is corrected is a RATIO whose denominator is already
+drift-constrained by §6.12. Leaving the numerator raw does not preserve information — it produces a
+quotient of two incompatible quantities. The correction uses the same basis the fixture-6 assertion
+already used, so box and test agree. "Materially negative" reuses the existing `SOC_DRIFT_WARN_FRAC`
+(2%) with a sign condition rather than inventing a threshold. The gloss now explains the residual in
+words instead of printing a number.
+
+### Performance: lazy-loaded on the user's decision
+
+The DP costs ~2.3 s per run, ~4.6 s for both, taking `GET /` from 0.13 s to **4.72 s** — ~97% of the
+request. Cost scales linearly with window length (1 week 0.04 s, 30 days 0.19 s, 3 months 0.57 s).
+Presented as four options; **the user chose lazy-loading**. `results_from(..., with_benchmark=False)`
+by default; a new `POST /results/benchmark` returns the box fragment; `window.loadBenchmark()` lives
+in `index.html` so it survives the panel-③ fragment swap, re-firing after every range change, with a
+20 s timeout and a token check so a stale in-flight response cannot land in a newer slot.
+
+Orchestrator-verified live: **`GET /` 0.14 s** (was 4.72), benchmark endpoint 4.87 s separately, box
+numbers unchanged (341 / 603 / 57 percent), the window attribute correctly HTML-escaped, and error
+paths clean (400 on a bad preset, 400 on period+range, 422 on a non-object body — no 500s).
+
+Suite: **384 passed, 2 skipped**.
+
+### Two findings against the SPEC (prose corrections for a later editing pass — no code change)
+
+- **§6.12's terminal constraint is asymmetric with the policy run.** The DP must finish at or above
+  its starting SoC; nothing imposes that on run C, and §6.11 deliberately reports drift rather than
+  netting it out. Fixture 6's bound can therefore fail on raw numbers through a spec gap rather than a
+  code defect. The spec says nothing about the policy run's endpoint.
+- **§6.12's claim that nearest-snapping causes "a systematic pessimism bias of several percent" is
+  measurably wrong in both direction and magnitude.** Independently reproduced by the implementer and
+  the reviewer at six grid sizes: snapping is **optimistic** (17.41 vs interpolation's 27.59 vs a
+  realised 27.64 at 21 SoC levels) and converges *upward* as the grid refines, while interpolation is
+  stable from 11 levels on. An upward-rounded landing SoC credits energy the battery does not have, so
+  snapping's figure sits *below* the realised dispatch and bounds nothing. The spec's conclusion
+  (interpolate) is right; its stated reason would lead a future reader to treat snapping as the safe
+  conservative option, which is backwards.
+
+### Phase 5 follow-ups (deferred, not blocking)
+
+- **A `1e-6` tolerance on the ratio's range test is the implementer's judgement**, not review-specified:
+  a policy that exactly matches the bound corrects to `1.0000000000000024` and would otherwise be
+  reported as a fault. Display tolerance on a float artefact; real breaches are orders of magnitude
+  larger (−4.93, 28.59).
+- **`| e` on `data-benchmark-body` is load-bearing** — without it the raw `"` terminates the attribute
+  early and the fetcher reads `{`. Verified escaped in the live page, but its correctness depends on a
+  filter that is easy to drop.
+- With export off, both DPs are **bit-identical** on this dataset (import 3261.476807 either way), and
+  the review confirmed the feasibility masks genuinely differ (180 infeasible cells vs 0) — so the
+  second DP really does optimise over a superset and simply cannot improve an import-minimising
+  objective. That is an argument, not a proof, and it is what experiment X10 exists to settle.
+
 ## Status
 
 **Phase 1 complete** — implemented, adversarially reviewed, fixes applied and verified, committed
@@ -559,5 +664,7 @@ verified, committed (`6a8707c`).
 **Phase 3 complete** — implemented, adversarially reviewed (CLEAN), two minor test fixes applied
 without moving any number, committed (`bf52cb4`).
 **Phase 4 complete** — implemented, adversarially reviewed (DEFECT FOUND: observed/simulated mixing),
-all defects fixed and verified, committed.
-Next: Phase 5 (§6.12 energy DP + benchmark box).
+all defects fixed and verified, committed (`18d5f7a`).
+**Phase 5 complete** — implemented, adversarially reviewed (DEFECT FOUND: drift-funded capture ratio),
+fixed, benchmark box lazy-loaded on the user's decision, verified live, committed.
+Next: Phase 6 (panel ② wired), then Phase 7 (i18n + full-suite pass).

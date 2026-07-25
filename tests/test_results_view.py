@@ -20,6 +20,7 @@ Synthetic SeriesFrames are built in-process (no browser, no real dataset), reusi
 helpers from tests/test_data_summary.py so the two suites share one construction of a LoadedDataset.
 """
 
+import json
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
@@ -87,8 +88,23 @@ def test_results_reports_a_real_simulated_saving():
     assert by_label["Discharged from the battery"] == "4 kWh"
     assert by_label["Conversion losses"] == "0 kWh"           # round(0.2053)
     assert by_label["Standby consumption"] == "1 kWh"         # round(0.72)
-    # No benchmark key (§6.12 DP is Phase 5).
+    # The §6.12 benchmark box is emitted only ON REQUEST. Its DP costs ~4.6 s on a year of hourly
+    # data against ~0.12 s for everything above, so it is fetched separately (POST
+    # /results/benchmark) and the default call must NOT pay for it. The absence here is the
+    # lazy-load working, not a missing feature.
     assert "benchmark" not in r
+    # The placeholder's window request rides in the view-model so the fetcher knows what to ask for.
+    assert json.loads(r["benchmark_request"]).keys() == {"start", "end"}
+
+    # Asked for explicitly, the box is present and structurally sound. Its contents are pinned in
+    # tests/test_benchmark.py; this fixture is about the breakdown's arithmetic.
+    rb = results_from(ds, (_WIN_START, _WIN_END), with_benchmark=True)
+    assert rb is not None
+    assert [row["label"] for row in rb["benchmark"]["rows"]][:3] == [
+        "No battery",
+        "Your policy",
+        "Perfect foresight",
+    ]
 
 
 def test_results_self_sufficiency_shows_baseline_and_battery_apart():
@@ -602,6 +618,210 @@ def test_results_short_window_disables_annualisation():
     assert "disabled" in r["annualisation_message"]
 
 
+# ── §2.4's benchmark box, and its conditional fourth row ─────────────────────────────────────
+#
+# Driven against `_benchmark_block` with SYNTHETIC EnergyBenchmark values rather than through a DP
+# run. The display rule under test — when the "…if export allowed" row appears — is a presentation
+# decision keyed on two capture ratios and a threshold, and the DP has no say in it. Constructing
+# the ratios directly is what makes "just below the threshold" and "just above it" testable at all;
+# steering a real DP to a chosen divergence would be neither possible nor informative.
+
+
+def _bench_block(*, capture: float, capture_unconstrained: float | None):
+    """A `_benchmark_block` rendered from an EnergyBenchmark with the given two capture ratios.
+
+    The kWh figures are back-derived from the ratios against a fixed 1,000 kWh policy saving, so the
+    rows carry plausible numbers and the ratios are exactly what was asked for.
+    """
+    from app.domain.benchmark import EnergyBenchmark
+    from app.results_view import _benchmark_block
+
+    policy_saved = 1000.0
+    pf = policy_saved / capture
+    unc = None if capture_unconstrained is None else policy_saved / capture_unconstrained
+    return _benchmark_block(
+        EnergyBenchmark(
+            policy_saved_kwh=policy_saved,
+            perfect_foresight_saved_kwh=pf,
+            capture_ratio=capture,
+            perfect_foresight_saved_kwh_unconstrained=unc,
+            capture_ratio_unconstrained=capture_unconstrained,
+            bound_import_kwh=5000.0 - pf,
+            bound_import_kwh_unconstrained=None if unc is None else 5000.0 - unc,
+            baseline_import_kwh=5000.0,
+            soc_start_kwh=5.0,
+            soc_end_kwh=5.2,
+            # No POLICY drift: these fixtures are about the conditional export row, and a
+            # materially-negative drift would send the gloss down the drift-corrected branch and
+            # change what they are testing.
+            policy_soc_delta_kwh=0.0,
+        ),
+        _ETA,
+    )
+
+
+def _labels(block) -> list[str]:
+    return [row["label"] for row in block["rows"]]
+
+
+def test_benchmark_box_has_the_three_unconditional_rows_in_wireframe_order():
+    """§2.4's box: No battery, Your policy, Perfect foresight — always, in that order."""
+    block = _bench_block(capture=0.70, capture_unconstrained=None)
+    assert _labels(block) == ["No battery", "Your policy", "Perfect foresight"]
+    assert block["rows"][0]["value"] == "0 kWh"
+    assert block["rows"][0]["frac"] == 0.0
+    assert block["rows"][0]["dot"] is False
+    # Every bar fill is a fraction of the widest row, so none can overflow its track.
+    assert all(0.0 <= row["frac"] <= 1.0 for row in block["rows"])
+    # The widest row shown fills the track exactly — the shared scale is the widest baseline.
+    assert max(row["frac"] for row in block["rows"]) == pytest.approx(1.0)
+
+
+def test_export_row_renders_when_the_capture_ratios_diverge_beyond_the_threshold():
+    """§2.4: the fourth row shows when the unconstrained fields are non-null AND the ratios diverge.
+
+    0.70 against 0.55 is a 0.15 gap, comfortably above appendix A's 0.02 threshold.
+    """
+    block = _bench_block(capture=0.70, capture_unconstrained=0.55)
+    assert _labels(block)[3] == "…if export allowed"
+    assert "export" in block["gloss"]
+
+
+def test_export_row_is_omitted_when_the_capture_ratios_barely_differ():
+    """§2.4: below the threshold the row is OMITTED — a near-duplicate line "says nothing".
+
+    0.700 against 0.695 is a 0.005 gap, well inside the 0.02 threshold.
+    """
+    block = _bench_block(capture=0.700, capture_unconstrained=0.695)
+    assert "…if export allowed" not in _labels(block)
+    assert len(block["rows"]) == 3
+
+
+def test_export_row_threshold_boundary():
+    """The comparison is strictly GREATER than the threshold, so an exactly-equal gap is omitted.
+
+    Pinned because "> threshold" and ">= threshold" are equally plausible readings of §2.4's "differ
+    by more than", and a boundary that silently flips would change what a whole class of runs shows.
+    """
+    from app.results_view import benchmark_divergence_display_threshold as thr
+
+    assert thr == 0.02
+    # **A gap of exactly `thr` is not constructible at a realistic capture ratio.** 0.02 has no
+    # exact binary representation, so for `high` anywhere near a plausible ratio no `low` satisfies
+    # `high - low == thr` — the representable differences straddle it (from 0.5 the nearest are
+    # 0.020000000000000018 above and one ulp below). Walking `nextafter` does not converge, and a
+    # test that pretended otherwise would be asserting something floating point cannot express.
+    #
+    # So the boundary is pinned the only way it exists: with the two nearest representable gaps on
+    # either side of the threshold. That is exactly the distinction the code makes.
+    high = 0.5
+    just_under = float(np.nextafter(high - thr, 0.0))  # gap fractionally ABOVE thr → shown
+    while high - just_under <= thr:
+        just_under = float(np.nextafter(just_under, 0.0))
+    just_over = float(np.nextafter(high - thr, high))  # gap fractionally BELOW thr → omitted
+    while high - just_over >= thr:
+        just_over = float(np.nextafter(just_over, high))
+
+    assert high - just_over < thr < high - just_under, "fixture: the pair must straddle thr"
+    # Gap below the threshold: OMITTED (§2.4 — a near-duplicate line "says nothing").
+    assert "…if export allowed" not in _labels(
+        _bench_block(capture=high, capture_unconstrained=just_over)
+    )
+    # Gap above it: shown.
+    assert "…if export allowed" in _labels(
+        _bench_block(capture=high, capture_unconstrained=just_under)
+    )
+
+
+def test_export_row_is_omitted_when_export_is_allowed():
+    """§6.12/§2.4: with `allow_grid_export` on the second DP does not run, so the row cannot show.
+
+    The unconstrained fields are None, and the row's condition requires them non-null — regardless
+    of any ratio, because there is no second ratio to compare against.
+    """
+    block = _bench_block(capture=0.70, capture_unconstrained=None)
+    assert "…if export allowed" not in _labels(block)
+    assert "export" not in block["gloss"]
+
+
+def test_export_row_is_omitted_end_to_end_when_export_is_allowed():
+    """The same, through the real pipeline: `allow_grid_export=True` yields a three-row box.
+
+    `_bench_block` above constructs the None fields directly; this asserts the DP layer really does
+    produce them, so the two halves of the rule cannot pass independently while the join is broken.
+    """
+    import app.results_view as rv
+    from app.domain.simconfig import PolicyConfig, SimulationConfig
+
+    ds = _dataset([_energy("grid_import_t1", 2.0), _energy("grid_export_t1", 0.0)])
+    original = rv.SimulationConfig
+    try:
+        rv.SimulationConfig = lambda: SimulationConfig(
+            policy=PolicyConfig(allow_grid_export=True)
+        )
+        r = results_from(ds, (_WIN_START, _WIN_END), with_benchmark=True)
+    finally:
+        rv.SimulationConfig = original
+    assert r is not None
+    assert "…if export allowed" not in [row["label"] for row in r["benchmark"]["rows"]]
+
+
+def test_benchmark_gloss_states_the_capture_ratio_and_the_floor_caveat():
+    """§2.4's gloss, and §7.2 item 6: the ratio is a FLOOR on achievable improvement, not a target.
+
+    Also asserts the gloss carries no literal "%": `app/i18n.py` installs the Jinja i18n extension
+    with `newstyle=True`, so a "%" before a letter in a string that reaches `_()` raises before it
+    can be rendered. The gloss says "percent" in words instead.
+    """
+    block = _bench_block(capture=0.57, capture_unconstrained=None)
+    assert "57 percent" in block["gloss"]
+    assert "floor" in block["gloss"]
+    assert "%" not in block["gloss"]
+
+
+def test_benchmark_gloss_has_no_ratio_when_nothing_could_have_been_avoided():
+    """A null capture ratio yields a plain sentence, never an invented percentage."""
+    from app.domain.benchmark import EnergyBenchmark
+    from app.results_view import _benchmark_block
+
+    block = _benchmark_block(
+        EnergyBenchmark(
+            policy_saved_kwh=0.0,
+            perfect_foresight_saved_kwh=0.0,
+            capture_ratio=None,
+            perfect_foresight_saved_kwh_unconstrained=None,
+            capture_ratio_unconstrained=None,
+            bound_import_kwh=0.0,
+            bound_import_kwh_unconstrained=None,
+            baseline_import_kwh=0.0,
+            soc_start_kwh=5.0,
+            soc_end_kwh=5.0,
+            policy_soc_delta_kwh=0.0,
+        ),
+        _ETA,
+    )
+    assert "capture ratio" in block["gloss"]
+    assert "percent" not in block["gloss"]
+    assert all(row["frac"] == 0.0 for row in block["rows"])  # no scale → no bars, not a crash
+
+
+def test_benchmark_strings_contain_no_literal_percent_sign():
+    """The i18n guard, applied to every string the benchmark box sends through `_()`.
+
+    Mirrors `test_no_caveat_contains_a_literal_percent_sign`. The template wraps both the row labels
+    and the gloss in `_()`, so a "%" in either raises at render time under `newstyle=True`.
+    """
+    ds = _dataset([_energy("grid_import_t1", 2.0), _energy("grid_export_t1", 0.0)])
+    # `with_benchmark=True`: the DP is LAZY now (it costs ~4.6 s on a year of hourly data and is
+    # fetched by POST /results/benchmark), so the key is absent unless asked for.
+    r = results_from(ds, (_WIN_START, _WIN_END), with_benchmark=True)
+    assert r is not None
+    block = r["benchmark"]
+    assert "%" not in block["gloss"]
+    for row in block["rows"]:
+        assert "%" not in row["label"]
+
+
 def test_results_returns_none_without_grid():
     # No covering grid meter → reconcile_grid returns None → results_from returns None (caller falls
     # back to the empty state).
@@ -749,3 +969,196 @@ def test_resolve_window_all_presets_known():
     for name in PERIOD_DAYS:
         start, end = resolve_window(ds, period=name)
         assert end > start
+
+
+# ── The capture ratio's PRESENTATION, and the four shapes it must distinguish ─────────────────
+#
+# Background: §6.12's terminal constraint is ASYMMETRIC with the policy run — the DP must end at or
+# above its starting SoC, the policy run need not, and §6.11 deliberately does not net the drift
+# out. A policy that liquidates its opening charge therefore books a saving the DP is forbidden to
+# book, and the raw capture ratio divides a drift-funded numerator by a drift-neutral denominator.
+# Printed unconditionally, that produced "captures −493 percent" on a reproducible configuration.
+#
+# `EnergyBenchmark.capture_ratio` stays UNCLAMPED (its docstring: a clamp would turn a detectable
+# fault into a plausible number). The fix is in the VIEW, and these four tests are its contract.
+# Synthetic EnergyBenchmark values, for the same reason the export-row tests use them: the shapes
+# under test are presentation decisions keyed on a ratio and a drift, and steering a real DP to a
+# chosen ratio would be neither possible nor informative.
+
+
+def _shape_block(*, policy_saved: float, pf_saved: float, drift: float):
+    """A `_benchmark_block` from a synthetic block with a chosen saving, bound and POLICY drift."""
+    from app.domain.benchmark import EnergyBenchmark, _capture_ratio
+    from app.results_view import _benchmark_block
+
+    return _benchmark_block(
+        EnergyBenchmark(
+            policy_saved_kwh=policy_saved,
+            perfect_foresight_saved_kwh=pf_saved,
+            capture_ratio=_capture_ratio(policy_saved, pf_saved),
+            perfect_foresight_saved_kwh_unconstrained=None,
+            capture_ratio_unconstrained=None,
+            bound_import_kwh=5000.0 - pf_saved,
+            bound_import_kwh_unconstrained=None,
+            baseline_import_kwh=5000.0,
+            soc_start_kwh=5.0,
+            soc_end_kwh=5.0,
+            policy_soc_delta_kwh=drift,
+        ),
+        _ETA,
+    )
+
+
+def test_capture_ratio_shape_1_normal_renders_a_plain_percentage():
+    """Drift immaterial and 0 ≤ ratio ≤ 1: the wireframe's plain percentage, unchanged.
+
+    This is the case the box was always right about, pinned so the three guards below cannot be
+    made to fire on a perfectly ordinary run.
+    """
+    block = _shape_block(policy_saved=700.0, pf_saved=1000.0, drift=-1.0)
+    assert "captures 70 percent" in block["gloss"]
+    assert "floor" in block["gloss"]
+    # The drift-corrected wording must NOT appear: 1 kWh against a 700 kWh saving is far below
+    # §6.11's 2% threshold, so there is nothing to correct for.
+    assert "less charged than it started" not in block["gloss"]
+    assert "%" not in block["gloss"]
+
+
+def test_capture_ratio_shape_2_drift_funded_does_not_render_as_a_plain_percentage():
+    """A materially-negative drift: the ratio is restated on the drift-corrected basis, and said so.
+
+    The saving is 400 kWh against a 1,000 kWh bound — a raw ratio of 0.40 — but 200 kWh of the
+    battery's opening charge went into funding it. Corrected: 400 − 200 × eta_d = 210.26 kWh, a
+    ratio of 0.21. The box must show the corrected figure and explain the correction, never the raw
+    0.40, because 0.40 credits the policy with charge it did not earn.
+    """
+    block = _shape_block(policy_saved=400.0, pf_saved=1000.0, drift=-200.0)
+    corrected = (400.0 - 200.0 * _ETA) / 1000.0
+    assert f"captures {round(100 * corrected)} percent" in block["gloss"]
+    assert "captures 40 percent" not in block["gloss"]
+    # The correction is stated, not applied silently — §6.11's drift metric is untouched, and the
+    # reader has to be able to see that this figure is on a different basis from the rows above.
+    assert "less charged than it started" in block["gloss"]
+    assert "%" not in block["gloss"]
+
+
+def test_capture_ratio_shape_2_reproduces_the_reported_defect_end_to_end():
+    """The exact configuration that printed "captures −493 percent", through a REAL DP run.
+
+    20 kWh usable, 100 → 10 percent SoC, 96 intervals of 1.0 kWh load against 0.2 kWh PV. The
+    policy saves 14.20 kWh, the bound is −2.88 kWh, so the raw ratio is −4.93. The whole 14.20 was
+    funded by an 18.00 kWh liquidation of the opening charge; corrected, the policy exactly matches
+    the bound. The synthetic tests above pin the rule; this one pins that the rule fires on the
+    configuration that motivated it.
+    """
+    import numpy as np
+
+    from app.domain.benchmark import energy_benchmark
+    from app.domain.simulate import run_all
+    from app.results_view import _benchmark_block
+    from tests.test_simulate import _cfg, _frame
+
+    cfg = _cfg(usable_capacity_kwh=20.0, initial_soc_pct=100.0, min_soc_pct=10.0)
+    frame = _frame(np.full(96, 1.0), pv=np.full(96, 0.2))
+    runs = run_all(frame, cfg)
+    bench = energy_benchmark(runs.a, runs.c, frame, cfg)
+
+    # The raw metric is unchanged and still shows the fault — that is deliberate (see
+    # EnergyBenchmark's docstring); only the VIEW is fixed.
+    assert bench.capture_ratio == pytest.approx(-4.929, abs=1e-3)
+    assert bench.policy_soc_delta_kwh == pytest.approx(-18.0, abs=1e-6)
+
+    gloss = _benchmark_block(bench, cfg.eta_d)["gloss"]
+    assert "-493" not in gloss and "−493" not in gloss
+    assert "less charged than it started" in gloss
+    assert "%" not in gloss
+
+
+def test_capture_ratio_shape_3_zero_bound_with_a_positive_policy_row_does_not_contradict_it():
+    """A ~0 bound beside a POSITIVE policy row: the gloss must not deny what the row shows.
+
+    The reported defect: "even a perfectly-informed battery could not have avoided any grid import"
+    printed directly above a row reading "Your policy 9 kWh". The sentence is a claim about the DP
+    and is true, but placed above that row it reads as a contradiction. The box now branches.
+    """
+    block = _shape_block(policy_saved=9.0, pf_saved=0.0, drift=-5.0)
+    # The row the gloss must not contradict is still there and still honest.
+    assert next(r for r in block["rows"] if r["label"] == "Your policy")["value"] == "9 kWh"
+    assert "could not have avoided any grid import, so there is no capture ratio" \
+        not in block["gloss"]
+    # It says something TRUE about the situation instead: the saving is not one the benchmark
+    # could reproduce under the terminal constraint.
+    assert "9 kWh" in block["gloss"]
+    assert "state of charge it started from" in block["gloss"]
+    assert "no capture ratio" in block["gloss"]
+    assert "%" not in block["gloss"]
+
+
+def test_capture_ratio_shape_3_zero_bound_and_zero_policy_keeps_the_plain_sentence():
+    """When the policy saved ~0 too, the original wording is true and is kept."""
+    block = _shape_block(policy_saved=0.0, pf_saved=0.0, drift=0.0)
+    assert "could not have avoided any grid import" in block["gloss"]
+    assert "percent" not in block["gloss"]
+    assert all(row["frac"] == 0.0 for row in block["rows"])  # no scale → no bars, not a crash
+
+
+def test_capture_ratio_shape_4_above_one_is_never_a_plain_percentage():
+    """A ratio above 1 with no drift to explain it is a FAULT and must not be presented as a result.
+
+    Fixture 6 says the bound cannot be beaten, so a capture above 100 percent is not a measurement
+    of anything. The box states no number at all — "captures 2859 percent" is worse than silence,
+    because it reads as a finding.
+    """
+    block = _shape_block(policy_saved=1000.0, pf_saved=35.0, drift=0.0)  # ratio 28.57
+    assert "percent" not in block["gloss"]
+    assert "2857" not in block["gloss"] and "2859" not in block["gloss"]
+    assert "did not come out usable" in block["gloss"]
+    assert "%" not in block["gloss"]
+    # The ROWS stay honest — the defect was the ratio and the gloss, never the bars.
+    assert next(r for r in block["rows"] if r["label"] == "Your policy")["value"] == "1,000 kWh"
+    assert next(r for r in block["rows"] if r["label"] == "Perfect foresight")["value"] == "35 kWh"
+
+
+def test_capture_ratio_exactly_one_is_a_result_not_a_fault():
+    """A policy that exactly matches the bound is the best possible outcome, not a broken one.
+
+    Guards the float slack on the range test: the drift correction subtracts one computed quantity
+    from another and can land at 1.0000000000000024, which without the tolerance would be reported
+    as a fault. Measured on the reproduction in
+    `test_capture_ratio_shape_2_reproduces_the_reported_defect_end_to_end`.
+    """
+    block = _shape_block(policy_saved=1000.0, pf_saved=1000.0, drift=0.0)
+    assert "captures 100 percent" in block["gloss"]
+    assert "did not come out usable" not in block["gloss"]
+
+
+def test_positive_drift_does_not_trigger_the_correction():
+    """Only a NEGATIVE drift funds a saving out of opening charge; a positive one needs no guard.
+
+    A battery that ends MORE charged has energy it bought and still holds counted as consumed, so
+    its raw ratio understates the policy. Understating is not the failure mode this guards against,
+    and correcting it would inflate a figure §6.11 wants reported conservatively.
+    """
+    block = _shape_block(policy_saved=400.0, pf_saved=1000.0, drift=+200.0)
+    assert "captures 40 percent" in block["gloss"]
+    assert "less charged than it started" not in block["gloss"]
+
+
+def test_drift_threshold_is_soc_drift_warn_frac_not_a_second_constant():
+    """The gate reuses §6.11's own 2% threshold, so the box and the drift caveat fire together.
+
+    Just below `SOC_DRIFT_WARN_FRAC × |saving|` the raw ratio is shown; just above it the corrected
+    one is. Pinning the boundary against the imported constant means a change to §6.11's threshold
+    moves both, rather than leaving a second copy behind.
+    """
+    from app.domain.metrics import SOC_DRIFT_WARN_FRAC
+
+    saving = 1000.0
+    below = -(SOC_DRIFT_WARN_FRAC * saving) * 0.9
+    above = -(SOC_DRIFT_WARN_FRAC * saving) * 1.1
+    assert "less charged than it started" not in _shape_block(
+        policy_saved=saving, pf_saved=2000.0, drift=below
+    )["gloss"]
+    assert "less charged than it started" in _shape_block(
+        policy_saved=saving, pf_saved=2000.0, drift=above
+    )["gloss"]
