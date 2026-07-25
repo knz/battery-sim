@@ -20,6 +20,35 @@ Working method, at the user's direction: implementation and review by sub-agents
 review comes clean; minor review findings either fixed immediately or filed in `followups.md`;
 commits between phases.
 
+### The user's prompts, verbatim
+
+Recorded because this task changed files under `specs/` — see `specs/CLAUDE.md`. In order:
+
+> let's start implementing cost simulation now.
+>
+> with regards to UX, we'd like the labels and fields in the panels that pertain to cost
+> simulation to be rendered in a different color.
+
+> i'll welcome a plan in phases
+
+> please proceed; use sub-agents for implementation and review and iterate between them until
+> review comes clean (if there are minor issues in review either address them immediately or flag
+> them for follow-up work in `followups.md`)
+>
+> you may commit your work between phases
+
+> we'll also want to mark the existing items in followups.md as "DONE" in the doc, as they get
+> solved
+
+> leave it for the FIXED/VARIABLE increment
+
+*(in answer to whether `tariff_zone` and the local-time axis should be built now)*
+
+> from now on please proceed without my approval unless there are open decisions that need my
+> input
+
+Plus three plain "proceed" replies advancing the phases.
+
 ## Scope decisions (answered by the user before work started)
 
 | Question | Decision |
@@ -203,10 +232,111 @@ euros instead of a second DP being added; one in `diagnostics` means §6.13 sele
 `simulate_cost`. Written down here because the fixture becomes runnable in Phase 3 and its value
 lies in the discrimination, not in the pass/fail.
 
+## Phase 3 — §6.10 cost accounting and the waterfall *(complete)*
+
+### What was built
+
+`app/domain/costs.py` — `compute_costs` over flow arrays (returning `CostResult`: the marginal
+bill, the top-up, and the pre-top-up bill), and the eight-line `waterfall` with §6.10's exact
+labels. Fixture 4's closure identity was written test-first; fixture 14 pins that the floor top-up
+appears in its own line and in no other.
+
+### A spec defect found by writing the test first — §6.10's pseudocode does not close
+
+**This is a correction to the specification, not a deferred item.**
+
+§6.10 wrote the standby line as `cost(B) − cost(C)`. Since `compute_costs` returns
+`per_interval − topup`, that drags a top-up difference into a line which is otherwise a
+per-interval quantity, and the identity does not close. The residual is exactly `top(C) − top(B)`:
+`top(C)` enters twice and `top(B)` once with the wrong sign.
+
+Verified algebraically before accepting it, independently of the implementation. Taking the line on
+the **pre-top-up** bills makes the three groups tile the difference exactly, each top-up appearing
+once — lines 1–5 give `per(A) − per(B)`, line 6 gives `per(B) − per(C)`, line 7 gives
+`top(C) − top(A)`.
+
+This is the same argument §6.10 already makes for giving the top-up its own line: it is a
+period-level scalar with no per-interval decomposition, so it must appear once and nowhere else.
+`standby_consumption` is a per-interval term and must not carry a share of it.
+
+**Why it survived review of the spec:** the error is invisible in almost every window, because both
+top-ups are zero unless a period's export earned a net negative amount. It surfaces only under
+fixture 14's conditions *and* only when the standby run difference is what moves the floor across
+zero. A fixture that merely binds the floor in run A passes under both readings — which is what the
+original brief asked for, and would have missed it.
+
+Spec files changed: `specs/10-pricing.md` (the pseudocode plus a new subsection deriving the
+residual) and `specs/16-validation-harness.md` (fixture 4 now requires both a run with all six
+per-interval lines nonzero and a run where the standby difference moves the floor).
+
+### Other decisions
+
+- **`"enabled": false` on the degradation line is left to the view.** Whether degradation is
+  enabled is a fact about the config (`degradation_eur_per_kwh == 0`); a run can produce €0.00 with
+  degradation fully enabled by never discharging. Conflating the two here would lose that
+  distinction.
+- **`CostResult` does not carry the floor's two §4.5 diagnostics.** They describe the window, not
+  the run, so they are identical across A/B/C; restating them per run would suggest C could clip a
+  different number of months than A.
+- **`waterfall` takes two arguments §6.10's signature omits** (`index`, `p_export_net`), appended
+  after the spec's six so the leading arguments still read as §6.10. The pseudocode treats `cost()`
+  and `topup()` as ambient.
+
+### Review
+
+Mutation-tested: 22 of 22 perturbations across the eight lines turned tests red, including the
+literal-spec `cost(B) − cost(C)` standby form, so the corrected identity is genuinely pinned rather
+than fitted. Every hand-computed constant was independently recomputed. Clean on closure
+derivation, sign conventions, top-up separation and fixed-cost exclusion.
+
+Four findings fixed:
+
+- **The gap-alignment precondition was stated as fact but not enforced**, and the closure is
+  silently wrong when it is violated — measured at €0.74 against a tolerance of 1e-6 on a
+  three-interval misalignment. A difference gapped in one run but not another drops out of the
+  A-vs-B group while remaining in the B-vs-C group, so the two sides stop partitioning the same
+  window. Now asserted; `run_all` satisfies it by construction.
+- **`lost_feedin_compensation` was documented as negative "by construction" and is not.** It flips
+  positive exactly when compensation is negative — the case this tool exists to surface, where not
+  exporting is a gain. Both the module's own primary fixture and fixture 14 produce it positive, so
+  the docstring contradicted the tests beside it.
+- **The degradation line's run was pinned only by a dispatch accident.** Every hand fixture gives
+  runs B and C identical `withdrawn` (standby is served from the grid and from export, not by extra
+  discharge), so swapping C for B was invisible to them; it turned exactly one test red, and only
+  because real dispatch happened to differ there. Now asserted directly, and verified by mutation
+  that the new test discriminates.
+- **A forward-looking claim about TIERED was stated as settled.** §6.5 does not say what a window
+  spanning a tier boundary resolves to, so the scalar `tlk` shape is chosen for what exists rather
+  than as a prediction.
+
+Two test docstrings overstated their coverage and were corrected rather than the tests changed: the
+"arbitrage" run has no export at all (`allow_grid_export=False`, no PV, so four of eight lines are
+zero — "arbitrage" there names the band policy, not arbitrage export), and the PV run's export is PV
+surplus, which `allow_grid_export` does not gate.
+
+Left as a known robustness gap rather than fixed: `waterfall` takes `compensation` and
+`p_export_net` as positional arguments four apart, which is the transposition hazard `PriceCurves`
+exists to prevent. Taking the bundle directly would remove it, but that trades away §6.10's
+readable signature; the current tests do catch a transposition.
+
+### Status
+
+**Complete.** 693 passed, 2 skipped.
+
+### Note on run E, for Phase 4
+
+`_Transition` in `app/domain/benchmark.py` currently returns `soc_next`, `imp` and `feasible` — the
+energy objective needs import alone. The cost objective prices **both** directions (`imp` at
+`p_import`, `exp` at `p_export_net`, which may be negative), so run E needs `exp` carried out of the
+transition as well. That is the one structural change to the DP; everything else §6.12 requires —
+the interpolation, the starting SoC on the state grid, the exact PV-surplus and household-deficit
+action points, the terminal constraint — is already built and is shared unchanged between the two
+objectives. §6.12 is explicit that only `transition_cost` differs.
+
 ## Current status
 
-Phases 1, 1b and 2 complete and committed (672 passed, 2 skipped). Phase 3 (§6.10 cost
-accounting and the waterfall, fixtures 4 and 14) is next.
+Phases 1, 1b, 2 and 3 complete and committed (693 passed, 2 skipped). Phase 4 (run E and
+`benchmarks.cost`) is next.
 
 Working agreement from this point: phases run to completion without check-in; only genuine open
 decisions are brought back to the user.

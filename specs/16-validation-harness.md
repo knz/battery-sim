@@ -23,6 +23,12 @@ Conservation and closure identities are asserted to `CLOSURE_TOL` (a module cons
    → [§6.3](09-ingest-algorithms.md#63-household-load-reconstruction),
    [§6.8](11-policies-and-battery.md#68-battery-step-function)
 4. **Waterfall closure** — `Σ(waterfall) == cost(A) − cost(C) − degradation ± CLOSURE_TOL`.
+   Assert it on a run where all six per-interval lines are nonzero, so the identity cannot
+   pass on a degenerate case, and additionally on a run where the **standby difference
+   itself** moves the feed-in floor across zero — that is the only shape that distinguishes
+   a standby line taken on the pre-top-up bills from one taken on the full bills
+   ([§6.10](10-pricing.md#standby-is-a-per-interval-term-so-it-is-taken-on-the-pre-top-up-bills)).
+   A window in which the floor merely binds in run A passes under both readings.
    → [§6.10](10-pricing.md#610-cost-accounting)
 5. **Monotonicity** — larger capacity never reduces savings, all else equal. Violation
    indicates a clamping bug.

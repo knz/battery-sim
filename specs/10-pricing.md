@@ -230,7 +230,8 @@ def waterfall(A, B, C, p_import, compensation, tlk, cfg):
       ("lost_feedin_compensation",   -(maximum(-d_exp, 0) * compensation).sum()),
       ("arbitrage_export_revenue",    (maximum(d_exp, 0) *
                                        (compensation - tlk)).sum()),
-      ("standby_consumption",         cost(B) - cost(C)),
+      # PRE-TOP-UP bills, not cost(B) - cost(C) — see "standby is a per-interval term" below.
+      ("standby_consumption",         per_interval(B) - per_interval(C)),
       ("feedin_floor_topup",          topup(C) - topup(A)),
       ("degradation",                -cfg.degradation_eur_per_kwh * C.withdrawn.sum()),
     ]
@@ -239,6 +240,39 @@ def waterfall(A, B, C, p_import, compensation, tlk, cfg):
 ```
 
 That invariant is fixture 4 in [16-validation-harness.md](16-validation-harness.md).
+
+### Standby is a per-interval term, so it is taken on the pre-top-up bills
+
+`compute_costs` returns `per_interval − topup`. Writing the standby line as
+`cost(B) − cost(C)` therefore drags a top-up difference into a line that is otherwise a
+per-interval quantity, and the identity stops closing: lines 1–5 give `per(A) − per(B)`,
+line 6 would give `per(B) − top(B) − per(C) + top(C)`, and line 7 gives
+`top(C) − top(A)`, leaving a residual of exactly
+
+```
+top(C) - top(B)
+```
+
+against the target `cost(A) − cost(C)` — `top(C)` enters twice and `top(B)` once with the
+wrong sign. Taking the line on the pre-top-up bills instead makes the three groups tile the
+difference exactly, each top-up appearing once:
+
+| Lines | Difference |
+|---|---|
+| 1–5 | `per(A) − per(B)` |
+| 6 | `per(B) − per(C)` |
+| 7 | `top(C) − top(A)` |
+
+This is the same argument the section below makes for giving the top-up its own line: it is a
+period-level scalar with no per-interval decomposition, so it must appear once, in that line,
+and nowhere else. `standby_consumption` is a per-interval term and must not carry a share of
+it.
+
+> Corrected from implementation. Earlier drafts wrote `cost(B) − cost(C)`, which does not
+> close. The error is invisible in almost every window, because both top-ups are zero unless
+> a period's export earned a net negative amount — so it surfaces only under fixture 14's
+> conditions, and only when the *standby run difference* is what moves the floor across zero.
+> A fixture that merely binds the floor in run A passes under both readings.
 
 **Why the top-up needs its own line.** The other terms are per-interval quantities split
 by sign, which is why the decomposition is exact rather than approximate. The floor top-up
