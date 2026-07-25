@@ -497,12 +497,101 @@ waterfall reach the screen in Phase 6 — recorded as H12 so "the cost path is b
 
 **Complete.** 732 passed, 2 skipped.
 
+## Phase 6 — the panel ③ COST SAVINGS section *(complete)*
+
+Scope: the `cost` block in the result object, the MONEY SAVED tile, the money benchmark box, the
+"Where the money comes from" waterfall, monthly savings (€), the euro caveats, and the energy-only
+"Want to know what this is worth in euros?" affordance. `benchmarks.cost` rides the existing lazy
+path (`with_benchmark=True`, passed only by `POST /results/benchmark`) plus `cfg.simulate_cost`.
+
+### The capture ratio does not carry over unchanged
+
+`_benchmark_block` has four shapes for the energy block, and **shape 2 does not survive the move to
+euros**. It restates a drift-funded ratio on §6.12's drift-corrected basis — which H10 established
+does not exist in euros, because a residual kWh's euro worth depends on when it is used and the two
+sides use it at different times by construction.
+
+This is not an edge case to wave at: 48 of 144 swept configurations produce a euro capture ratio
+above 1, all in the liquidating half. So the brief points the implementer at `CostBenchmark`'s own
+field note — branch on `policy_soc_delta_kwh` and say the comparison is unavailable on that basis,
+rather than reaching for a correction there is not one of.
+
+### What was built
+
+§4.5's `cost` block (`baseline_eur`, `battery_eur`, `saved_eur`, `saved_pct`, `waterfall`), the
+MONEY SAVED tile, the money benchmark box, "Where the money comes from", monthly savings in euros
+as a second chart tab, the euro caveats, and the energy-only "Want to know what this is worth in
+euros?" affordance — a real anchor to the setup band's radio, not a button that would flip a
+simulation-wide toggle from panel ③ and recompute the page under the user.
+
+`_benchmark_box.html` generalised rather than being duplicated: it already took rows and a gloss
+and named no unit, so it needed only an optional title and an optional note.
+
+### The money box was computed and then discarded
+
+The implementer reported, correctly, that no route rendered it: `POST /results/benchmark` ran run E
+— paying its full ~2.3 s — then returned the energy box alone. The box existed, was tested, and was
+unreachable in the running app.
+
+Fixed here rather than filed. The route now returns **both** boxes wrapped in
+`<div data-slot="…">` containers when cost simulation is on, the panel paints a
+`#cost-benchmark-slot` placeholder, and the fetch handler distributes them. One route, one fetch,
+one DP bill. Two things that had to be right: the energy-only response stays bare HTML with no
+wrappers (pinned by its own test, so the two-box shape cannot quietly become unconditional), and
+both spinners clear on the failure path — later extended to the success path too, where an
+unwrapped response arriving at a page that had painted a cost slot would have left it spinning
+forever.
+
+### The capture ratio has three shapes here, not four
+
+Shape 2 — restate on the drift-corrected basis — does not survive the move to euros, because H10
+established there is no sound euro correction. A drift-funded euro ratio therefore prints **no
+number and no restatement**: it names the residual in kWh and says the comparison is unavailable in
+euros, with the reason. Verified across all 144 swept configurations: 48 produce a ratio above 1
+and all 48 take that branch. A ratio above 1 with non-negative drift still reads as a fault.
+
+### Review
+
+Clean on the invariants that matter, each verified by independent computation rather than by
+reading the tests: fixture 18 (seven blocks asserted separately plus the per-interval SoC trace,
+not a sample), fixture 19's null-vs-zero, the euro figures against `compute_costs` rebuilt from
+scratch (exact to the last bit), latency (`GET /` at 0.33 s, no DP), i18n (0 untranslated, 0 fuzzy,
+"− € 141" rather than "€ −141"), and H11's `floor_binds` disclosure.
+
+Two findings fixed:
+
+- **`WATERFALL_DISPLAY_EPS_EUR` was 0.005 — the currency's precision, not the rows'.** The rows
+  render in whole euros, so every value under €0.50 prints "€ 0"; lines at €0.30 and €0.49 were
+  surviving the filter to render as exactly the column of zeroes §2.4's drop rule exists to
+  prevent. Now 0.5, tied explicitly to the format kind's pattern, with a test pinning the
+  *relationship* rather than the literal so giving the rows cents later fails loudly. The boundary
+  needed care: the rows round half-to-even, so €0.50 itself prints "€ 0" and the comparison is
+  `<=`, not `<`.
+- **The success path could leave the money spinner running.** An unwrapped response reaching a page
+  that had painted a cost slot — reachable when the toggle goes off between the render and the
+  fetch, which read the store in two separate requests.
+
+One review finding was a false positive and is recorded as such: 26 "empty" English msgstr entries
+turned out to be 10 plural entries whose `msgstr_plural` is filled, all present at HEAD. Counting
+`msgstr ""` lines without accounting for plural forms overcounts.
+
+Two findings filed rather than fixed: H16 (whole-euro rows do not visibly add up over short
+windows — a presentation choice §2.4's wireframe does not settle, since it shows figures in the
+hundreds) and H17 (an unreachable fallback written as though it were safe).
+
+### Status
+
+**Complete.** 766 passed, 2 skipped.
+
 ## Current status
 
-Phases 1–5 complete and committed (732 passed, 2 skipped). The domain layer is built and panel ②
-configures it; no euro figure is on screen yet. Phase 6 (the panel ③ COST SAVINGS section) is next,
-followed by the accent colour (7) and the remaining catalog/docs work (8, much of it pulled
-forward into Phase 5).
+Phases 1–6 complete and committed (766 passed, 2 skipped). The cost path is end to end: panel ②
+configures a contract, panel ③ reports what it would have saved in euros, bounded by run E. Phase 7
+(the accent colour) is next — the `accent` token is defined in both daisyUI themes and is distinct
+from the `primary` already carrying benchmark bars, and box headings share one shape
+(`text-sm font-semibold text-base-content/70`) that gives the cost variant a single hook. Phase 8
+is mostly done already, its catalog work having been pulled forward into Phases 5 and 6; what
+remains is `specs/implementation-progress.md`.
 
 Working agreement from this point: phases run to completion without check-in; only genuine open
 decisions are brought back to the user.

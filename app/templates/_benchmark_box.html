@@ -26,11 +26,28 @@
    The gloss arrives as a (msgid, params) PAIR, not a finished sentence — the view-model used to
    build it with an f-string, which made its msgid a runtime value no extractor could see, so the
    `_()` here matched nothing and the whole box read English on a Dutch page. `msg()` translates
-   the constant msgid first and substitutes the figures after; see _msg.html. #}
+   the constant msgid first and substitutes the figures after; see _msg.html.
+
+   ── It renders BOTH benchmark boxes (Phase 6) ────────────────────────────────────────────────
+   §2.4's money box has the same shape as the energy one — four rows of label / figure / bar, a
+   gloss beneath — so it renders from this file rather than from a near-copy. Two things were
+   generalised to make that true, and only two:
+
+     * the TITLE comes from `benchmark.title`, defaulting to the energy box's. §2.4 gives the two
+       boxes different headings ("Benchmark: grid import avoided" / "Benchmark: money saved") and
+       nothing else about them differs. The default keeps a view-model built before the money box
+       existed — app/sample_data.py's, and any caller that predates it — rendering unchanged.
+     * an optional trailing `benchmark.note`, a SECOND paragraph after the gloss. The money box
+       uses it for the feed-in-floor disclosure (follow-up H11), which qualifies the ceiling
+       whatever the gloss says and so cannot be folded into it.
+
+   The row VALUES are figures either way — a kWh figure on one box, a euro figure on the other —
+   and `msg()` formats both from their own `num()` kind, so the unit is the view-model's business
+   and this file never names one. #}
 {% from "_msg.html" import msg with context %}
 <div class="card bg-base-200 border border-base-300">
   <div class="card-body gap-3 p-4">
-    <h3 class="text-sm font-semibold text-base-content/70">{{ _('Benchmark: grid import avoided') }}</h3>
+    <h3 class="text-sm font-semibold text-base-content/70">{{ _(benchmark.title | default('Benchmark: grid import avoided', true)) }}</h3>
     {% for row in benchmark.rows %}
     <div class="flex items-center gap-3">
       <span class="w-36 text-sm">{{ _(row.label) }}</span>
@@ -45,5 +62,10 @@
     </div>
     {% endfor %}
     <p class="text-sm text-base-content/70">{{ msg(benchmark.gloss) }}</p>
+    {# The optional second paragraph (see the header). Absent on the energy box and on the money
+       box in the ordinary case where the feed-in floor did not bind. #}
+    {% if benchmark.note %}
+    <p class="text-sm text-base-content/70">{{ msg(benchmark.note) }}</p>
+    {% endif %}
   </div>
 </div>

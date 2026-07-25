@@ -39,8 +39,12 @@
     <h2 class="text-sm font-semibold text-base-content/70">{{ _('Before you start') }}</h2>
 
     <div class="flex flex-col gap-2">
-      {# ── Simulate cost savings? — posts with panel ②'s form (see the header comment). ───── #}
-      <div class="flex flex-wrap items-center gap-3">
+      {# ── Simulate cost savings? — posts with panel ②'s form (see the header comment). ─────
+         The `id` is a LINK TARGET, not styling: §2.4's "Want to know what this is worth in
+         euros? [ Enable cost simulation ]" affordance at the foot of panel ③'s energy section
+         is an anchor to this control, so a reader who has never scrolled past the band can find
+         the switch that produces the section they were just offered. #}
+      <div class="flex flex-wrap items-center gap-3" id="setup-simulate-cost">
         <span class="w-56 label-text">{{ _('Simulate cost savings?') }}</span>
         <label class="label cursor-pointer gap-1">
           <input type="radio" name="setup.simulate_cost" value="yes" form="params-form"

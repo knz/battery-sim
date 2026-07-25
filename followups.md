@@ -101,7 +101,7 @@ if panel ① is ever pointed at it.
 **B3. `simulate_cost` pending ⇒ the Pricing box, the `economic_guard` control and run E are all
 unreachable by design.** — **DONE** (cost-simulation increment, Phases 2–5). §6.5's contract model
 exists, the Pricing box renders behind the answer, `economic_guard` is a real control, and run E is
-built (though not yet on screen — see H12). The summary line now ends in the contract name.
+built and on screen (H12). The summary line now ends in the contract name.
 *Origin:* `20260725-panel2-parameters-phase6.md`.
 
 **B4. The `retained` slot is deliberately single-purpose, and worth a second reading.** It holds
@@ -442,11 +442,12 @@ large such a violation could get has not been measured**. §6.12 does not discus
 all.
 *Origin:* cost-simulation increment, Phase 4.
 
-**H12. `benchmarks.cost` and the euro figures are computed but not yet rendered.** As of Phase 5 the
-whole cost domain layer is built and tested — price curves, the bill, the waterfall, run E — and
-panel ② configures it, but nothing reaches panel ③. `cost_benchmark` has no production caller.
-Closed by Phase 6 of this same increment; recorded so that "the cost path is built" is not read as
-"the user can see a euro figure".
+**H12. `benchmarks.cost` and the euro figures are computed but not yet rendered.** — **DONE**
+(cost-simulation increment, Phase 6). Panel ③ now renders the COST SAVINGS section: the MONEY SAVED
+tile, the money benchmark box, the waterfall, monthly savings in euros and the euro caveats. The
+money box rides the same lazy fetch as the energy one — `POST /results/benchmark` returns both
+boxes wrapped by slot id, since both DPs run on that request anyway and returning one would spend
+~2.3 s on a result nobody sees.
 *Origin:* cost-simulation increment, Phase 4.
 
 **H13. `test_no_english_leakage.py` scans whatever the developer's `data/` directory happens to
@@ -468,6 +469,34 @@ or a `%(name)s` placeholder) is harmless to keep following and was followed in P
 stated *reason* is stale, and A2 in this same register describes the old behaviour as current. Worth
 one sweep so the two do not contradict each other.
 *Origin:* cost-simulation increment, Phase 5.
+
+**H15. Two cost-only §4.5 fields remain unbuilt and are not faked.** `price_bracket` (§6.16's
+intra-hour bracketing) and `diagnostics.resolution_bias_pct_eur` (§6.13's euro-basis bias) have no
+domain-layer implementation, so panel ③ emits neither rather than emitting a zero or a placeholder.
+Both were scoped out at the start of the cost-simulation increment (H3) and both are cost-only, so
+they became visible as gaps only once the section existed to hold them. The kWh-basis
+`resolution_bias_pct` beside the second is likewise unbuilt — that one predates this increment.
+*Origin:* cost-simulation increment, Phase 6.
+
+**H16. The waterfall's whole-euro rows do not visibly add up over short windows.** The rows render
+with pattern `#,##0`, so on a window whose figures are single-digit euros a reader sees "+ € 4",
+"− € 3", "€ 0" above a "Net saving + € 2" (actual net €1.54) and cannot check the column. The Net
+saving row is correct — it is `saved_eur` from the two bills, never a sum of displayed rows, which
+is what §2.4 requires — and the underlying `cost.waterfall` closes exactly (fixture 4). §2.4's
+wireframe shows figures in the hundreds, where whole-euro rounding is invisible; it does not say
+what to do over a week. Options: give the rows cents on short windows (and move
+`WATERFALL_DISPLAY_EPS_EUR` with them — the two are deliberately tied), or state the rounding under
+the box. Not decided here because it is a presentation choice the wireframe does not settle.
+*Origin:* cost-simulation increment, Phase 6 review (finding 3).
+
+**H17. `_cost_benchmark_block`'s `median_import_price_eur_kwh is None` fallback is written as safe
+rather than as unreachable.** It substitutes 0.0, which makes the residual worth nothing, so a
+materially-liquidating policy with a ratio above 1 would take the "genuine fault" wording instead of
+the drift explanation. Not reachable in practice — a window with no priced interval has ~zero euro
+figures throughout, so `capture_ratio` is None and shape 3 fires first — but the code does not say
+so, and a future change that made a euro figure survive an unpriced window would silently
+mis-explain it. A comment or an explicit guard would settle it.
+*Origin:* cost-simulation increment, Phase 6 review (finding 5).
 
 ## Cross-cutting observations
 

@@ -331,7 +331,14 @@ def results_benchmark(request: Request, body: dict = Body(...)):
 
     Same request shape and the same clean 4xx/409 error conditions as `POST /results` (both go
     through `_resolve_results_window`), so a window the panel could render is never one the box
-    rejects. The response body is `_benchmark_box.html` alone, not the whole panel.
+    rejects. The response body is `_benchmark_box.html`'s output, not the whole panel.
+
+    **It returns BOTH boxes when cost simulation is on**, each wrapped in a container carrying the
+    slot id it belongs in, and the browser distributes them. Runs D and E are both gated on
+    `with_benchmark`, so this request pays for both DPs either way; returning one box and
+    discarding the other would spend ~2.3 s and throw the result away. One route, one fetch, one
+    DP bill. With cost simulation off the response is the energy box alone, unwrapped exactly as
+    before, so nothing about the energy path's contract changes.
 
     A window with no simulatable grid → 409, exactly as `/results`. The benchmark key can also be
     absent when there WAS a grid but no intervals to simulate; that is a 409 too, since there is no
@@ -348,9 +355,18 @@ def results_benchmark(request: Request, body: dict = Body(...)):
     locale = i18n.resolve_locale(request)
     # The partial reads `benchmark.*` only (it is written to be renderable standalone), so that is
     # the whole context.
-    html = i18n.env_for(locale).get_template("_benchmark_box.html").render(
-        benchmark=result["benchmark"]
-    )
+    box = i18n.env_for(locale).get_template("_benchmark_box.html")
+    html = box.render(benchmark=result["benchmark"])
+
+    # The money box rides along when there is one. Wrapped with its target slot id so the fetch
+    # handler can place each box without the response needing to be JSON — the energy box keeps
+    # its bare-HTML shape when it travels alone, which is what the existing handler expects.
+    cost_bench = result.get("cost_benchmark")
+    if cost_bench is not None:
+        html = (
+            f'<div data-slot="benchmark-slot">{html}</div>'
+            f'<div data-slot="cost-benchmark-slot">{box.render(benchmark=cost_bench)}</div>'
+        )
     return HTMLResponse(html)
 
 

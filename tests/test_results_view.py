@@ -9,6 +9,11 @@ Two units under test, both from app/results_view:
     guard.
   * resolve_window(dataset, *, period/start/end) — preset anchoring to the END of data coverage
     (§7.4) and clamping to coverage.
+  * the §2.4 COST SAVINGS section (Phase 6, at the foot of this file) — §6.14 fixtures 18 and 19,
+    the euro arithmetic checked against `app/domain/costs.py` directly, the display/JSON split on
+    zero waterfall lines, and the money box's capture-ratio shapes, which are NOT the energy
+    box's four: §6.12's drift correction has no sound euro analogue (follow-up H10), so a
+    drift-funded euro ratio is reported as unavailable rather than restated.
 
 **These assertions were hand-derived, not read off the view.** The scenarios below carry NO spot
 price, which makes `frame.spot` all-NaN; §6.6/§6.7's band comparisons are then all False (IEEE),
@@ -1239,3 +1244,725 @@ def test_drift_threshold_is_soc_drift_warn_frac_not_a_second_constant():
     assert "less charged than it started" in _en(_shape_block(
         policy_saved=saving, pf_saved=2000.0, drift=above
     )["gloss"])
+
+
+# ══ Phase 6 — the §2.4 COST SAVINGS section ═══════════════════════════════════════════════════
+#
+# Six groups, in the order the deliverable is built:
+#
+#   * fixture 18 — the central invariant: every ENERGY figure bit-identical across the toggle,
+#     asserted BLOCK BY BLOCK rather than on a sample, because §6.14 says each of the three known
+#     ways to break it lands in a different block;
+#   * fixture 19 — the shape without cost: `cost`, `cost_benchmark` and the monthly euro series
+#     absent, never 0.0;
+#   * the arithmetic, checked against `compute_costs` DIRECTLY so the panel cannot disagree with
+#     the domain layer;
+#   * the display/JSON split on zero waterfall lines;
+#   * the money box's capture-ratio shapes, which are NOT the energy box's four (H10);
+#   * the energy-only affordance.
+#
+# The windows are ONE DAY of hourly data throughout. Where a DP is involved the deliverable's own
+# warning applies — run D and run E are ~2.3 s per pass — so `with_benchmark=True` appears only in
+# the tests that are about the boxes, and never over a long window.
+
+from app.domain.simconfig import SimulationConfig  # noqa: E402
+from app.i18n import num  # noqa: E402
+from app.results_view import (  # noqa: E402
+    WATERFALL_DISPLAY_EPS_EUR,
+    _cost_benchmark_block,
+)
+from tests.test_data_summary import _price  # noqa: E402
+
+
+def _cost_cfg(**kw) -> SimulationConfig:
+    """Appendix-A defaults with `simulate_cost` ON, plus any overrides.
+
+    `simulate_cost` is set AFTER construction deliberately: `SimulationConfig` applies its forcing
+    on READ (the `economic_guard` property), so this is the same state a user's persisted config
+    reaches through panel ②, not a special constructor path.
+    """
+    cfg = SimulationConfig(**kw)
+    cfg.simulate_cost = True
+    return cfg
+
+
+# A day of prices with a real spread, so the bill is not a constant times a total and a sign error
+# somewhere in §6.10 has somewhere to show up. Six cheap hours, eighteen ordinary ones.
+_PRICES = [0.30 if h in (7, 8, 17, 18, 19, 20) else 0.04 for h in range(24)]
+
+
+def _cost_dataset():
+    """Import, export, PV and a spot price — every waterfall line has an input that can move it."""
+    return _dataset([
+        _energy("grid_import_t1", 2.0),
+        _energy("grid_export_t1", 0.5),
+        _energy("solar_production", 3.0),
+        _price("price_spot", _PRICES),
+    ])
+
+
+# ── Fixture 18: cost-invariance of the energy results ────────────────────────────────────────
+
+
+def test_fixture_18_every_energy_block_is_bit_identical_across_the_cost_toggle():
+    """§6.14 fixture 18, block by block — the central invariant of the optional-cost design.
+
+    The same dataset and the same battery, run once with `simulate_cost = true` and once with it
+    false. §4.5: "no field switches units, no field switches basis, and no figure already on
+    screen moves". The assertions below walk each block SEPARATELY rather than comparing one
+    sampled number, because §6.14 names three distinct failures and each lands in a different
+    block:
+
+      * a difference in the ENERGY figures or the SoC trace means a cost term has leaked into the
+        dispatch path, most likely `economic_guard`;
+      * a difference in the energy BENCHMARK means the perfect-foresight DP was retargeted at
+        euros instead of a second DP being added;
+      * a difference in the CAVEATS or the monthly kWh chart would mean a diagnostic is selecting
+        its basis from `simulate_cost`.
+
+    The comparison is on the rendered ENGLISH text of every figure and sentence, which is stricter
+    than comparing floats: it catches a change of format kind (kWh → euro) as well as a change of
+    value, and those are exactly the two ways a "figure already on screen" can move.
+    """
+    ds = _cost_dataset()
+    off = results_from(ds, (_WIN_START, _WIN_END), cfg=SimulationConfig())
+    on = results_from(ds, (_WIN_START, _WIN_END), cfg=_cost_cfg())
+    assert off is not None and on is not None
+
+    # Block 1 — the KPI tiles. Title, value, unit and both sub-lines.
+    assert [(k["title"], _en(k["value"]), k.get("unit"), _en(k.get("delta", "")),
+             _en(k.get("extra", ""))) for k in off["kpis"]] == \
+           [(k["title"], _en(k["value"]), k.get("unit"), _en(k.get("delta", "")),
+             _en(k.get("extra", ""))) for k in on["kpis"]]
+
+    # Block 2 — "Where the energy comes from", label for label and figure for figure, including
+    # the rule/gap flags that decide where the subtraction line is drawn.
+    assert [(r["label"], _en(r["value"]), r.get("rule_above"), r.get("gap_above"))
+            for r in off["energy_breakdown"]] == \
+           [(r["label"], _en(r["value"]), r.get("rule_above"), r.get("gap_above"))
+            for r in on["energy_breakdown"]]
+
+    # Block 3 — the secondary metrics (self-consumption's presence is itself a §6.11 statement).
+    assert [(r["label"], _en(r["value"])) for r in off["secondary"]] == \
+           [(r["label"], _en(r["value"])) for r in on["secondary"]]
+
+    # Block 4 — the kWh chart. Same buckets, same values. §2.4: the Charts box GAINS an option,
+    # it does not swap the series it already had.
+    assert off["chart"] == on["chart"]
+
+    # Block 5 — the window/coverage line. §4.5 puts `window` and `series` permanently off the
+    # nullable list: they describe the input data, which the cost model does not touch.
+    for key in ("period", "period_dates", "period_days", "period_selected", "benchmark_request"):
+        assert off[key] == on[key], key
+    assert _en(off["period_run"]) == _en(on["period_run"])
+
+    # Block 6 — the CAVEATS. §2.4 says the kWh caveats are "identical across the toggle" and the
+    # euro ones are an addition, so the energy ones appear unchanged, in the same order, at the
+    # head of the longer list, with the standing parameter-set note still last on both.
+    #
+    # ONE exception, which §2.4 asks for by name rather than forbids: §7.2 item 9's negative-saving
+    # caveat ends "a euro quantity this energy-only run does not compute", which is false once
+    # euros ARE computed and would contradict the section directly below it. That is prose about
+    # what the panel can tell you, not a figure, and fixture 18 governs the FIGURES. The
+    # substitution itself is pinned by
+    # `test_the_negative_saving_caveat_stops_disclaiming_euros_once_euros_exist`; here it is
+    # normalised out by its opening clause, and the assertion is that it is the ONLY difference —
+    # same count, same positions, same text everywhere else.
+    def _key(text: str) -> str:
+        return "NEGATIVE_SAVING" if "MORE from the grid" in text else text
+
+    energy_caveats = [_key(c) for c in _caveats(off)]
+    on_caveats = [_key(c) for c in _caveats(on)]
+    assert on_caveats[:len(energy_caveats) - 1] == energy_caveats[:-1]
+    # …and the standing parameter-set note is still last on both, verbatim.
+    assert _caveats(on)[-1] == _caveats(off)[-1]
+    # The kWh FIGURE inside the substituted caveat is identical on both sides, which is the part
+    # fixture 18 is actually about.
+    import re as _re
+    off_neg = next((c for c in _caveats(off) if "MORE from the grid" in c), None)
+    if off_neg is not None:
+        on_neg = next(c for c in _caveats(on) if "MORE from the grid" in c)
+        assert _re.search(r"([\d,]+) kWh MORE", off_neg).group(1) == \
+               _re.search(r"([\d,]+) kWh MORE", on_neg).group(1)
+
+    # Block 7 — the data-glance band over the selected range.
+    assert json.dumps(off["data_summary"], sort_keys=True, default=str) == \
+           json.dumps(on["data_summary"], sort_keys=True, default=str)
+
+
+def test_fixture_18_the_per_interval_soc_trace_is_bit_identical():
+    """The SoC trace, not just the totals — §6.14 fixture 18 says "down to the per-interval trace".
+
+    Asserted against the SIMULATION directly rather than through the view-model, because the view
+    does not carry the trace and the invariant is about the dispatch. This is the assertion that
+    catches a cost term reaching `economic_guard`: totals can coincide while the path differs, and
+    §6.14 names that failure specifically.
+    """
+    from app.domain.simframe import simulation_frame
+    from app.domain.simulate import run_all
+
+    ds = _cost_dataset()
+    frame = simulation_frame(ds, (_WIN_START, _WIN_END))
+    assert frame is not None
+    off = run_all(frame, SimulationConfig())
+    on = run_all(frame, _cost_cfg())
+    for run in ("a", "b", "c"):
+        np.testing.assert_array_equal(
+            getattr(off, run).soc, getattr(on, run).soc, err_msg=f"run {run} SoC trace"
+        )
+        np.testing.assert_array_equal(getattr(off, run).imp, getattr(on, run).imp)
+        np.testing.assert_array_equal(getattr(off, run).exp, getattr(on, run).exp)
+
+
+def test_fixture_18_the_energy_benchmark_is_bit_identical_across_the_toggle():
+    """§6.14 fixture 18's second named failure: the energy DP must not be RETARGETED at euros.
+
+    The whole `benchmark` block — rows, bar fractions and the gloss — is identical with cost
+    simulation on and off. A cost benchmark being ADDED is what this phase does; the energy one
+    changing would mean run E replaced run D rather than joining it. Fixture 20 makes the same
+    point from the other side, in tests/test_benchmark.py.
+
+    One day of hourly data, so the two DP passes are cheap.
+    """
+    ds = _cost_dataset()
+    off = results_from(ds, (_WIN_START, _WIN_END), cfg=SimulationConfig(), with_benchmark=True)
+    on = results_from(ds, (_WIN_START, _WIN_END), cfg=_cost_cfg(), with_benchmark=True)
+    assert off is not None and on is not None
+    assert [(r["label"], _en(r["value"]), r["frac"], r["dot"]) for r in off["benchmark"]["rows"]] \
+        == [(r["label"], _en(r["value"]), r["frac"], r["dot"]) for r in on["benchmark"]["rows"]]
+    assert _en(off["benchmark"]["gloss"]) == _en(on["benchmark"]["gloss"])
+    # And the money box is the thing that appeared. Its presence is the point of the phase; its
+    # absence on the left is fixture 19's.
+    assert "cost_benchmark" not in off
+    assert "cost_benchmark" in on
+
+
+# ── Fixture 19: the energy-only shape ────────────────────────────────────────────────────────
+
+
+def test_fixture_19_cost_is_absent_wholesale_never_zero():
+    """§6.14 fixture 19 / §4.5: with `simulate_cost = false` the euro fields are null, NEVER 0.0.
+
+    §4.5 nulls the whole BLOCK rather than every leaf, and says why: "not an object of null
+    fields, and in particular not a `waterfall` array of eight null-valued entries, which would
+    invite a template to render eight empty rows". So the assertion is on the block, and it also
+    checks the failure mode §4.5 names — a present-but-empty `cost` would satisfy a naive
+    falsiness test while still handing the template eight rows to draw.
+    """
+    r = results_from(_cost_dataset(), (_WIN_START, _WIN_END), cfg=SimulationConfig())
+    assert r is not None
+    assert r["cost"] is None
+    assert r["monthly_saved_eur"] is None
+    assert r["simulate_cost"] is False
+    # Not zero, and not an empty shell: the two failure modes §4.5 names by name.
+    assert r["cost"] != 0.0
+    assert not isinstance(r["cost"], dict)
+    # `benchmarks.cost`'s view-model counterpart is an ABSENT key, on the same convention the
+    # energy benchmark already uses for "the DP did not run".
+    assert "cost_benchmark" not in r
+    # …while every ENERGY figure is fully populated. Fixture 19: "benchmarks.energy is fully
+    # populated" and the kWh diagnostics are computed rather than None.
+    assert r["kpis"] and r["energy_breakdown"] and r["chart"]["values"]
+
+
+def test_fixture_19_a_zero_euro_saving_is_still_a_number_not_a_null():
+    """The converse of fixture 19: with cost ON, a saving that comes out to zero is 0.0, not null.
+
+    Guards the reading that "absent means zero". A window whose battery does nothing still has two
+    bills and a difference between them; if that difference is zero the block says zero. Only the
+    TOGGLE produces a null.
+    """
+    # A zero-capacity battery cannot move anything, so cost(A) == cost(C) exactly.
+    cfg = _cost_cfg()
+    cfg.battery.usable_capacity_kwh = 0.0
+    cfg.battery.standby_w = 0.0
+    r = results_from(_cost_dataset(), (_WIN_START, _WIN_END), cfg=cfg)
+    assert r is not None and r["cost"] is not None
+    assert r["cost"]["saved_eur"] == pytest.approx(0.0, abs=1e-9)
+    assert r["cost"]["saved_eur"] is not None
+
+
+# ── The arithmetic, against the domain layer directly ────────────────────────────────────────
+
+
+def test_the_cost_block_agrees_with_compute_costs_line_for_line():
+    """Every euro figure the panel shows is re-derived here from §6.10 DIRECTLY.
+
+    The panel must not be able to disagree with the domain layer — that is the whole reason
+    `results_view` calls `compute_costs` rather than re-implementing a bill. So this test builds
+    the price curves and bills runs A and C itself, and asserts the block's four scalars and its
+    eight waterfall entries against those.
+
+    It also pins the two identities §4.5 and §6.10 assert:
+      * `saved_eur == baseline_eur − battery_eur`, and
+      * the eight lines close on that difference (fixture 4), so the "Net saving" row the box
+        prints under its rule is the same number as the KPI tile above it.
+    """
+    from app.domain.costs import WATERFALL_LINES, compute_costs, waterfall
+    from app.domain.pricing import price_curves
+    from app.domain.simframe import simulation_frame
+    from app.domain.simulate import run_all
+
+    ds = _cost_dataset()
+    cfg = _cost_cfg()
+    r = results_from(ds, (_WIN_START, _WIN_END), cfg=cfg)
+    assert r is not None
+    cost = r["cost"]
+
+    frame = simulation_frame(ds, (_WIN_START, _WIN_END))
+    assert frame is not None
+    runs = run_all(frame, cfg)
+    curves = price_curves(cfg.pricing, frame.spot)
+    args = (curves.p_import, curves.p_export_net, curves.compensation, frame.index, cfg.pricing)
+    cost_a = compute_costs(runs.a, *args)
+    cost_c = compute_costs(runs.c, *args)
+
+    assert cost["currency"] == "EUR"
+    assert cost["baseline_eur"] == pytest.approx(cost_a.eur, abs=1e-12)
+    assert cost["battery_eur"] == pytest.approx(cost_c.eur, abs=1e-12)
+    assert cost["saved_eur"] == pytest.approx(cost_a.eur - cost_c.eur, abs=1e-12)
+    assert cost["saved_pct"] == pytest.approx(
+        100 * (cost_a.eur - cost_c.eur) / cost_a.eur, abs=1e-9
+    )
+
+    tlk = float(np.nanmax(np.asarray(curves.compensation) - np.asarray(curves.p_export_net)))
+    lines = waterfall(runs.a, runs.b, runs.c, curves.p_import, curves.compensation, tlk,
+                      cfg.pricing, frame.index, curves.p_export_net)
+    # The JSON waterfall is complete, in §6.10's order, at the domain layer's own values.
+    assert [ln["label"] for ln in cost["waterfall"]] == list(WATERFALL_LINES)
+    for got, want in zip(cost["waterfall"], lines):
+        assert got["eur"] == pytest.approx(want.eur, abs=1e-12), got["label"]
+    # Fixture 4's closure, restated on what the PANEL carries: the eight lines account for the
+    # whole difference between the two bills, with the degradation term on both sides.
+    total = sum(ln["eur"] for ln in cost["waterfall"])
+    degradation = next(ln["eur"] for ln in cost["waterfall"] if ln["label"] == "degradation")
+    assert total == pytest.approx(cost["saved_eur"] + degradation, abs=1e-6)
+
+
+def test_the_money_tile_states_the_two_bills_it_is_the_difference_of():
+    """§2.4's tile: "€ 1,153 without a battery → € 822 with one", and a signed percentage.
+
+    The sentence is a `_msg` pair whose two halves are figures, so it is asserted on the rendered
+    ENGLISH — the same discipline every other sentence assertion in this file follows.
+    """
+    r = results_from(_cost_dataset(), (_WIN_START, _WIN_END), cfg=_cost_cfg())
+    assert r is not None
+    kpi = r["cost"]["kpi"]
+    assert kpi["title"] == "MONEY SAVED"
+    assert kpi["unit"] == "€"
+    sentence = _en(kpi["sentence"])
+    assert "without a battery" in sentence and "with one" in sentence
+    # Both bills appear, formatted as euro amounts with the symbol ahead of the digits.
+    assert sentence.count("€") == 2
+    # The delta is a signed percentage, which is how the reader tells a saving from a cost.
+    assert _en(kpi["delta"]).startswith(("+", "−"))
+
+
+def test_the_euro_figures_are_formatted_in_the_render_locale():
+    """A6, in euros: Dutch writes € 1.153 where English writes € 1,153.
+
+    The euro amounts are `num()` figures, not strings, for the same reason every other figure on
+    this panel is. Asserted on a value with a thousands separator, since that is where the two
+    conventions differ.
+    """
+    from app.i18n import format_num
+
+    assert format_num(1153.2, "eur", "en") == "€ 1,153"
+    assert format_num(1153.2, "eur", "nl") == "€ 1.153"
+    # The sign sits AHEAD of the symbol (§2.4's waterfall column), with U+2212 for the minus.
+    assert format_num(-141.3, "eur_force_signed", "en") == "− € 141"
+    assert format_num(402.1, "eur_force_signed", "en") == "+ € 402"
+
+
+# ── The display / JSON split on zero lines ───────────────────────────────────────────────────
+
+
+def test_zero_waterfall_lines_are_dropped_from_the_display_but_kept_in_the_json():
+    """§2.4 exactly: "dropped from the display, never from `cost.waterfall`".
+
+    A no-PV household exports nothing, so `avoided_terugleverkosten`, `lost_feedin_compensation`,
+    `arbitrage_export_revenue` and `feedin_floor_topup` are all structurally zero. §2.4's "Panel ③
+    without PV" section says to test the VALUE rather than `has_pv`, and to keep the JSON
+    complete so it "must continue to close against cost(A) − cost(C)".
+
+    So: eight entries in `waterfall`, and none of those four labels among the rendered rows.
+    """
+    ds = _dataset([
+        _energy("grid_import_t1", 2.0),
+        _energy("grid_export_t1", 0.0),
+        _price("price_spot", _PRICES),
+    ])
+    r = results_from(ds, (_WIN_START, _WIN_END), cfg=_cost_cfg())
+    assert r is not None
+    cost = r["cost"]
+
+    assert len(cost["waterfall"]) == 8
+    zero_labels = {
+        "avoided_terugleverkosten", "lost_feedin_compensation",
+        "arbitrage_export_revenue", "feedin_floor_topup",
+    }
+    for line in cost["waterfall"]:
+        if line["label"] in zero_labels:
+            assert abs(line["eur"]) < WATERFALL_DISPLAY_EPS_EUR, line
+
+    shown = [row["label"] for row in cost["waterfall_rows"]]
+    for absent in ("Avoided terugleverkosten", "Lost feed-in compensation",
+                   "Grid arbitrage export revenue", "Feed-in floor top-up"):
+        assert absent not in shown
+    # The closing row is always there, and it is the §2.4 "Net saving" row under a rule.
+    assert shown[-1] == "Net saving"
+    assert cost["waterfall_rows"][-1]["rule_above"] is True
+    assert _en(cost["waterfall_rows"][-1]["value"]) == _en(num(cost["saved_eur"],
+                                                              "eur_force_signed"))
+
+
+def test_the_drop_threshold_matches_what_the_rows_actually_round_to():
+    """§2.4's drop rule is about the DISPLAY, so the threshold has to key on the rows' rounding.
+
+    The rows render with pattern `#,##0` — whole euros — so anything under €0.50 reaches the
+    reader as "€ 0" whatever its true magnitude. A threshold below that lets rows through that
+    print as zero, which is precisely the column of "€ 0" the rule exists to prevent: it reads as
+    figures that failed to compute rather than as figures too small to matter.
+
+    Pinned as a RELATIONSHIP between the constant and the format kind, not as a literal, so giving
+    the rows cents later fails here rather than silently reinstating the mismatch. Regression:
+    the constant was once 0.005 — half a cent, the currency's precision rather than the row's —
+    and a line at €0.49 survived the filter to render "€ 0".
+    """
+    # Everything the filter keeps must render as a nonzero figure...
+    for value in (0.51, 0.75, -0.51, 12.0):
+        assert abs(value) > WATERFALL_DISPLAY_EPS_EUR
+        assert _en(num(value, "eur_force_signed")) not in ("€ 0", "+ € 0", "− € 0")
+    # ...and everything it drops would have rendered as zero. Note €0.50 itself is DROPPED: the
+    # rows round half-to-even, so 0.5 prints "€ 0" while 0.500001 prints "+ € 1", which is why the
+    # filter's comparison is `<=` rather than `<`.
+    for value in (0.0, 0.004, 0.30, 0.49, -0.49, 0.5, -0.5):
+        assert abs(value) <= WATERFALL_DISPLAY_EPS_EUR
+        assert _en(num(value, "eur_force_signed")) == "€ 0"
+
+
+def test_a_disabled_degradation_line_is_shown_as_disabled_rather_than_dropped():
+    """§4.5's `"enabled": false`, and why it is the exception to the drop rule.
+
+    Appendix A's default degradation rate is 0.0 ("Disabled"), so the line's VALUE is zero — but
+    `app/domain/costs.py` is explicit that deciding a line is disabled is a statement about the
+    CONFIG, not about the computed number. Dropping the row would lose that statement; printing
+    "€ 0" would assert a measurement. §2.4's wireframe prints the word, and so does the box.
+    """
+    r = results_from(_cost_dataset(), (_WIN_START, _WIN_END), cfg=_cost_cfg())
+    assert r is not None
+    row = next(row for row in r["cost"]["waterfall_rows"] if row["label"] == "Degradation cost")
+    assert row["disabled"] is True
+    assert _en(row["value"]) == "disabled"
+    assert "€" not in _en(row["value"])
+    # The JSON entry carries §4.5's flag alongside the figure.
+    entry = next(ln for ln in r["cost"]["waterfall"] if ln["label"] == "degradation")
+    assert entry["enabled"] is False
+
+
+def test_a_nonzero_degradation_rate_makes_the_line_an_ordinary_figure():
+    """The converse: with a rate SET, the row is a euro figure and obeys the ordinary drop rule.
+
+    This is what makes the previous test a statement about the config rather than about the label
+    "degradation" being special-cased.
+    """
+    cfg = _cost_cfg()
+    # Large enough that the line survives the whole-euro rounding the box prints in — the window
+    # is one day and the battery withdraws a handful of kWh, so appendix A's order of magnitude
+    # would round to "€ 0" and say nothing about the flag under test.
+    cfg.pricing.degradation_eur_per_kwh = 5.0
+    r = results_from(_cost_dataset(), (_WIN_START, _WIN_END), cfg=cfg)
+    assert r is not None
+    row = next(row for row in r["cost"]["waterfall_rows"] if row["label"] == "Degradation cost")
+    assert not row.get("disabled")
+    assert "€" in _en(row["value"])
+    # Degradation is a COST, so the line is negative and shows its sign (§6.10's convention).
+    assert _en(row["value"]).startswith("−")
+    entry = next(ln for ln in r["cost"]["waterfall"] if ln["label"] == "degradation")
+    assert "enabled" not in entry
+
+
+# ── The money box's capture ratio — THREE shapes, not the energy box's four (H10) ─────────────
+
+
+def _cost_shape_block(*, policy_eur: float, pf_eur: float, drift: float,
+                      floor_binds: bool = False, unconstrained: float | None = None):
+    """A `_cost_benchmark_block` from a synthetic `CostBenchmark` with a chosen saving and drift.
+
+    Synthetic for the same reason `_shape_block` is: the shapes under test are presentation
+    decisions keyed on a ratio and a drift, and steering a real DP to a chosen ratio would be
+    neither possible nor informative.
+    """
+    from app.domain.benchmark import CostBenchmark, _capture_ratio
+
+    return _cost_benchmark_block(
+        CostBenchmark(
+            no_battery_eur=0.0,
+            policy_eur=policy_eur,
+            perfect_foresight_eur=pf_eur,
+            capture_ratio=_capture_ratio(policy_eur, pf_eur),
+            perfect_foresight_eur_unconstrained=unconstrained,
+            capture_ratio_unconstrained=(
+                _capture_ratio(policy_eur, unconstrained) if unconstrained is not None else None
+            ),
+            bound_eur=1000.0 - pf_eur,
+            bound_eur_unconstrained=None,
+            baseline_eur=1000.0,
+            policy_bill_eur=1000.0 - policy_eur,
+            soc_start_kwh=5.0,
+            soc_end_kwh=5.0,
+            median_import_price_eur_kwh=0.30,
+            floor_binds=floor_binds,
+            policy_soc_delta_kwh=drift,
+        ),
+        _cost_cfg(),
+    )
+
+
+def test_cost_capture_ratio_shape_1_normal_renders_a_percentage_and_says_why_it_differs():
+    """Drift immaterial and 0 ≤ ratio ≤ 1: a plain percentage, plus §2.4's one-line explanation.
+
+    §2.4 requires the money box to say in one line that its ceiling comes from a different
+    dispatch than the energy box's — "a battery that buys cheaply imports more, not less" — so
+    that two different capture percentages on one panel read as information rather than as an
+    inconsistency.
+    """
+    block = _cost_shape_block(policy_eur=69.0, pf_eur=100.0, drift=-0.01)
+    gloss = _en(block["gloss"])
+    assert "captures 69 percent" in gloss
+    assert "buying cheaply is not the same as importing little" in gloss
+    assert "%" not in gloss
+    assert block["title"] == "Benchmark: money saved"
+
+
+def test_cost_capture_ratio_shape_2_drift_funded_prints_no_ratio_and_no_restatement():
+    """**Shape 2 does not carry over from the energy box.** Follow-up H10, and CostBenchmark's own
+    docstring: §6.12's `saved + soc_delta × eta_d` correction is exact in kWh and has NO sound euro
+    analogue, because a residual kWh's euro worth depends on WHEN it is used and the DP's terminal
+    constraint and a liquidating policy use it at different times by construction.
+
+    So the money box does the thing the energy box does not: it prints no number at all, and it
+    does not restate one on a corrected basis either. Both failure modes are asserted — a raw
+    percentage AND a corrected one — because reaching for the corrected form is the specific
+    mistake H10 exists to prevent, and it is the one a reader of `_benchmark_block` would make.
+    """
+    # A 200 kWh liquidation against a €40 saving: at the €0.30 median that residual is worth ~€57,
+    # far above 2% of the saving, so the drift is material by §6.11's own threshold.
+    block = _cost_shape_block(policy_eur=40.0, pf_eur=100.0, drift=-200.0)
+    gloss = _en(block["gloss"])
+    assert "percent" not in gloss
+    assert "%" not in gloss
+    # Neither the raw ratio (40%) nor any drift-corrected restatement of it.
+    assert "40 percent" not in gloss
+    assert "captures" not in gloss
+    # What it says INSTEAD: the drift, and that the comparison is unavailable in euros.
+    assert "less charged than it started" in gloss
+    assert "in euros they cannot" in gloss
+    assert "no capture ratio is shown" in gloss.lower()
+    # The residual is named in KILOWATT-HOURS — the quantity that is actually measured. Converting
+    # it to euros here would be the correction the block does not have.
+    assert "200 kWh" in gloss
+
+
+def test_cost_capture_ratio_above_one_from_a_liquidating_policy_is_not_a_percentage():
+    """The COMMON case, measured: 48 of 144 swept configurations exceed 1, all liquidating.
+
+    A ratio of 1.60 with a materially negative drift is drift-funding, not a fault — and it must
+    not reach the reader as "captures 160 percent", which is the presentation defect this whole
+    branch exists to prevent. `CostBenchmark`'s docstring: "a view MUST NOT print this as a plain
+    percentage, and must not reach for a drift-corrected euro restatement either".
+    """
+    block = _cost_shape_block(policy_eur=160.0, pf_eur=100.0, drift=-300.0)
+    gloss = _en(block["gloss"])
+    assert "160" not in gloss
+    assert "percent" not in gloss and "%" not in gloss
+    assert "less charged than it started" in gloss
+    # The ROWS stay honest — the defect was the ratio and the gloss, never the bars. §7.2 item 9's
+    # discipline, in euros.
+    assert _en(next(r for r in block["rows"] if r["label"] == "Your policy")["value"]) == "€ 160"
+    assert _en(next(r for r in block["rows"]
+                    if r["label"] == "Perfect foresight")["value"]) == "€ 100"
+
+
+def test_cost_capture_ratio_above_one_WITHOUT_drift_is_reported_as_a_fault():
+    """`CostBenchmark`: "A ratio above 1 with NON-negative drift is the case that is a genuine
+    fault." It gets the energy box's fault wording — one condition, one sentence, on either box.
+    """
+    block = _cost_shape_block(policy_eur=160.0, pf_eur=100.0, drift=0.0)
+    gloss = _en(block["gloss"])
+    assert "did not come out usable" in gloss
+    assert "160" not in gloss
+    assert "percent" not in gloss and "%" not in gloss
+
+
+def test_cost_capture_ratio_bound_near_zero_branches_on_the_visible_policy_row():
+    """§2.4: "A box must never assert that nothing was achievable directly above a visible
+    non-zero policy figure." The same rule the energy box obeys, in euros.
+    """
+    # Policy also ~0: the plain "nothing was achievable" wording is TRUE and is used.
+    quiet = _en(_cost_shape_block(policy_eur=0.0, pf_eur=0.0, drift=0.0)["gloss"])
+    assert "could not have saved any money" in quiet
+    # Policy visibly positive: the wording must not contradict the row above it.
+    loud = _en(_cost_shape_block(policy_eur=9.0, pf_eur=0.0, drift=0.0)["gloss"])
+    assert "€ 9" in loud
+    assert "not something a perfectly-informed battery could reproduce" in loud
+    assert "no capture ratio to report" in loud
+
+
+def test_the_export_row_and_sentence_appear_only_when_the_two_bounds_diverge():
+    """§2.4's conditional fourth row, on the money box — where it is EXPECTED to earn its keep.
+
+    `CostBenchmark`'s docstring: the unconstrained reading "bites HARDER here than on the energy
+    side", because exporting into a high-price hour is the whole arbitrage case while an export
+    permission cannot change an import-minimising dispatch. So this row, rare on the energy box, is
+    the one the money box is built to show.
+    """
+    # Divergent: 0.69 vs 0.55, well past appendix A's 0.02 threshold.
+    wide = _cost_shape_block(policy_eur=69.0, pf_eur=100.0, drift=0.0, unconstrained=125.0)
+    assert [r["label"] for r in wide["rows"]][-1] == "…if export allowed"
+    assert "Allowed to export" in _en(wide["gloss"])
+    # Near-identical bounds: §2.4 says a near-duplicate line "says nothing", so it is omitted.
+    narrow = _cost_shape_block(policy_eur=69.0, pf_eur=100.0, drift=0.0, unconstrained=100.5)
+    assert "…if export allowed" not in [r["label"] for r in narrow["rows"]]
+    assert "Allowed to export" not in _en(narrow["gloss"])
+
+
+def test_floor_binds_adds_a_disclosure_rather_than_suppressing_the_box():
+    """Follow-up H11: run E's bound is on the PRE-TOP-UP bill wherever the feed-in floor binds.
+
+    The top-up is `max(0, −Σ_period export × compensation)` — a function of a whole assessment
+    period — so it cannot be priced inside `transition_cost` without a second DP state dimension,
+    and is applied afterwards. In a window where it binds, a policy could in principle beat the
+    full-bill figure by stumbling into a larger top-up, and H11 records that how large such a
+    violation could get HAS NOT BEEN MEASURED.
+
+    The chosen disclosure: show the figure and append one sentence saying the ceiling is soft and
+    in which direction. Suppressing the box would overreact to a rare condition on a bound that is
+    still informative; printing the figure unqualified is what `floor_binds` exists to prevent.
+    The note is SEPARATE from the gloss because it qualifies the ceiling whatever shape the gloss
+    took.
+    """
+    ordinary = _cost_shape_block(policy_eur=69.0, pf_eur=100.0, drift=0.0)
+    assert "note" not in ordinary
+
+    binding = _cost_shape_block(policy_eur=69.0, pf_eur=100.0, drift=0.0, floor_binds=True)
+    note = _en(binding["note"])
+    assert "feed-in floor" in note
+    assert "approximate" in note
+    # It names the DIRECTION the bound is soft in, which is what makes it actionable rather than
+    # merely worrying.
+    assert "larger top-up" in note
+    # And the box still says what it was going to say.
+    assert "captures 69 percent" in _en(binding["gloss"])
+
+
+# ── The monthly euro series ──────────────────────────────────────────────────────────────────
+
+
+def test_monthly_saved_eur_buckets_like_the_kwh_series_and_sums_to_the_saving():
+    """§4.5's `monthly[].saved_eur` and §2.4's second chart option.
+
+    Two properties, both load-bearing for the chart being two VIEWS rather than two series: the
+    euro buckets line up one-for-one with the kWh ones (so a month's two bars describe one
+    window), and over a window where the feed-in floor does not bind they sum to the headline
+    `saved_eur`. The floor case is the documented exception — the top-up has no per-interval
+    allocation — and it raises its own caveat when it happens.
+    """
+    r = results_from(_cost_dataset(), (_WIN_START, _WIN_END), cfg=_cost_cfg())
+    assert r is not None
+    assert len(r["monthly_saved_eur"]) == len(r["chart"]["values"])
+    assert sum(r["monthly_saved_eur"]) == pytest.approx(r["cost"]["saved_eur"], abs=1e-9)
+
+
+# ── The energy-only affordance, and the section's presence ───────────────────────────────────
+
+
+def test_the_cost_section_is_absent_and_the_affordance_offered_when_cost_is_off():
+    """§2.4 "Panel ③ without cost simulation", on the view-model side.
+
+    The section's presence is a single key, which is what lets the template gate it with one
+    `{% if %}` — §4.5's stated reason for nulling the block wholesale. The affordance itself is
+    template chrome (a fixed sentence and a link), so it is asserted in the ROUTE tests, where the
+    rendered page is; here we pin the condition the template branches on.
+    """
+    ds = _cost_dataset()
+    off = results_from(ds, (_WIN_START, _WIN_END), cfg=SimulationConfig())
+    on = results_from(ds, (_WIN_START, _WIN_END), cfg=_cost_cfg())
+    assert off is not None and on is not None
+    assert not off["cost"]
+    assert on["cost"]
+
+
+def test_the_euro_caveats_appear_only_with_cost_simulation_on():
+    """§2.4: "The caveats that qualify a euro figure … appear only with cost simulation on,
+    because there is no euro figure to qualify." The kWh ones are identical across the toggle,
+    which fixture 18 above asserts; this is the other half of that statement.
+    """
+    ds = _cost_dataset()
+    off = _caveats(results_from(ds, (_WIN_START, _WIN_END), cfg=SimulationConfig()))
+    on = _caveats(results_from(ds, (_WIN_START, _WIN_END), cfg=_cost_cfg()))
+    assert len(on) > len(off)
+    added = " ".join(c for c in on if c not in off)
+    # This fixture's saving is negative, so §7.2 item 9's caveat is present and is the ONE energy
+    # caveat whose wording differs across the toggle — its cost-off form disclaims a euro figure
+    # that, with cost on, is stated directly below it. Pinned in its own test; excluded here so
+    # this test stays about the euro caveats being an ADDITION.
+    _SUBSTITUTED = "MORE from the grid"
+    # What the marginal bill IS — the standing-charge exclusion §6.10 makes and §2.4's tile
+    # sentence could otherwise be read as contradicting.
+    assert "vastrecht" in added
+    assert "not two invoice totals" in added
+    # And that the tariffs behind it are not yet published (appendix A calls the terugleverkosten
+    # rate an explicit placeholder).
+    assert "not yet published" in added
+    assert "placeholder" in added
+    for text in off:
+        if _SUBSTITUTED in text:
+            continue
+        assert text in on
+
+
+def test_the_negative_saving_caveat_stops_disclaiming_euros_once_euros_exist():
+    """§7.2 item 9's caveat has two wordings, and the cost-on one must not contradict the section
+    below it.
+
+    The energy-only wording ends "a euro quantity this energy-only run does not compute". With
+    cost simulation on that sentence is simply false — the COST SAVINGS section states that very
+    quantity a few centimetres further down the page — so the cost-on variant keeps the
+    explanation of why the kWh figure is negative and POINTS AT the euro figure instead of
+    disclaiming it.
+
+    Fixture 18 is unaffected: it governs the energy FIGURES, and §2.4 explicitly has the caveats
+    box gain euro-qualifying text when euros are modelled. The cost-OFF wording is unchanged,
+    which is what a reader comparing the two modes actually checks.
+    """
+    # 2 kWh/h of import, no PV, no export: the battery's round-trip losses and standby exceed
+    # what its bands recover, so the kWh saving comes out negative (the fixture the energy-only
+    # tests above already use), and a price series makes the euro side computable.
+    ds = _dataset([
+        _energy("grid_import_t1", 2.0),
+        _energy("grid_export_t1", 0.0),
+        _price("price_spot", _PRICES),
+    ])
+    cfg = SimulationConfig()
+    cfg.battery.usable_capacity_kwh = 0.5   # tiny store, so standby dominates
+    off = results_from(ds, (_WIN_START, _WIN_END), cfg=cfg)
+    cfg_on = SimulationConfig()
+    cfg_on.battery.usable_capacity_kwh = 0.5
+    cfg_on.simulate_cost = True
+    on = results_from(ds, (_WIN_START, _WIN_END), cfg=cfg_on)
+    assert off is not None and on is not None
+
+    off_text = " ".join(_caveats(off))
+    on_text = " ".join(_caveats(on))
+    assert "MORE from the grid" in off_text and "MORE from the grid" in on_text
+    # Cost off: the disclaimer stands, unchanged.
+    assert "this energy-only run does not compute" in off_text
+    assert "cannot tell you whether the battery is worth buying" in off_text
+    # Cost on: it is gone, replaced by a pointer to the figures that answer the question.
+    assert "this energy-only run does not compute" not in on_text
+    assert "read the cost savings below" in on_text
+    # And the kWh figure it quotes is the SAME on both sides — fixture 18 is about the figures.
+    import re as _re
+    assert _re.search(r"([\d,]+) kWh MORE", off_text).group(1) == \
+           _re.search(r"([\d,]+) kWh MORE", on_text).group(1)

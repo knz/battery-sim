@@ -333,24 +333,53 @@
       // one the last render/swap injected). Called on initial load and after each swap so the
       // chart always reflects the window just computed. Guarded so a missing bundle or node is a
       // no-op rather than an error.
+      // The chart has TWO views once cost simulation is on (§2.4): the kWh series it always had,
+      // and a *Monthly savings (€)* series beside it. They are separate views, NOT a dual axis —
+      // §2.4 is explicit that overlaying them "invites exactly the reading this panel's
+      // two-section split exists to prevent", since a euro series moves with tariff structure as
+      // well as with kWh. So this draws ONE series at a time and the tabs switch which.
+      //
+      // The selected view is held on the chart container rather than in a variable, so a fragment
+      // swap (which replaces the container) resets to the default — which is what should happen:
+      // a swap means a new window, and the euro series may not exist for it.
       function drawMonthlyChart() {
         if (typeof Plotly === 'undefined') return;
         var node = document.getElementById('monthly-data');
         var chart = document.getElementById('monthly-chart');
         if (!node || !chart) return;
         var d = JSON.parse(node.textContent);
+        var view = chart.getAttribute('data-chart-view') || 'kwh';
+        // `eur` is null without cost simulation; fall back rather than drawing an empty axis.
+        var series = (view === 'eur' && d.eur_values) ? d.eur_values : d.values;
+        var title = (view === 'eur' && d.eur_values) ? d.eur_ytitle : d.ytitle;
         Plotly.newPlot('monthly-chart', [{
-          type: 'bar', x: d.months, y: d.values,
+          type: 'bar', x: d.months, y: series,
           marker: { color: '#570df8' }
         }], {
           margin: { t: 10, r: 10, b: 30, l: 40 },
-          yaxis: { title: d.ytitle },
+          yaxis: { title: title },
           paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
           font: { size: 11 }
         }, { displayModeBar: false, responsive: true });
       }
       // Exposed so the fetch handler (and any future caller) can redraw after a swap.
       window.drawMonthlyChart = drawMonthlyChart;
+
+      // The view tabs. DELEGATED from `document` for the same reason every other panel-③ control
+      // is: the buttons live inside the swapped fragment, so a handler bound to them directly
+      // would stop working after the first range change.
+      document.addEventListener('click', function (ev) {
+        var btn = ev.target.closest ? ev.target.closest('[data-chart-view]') : null;
+        if (!btn || btn.tagName !== 'BUTTON') return;
+        var chart = document.getElementById('monthly-chart');
+        if (!chart) return;
+        chart.setAttribute('data-chart-view', btn.getAttribute('data-chart-view'));
+        var group = btn.parentNode;
+        Array.prototype.forEach.call(group.querySelectorAll('[data-chart-view]'), function (b) {
+          b.classList.toggle('btn-active', b === btn);
+        });
+        drawMonthlyChart();
+      });
 
       // ── The §6.12 perfect-foresight benchmark box, fetched LAZILY ───────────────────────────
       //
@@ -401,17 +430,45 @@
           .then(function (html) {
             var cur = document.getElementById('benchmark-slot');
             if (!cur || cur.getAttribute('data-benchmark-token') !== token) return;
+            // Two response shapes, because the route returns the money box alongside the energy
+            // one when cost simulation is on (both DPs run on this request either way). A
+            // multi-box response wraps each box in <div data-slot="...">; a lone energy box is
+            // bare HTML, unchanged from before cost simulation existed.
+            var probe = document.createElement('div');
+            probe.innerHTML = html;
+            var wrapped = probe.querySelectorAll('[data-slot]');
+            if (wrapped.length) {
+              for (var i = 0; i < wrapped.length; i++) {
+                var target = document.getElementById(wrapped[i].getAttribute('data-slot'));
+                // The money slot is absent when cost simulation is off — skip rather than throw,
+                // so one missing slot cannot cost the other box its update.
+                if (target) target.innerHTML = wrapped[i].innerHTML;
+              }
+              return;
+            }
+            // Unwrapped: one energy box, so the server had no money box to send. Reachable even
+            // with a cost slot on the page — the render and this fetch read the stored config in
+            // two separate requests, so the toggle can go off in between. Clear the orphaned slot
+            // rather than leaving it saying "computing…" about a box that is never coming.
+            var orphan = document.getElementById('cost-benchmark-slot');
+            if (orphan) orphan.innerHTML = '';
             // Fill the slot's CONTENTS, not its outerHTML, so the slot node (and the next swap's
             // ability to find it) survives.
             cur.innerHTML = html;
           })
           .catch(function () {
             // Degrade gracefully: say the box could not be computed and leave the REST of panel ③
-            // exactly as it is. This handler writes to no other node.
+            // exactly as it is. This handler writes to no node outside the two benchmark slots.
             var cur = document.getElementById('benchmark-slot');
             if (!cur || cur.getAttribute('data-benchmark-token') !== token) return;
+            var msg = {{ _('The perfect-foresight benchmark could not be computed for this period.') | tojson }};
             var p = cur.querySelector('p');
-            if (p) p.textContent = {{ _('The perfect-foresight benchmark could not be computed for this period.') | tojson }};
+            if (p) p.textContent = msg;
+            // The money box must be told too, or its "computing…" spins forever on a failure that
+            // already resolved for the energy box beside it.
+            var costSlot = document.getElementById('cost-benchmark-slot');
+            var costP = costSlot ? costSlot.querySelector('p') : null;
+            if (costP) costP.textContent = msg;
           })
           .finally(function () { clearTimeout(timer); });
       }

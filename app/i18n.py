@@ -294,6 +294,34 @@ _NUM_KINDS: dict[str, dict] = {
     "pct_signed": {"pattern": "#,##0.0", "unit": "%", "force_sign": True, "zero_unsigned": True},
     # €/kWh to 3 dp: "0.094 €/kWh" / "0,094 €/kWh".
     "eur_kwh": {"pattern": "#,##0.000", "unit": "€/kWh"},
+    # ── EURO AMOUNTS (§2.4's cost section) ──────────────────────────────────────────────────
+    #
+    # A PREFIX, not a suffix: the wireframe writes "€ 1,153" and "− € 141", with the symbol
+    # ahead of the digits and a space after it. Both en and nl put the euro sign first, so this
+    # is one convention rather than a per-locale table; `prefix` is applied AFTER the sign so a
+    # negative amount reads "− € 141" rather than "€ −141" — the wireframe's arrangement, and the
+    # one that keeps a column of amounts aligned on the symbol.
+    #
+    # Whole euros, not cents. §2.4's tile shows "€ 331" and the waterfall "+ € 402"; a euro
+    # figure carried to the cent would assert a precision the 2027 tariffs behind it do not have
+    # (appendix A's terugleverkosten rate is an explicit placeholder).
+    "eur": {"pattern": "#,##0", "prefix": "€"},
+    # A euro amount that may be negative, carrying its sign: "€ 331" / "− € 331". The saving,
+    # which §7.2 item 9 makes legitimately negative in euros as well as in kWh.
+    "eur_signed": {"pattern": "#,##0", "prefix": "€", "signed": True},
+    # An explicitly-signed euro amount: "+ € 402" / "− € 141". §2.4's waterfall, where every line
+    # is a contribution to a saving and the sign is the whole point of the row. `zero_unsigned`
+    # because a line whose euro value rounds to zero has no direction to state: "− € 0" reads as a
+    # loss where the measurement is a few cents either way. In practice such a line does not reach
+    # this formatter at all — `results_view.WATERFALL_DISPLAY_EPS_EUR` is tied to THIS pattern's
+    # rounding (0.5, whole euros), so anything that would print "€ 0" is dropped from the display
+    # first. `zero_unsigned` is the belt to that braces, and it is what keeps a KPI or a future
+    # cents-precision row honest if the pattern here ever changes.
+    "eur_force_signed": {
+        "pattern": "#,##0", "prefix": "€", "force_sign": True, "zero_unsigned": True
+    },
+    # As "eur" but with no symbol, for the KPI tile that renders its own unit: "331" / "−331".
+    "eur_bare": {"pattern": "#,##0", "signed": True},
     # A bare count with grouping and no unit: "8,760" / "8.760".
     "count": {"pattern": "#,##0"},
     # A bare number to one/two decimals, no unit — the per-day cycle rate and similar.
@@ -386,16 +414,26 @@ def format_num(value, kind: str, locale: str) -> str:
         return text.replace(".", point) + (
             spec.get("space", " ") + spec["unit"] if spec.get("unit") else ""
         )
+    # A currency SYMBOL sits ahead of the digits and behind the sign: "− € 141", not "€ −141"
+    # and not "−€ 141". Inserted here rather than by prepending to the finished text so that the
+    # sign logic below stays the one place a sign is decided; each branch attaches its sign to
+    # `prefixed(text)` and the arrangement is stated once.
+    prefix = spec.get("prefix")
+
+    def prefixed(digits: str) -> str:
+        return f"{prefix} {digits}" if prefix else digits
+
     if spec.get("signed") or spec.get("force_sign"):
         text = format_decimal(abs(scaled), format=spec["pattern"], locale=locale)
         rounds_to_zero = not any(ch.isdigit() and ch != "0" for ch in text)
         unsigned = rounds_to_zero and (spec.get("zero_unsigned") or not spec.get("force_sign"))
+        text = prefixed(text)
         if unsigned:
             pass
         elif scaled < 0:
-            text = MINUS + text
+            text = MINUS + " " + text if prefix else MINUS + text
         elif spec.get("force_sign"):
-            text = "+" + text
+            text = "+ " + text if prefix else "+" + text
     else:
         # Format the MAGNITUDE and re-attach the sign, rather than letting babel sign it, for the
         # same reason the `signed` branch does: babel given −0.4 and the pattern "#,##0" produces
@@ -405,8 +443,10 @@ def format_num(value, kind: str, locale: str) -> str:
         # difference of three sums and does land marginally below zero when the battery barely
         # cycles, so this is reachable, not theoretical.
         text = format_decimal(abs(scaled), format=spec["pattern"], locale=locale)
-        if scaled < 0 and any(ch.isdigit() and ch != "0" for ch in text):
-            text = MINUS + text
+        negative = scaled < 0 and any(ch.isdigit() and ch != "0" for ch in text)
+        text = prefixed(text)
+        if negative:
+            text = MINUS + " " + text if prefix else MINUS + text
 
     unit = spec.get("unit")
     if unit:

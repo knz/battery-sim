@@ -16,7 +16,12 @@ Covered:
     * an explicit start/end range → 200;
     * the fragment carries REAL simulated figures, including an honestly-rendered negative saving;
     * bad inputs → clean 4xx (unknown preset, both period+range, end<=start, non-object body);
-    * no dataset → 409.
+    * no dataset → 409;
+    * §2.4's COST SAVINGS section, end to end: present exactly when the STORED `simulate_cost` is
+      on, the "enable cost simulation" affordance offered exactly when it is not, the rendered
+      energy half unchanged across the toggle (fixture 18 on the HTML rather than on the data),
+      the Charts box gaining a euro option rather than swapping the kWh one, and the money
+      benchmark gated on `simulate_cost` as well as on `with_benchmark`.
 """
 
 from __future__ import annotations
@@ -369,3 +374,269 @@ def test_benchmark_route_no_dataset_409(tmp_path, monkeypatch):
     c = TestClient(main.app)
     r = c.post("/results/benchmark", json={"period": "last_1_week"})
     assert r.status_code == 409
+
+
+# ══ Phase 6 — the §2.4 COST SAVINGS section, end to end through the routes ════════════════════
+#
+# The view-model tests in tests/test_results_view.py own the arithmetic and the capture-ratio
+# shapes. These own what the PAGE does: that the section appears and disappears with the stored
+# `simulate_cost`, that the energy half is untouched by the toggle (fixture 18, on the rendered
+# HTML rather than on the view-model), and that the "enable cost simulation" affordance is present
+# exactly when there is no section.
+#
+# The dataset the `client` fixture seeds carries no price series, which would make every euro
+# figure NaN, so these tests use their own fixture with a spot price and a PV series.
+
+
+def _price_frame(name: str, values, n: int = _HOURS):
+    idx = (
+        np.arange(n).astype("timedelta64[s]") * 3600
+        + np.datetime64("2026-01-01T00:00:00")
+    ).astype("datetime64[s]")
+    vals = np.full(n, float(values)) if np.isscalar(values) else np.asarray(values, dtype=float)
+    return SeriesFrame(name, "price", 3600, idx, vals, np.zeros(n, dtype=QUALITY_DTYPE))
+
+
+@pytest.fixture()
+def cost_client(tmp_path, monkeypatch):
+    """A client over a priced dataset, with `simulate_cost` STORED ON.
+
+    The flag is persisted through `simconfig_store` rather than patched into the route, because
+    that is the path a user's answer in the setup band actually takes (Phase 5 wired it) and the
+    routes all read the same stored config. Returns the client and the store module so a test can
+    flip the toggle and re-request without rebuilding the dataset.
+    """
+    monkeypatch.setenv("BATTERY_SIM_DATA_DIR", str(tmp_path))
+
+    from app import dataset, simconfig_store
+    from app.domain.simconfig import SimulationConfig
+
+    # A price with a real spread: six expensive hours a day, eighteen cheap ones, repeated over
+    # the 30-day window. A flat price makes the bill a constant times a total, which would hide a
+    # sign error in §6.10.
+    prices = [0.30 if (h % 24) in (7, 8, 17, 18, 19, 20) else 0.04 for h in range(_HOURS)]
+    dataset.save_dataset(
+        [
+            _energy("grid_import_t1", 2.0),
+            _energy("grid_export_t1", 0.5),
+            _energy("solar_production", 3.0),
+            _price_frame("price_spot", prices),
+        ],
+        (_WIN_START, _WIN_END), "test", [], None,
+    )
+    cfg = SimulationConfig()
+    cfg.simulate_cost = True
+    simconfig_store.save(cfg)
+
+    from app import main
+    return TestClient(main.app), simconfig_store
+
+
+def test_cost_section_renders_when_simulate_cost_is_on(cost_client):
+    """§2.4's COST SAVINGS section, on the page: the divider, the tile, the waterfall.
+
+    Asserted on the section's own headings rather than on a euro amount, because the amounts move
+    with the fixture while the structure is what §2.4 specifies.
+    """
+    client, _ = cost_client
+    r = client.post("/results", json={"period": "last_1_week"})
+    assert r.status_code == 200
+    assert "Cost savings" in r.text
+    assert "MONEY SAVED" in r.text
+    assert "Where the money comes from" in r.text
+    assert "Net saving" in r.text
+    # The tile's sentence (§2.4's wireframe), and a euro amount beside it.
+    assert "without a battery" in r.text and "with one" in r.text
+    assert "€" in r.text
+    # …and the affordance to enable what is already enabled is NOT offered.
+    assert "Want to know what this is worth in euros?" not in r.text
+
+
+def test_cost_section_absent_and_affordance_offered_when_simulate_cost_is_off(cost_client):
+    """§2.4 "Panel ③ without cost simulation", on the page — the same dataset, the toggle flipped.
+
+    Two things the spec asks for by name: the section and everything in it is ABSENT (not a
+    placeholder and not a zero — "a blank where a headline number would go reads as a failed
+    calculation"), and a short affordance sits at the foot of the energy section linking back to
+    the `simulate_cost` control in the setup band, "since it defaults off, some users will
+    otherwise never discover that the app can do this at all".
+    """
+    client, store = cost_client
+    from app.domain.simconfig import SimulationConfig
+
+    store.save(SimulationConfig())  # simulate_cost defaults to False
+    r = client.post("/results", json={"period": "last_1_week"})
+    assert r.status_code == 200
+    assert "Cost savings" not in r.text
+    assert "MONEY SAVED" not in r.text
+    assert "Where the money comes from" not in r.text
+    assert "Net saving" not in r.text
+    assert "Benchmark: money saved" not in r.text
+    # The affordance, and the anchor it points at — the setup band's radio, which Phase 5 wired.
+    assert "Want to know what this is worth in euros?" in r.text
+    assert "Enable cost simulation" in r.text
+    assert 'href="#setup-simulate-cost"' in r.text
+    # The energy section is complete, not truncated: §2.4 says the panel "is complete without the
+    # second half rather than looking truncated".
+    assert "Energy savings" in r.text
+    assert "Where the energy comes from" in r.text
+
+
+def test_fixture_18_the_rendered_energy_half_is_unchanged_by_the_toggle(cost_client):
+    """§6.14 fixture 18, on the RENDERED PAGE: "a user who ticks the box should see their kWh
+    numbers stay exactly where they were, because a question about money is not a question about
+    kilowatt-hours".
+
+    The view-model tests assert this block by block on the data. This asserts it on the HTML,
+    which is the thing the user actually sees — it catches a template change that reorders or
+    re-labels a row without moving a number, which the view-model comparison cannot.
+
+    The comparison is on the fragment UP TO the cost divider, so the added section is not itself
+    the difference.
+    """
+    client, store = cost_client
+    from app.domain.simconfig import SimulationConfig
+
+    on = client.post("/results", json={"period": "last_1_week"}).text
+    store.save(SimulationConfig())
+    off = client.post("/results", json={"period": "last_1_week"}).text
+
+    # Everything above the COST SAVINGS divider. With cost off the divider is absent, so the
+    # energy half is the whole fragment up to the affordance that replaced it.
+    marker_on = on.index("Cost savings")
+    marker_off = off.index("Want to know what this is worth in euros?")
+    head_on = on[:marker_on]
+    head_off = off[:marker_off]
+    # The chart's tab strip differs by one button (§2.4: "the Charts box GAINS options"), and the
+    # affordance/divider boundary itself differs, so the comparison is on the FIGURES and LABELS
+    # of the energy section rather than on the raw bytes.
+    for label in ("Grid import, no battery", "Grid import, with battery",
+                  "Charged into the battery", "Discharged from the battery",
+                  "Conversion losses", "Standby consumption", "Grid export",
+                  "GRID IMPORT SAVED", "SELF-SUFFICIENCY", "EQUIVALENT FULL CYCLES"):
+        assert (label in head_on) == (label in head_off), label
+
+    import re as _re
+
+    def figures(html: str) -> list[str]:
+        """Every kWh figure in the energy half, in document order."""
+        return _re.findall(r"[\d,]+ kWh", html)
+
+    assert figures(head_on) == figures(head_off)
+    # The percentages too — the self-sufficiency arrow and the saving's delta.
+    assert _re.findall(r"[+−]?[\d.]+ ?%", head_on) == _re.findall(r"[+−]?[\d.]+ ?%", head_off)
+
+
+def test_the_monthly_chart_gains_a_euro_option_rather_than_swapping_the_kwh_one(cost_client):
+    """§2.4: "The Charts box gains options rather than swapping them" — *Monthly savings (€)*
+    BESIDE the kWh one, as separate views and not a dual axis.
+
+    So with cost on there are two view buttons and two series in the data node; with cost off
+    there is one button and the euro series is null. A dual axis would put both series in one
+    trace, which is the reading §2.4 says the panel's two-section split exists to prevent.
+    """
+    client, store = cost_client
+    import json as _json
+    import re as _re
+
+    on = client.post("/results", json={"period": "last_1_week"}).text
+    assert 'data-chart-view="kwh"' in on
+    assert 'data-chart-view="eur"' in on
+    assert "Monthly savings (€)" in on
+    node = _json.loads(_re.search(
+        r'<script id="monthly-data" type="application/json">(.*?)</script>', on, _re.S
+    ).group(1))
+    assert node["eur_values"] is not None
+    # The two series describe the SAME buckets — one month, two bars, one window.
+    assert len(node["eur_values"]) == len(node["values"])
+    assert node["ytitle"] != node["eur_ytitle"]
+
+    from app.domain.simconfig import SimulationConfig
+    store.save(SimulationConfig())
+    off = client.post("/results", json={"period": "last_1_week"}).text
+    assert 'data-chart-view="eur"' not in off
+    assert "Monthly savings (€)" not in off
+    node_off = _json.loads(_re.search(
+        r'<script id="monthly-data" type="application/json">(.*?)</script>', off, _re.S
+    ).group(1))
+    # Fixture 19: null, never 0.0 and never an empty list a chart would draw as a flat line.
+    assert node_off["eur_values"] is None
+    # …and the kWh series is untouched (fixture 18).
+    assert node_off["values"] == node["values"]
+
+
+def test_the_money_benchmark_box_renders_from_the_shared_partial(cost_client):
+    """§2.4's money box, through the lazy path — and proof `_benchmark_box.html` generalised.
+
+    Both boxes render from ONE partial: it takes rows, a gloss, an optional title and an optional
+    note, none of which is kWh-specific. The `with_benchmark=True` render is the only one that
+    carries either, and it carries BOTH — run D and run E, gated together.
+
+    A short window (a 7-day preset over a 30-day dataset) keeps the four DP passes cheap.
+    """
+    client, _ = cost_client
+    r = client.get("/")
+    assert r.status_code == 200
+    # The lazy path: the initial paint carries the money slot as a PLACEHOLDER, not a computed
+    # box — the heading and the spinner, none of the figures.
+    assert 'id="cost-benchmark-slot"' in r.text
+    assert "Benchmark: money saved" in r.text
+    assert "computing" in r.text
+
+    r = client.post("/results/benchmark", json={"period": "last_1_week"})
+    assert r.status_code == 200
+    # With cost simulation on the response carries BOTH boxes, each wrapped with the slot it
+    # belongs in, because both DPs ran on this request anyway. Returning one and discarding the
+    # other would pay ~2.3 s for a result nobody sees.
+    assert 'data-slot="benchmark-slot"' in r.text
+    assert 'data-slot="cost-benchmark-slot"' in r.text
+    assert "Benchmark: grid import avoided" in r.text
+    assert "Benchmark: money saved" in r.text
+
+
+def test_the_benchmark_response_is_a_bare_energy_box_when_cost_is_off(client):
+    """The energy path's fetch contract is unchanged by the money box existing.
+
+    With cost simulation off there is no second box, so the response is `_benchmark_box.html`'s
+    output alone — no `data-slot` wrappers — which is exactly the shape index.html's handler
+    consumed before this increment. Pinned so the two-box shape cannot become unconditional and
+    silently change what an energy-only install receives.
+    """
+    r = client.post("/results/benchmark", json={"period": "last_1_week"})
+    assert r.status_code == 200
+    assert "data-slot=" not in r.text
+    assert "Benchmark: money saved" not in r.text
+
+
+def test_the_money_box_is_gated_on_simulate_cost_as_well_as_on_with_benchmark(cost_client):
+    """Run E is gated by BOTH flags — §6.12's table says the cost benchmark runs "only when
+    cfg.simulate_cost", and the deliverable's latency rule says only `with_benchmark` pays for a
+    DP. Asserted on the view-model through the same stored config the routes read, because no
+    route renders the money box unasked — the panel paints a placeholder and the lazy fetch fills
+    it (see `test_the_money_benchmark_box_renders_from_the_shared_partial`).
+    """
+    client, store = cost_client
+    from app import dataset, results_view, simconfig_store
+    from app.domain.simconfig import SimulationConfig
+
+    loaded = dataset.load_latest()
+    window = results_view.resolve_window(loaded, period="last_1_week")
+
+    # cost on, benchmark not asked for → no DP was paid for, so no box.
+    r = results_view.results_from(loaded, window, cfg=simconfig_store.load())
+    assert "cost_benchmark" not in r
+    assert r["cost"] is not None   # the cheap euro figures are there either way
+
+    # cost off, benchmark asked for → run D ran, run E did not.
+    r = results_view.results_from(
+        loaded, window, cfg=SimulationConfig(), with_benchmark=True
+    )
+    assert "benchmark" in r
+    assert "cost_benchmark" not in r
+
+    # both → both boxes.
+    r = results_view.results_from(
+        loaded, window, cfg=simconfig_store.load(), with_benchmark=True
+    )
+    assert "benchmark" in r and "cost_benchmark" in r
+    assert r["cost_benchmark"]["title"] == "Benchmark: money saved"

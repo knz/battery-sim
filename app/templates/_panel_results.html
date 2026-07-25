@@ -1,11 +1,24 @@
 {#
   _panel_results.html — Panel ③ Results (specs/02-ux-wireframes.md §2.4).
 
-  Rendered expanded. This increment has simulate_cost=False, so ONLY the ENERGY SAVINGS
-  section is shown: the three KPI tiles, the energy breakdown, the (optional) benchmark bars,
-  the secondary metrics, the monthly-savings chart, and the caveats box. The COST SAVINGS
-  section and the money KPI/waterfall/benchmark are ABSENT (§2.4 "Panel ③ without cost
-  simulation"), replaced by the "enable cost simulation" affordance at the foot.
+  Rendered expanded, in TWO SECTIONS (§2.4). ENERGY SAVINGS is always shown: the three KPI
+  tiles, the energy breakdown, the (optional) benchmark bars, the secondary metrics, the
+  monthly chart and the caveats box. COST SAVINGS is shown only when `results.cost` is
+  present — the money KPI tile and its baseline → battery sentence, the money benchmark box,
+  and the "Where the money comes from" waterfall.
+
+  **The two sections are gated by ONE `{% if results.cost %}`**, because §4.5 makes `cost` null
+  WHOLESALE rather than an object of null fields, "at the granularity at which the UI actually
+  branches". app/results_view.py emits the key only under cfg.simulate_cost.
+
+  **Nothing in the cost branch touches anything above the divider.** §2.4: enabling the toggle
+  "adds the second section and changes nothing in the first" — a user who ticks the box must see
+  their kWh numbers stay exactly where they were. That is fixture 18, and it is asserted on the
+  view-model rather than on this file, but the structure here is what keeps it true of the page.
+
+  With cost off, §2.4's "Want to know what this is worth in euros? [ Enable cost simulation ]"
+  affordance sits at the foot of the ENERGY section (not below the caveats), anchored to the
+  setup band's simulate_cost radio.
 
   Two ways this template is rendered:
     1. by index() as part of the full page (initial load), and
@@ -248,8 +261,16 @@
              opener has to remain clickable. `btn-disabled` alone is the DaisyUI look-disabled
              class without the attribute, which is exactly the pending idiom — the control does
              nothing but says why when asked. #}
+          {# §2.4: "The Charts box gains options rather than swapping them." The kWh view is
+             always offered and shown by default; the euro view appears BESIDE it only when there
+             is a euro series, and the two are separate views rather than a dual axis (see the
+             draw function in index.html). The switching is delegated from `document` there, like
+             every other control in this swappable fragment. #}
           <div class="join">
-            <button class="btn btn-xs join-item btn-active">{{ _('Monthly grid import') }}</button>
+            <button type="button" class="btn btn-xs join-item btn-active" data-chart-view="kwh">{{ _('Monthly grid import') }}</button>
+            {% if results.monthly_saved_eur %}
+            <button type="button" class="btn btn-xs join-item" data-chart-view="eur">{{ _('Monthly savings (€)') }}</button>
+            {% endif %}
             <button type="button" class="btn btn-xs join-item opacity-60" data-pending-name="{{ _('SoC + price chart') }}" data-feature-key="chart_soc_price">{{ _('SoC + price') }} [?]</button>
             <button type="button" class="btn btn-xs join-item opacity-60" data-pending-name="{{ _('Energy flows chart') }}" data-feature-key="chart_energy_flows">{{ _('Energy flows') }} [?]</button>
           </div>
@@ -259,6 +280,107 @@
       </div>
     </div>
 
+    {# ── Cost section absent (cost off): offer to enable it (§2.4). ───────
+       §2.4 "Panel ③ without cost simulation": a short affordance at the FOOT OF THE ENERGY
+       SECTION, linking back to the `simulate_cost` choice in the setup band (§2.1) — "since it
+       defaults off, some users will otherwise never discover that the app can do this at all".
+       It sits here, above the COST SAVINGS divider, rather than below the caveats where it used
+       to: with cost simulation on there IS a section below this point, and an invitation to
+       enable what is already enabled would sit in the middle of the panel.
+
+       The link is a real anchor to the setup band's radio, which Phase 5 wired. It does not
+       submit anything — the choice is the user's to make and confirm in the band, and a button
+       that silently flipped a simulation-wide toggle from the results panel would recompute the
+       page out from under them. #}
+    {% if not results.cost %}
+    <div class="alert bg-base-200 border border-base-300">
+      <span>{{ _('Want to know what this is worth in euros?') }}</span>
+      <a href="#setup-simulate-cost" class="btn btn-primary btn-sm">{{ _('Enable cost simulation') }}</a>
+    </div>
+    {% endif %}
+
+    {# ══ COST SAVINGS (§2.4) ═════════════════════════════════════════════
+       Rendered ONLY when the view-model carries a `cost` block, which app/results_view.py emits
+       only under cfg.simulate_cost. §4.5 makes `cost` null WHOLESALE rather than an object of
+       null fields, precisely so this is one `{% if %}` rather than a dozen — "the whole cost
+       section is rendered or it is not".
+
+       §2.4 is equally explicit that enabling the toggle "changes nothing in the first" section:
+       every figure above this divider is identical to what an energy-only run shows. Nothing in
+       this branch touches anything above it. #}
+    {% if results.cost %}
+    <div class="divider divider-start text-xs font-semibold uppercase tracking-wider text-base-content/70">
+      {{ _('Cost savings') }}
+    </div>
+
+    {# ── MONEY SAVED tile + the baseline → battery sentence ─────────────
+       §2.4's wireframe puts the tile and the sentence side by side in one bordered block, not as
+       three peer tiles like the energy row: there is one headline euro figure, and the space
+       beside it carries the two bills it is the difference of. #}
+    <div class="stats stats-vertical sm:stats-horizontal border border-base-300 bg-base-200 w-full">
+      <div class="stat">
+        <div class="stat-title text-xs">{{ _(results.cost.kpi.title) }}</div>
+        <div class="stat-value text-2xl">{{ msg(results.cost.kpi.value) }}<span class="text-base font-normal text-base-content/60"> {{ results.cost.kpi.unit }}</span></div>
+        <div class="stat-desc">{{ msg(results.cost.kpi.delta) }}</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value text-base font-normal">{{ msg(results.cost.kpi.sentence) }}</div>
+        <div class="stat-desc whitespace-normal">{{ msg(results.cost.kpi.note) }}</div>
+      </div>
+    </div>
+
+    {# ── Benchmark: money saved (§2.4, bounded by §6.12's run-E DP) ──────
+       The SAME partial the energy box uses — it reads `rows`, `gloss`, an optional `title` and an
+       optional `note`, none of which is kWh-specific. It arrives on the same lazy path: run E is
+       another ~4.6 s of DP, so `results_from` computes it only under `with_benchmark=True`, and
+       the key is absent on GET / and POST /results.
+
+       It lazy-fetches on the SAME request as the energy box. POST /results/benchmark runs both
+       DPs anyway when cost simulation is on — run E is gated on `with_benchmark` exactly as run D
+       is — so returning one box and discarding the other would pay for a ~2.3 s pass and throw it
+       away. The response is therefore both boxes, each wrapped in a marked container, and the
+       browser distributes them by slot id. One route, one fetch, one DP bill.
+
+       This slot renders only when cost simulation is on: with it off there is no money box to
+       wait for, and a placeholder that never fills reads as broken. #}
+    {% if results.cost_benchmark %}
+    {# Already rendered — the view-model carried a box (the static sample). #}
+    <div id="cost-benchmark-slot">
+      {% with benchmark = results.cost_benchmark %}{% include "_benchmark_box.html" %}{% endwith %}
+    </div>
+    {% elif results.cost %}
+    <div id="cost-benchmark-slot">
+      <div class="card bg-base-100 border border-base-300 rounded-box">
+        <div class="card-body gap-2 p-4">
+          <h3 class="text-sm font-semibold text-base-content/70">{{ _('Benchmark: money saved') }}</h3>
+          <p class="text-xs text-base-content/60">⟳ {{ _('computing…') }}</p>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+    {# ── Where the money comes from (§2.4's waterfall) ───────────────────
+       The rows are `cost.waterfall_rows`, which the view-model has ALREADY pruned of lines that
+       evaluate to zero (§2.4: dropped from the display, never from `cost.waterfall`). This loop
+       renders what it is given and does no filtering of its own — the drop threshold is a
+       display decision with a stated tolerance and belongs beside the figure it tests.
+
+       A `disabled` row carries a WORD where the others carry a figure (§4.5's `"enabled": false`
+       on the degradation line), so its value goes through msg() like any other message. #}
+    <div class="card bg-base-200 border border-base-300">
+      <div class="card-body gap-1 p-4">
+        <h3 class="text-sm font-semibold text-base-content/70">{{ _('Where the money comes from') }}</h3>
+        {% for row in results.cost.waterfall_rows %}
+          {% if row.rule_above %}<div class="my-1 border-t border-base-300"></div>{% endif %}
+          <div class="flex justify-between {% if row.rule_above %}font-semibold{% endif %}">
+            <span>{{ _(row.label) }}</span>
+            <span class="figure-col {% if row.disabled %}text-base-content/50{% endif %}">{{ msg(row.value) }}</span>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
     {# ── Caveats ───────────────────────────────────────────────────────── #}
     <div class="card bg-base-200 border border-base-300">
       <div class="card-body gap-2 p-4">
@@ -267,12 +389,6 @@
         <div role="alert" class="alert alert-warning py-2"><span class="text-sm">⚠ {{ msg(c) }}</span></div>
         {% endfor %}
       </div>
-    </div>
-
-    {# ── Cost section absent (cost off): offer to enable it (§2.4). ─────── #}
-    <div class="alert bg-base-200 border border-base-300">
-      <span>{{ _('Want to know what this is worth in euros?') }}</span>
-      <button class="btn btn-primary btn-sm">{{ _('Enable cost simulation') }}</button>
     </div>
   </div>
 
@@ -286,7 +402,15 @@
      these strings are the last point at which the server can put the reader's language on the
      x-axis. Doing it in the view-model was the old behaviour and it hardcoded English. #}
   {%- set month_labels = results.chart.months | map('monthname') | list -%}
+  {# `| default(none, true)` on the euro series, explicitly: a view-model that predates it (the
+     static sample) leaves the key ABSENT, and Jinja's Undefined is not JSON-serialisable, so
+     `tojson` would raise rather than emit null. `none` is what the draw function tests for when
+     it decides whether the euro view exists at all. #}
   <script id="monthly-data" type="application/json">
-    {{ {"months": month_labels, "values": results.chart["values"], "ytitle": _('kWh')} | tojson }}
+    {{ {"months": month_labels,
+        "values": results.chart["values"],
+        "ytitle": _('kWh'),
+        "eur_values": results.monthly_saved_eur | default(none, true),
+        "eur_ytitle": _('€')} | tojson }}
   </script>
 </section>

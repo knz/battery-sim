@@ -32,13 +32,41 @@ only under `with_benchmark=True`, which only `POST /results/benchmark` passes. `
 asymmetric with the policy run, so a policy that liquidates its opening charge can produce a ratio
 no percentage can mean. See that function for the four shapes and why the fix belongs in the view.
 
+Panel ③ now also carries §2.4's **COST SAVINGS section**, under `cfg.simulate_cost`. The euro
+pipeline sits alongside the energy one and never inside it:
+
+    price_curves     →  §6.5's per-interval EUR/kWh arrays for this window
+    compute_costs    →  runs A and C billed under §6.10 (a MARGINAL bill — fixed costs excluded)
+    waterfall        →  §6.10's eight-line decomposition of the difference
+    (here)           →  the MONEY SAVED tile, the money benchmark box, "Where the money comes
+                        from", the monthly euro series, and the euro caveats
+
+**`cost` is emitted or it is absent — never an object of null fields** (§4.5, which singles out
+"a `waterfall` array of eight null-valued entries, which would invite a template to render eight
+empty rows"). Same convention for `cost_benchmark` and `monthly_saved_eur`, and the template
+branches the whole section on the one key.
+
+**Fixture 18 is the constraint the cost path is written under**: every energy figure must be
+bit-identical with cost simulation on and off, down to the per-interval SoC trace. That holds
+structurally rather than by care — the cost functions are pure functions of the flows, they are
+called after `run_all` and feed nothing back into it, and `economic_guard` (the one cost term
+that could reach the dispatch path) is forced off by `SimulationConfig` itself when
+`simulate_cost` is false.
+
+**The euro capture ratio has THREE shapes, not the energy box's four.** §6.12's drift correction
+is exact in kWh and has no sound euro analogue (follow-up H10, and `CostBenchmark`'s docstring),
+so the money box does not restate a drift-funded ratio on a corrected basis — it says the
+comparison is unavailable on that basis. That case is COMMON, not exceptional: 48 of 144 swept
+configurations produce a euro ratio above 1, all in the liquidating half. See
+`_cost_benchmark_block`.
+
 What is NOT emitted this increment (later phases):
-  * the §6.12 COST benchmark (run E) and any euro figure — `simulate_cost` is false.
   * the "intervals battery was full / empty" secondary row — it needs a SoC-bound comparison the
     metrics layer does not own yet; omitted rather than guessed.
   * annualisation — a short-window run (< min_annualisation_days) sets `annualisation_disabled`
     with a message so the template can show the §2.4 info box; nothing is annualised here anyway.
-  * any euro figure — `simulate_cost` is false, so §6.10 does not run.
+  * §6.16's price bracketing and §6.13's euro-basis resolution bias — both cost-only §4.5 fields,
+    neither of which has a domain-layer implementation to render.
 
 The view-model also carries a `data_summary` key: the §2.3a "Your data at a glance" figures repeated
 inside panel ③ but computed over the SELECTED window (spot price clamped to it too), rendered from
@@ -106,7 +134,9 @@ Main items:
     PERIOD_DAYS               preset name → span in days (§7.4 predefined ranges).
     min_annualisation_days    below this a window is too short to annualise (specs appendix-a, §7.4).
     resolve_window(dataset, *, period, start, end) -> (start, end)   the window resolver.
-    results_from(dataset, window) -> dict | None   the panel-③ energy-savings view-model, or None.
+    results_from(dataset, window) -> dict | None   the panel-③ view-model, or None.
+    _cost_block / _cost_benchmark_block / _monthly_saved_eur   the §2.4 COST SAVINGS section.
+    WATERFALL_DISPLAY_EPS_EUR  below this a waterfall line is dropped from the DISPLAY only.
 """
 
 from __future__ import annotations
@@ -118,7 +148,15 @@ import numpy as np
 
 from app.dataset import LoadedDataset
 from app.domain import normalize
-from app.domain.benchmark import EnergyBenchmark, _capture_ratio, energy_benchmark
+from app.domain.benchmark import (
+    CostBenchmark,
+    EnergyBenchmark,
+    _capture_ratio,
+    cost_benchmark,
+    energy_benchmark,
+)
+from app.domain.costs import WATERFALL_LINES, CostResult, compute_costs, waterfall
+from app.domain.pricing import price_curves
 from app.domain.metrics import SOC_DRIFT_WARN_FRAC, EnergyMetrics, energy_metrics
 from app.domain.reconcile import (
     CLAMP_UNRELIABLE_FRAC,
@@ -729,6 +767,428 @@ def _monthly_import(rec: ReconciledGrid) -> dict:
     return {"months": labels, "values": [round(v) for v in values]}
 
 
+# ── §2.4's COST SAVINGS section ──────────────────────────────────────────────────────────────
+#
+# Everything below runs only under `cfg.simulate_cost`. §4.5 is explicit that `cost` is null
+# WHOLESALE when the toggle is off — "not an object of null fields, and in particular not a
+# `waterfall` array of eight null-valued entries, which would invite a template to render eight
+# empty rows" — so the key is ABSENT from the view-model rather than present and empty, matching
+# how `benchmark` is already handled. The template guards on it.
+#
+# Fixture 18 is the constraint the whole section is written under: every energy figure must be
+# bit-identical with cost simulation on and off, down to the per-interval SoC trace. That holds
+# here structurally rather than by care — `price_curves` and `compute_costs` are pure functions of
+# the flows, they are called AFTER `run_all` and never feed back into it, and `economic_guard` is
+# forced off by `SimulationConfig` itself when `simulate_cost` is false. Nothing in this section
+# can reach the dispatch path.
+
+# §6.10's eight waterfall keys → the English label §2.4's wireframe prints for each. The DOMAIN
+# key (`costs.WATERFALL_LINES`) is not display text — `costs.WaterfallLine`'s docstring says so —
+# so the mapping lives here, in the view, and the labels are marked with `_N` so `pybabel extract`
+# finds them. The order is `WATERFALL_LINES`' order, which is §6.10's, and it is asserted against
+# that tuple at import time below so a line added to the domain layer cannot silently render
+# unlabelled.
+#
+# Two labels differ from §6.10's key names because §2.4's wireframe writes them differently:
+# `added_grid_import_charging` is shown as "Grid import for charging" (the wireframe folds it into
+# its "Avoided grid import" line's neighbourhood without naming the mechanism), and
+# `standby_consumption` carries its kWh figure as a parenthetical in the wireframe. The kWh
+# parenthetical is NOT reproduced: it would make the row's label a runtime string, and the standby
+# kWh is already stated in the energy breakdown directly above.
+_WATERFALL_LABELS: dict[str, str] = {
+    "avoided_grid_import": _N("Avoided grid import"),
+    "added_grid_import_charging": _N("Grid import for charging"),
+    "avoided_terugleverkosten": _N("Avoided terugleverkosten"),
+    "lost_feedin_compensation": _N("Lost feed-in compensation"),
+    "arbitrage_export_revenue": _N("Grid arbitrage export revenue"),
+    "standby_consumption": _N("Standby consumption"),
+    "feedin_floor_topup": _N("Feed-in floor top-up"),
+    "degradation": _N("Degradation cost"),
+}
+assert tuple(_WATERFALL_LABELS) == WATERFALL_LINES, (
+    "the waterfall's display labels must cover §6.10's lines, in §6.10's order"
+)
+
+# Below this magnitude in euros a waterfall line is treated as ZERO and dropped from the display
+# (§2.4: "lines that evaluate to zero are dropped from the display, never from `cost.waterfall`").
+#
+# **Tied to the rows' rounding, not to the currency's precision.** The rows render with pattern
+# `#,##0` — whole euros — so every value under €0.50 prints as "€ 0" whatever its true magnitude.
+# A half-CENT threshold would therefore keep exactly the rows §2.4 wants dropped: a line at €0.30
+# is not zero, but it reaches the reader as "€ 0", and a column of "€ 0" says nothing while
+# suggesting the figures failed to compute. Rounding is what the reader sees, so rounding is what
+# the rule keys on.
+#
+# The cost of this is that a line genuinely worth €0.40 is dropped rather than shown as "€ 0" —
+# which is the right trade while the rows are whole euros. Give them cents and this constant
+# should follow them down; the two must not drift apart, which is why the pattern is named here.
+#
+# It is a DISPLAY threshold — `cost.waterfall` carries every line at full precision whatever this
+# is set to, and the closing row is `saved_eur` from the bills, never a sum of what survived.
+WATERFALL_DISPLAY_EPS_EUR = 0.5
+
+
+def _fmt_eur(value: float) -> dict:
+    """A euro amount → a number rendered "€ 1,153" / "€ 1.153" in the render locale."""
+    return num(value, "eur")
+
+
+def _fmt_signed_eur(value: float) -> dict:
+    """A euro amount that may be negative → "€ 331" / "− € 331" (§7.2 item 9, in euros)."""
+    return num(value, "eur_signed")
+
+
+def _cost_block(
+    cost_a, cost_c, lines, cfg: SimulationConfig
+) -> dict:
+    """§4.5's `cost` object plus the §2.4 presentation the COST SAVINGS section renders from.
+
+    `cost_a` / `cost_c` are `costs.CostResult`s for runs A and C — the §6.10 marginal bill, fixed
+    costs excluded (see `app/domain/costs.py`'s module comment; this is deliberately NOT the number
+    at the bottom of an invoice, and the section says so in a caveat).
+
+    The §4.5 fields, computed here and not re-derived anywhere else:
+
+        baseline_eur / battery_eur   the two bills.
+        saved_eur     `cost(A) − cost(C)`, SIGNED. §7.2 item 9's negative-saving case exists in
+                      euros too, and nothing here clamps it.
+        saved_pct     `100 × saved / baseline`, or None when the baseline bill is ~0 — a household
+                      whose marginal bill is nothing has no percentage to have saved, and 0 or 100
+                      would both assert something the data cannot support.
+        waterfall     EVERY line from `costs.waterfall`, at full precision, in §6.10's order. This
+                      is the JSON-shaped list and it is complete; the display list beside it is the
+                      one §2.4 prunes.
+
+    **`waterfall_rows` drops zero lines; `waterfall` keeps them** (§2.4, and §4.5's no-PV section:
+    "lines that evaluate to zero are dropped from the display, never from `cost.waterfall` in the
+    result JSON, which must continue to close against `cost(A) − cost(C)`"). The two lists are
+    built from the same `lines` so they cannot disagree about a value, and only the display one is
+    filtered. On a no-PV household that is four of the eight rows.
+
+    **The degradation line is the exception to the drop rule.** §4.5 shows it carrying an
+    `"enabled": false` flag, and `costs.py`'s module comment is explicit that deciding a line is
+    disabled is a statement about the CONFIG (`degradation_eur_per_kwh == 0`) rather than about the
+    computed number — a run can produce a 0.00 degradation line while degradation is perfectly
+    enabled. So when the RATE is zero the row is shown with the word "disabled" in place of a
+    figure, which is what §2.4's wireframe prints; when the rate is nonzero the row is a figure and
+    obeys the ordinary drop rule. Dropping a disabled row would lose the statement that a
+    parameter is off, which is not the same as a term that came out to nothing.
+
+    **The closing row is the NET SAVING, and it is `saved_eur` rather than a sum of the rows.**
+    §2.4 puts "Net saving" under a rule at the foot of the box. Taking it from the two bills rather
+    than from the line values means the row states the quantity the KPI tile above it states —
+    they are the same number by construction, not by the eight lines happening to add up. The
+    closure identity that makes those two agree is fixture 4's, asserted in `tests/test_costs.py`,
+    and it belongs there rather than being re-checked on a page.
+    """
+    baseline_eur = cost_a.eur
+    battery_eur = cost_c.eur
+    saved_eur = baseline_eur - battery_eur
+    saved_pct = (
+        100.0 * saved_eur / baseline_eur if abs(baseline_eur) > DIV_GUARD_EPS else None
+    )
+
+    degradation_disabled = cfg.pricing.degradation_eur_per_kwh == 0
+
+    rows: list[dict] = []
+    for line in lines:
+        label = _WATERFALL_LABELS[line.label]
+        if line.label == "degradation" and degradation_disabled:
+            # §4.5's `"enabled": false`. The word, not a figure — "€ 0" beside a rate the user set
+            # to zero would read as a measurement rather than as a switch that is off.
+            rows.append({"label": label, "value": _msg("disabled"), "disabled": True})
+            continue
+        # `<=`, not `<`: the rows round half-to-even, so a line worth exactly €0.50 renders
+        # "€ 0" like everything below it. A strict `<` would keep that one value as the single
+        # zero-printing row the rule exists to remove.
+        if abs(line.eur) <= WATERFALL_DISPLAY_EPS_EUR:
+            continue
+        rows.append({"label": label, "value": num(line.eur, "eur_force_signed")})
+    rows.append({
+        "label": _N("Net saving"),
+        "value": num(saved_eur, "eur_force_signed"),
+        "rule_above": True,
+    })
+
+    return {
+        "currency": "EUR",
+        "baseline_eur": baseline_eur,
+        "battery_eur": battery_eur,
+        "saved_eur": saved_eur,
+        "saved_pct": saved_pct,
+        # §4.5's shape, complete and unpruned. `enabled` rides on the degradation entry only,
+        # matching §4.5's example, where it is the one line carrying the flag.
+        "waterfall": [
+            ({"label": line.label, "eur": line.eur, "enabled": False}
+             if line.label == "degradation" and degradation_disabled
+             else {"label": line.label, "eur": line.eur})
+            for line in lines
+        ],
+        # ── Presentation (§2.4) ─────────────────────────────────────────────────────────────
+        "kpi": {
+            "title": _N("MONEY SAVED"),
+            "value": num(saved_eur, "eur_bare"),
+            "unit": "€",
+            "delta": (_fmt_signed_pct(saved_pct) if saved_pct is not None else "n/a"),
+            # The wireframe's sentence beside the tile: the two bills, in the order the reader
+            # reads them. One msgid with two figures rather than an arrow pair, because it is a
+            # sentence rather than a comparison of two like quantities.
+            "sentence": _msg(
+                "%(baseline)s without a battery → %(battery)s with one",
+                baseline=_fmt_eur(baseline_eur),
+                battery=_fmt_eur(battery_eur),
+            ),
+            "note": _msg(
+                "Priced under the 2027 regime from the contract you entered. See the caveats "
+                "below."
+            ),
+        },
+        "waterfall_rows": rows,
+    }
+
+
+def _cost_benchmark_block(bench, cfg: SimulationConfig) -> dict:
+    """§2.4's "Benchmark: money saved" box, from the §6.12 COST block (run E).
+
+    The sibling of `_benchmark_block`, and it renders through the same `_benchmark_box.html`
+    partial — the partial takes a `rows` list and a `gloss` and knows nothing about kWh, so it
+    generalised without a change. Only the box's TITLE differs, which is why the block carries a
+    `title` and the partial reads it (with the energy box's title as its default, so a view-model
+    built before this phase still renders).
+
+    ## The capture ratio: THREE shapes here, not the energy box's four
+
+    `_benchmark_block` has four, and **shape 2 — restate on the drift-corrected basis — does not
+    carry over.** `CostBenchmark`'s docstring is the authority and follow-up H10 records the
+    measurement behind it. §6.12's correction is `saved_kwh + soc_delta_kwh × eta_d`, which is
+    exact in kWh because a residual kWh is worth exactly one avoided kWh whenever it is used. In
+    euros the residual's worth depends on WHEN it is used, and the two sides use it at different
+    times by construction: the DP's terminal constraint forces it to carry charge through (or
+    repurchase at) the expensive hours, while a liquidating policy dumps it into the cheap ones and
+    never buys back. Valuing at §6.11's median import price — the obvious analogue, and the reason
+    `median_import_price_eur_kwh` is a field — leaves fixture-6 violations up to €0.91, measured;
+    valuing at the window maximum nearly restores the ordering, which is evidence that the BASIS is
+    wrong rather than the DP. There is no sound euro correction to reach for, so this box does not
+    reach for one.
+
+    What it does instead is what `CostBenchmark`'s docstring instructs: **branch on
+    `policy_soc_delta_kwh` and say the comparison is unavailable on that basis.** That is a
+    weaker statement than the energy box's, and deliberately so — a restated percentage the reader
+    could act on would be more useful and would not be true.
+
+    **This is the COMMON case, not an edge case.** Measured over `_fixture_6_cost_configs`'
+    144-configuration sweep, 48 produce a euro capture ratio above 1 (up to 1.60), all of them in
+    the liquidating half. A box that treated it as a rare fault would be wrong on a third of runs.
+
+    The three shapes:
+
+      1. **normal** — drift immaterial and `0 ≤ ratio ≤ 1`. A plain percentage, with §2.4's
+         one-line note that this ceiling and the energy one come from different dispatches ("buying
+         cheaply is not the same as importing little"), and the export sentence when the fourth row
+         is shown.
+      2. **drift-funded** — `policy_soc_delta_kwh` materially negative, by `_drift_is_material`'s
+         test. NO ratio is printed and none is restated. The box says the battery ended less
+         charged than it started, that the benchmark may not do that, and that the comparison is
+         not available in euros on that basis.
+      3. **bound ≈ 0, or a ratio above 1 with non-negative drift.** The first is `capture_ratio is
+         None` and branches on the policy row exactly as the energy box does. The second is the
+         case `CostBenchmark`'s docstring calls "a genuine fault", and it reuses the energy box's
+         `_FAULT_GLOSS` wording: one literal, one msgid, and the reader sees the same sentence for
+         the same condition on either box.
+
+    The ROWS and the bar scale follow `_benchmark_block` exactly, including the negative-saving
+    floor on the bar only. See that function; the reasoning is identical with euros substituted for
+    kWh, and it is not repeated here.
+
+    **`floor_binds` is disclosed, and here is why it is a sentence rather than a suppression**
+    (follow-up H11). The floor top-up is `max(0, −Σ_period export × compensation)`, a function of a
+    whole assessment period's dispatch, so run E cannot price it inside `transition_cost` without a
+    second DP state dimension; it minimises the per-interval bill and the top-up is applied
+    afterwards. In a window where the floor binds, the bound is on the pre-top-up bill and a policy
+    could in principle beat the full-bill figure by stumbling into a larger top-up than the DP's
+    dispatch earns. H11 records that HOW LARGE such a violation could get has not been measured.
+
+    So: the rows and the ratio are shown as computed, and one sentence is appended saying the
+    ceiling is not exact over this window and in which direction it is soft. Suppressing the box
+    would be an overreaction — the floor binds only when a whole assessment period's export earned
+    a net negative amount, which is rare, and the bound is still informative — and printing the
+    figure unqualified would be the thing `floor_binds` exists to prevent. The sentence is
+    appended to whatever gloss the shape produced rather than replacing it, because the two say
+    different things and the reader needs both.
+    """
+    pf = bench.perfect_foresight_eur
+    unc = bench.perfect_foresight_eur_unconstrained
+
+    show_unconstrained = (
+        unc is not None
+        and bench.capture_ratio is not None
+        and bench.capture_ratio_unconstrained is not None
+        and abs(bench.capture_ratio - bench.capture_ratio_unconstrained)
+        > benchmark_divergence_display_threshold
+    )
+
+    scale = max(bench.policy_eur, pf, unc if show_unconstrained else pf, 0.0)
+
+    def frac(value: float) -> float:
+        if scale <= DIV_GUARD_EPS:
+            return 0.0
+        return max(0.0, min(1.0, value / scale))
+
+    rows = [
+        {"label": "No battery", "value": _fmt_eur(0.0), "frac": 0.0, "dot": False},
+        {"label": "Your policy", "value": _fmt_signed_eur(bench.policy_eur),
+         "frac": frac(bench.policy_eur), "dot": True},
+        {"label": "Perfect foresight", "value": _fmt_signed_eur(pf),
+         "frac": frac(pf), "dot": True},
+    ]
+    if show_unconstrained:
+        assert unc is not None  # narrowed by show_unconstrained; restated for the type reader
+        rows.append({"label": "…if export allowed", "value": _fmt_signed_eur(unc),
+                     "frac": frac(unc), "dot": True})
+
+    # The same display tolerance `_benchmark_block` uses, and for the same reason: a policy that
+    # exactly matches the bound is the best possible outcome, and a ratio of 1.0000000000000024
+    # must not be reported as broken.
+    RATIO_RANGE_EPS = 1e-6
+    # `_drift_is_material` reads `policy_soc_delta_kwh` and `policy_saved_kwh`, neither of which
+    # `CostBenchmark` spells the same way, so the test is written out here against the euro saving.
+    # It is the SAME test — §6.11's `SOC_DRIFT_WARN_FRAC` with a sign condition, per §2.4's "reuse
+    # SOC_DRIFT_WARN_FRAC rather than introducing a second threshold" — with the relative base in
+    # euros, since that is the figure the ratio is built on. A drift small against a large euro
+    # saving cannot have funded it.
+    delta = bench.policy_soc_delta_kwh
+    base = abs(bench.policy_eur)
+    if delta >= 0:
+        drift_funded = False
+    elif base > DIV_GUARD_EPS:
+        # The residual valued at §6.11's own basis, compared against the saving it might have
+        # funded. Note this uses the median price to size the QUESTION, not to answer it: whether
+        # the drift is material is a magnitude comparison, which a single price can settle; what
+        # the drift is worth to each side is the thing H10 says no single price can settle.
+        price = bench.median_import_price_eur_kwh
+        residual_eur = abs(delta) * cfg.eta_d * (price if price is not None else 0.0)
+        drift_funded = residual_eur > SOC_DRIFT_WARN_FRAC * base
+    else:
+        drift_funded = abs(delta) > DIV_GUARD_EPS
+
+    fault_gloss = _msg(_FAULT_GLOSS)
+
+    if bench.capture_ratio is None:
+        # Shape 3a: the bound is ~0. Branch on the visible policy row, exactly as the energy box
+        # does — a box must never assert that nothing was achievable above a non-zero figure.
+        if abs(bench.policy_eur) <= DIV_GUARD_EPS:
+            gloss = _msg(
+                "Over this period even a perfectly-informed battery could not have saved any "
+                "money, so there is no capture ratio to report."
+            )
+        else:
+            gloss = _msg(
+                "The best possible dispatch over this period could not have saved any money, yet "
+                "your policy shows %(policy)s saved. That figure is not something a "
+                "perfectly-informed battery could reproduce: the benchmark must return the "
+                "battery to the state of charge it started from, and your policy did not. There "
+                "is no capture ratio to report for this period.",
+                policy=_fmt_signed_eur(bench.policy_eur),
+            )
+    elif drift_funded:
+        # Shape 2: drift-funded. NO ratio, and no restatement — see this function's docstring and
+        # follow-up H10. The sentence names the residual in kWh, which is the quantity that is
+        # actually measured; converting it to euros here would be the correction the block does
+        # not have.
+        gloss = _msg(
+            "Your battery ended this period %(residual)s less charged than it started, so part "
+            "of the money it saved was paid for out of the charge it began with rather than "
+            "earned by its dispatch. The benchmark is not allowed to do that — it must finish at "
+            "the state of charge it started from. In kilowatt-hours the two can be put back on a "
+            "comparable footing; in euros they cannot, because what that leftover charge was "
+            "worth depends on when it was used, and the two dispatches use it at different times. "
+            "So no capture ratio is shown for this period. Selecting a period that starts and "
+            "ends at a similar state of charge gives a comparison in euros.",
+            residual=_fmt_kwh(abs(bench.policy_soc_delta_kwh)),
+        )
+    elif bench.capture_ratio > 1.0 + RATIO_RANGE_EPS:
+        # Shape 3b: above the bound with NON-negative drift. `CostBenchmark`'s docstring calls this
+        # the genuine fault, and it gets the energy box's fault wording — the same condition
+        # described the same way on both boxes.
+        gloss = fault_gloss
+    elif show_unconstrained and bench.capture_ratio_unconstrained is not None:
+        gloss = _msg(
+            "Your policy captures %(pct)s percent of the money a perfectly-informed battery "
+            "could have saved. A different ceiling from the energy benchmark, and a different "
+            "dispatch behind it: buying cheaply is not the same as importing little. Allowed to "
+            "export, that ceiling rises to %(ceiling)s (a %(unc_pct)s percent capture) — the "
+            "extra is arbitrage your export setting currently forbids.",
+            pct=num(round(100 * bench.capture_ratio), "count"),
+            ceiling=_fmt_eur(unc),
+            unc_pct=num(round(100 * bench.capture_ratio_unconstrained), "count"),
+        )
+    else:
+        gloss = _msg(
+            "Your policy captures %(pct)s percent of the money a perfectly-informed battery "
+            "could have saved. A different ceiling from the energy benchmark, and a different "
+            "dispatch behind it: buying cheaply is not the same as importing little.",
+            pct=num(round(100 * bench.capture_ratio), "count"),
+        )
+
+    block = {
+        "title": _N("Benchmark: money saved"),
+        "rows": rows,
+        "gloss": gloss,
+    }
+    if bench.floor_binds:
+        # H11's disclosure. A SECOND message rather than a variant of each gloss above: it
+        # qualifies the ceiling regardless of which shape was chosen, it fires rarely, and folding
+        # it into four msgids would make four sentences a translator has to keep in step.
+        block["note"] = _msg(
+            "Over this period the statutory feed-in floor paid out, and the benchmark cannot see "
+            "it: the floor is assessed over a whole billing period while the benchmark optimises "
+            "each interval on its own. The ceiling above is therefore approximate for this "
+            "period, and it is a floor on the ceiling rather than a hard one — a policy could in "
+            "principle earn a larger top-up than the benchmark's dispatch does."
+        )
+    return block
+
+
+def _monthly_saved_eur(
+    rec: ReconciledGrid, per_interval_saved_eur: np.ndarray
+) -> list[float]:
+    """Monthly Σ of the per-interval euro saving, bucketed like `_monthly_import` (§4.5 `monthly`).
+
+    §2.4's *Monthly savings (€)* chart option and §4.5's `monthly[].saved_eur`. The bucketing is
+    the SAME calendar-month bucketing `_monthly_import` performs over the same intervals, so the
+    two series' bars line up under the two chart options — a euro bar and a kWh bar for one month
+    describe one window.
+
+    `per_interval_saved_eur` is `(A − C)` per interval on the PRE-TOP-UP bill, which is the only
+    part of §6.10's bill that HAS a per-interval decomposition. The feed-in floor top-up is a
+    period-level scalar with no per-interval allocation at all (`app/domain/costs.py`'s module
+    comment: pushing it into a per-interval line "would require choosing an allocation across
+    intervals"), so it is excluded here rather than smeared. The consequence is stated rather than
+    hidden: in the rare window where the floor binds, these monthly bars sum to slightly less than
+    the headline `saved_eur`, and the section's caveat says so.
+
+    `np.nansum` per bucket for the same reason every sum in the cost layer is one: a gap interval
+    is NaN on both sides and must contribute zero euros rather than poisoning a whole month.
+    """
+    n = len(rec.imp)
+    win_start = np.datetime64(rec.window[0].replace(tzinfo=None), "s")
+    bucket_start = win_start + (np.arange(n) * rec.grid_s).astype("timedelta64[s]")
+    years = bucket_start.astype("datetime64[Y]").astype(int) + 1970
+    months = bucket_start.astype("datetime64[M]").astype(int) % 12 + 1
+    values: list[float] = []
+    seen: dict[tuple[int, int], int] = {}
+    saved = np.asarray(per_interval_saved_eur, dtype=np.float64)
+    for i in range(n):
+        key = (int(years[i]), int(months[i]))
+        if key not in seen:
+            seen[key] = len(values)
+            values.append(0.0)
+        v = saved[i]
+        if not np.isnan(v):
+            values[seen[key]] += float(v)
+    return values
+
+
 def results_from(
     dataset: LoadedDataset,
     window: tuple[datetime, datetime],
@@ -815,11 +1275,59 @@ def results_from(
     pv_present = _pv_present(rec, pv_mask)
     metrics: EnergyMetrics | None = None
     bench: EnergyBenchmark | None = None
+    cost: dict | None = None
+    cost_bench: CostBenchmark | None = None
+    monthly_saved_eur: list[float] | None = None
     if frame is not None and frame.intervals > 0:
         # `rec` and `frame` come from the same reconcile_grid over the same window, so `pv_mask`
         # (built against `rec`) indexes `frame`'s arrays too — same length, same interval starts.
         runs = run_all(frame, cfg)
         metrics = energy_metrics(runs, frame, cfg, pv_mask=pv_mask)
+        # ── §6.5 + §6.10: the euro side, ONLY under `cfg.simulate_cost` (§4.5, §6.12's table) ──
+        #
+        # Everything here runs AFTER `run_all` and feeds nothing back into it, which is what makes
+        # fixture 18 hold structurally: `price_curves` and `compute_costs` are pure functions of
+        # the flows, and `economic_guard` — the one cost term that could reach the dispatch path —
+        # is forced off by `SimulationConfig` itself whenever `simulate_cost` is false. The energy
+        # figures above are computed identically either way, including the SoC trace.
+        #
+        # Cost is CHEAP (a handful of array passes, no DP), so unlike the benchmark it runs on
+        # every request rather than behind `with_benchmark`. Only run E below is expensive.
+        if cfg.simulate_cost:
+            curves = price_curves(cfg.pricing, frame.spot)
+            cost_a = compute_costs(
+                runs.a, curves.p_import, curves.p_export_net, curves.compensation,
+                frame.index, cfg.pricing,
+            )
+            cost_c = compute_costs(
+                runs.c, curves.p_import, curves.p_export_net, curves.compensation,
+                frame.index, cfg.pricing,
+            )
+            # The flat terugleverkosten rate, recovered as §6.5's `PriceCurves` documents it. A
+            # scalar, matching `waterfall`'s signature; `nanmax` rather than an element because
+            # every element is NaN wherever `spot` was, and the rate is one constant across the
+            # window under TlkMode.FLAT. A window with NO priced interval at all leaves it NaN,
+            # which would poison the two export lines, so it falls back to 0.0 — in that window
+            # every flow-times-price product is NaN anyway and every line is zero regardless.
+            tlk_arr = np.asarray(curves.compensation, dtype=np.float64) - np.asarray(
+                curves.p_export_net, dtype=np.float64
+            )
+            tlk = float(np.nanmax(tlk_arr)) if np.any(~np.isnan(tlk_arr)) else 0.0
+            lines = waterfall(
+                runs.a, runs.b, runs.c, curves.p_import, curves.compensation, tlk,
+                cfg.pricing, frame.index, curves.p_export_net,
+            )
+            cost = _cost_block(cost_a, cost_c, lines, cfg)
+            # §4.5's `monthly[].saved_eur`, on the PRE-TOP-UP per-interval bill — the only part of
+            # the bill that decomposes per interval. See `_monthly_saved_eur`.
+            p_imp = np.asarray(curves.p_import, dtype=np.float64)
+            p_exp = np.asarray(curves.p_export_net, dtype=np.float64)
+            def _per_interval_bill(flows):
+                return (np.asarray(flows.imp, dtype=np.float64) * p_imp
+                        - np.asarray(flows.exp, dtype=np.float64) * p_exp)
+            monthly_saved_eur = _monthly_saved_eur(
+                rec, _per_interval_bill(runs.a) - _per_interval_bill(runs.c)
+            )
         # §6.12's perfect-foresight DP — ONLY when the caller asked for it. Runs A and C are
         # passed in rather than re-run, so the policy saving inside the benchmark block is the
         # SAME number the KPI tile shows.
@@ -830,6 +1338,15 @@ def results_from(
         # changelog. Nothing is cached — that option was considered and not chosen.
         if with_benchmark:
             bench = energy_benchmark(runs.a, runs.c, frame, cfg)
+            # Run E — §6.12's COST DP. Gated on `with_benchmark` for the same latency reason run D
+            # is (another ~4.6 s for its two passes, doubling the box's cost), AND on
+            # `cfg.simulate_cost`, which is §6.12's own table: the cost benchmark runs "only when
+            # cfg.simulate_cost". `cost_benchmark` deliberately does not check the flag itself —
+            # its docstring says a function returning None on a config flag would make "cost
+            # simulation is off" and "the DP failed" the same result — so the check is here, at the
+            # one caller.
+            if cfg.simulate_cost:
+                cost_bench = cost_benchmark(runs.a, runs.c, frame, cfg, curves)
 
     imp_str = _fmt_kwh(rec.imp_total)
     exp_str = _fmt_kwh(rec.exp_total)
@@ -1034,14 +1551,36 @@ def results_from(
         # §7.2 items 9 and 10. Without PV the battery's value is in the price SPREAD — a euro
         # quantity — so an energy-only run measures the cost of moving the energy and none of the
         # benefit. Say that plainly rather than presenting a negative kWh figure as a verdict.
-        caveats.append(_msg(
-            "This battery imported %(extra)s MORE from the grid than "
-            "the same household without one. That is a real result, not an error: round-trip "
-            "losses and standby cost energy, and the value of charging cheaply and discharging "
-            "when prices are high is a price spread — a euro quantity this energy-only run does "
-            "not compute. An energy-only run cannot tell you whether the battery is worth buying.",
-            extra=_fmt_kwh(abs(metrics.saved_kwh)),
-        ))
+        #
+        # TWO msgids, branching on whether euros were actually computed. The energy-only wording
+        # ends "a euro quantity this energy-only run does not compute", which with cost simulation
+        # ON is simply false — the COST SAVINGS section directly below states that very quantity,
+        # and a caveat contradicting the section beneath it is worse than no caveat. So the
+        # cost-on variant keeps the explanation of WHY the kWh figure is negative and points at the
+        # euro figure instead of disclaiming it.
+        #
+        # This does not breach fixture 18: the invariant is over the ENERGY FIGURES, and §2.4
+        # itself says the caveats box gains euro-qualifying text when euros are modelled. The
+        # cost-OFF wording is untouched, which is what a reader comparing the two modes checks.
+        if cost is None:
+            caveats.append(_msg(
+                "This battery imported %(extra)s MORE from the grid than "
+                "the same household without one. That is a real result, not an error: round-trip "
+                "losses and standby cost energy, and the value of charging cheaply and "
+                "discharging when prices are high is a price spread — a euro quantity this "
+                "energy-only run does not compute. An energy-only run cannot tell you whether the "
+                "battery is worth buying.",
+                extra=_fmt_kwh(abs(metrics.saved_kwh)),
+            ))
+        else:
+            caveats.append(_msg(
+                "This battery imported %(extra)s MORE from the grid than the same household "
+                "without one. That is a real result, not an error: round-trip losses and standby "
+                "cost energy. The battery's value is in the price spread — charging cheaply and "
+                "discharging when prices are high — which is a euro quantity, so read the cost "
+                "savings below rather than this figure to judge whether it is worth buying.",
+                extra=_fmt_kwh(abs(metrics.saved_kwh)),
+            ))
     if metrics is not None and metrics.soc_drift_significant:
         # §6.11's SoC drift correction. Without a cost model there is no median import price, so
         # the euro valuation (`soc_delta_value_eur`) is null and is not shown — only the kWh.
@@ -1093,6 +1632,59 @@ def results_from(
             "phases the energy result should be close; what is not modelled is the per-phase "
             "power limit, which a 1-phase battery cannot exceed however the load is distributed."
         ))
+
+    # ── The EURO caveats (§2.4: "the caveats that qualify a euro figure … appear only with cost
+    # simulation on, because there is no euro figure to qualify"). Placed before the standing
+    # parameter-set note so that note stays last, as it was.
+    if cost is not None:
+        # What the bill IS, and what it is not. §6.10 excludes vastrecht, netbeheerkosten and the
+        # vermindering energiebelasting because none of them responds to consumption, so they
+        # cancel exactly out of a before-and-after comparison — but the two figures beside the
+        # tile are labelled "without a battery" and "with one", which a reader may take for two
+        # invoice totals. They are not, and the difference is large (the fixed part of a Dutch
+        # bill is on the order of several hundred euros a year), so it is stated rather than left
+        # to be discovered.
+        caveats.append(_msg(
+            "The euro figures count only the part of your bill that responds to what you do with "
+            "your electricity. Standing charges — vastrecht, netbeheerkosten and the "
+            "vermindering energiebelasting — are left out, because they do not change when a "
+            "battery is installed and would cancel out of the comparison anyway. So these are "
+            "not two invoice totals; they are the two halves of your bill a battery can move."
+        ))
+        # Appendix A is explicit that the 2027 tariffs are unpublished and that the
+        # terugleverkosten rate shipped is a PLACEHOLDER. §2.4's own framing of the two-section
+        # split is that a euro figure is "that data plus a contract model assembled from
+        # unpublished 2027 tariffs", and the panel should say so where the euros are.
+        caveats.append(_msg(
+            "This is priced under the post-2027 regime, in which net metering no longer exists. "
+            "Several of those tariffs are not yet published — the terugleverkosten rate in "
+            "particular is a placeholder — so the euro figures move with the contract you "
+            "entered in the parameters panel and should be read as a scenario rather than as a "
+            "quotation."
+        ))
+        # §6.5's feed-in compensation is NOT clamped per interval, which is the point of the
+        # model, but it is the single assumption most likely to surprise: exporting can COST
+        # money. Stated only when it actually bit, so the box does not carry a general warning
+        # about a case this run did not reach.
+        if any(line["label"] == "lost_feedin_compensation" and line["eur"] > 0
+               for line in cost["waterfall"]):
+            caveats.append(_msg(
+                "Some of the export this battery avoided would have earned a NEGATIVE net "
+                "amount — the terugleverkosten on it exceeded the compensation — so not "
+                "exporting is counted as a gain rather than as a loss. That is how the 2027 "
+                "regime works and not an error in the arithmetic."
+            ))
+        # The per-interval / period-aggregate split behind `monthly[].saved_eur`, stated only in
+        # the window where it actually matters. `costs.py` cannot allocate the top-up across
+        # intervals without inventing a convention, so the monthly bars omit it and their sum
+        # falls short of the headline by exactly that amount.
+        if abs(cost_c.topup_eur - cost_a.topup_eur) > WATERFALL_DISPLAY_EPS_EUR:
+            caveats.append(_msg(
+                "The statutory feed-in floor paid out over this period. It is assessed over a "
+                "whole billing period rather than hour by hour, so it appears as its own line in "
+                "the money breakdown and is left out of the monthly savings chart, whose bars "
+                "therefore add up to slightly less than the headline figure."
+            ))
 
     # State the parameter set the figures were computed under. Stated rather than hidden — a
     # figure computed from an unstated parameter set is the kind of number that propagates
@@ -1149,6 +1741,19 @@ def results_from(
         "benchmark_request": json.dumps(
             {"start": eff[0].isoformat(), "end": eff[1].isoformat()}
         ),
+        # §4.5's `cost`, NULL WHOLESALE when `simulate_cost` is off — not an object of null
+        # fields, and in particular not a waterfall of eight null entries. The template renders
+        # the whole COST SAVINGS section under one `{% if results.cost %}`, which is the
+        # granularity §4.5 says the UI actually branches at.
+        "cost": cost,
+        # §4.5's `monthly[].saved_eur`, null under the same toggle and never 0.0 (fixture 19).
+        # Carried beside the kWh series the chart already had, in the same bucket order, so the
+        # two chart OPTIONS §2.4 asks for are two views of one bucketing rather than two series
+        # that could disagree about which month a bar belongs to.
+        "monthly_saved_eur": monthly_saved_eur,
+        # §4.5's `simulate_cost`, so a consumer reading this view-model can tell "cost is null
+        # because the user turned it off" from "cost is null because there was nothing to price".
+        "simulate_cost": bool(cfg.simulate_cost),
     }
 
     # §2.4's benchmark box. Absent — not zeroed — when there was no simulation to bound; the
@@ -1156,6 +1761,12 @@ def results_from(
     # rendering a box of invented numbers.
     if bench is not None:
         result["benchmark"] = _benchmark_block(bench, cfg.eta_d)
+    # §2.4's money benchmark box, on the same absent-not-zeroed convention and gated by BOTH
+    # `with_benchmark` and `simulate_cost` (see the run-E call site). §4.5's `benchmarks.cost` is
+    # null wholesale without cost simulation; here that is an absent key, exactly as
+    # `benchmarks.energy` is absent when the DP did not run.
+    if cost_bench is not None:
+        result["cost_benchmark"] = _cost_benchmark_block(cost_bench, cfg)
 
     # Short-window guard (§7.4): below min_annualisation_days annualisation is disabled. We annualise
     # nothing here; the flag + message let the template show the §2.4 info box. Uses the EFFECTIVE
