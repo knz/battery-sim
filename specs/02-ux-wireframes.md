@@ -1102,6 +1102,28 @@ Notes on the two sections:
   export is on, or when the bounds are within the threshold, the row is omitted and the box
   reads exactly as before. This keeps a dense box from carrying a near-duplicate line that
   says nothing.
+- **The capture ratio is not always a percentage, and must not always be printed as one.**
+  The benchmark must finish at or above its starting SoC and the policy run need not
+  ([§6.12](12-metrics-and-benchmarks.md#the-terminal-constraint-makes-the-two-sides-asymmetric--compare-them-drift-corrected)),
+  so a policy that ends materially emptier than it started has funded part of its saving out
+  of its *opening charge*. The raw quotient then reaches values like −493% or 2859%, and in
+  the worst case the box glosses "even a perfectly-informed battery could not have avoided
+  any grid import" directly above a row reading "Your policy 9 kWh". Three rules:
+  - When the policy's SoC drift is materially negative — reuse `SOC_DRIFT_WARN_FRAC`
+    ([§6.11](12-metrics-and-benchmarks.md#611-metrics), 2%) with a sign condition rather than
+    introducing a second threshold — state the ratio on the **drift-corrected** figures §6.12
+    gives, and say in one sentence that the battery ended less charged than it started, that
+    the benchmark is not allowed to do that, and that the two are comparable only once the
+    residual is accounted for.
+  - When the bound is ~0, branch the gloss on whether the policy row is *also* ~0. A box must
+    never assert that nothing was achievable directly above a visible non-zero policy figure.
+  - A ratio above 1 is either drift-funded (explain it, per the first rule) or a fault
+    (§6.14 fixture 6). Never render it as a plain percentage; a bare "captures 2859 percent"
+    presents a broken invariant as a result.
+
+  The **rows** stay honest throughout — this rule governs the ratio and its gloss, not the
+  bars. And it corrects only the comparison: §6.11's drift metric is still reported unnetted,
+  and `saved_kwh` is unchanged.
 - **The Charts box gains options rather than swapping them.** *Monthly savings* always
   offers kWh and shows it by default; with cost simulation on it gains a *Monthly savings
   (€)* option beside it. The two are separate views, not a dual axis — a euro series moves

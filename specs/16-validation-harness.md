@@ -36,6 +36,16 @@ Conservation and closure identities are asserted to `CLOSURE_TOL` (a module cons
    than the import-optimal one, so asserting the bound across them would fail
    correctly-built code.
 
+   **Assert it on drift-corrected figures**, per
+   [§6.12](12-metrics-and-benchmarks.md#the-terminal-constraint-makes-the-two-sides-asymmetric--compare-them-drift-corrected):
+   the DP must finish at or above its starting SoC and the policy run need not, so a policy
+   that liquidates its opening charge books a saving the benchmark is forbidden to match and
+   the raw comparison fails on correct code. Correct both sides by
+   `saved + soc_delta_kwh × eta_d` before comparing. The literal uncorrected form is worth
+   asserting *as well*, but only over configurations where the policy's drift is
+   non-negative. Carry a slack of order 0.03 kWh for the DP's residual discretisation error
+   (§6.12) rather than demanding exactness.
+
    Two further checks on the export baselines (§6.12): where the `*_unconstrained` fields
    are present, `perfect_foresight_*_unconstrained ≥ perfect_foresight_*` in the block's own
    units, since the unconstrained DP optimises over a superset of actions; and when

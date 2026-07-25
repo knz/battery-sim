@@ -1,10 +1,33 @@
 # Home Battery Simulator — Specification Package
 
-**Version:** 1.2 (draft for implementation)
-**Date:** 2026-07-23
+**Version:** 1.3 (draft for implementation)
+**Date:** 2026-07-25
 **Status:** Ready for implementer hand-off. Decisions still owed are collected in
 [17-open-questions.md](17-open-questions.md); measurements to run once a prototype exists
 are collected in [19-prototype-experiments.md](19-prototype-experiments.md).
+
+**Changes in 1.3 — corrections from implementation.** §6.6–§6.12 have now been built and
+the energy path measured end to end; four findings against this package came out of that and
+are applied here. They are corrections to *this specification*, not deferred work.
+
+- **§6.12's interpolation rationale was wrong in direction and magnitude.** Nearest-snapping
+  is *optimistic*, not "a systematic pessimism bias of several percent" — its figure lands
+  *below* the realised saving, so it bounds nothing, and it converges upward as the grid
+  refines rather than settling. The instruction to interpolate stands; the reason it gave
+  would have led a reader to treat snapping as the safe conservative option, which is
+  backwards ([§6.12](12-metrics-and-benchmarks.md#612-perfect-foresight-benchmark)).
+- **§6.12's terminal constraint is asymmetric with the policy run** and the package did not
+  say so. The DP must finish at or above its starting SoC; run C need not, and §6.11
+  deliberately reports drift rather than netting it out — so a policy that spends its opening
+  charge books a saving the benchmark is forbidden to match, and fixture 6's bound fails on
+  correct code. The comparison basis is now stated
+  ([§6.12](12-metrics-and-benchmarks.md#the-terminal-constraint-makes-the-two-sides-asymmetric--compare-them-drift-corrected)),
+  along with fixture 6 ([§6.14 item 6](16-validation-harness.md)) and the presentation rule
+  for a drift-funded capture ratio ([§2.4](02-ux-wireframes.md#24-panel--results-expanded)).
+- **§6.12's DP pseudocode omits two things the bound depends on** — putting the starting SoC
+  on the state grid, and making the PV surplus and household deficit representable in the
+  action set. Without either, the DP comes out *below* a policy run it is supposed to bound.
+  Added as implementation notes, with the residual discretisation error quantified.
 
 **Changes in 1.2:** prototype experiments, the measurements that establish which
 parameters, policies and diagnostics actually change the answer

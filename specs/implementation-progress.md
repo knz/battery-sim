@@ -19,6 +19,35 @@ thumbs-up. Interest is recorded locally and, if an endpoint is configured, repor
 the `[?]` button in the template). Do **not** delete the control's feature key — retire it
 (see below), so its counter row keeps its meaning.
 
+## What is built, as of 2026-07-25
+
+The **energy path is complete end to end**: panel ② configures a battery, panel ③ simulates it
+against the household's own persisted data and reports what it would have saved, bounded by the
+§6.12 perfect-foresight benchmark.
+
+| Area | State |
+|---|---|
+| §6.2/§6.3 reconciliation, load reconstruction | built (`app/domain/reconcile.py`) |
+| §4.4 `SimulationFrame`, spot on the simulation grid | built (`app/domain/simframe.py`) |
+| Battery/policy config, appendix-A defaults, §7.3 checks 11/12/18 | built (`app/domain/simconfig.py`) |
+| §6.6–§6.9 policies, battery step, runs A/B/C | built (`app/domain/simulate.py`) |
+| §6.11 energy metrics | built (`app/domain/metrics.py`) |
+| §6.12 perfect-foresight DP — **energy objective (run D) only** | built (`app/domain/benchmark.py`) |
+| Panel ② form, validation, persistence | built (`app/params_view.py`, `app/simconfig_store.py`) |
+| Panel ③ results, benchmark box | built (`app/results_view.py`) |
+
+**Not built** — the whole cost path (§6.5, §6.10, run E, `benchmarks.cost`, the waterfall, the
+COST SAVINGS section) since `simulate_cost` defaults off and remains a pending control; the §6.15
+configuration epochs; §6.16's price bracket; §6.13's resolution-bias diagnostic; §6.17's
+timestamp-misalignment detection; §4.6's per-interval CSV export; and CSV ingestion. §6.14 fixtures
+1, 2, 3, 5, 6, 7, 12, 16, 17 and 21 are implemented; the rest belong to those unbuilt areas.
+
+Known gaps in what *is* built, carried as follow-ups rather than silently: runtime-assembled strings
+(caveats, the benchmark gloss, panel ①'s data-quality box) are not translatable, because an
+f-string has no fixed msgid — they need restructuring around `%(name)s` placeholders; and the
+DC-bonus validation warning is unreachable, since panel ② renders no input for
+`roundtrip_dc_bonus`.
+
 ## Feature keys — the closed vocabulary
 
 Feature keys are short, stable strings naming pending controls in the counter table and the
@@ -32,12 +61,15 @@ authoritative list is `app/features.py` (`FEATURE_KEYS`); the templates carry th
 |---|---|---|---|
 | `data_source_csv` | "Upload CSV" data source | `_panel_data.html` | CSV ingestion |
 | `simulate_cost` | "Simulate cost savings?" choice in the setup band | `_setup_band.html` | cost/pricing model |
-| `discharge_allow_export` | "Allow export to grid during D2/D3" | `_panel_params.html` | export dispatch |
 | `export_csv` | "Export CSV" of results | `_panel_results.html` | results export |
+| `chart_soc_price` | "SoC + price" chart tab | `_panel_results.html` | that chart's series |
+| `chart_energy_flows` | "Energy flows" chart tab | `_panel_results.html` | that chart's series |
 
 ### Retired (feature shipped, key kept)
 
-*(none yet)*
+| Key | Control | Shipped in |
+|---|---|---|
+| `discharge_allow_export` | "Allow export to grid during D2/D3" | panel ② wiring — now a real checkbox bound to `policy.allow_grid_export` |
 
 ## How to add a pending control
 
