@@ -34,8 +34,18 @@ Two policies, both confirmed with the user (see changelog 20260724):
 `data_summary_from` returns None when there is no covering energy series (no simulatable grid):
 the summary has nothing to show, so main.py omits it exactly as in the empty state.
 
-Formatting (thousands-separated kWh, integer percent, €/kWh to 3 dp) lives here so the template
-stays unchanged from the sample; the values are bare data (no translation).
+Formatting is DEFERRED to render time (A6). The figures leave here as `i18n.num()` dicts — a
+number plus the name of a convention (`kwh`, `pct`, `eur_kwh`) — and `templates/_msg.html` turns
+them into text in the request's locale, because Dutch writes 3.924 kWh and 0,094 €/kWh where
+English writes 3,924 kWh and 0.094 €/kWh and this module runs before the locale is known. The
+conventions themselves live in `i18n._NUM_KINDS` so the app has one definition of each.
+
+`coverage` and `solar.coverage` stay ISO dates ("2026-07-24 → 2026-07-25"), deliberately.
+`_data_glance.html` SPLITS `solar.coverage` on " → " to show a start date on its own, so the
+separator and the date shape are a contract between this module and that template, not free
+presentation; ISO is also unambiguous in both languages, unlike a localised short date where
+07/24 and 24-07 mean the same day. `days` stays a plain int — the template pairs it with
+`ngettext('day', 'days', …)`, and a day count never reaches four digits.
 
 Main items:
     data_summary_from(dataset, window=None, *, clamp_price_to_window=False) -> dict | None
@@ -51,6 +61,7 @@ from datetime import datetime
 import numpy as np
 
 from app.dataset import LoadedDataset
+from app.i18n import num
 from app.domain.frames import SeriesFrame
 from app.domain.reconcile import (
     CLAMP_UNRELIABLE_FRAC,
@@ -65,22 +76,32 @@ from app.domain.reconcile import (
 # stats, and the notes — i.e. everything that shapes the summary's presentation.
 
 
-def _fmt_kwh(total: float) -> str:
-    """kWh total → "1,234 kWh" (thousands-separated, rounded to whole kWh, matching the sample)."""
-    return f"{round(total):,} kWh"
+# ── Figures (A6: locale-aware, formatted at RENDER time) ─────────────────────────────────────
+#
+# These used to be f-strings producing "1,234 kWh" and "0.142 €/kWh" while this module ran, which
+# is before the request's locale is known — so a Dutch page showed English separators (Dutch writes
+# 1.234 kWh and 0,142 €/kWh). They now emit `i18n.num()` dicts and `templates/_msg.html` formats
+# them against the render locale via the per-locale `numfmt` filter.
+#
+# The unit suffix ("kWh", "€/kWh", "%") lives in `i18n._NUM_KINDS`, not here and not in the
+# catalogs — those three are written the same way in both languages, and routing a symbol through
+# gettext would invite a translator to "fix" it. The U+2212 minus for a negative spot price is
+# `i18n.format_num`'s job now, so both this module and results_view get it from one place.
 
 
-def _fmt_pct(fraction: float) -> str:
-    """A 0..1 fraction → an integer-percent string like "31%" (the sample's presentation)."""
-    return f"{round(100 * fraction)}%"
+def _fmt_kwh(total: float) -> dict:
+    """kWh total → a number to be rendered as "1,234 kWh" / "1.234 kWh" in the render locale."""
+    return num(total, "kwh")
 
 
-def _fmt_eur(value: float) -> str:
-    """A €/kWh value → "0.142 €/kWh", 3 dp, with a real minus sign for negatives (the sample look)."""
-    s = f"{value:.3f}"
-    if s.startswith("-"):
-        s = "−" + s[1:]  # U+2212 MINUS, as the sample uses for negative spot prices
-    return f"{s} €/kWh"
+def _fmt_pct(fraction: float) -> dict:
+    """A 0..1 fraction → a number to be rendered as an integer percent ("31%")."""
+    return num(fraction, "pct")
+
+
+def _fmt_eur(value: float) -> dict:
+    """A €/kWh value → a number rendered at 3 dp with the unit ("0.142 €/kWh" / "0,142 €/kWh")."""
+    return num(value, "eur_kwh")
 
 
 def _price_stats(frame: SeriesFrame | None) -> dict | None:

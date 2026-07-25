@@ -27,9 +27,19 @@ The view-models do not format sentences themselves; they emit `(msgid, params)` 
 two live in this module rather than in a view because several view modules build the pairs and
 importing between them would be circular — see `msg`'s docstring.
 
+**Nor do they format FIGURES** (A6). Dutch swaps both number separators against English — 3.924 kWh
+and 0,094 €/kWh against 3,924 kWh and 0.094 €/kWh — and a view-model runs before the request's
+locale is known, so a figure formatted there is a figure formatted in the wrong language. A
+view-model emits `num(value, kind)`; `templates/_msg.html` formats it at render time through the
+per-locale `numfmt` filter. `format_num` is the formatter and requires a locale, so no call site
+can quietly leave one out; `num()` is the only locale-free spelling and it does not format. Month
+names work the same way (`month_abbr`, the `monthname` filter). The conventions live in one table
+(`_NUM_KINDS`), so "how the app writes a kWh figure" has a single definition.
+
 Public API:
     SUPPORTED           the language codes the UI offers, in toggle order
     DEFAULT_LOCALE      the fallback code ('en')
+    MINUS               U+2212, the app's minus glyph for every negative figure
     resolve_locale()    pick the code for a request (cookie/header/default)
     get_translations()  the gettext.NullTranslations for a code (cached)
     configure()         point the per-locale envs at a template dir + shared globals (once)
@@ -37,6 +47,9 @@ Public API:
     interpolate()       substitute %(name)s into an already-translated string
     install_for()       install a code's catalog onto a Jinja environment
     msg() / msg_n()     a view-model message as a (msgid, params) pair; msg_n adds the plural
+    num()               a view-model FIGURE as a (value, format-kind) pair, formatted at render
+    format_num()        format such a figure in an explicit locale (the `numfmt` filter's body)
+    month_abbr()        a calendar month's abbreviated name in a locale (the `monthname` filter)
 """
 
 from __future__ import annotations
@@ -46,6 +59,7 @@ import re
 from pathlib import Path
 
 from babel import Locale, negotiate_locale
+from babel.numbers import format_decimal
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from starlette.requests import Request
 
@@ -137,6 +151,14 @@ def env_for(code: str) -> "Environment":
             extensions=["jinja2.ext.i18n"],
         )
         env.filters["interpolate"] = interpolate
+        # `numfmt` is BOUND TO THIS LOCALE, which is the whole point of per-locale environments
+        # doing double duty here: the template writes `{{ v | numfmt }}` with no locale argument,
+        # and it cannot be rendered against the wrong one because there is no shared environment
+        # to install a different locale onto (see this function's docstring). A view-model's
+        # `num()` dict is locale-free until it reaches here.
+        env.filters["numfmt"] = lambda m, _code=code: format_num(m["num"], m["fmt"], _code)
+        env.filters["monthname"] = lambda m, _code=code: month_abbr(m, _code)
+        env.globals["locale_code"] = code
         for name, value in _globals.items():
             env.globals[name] = value
         install_for(env, code)
@@ -234,6 +256,179 @@ def interpolate(template: str, /, **values) -> str:
 # "%%" would mean the one rule this module exists to delete ("remember to double your percent
 # signs") survives for exactly the strings most likely to be edited by a non-programmer.
 _PLACEHOLDER_SAFE_PERCENT = re.compile(r"%(?!\((\w+)\)s)")
+
+
+# ── Locale-aware numbers (A6) ────────────────────────────────────────────────────────────────
+#
+# Dutch swaps both separators against English: 3,924 kWh is 3.924 kWh and 0.094 €/kWh is
+# 0,094 €/kWh. Every figure used to be formatted with `f"{x:,.0f}"` while the view-model was being
+# BUILT, which is before the locale is known — so the Dutch page showed English conventions.
+#
+# The fix mirrors what `msg()` did for sentences. A view-model emits the NUMBER and a format KIND
+# (`num(3924.5, "kwh")`) and the rendering formats it, because rendering is where the locale is.
+# The alternative — threading a `locale` argument down through `results_from` into each helper —
+# was considered and rejected: it puts the display language into the signature of the module that
+# runs the simulation, and nothing enforces it, so a new call site that forgets the argument
+# reproduces exactly this defect while still compiling.
+#
+# The kinds are a closed table rather than a format string per call site, so "how the app writes a
+# kWh figure" has one definition. `pattern` is a CLDR decimal pattern (babel localises the
+# separators; the pattern only fixes the digit counts and grouping).
+_NUM_KINDS: dict[str, dict] = {
+    # kWh totals, whole numbers: "3,924 kWh" / "3.924 kWh".
+    "kwh": {"pattern": "#,##0", "unit": "kWh"},
+    # A kWh figure that MAY be negative and carries its sign explicitly (§7.2 item 9's saving).
+    "kwh_signed": {"pattern": "#,##0", "unit": "kWh", "signed": True},
+    # As "kwh" but with no unit suffix, for the KPI tile that renders its unit separately.
+    "kwh_bare": {"pattern": "#,##0", "signed": True},
+    # An integer percentage of a 0..1 fraction: "31%". No space, matching §2.3a's band.
+    "pct": {"pattern": "#,##0", "scale": 100, "unit": "%", "space": ""},
+    # A percentage of a 0..1 fraction to one or two decimals, unsigned and unspaced: "8.4%",
+    # "0.04%" / "8,4%", "0,04%". For a share too small to survive rounding to a whole percent,
+    # which would print "0%" and say nothing.
+    "pct_dec1": {"pattern": "#,##0.0", "scale": 100, "unit": "%", "space": ""},
+    "pct_dec2": {"pattern": "#,##0.00", "scale": 100, "unit": "%", "space": ""},
+    # A signed percentage to one decimal: "+15.9 %" / "−34.2 %" (§2.4's tile's delta line).
+    # `zero_unsigned`: a value rounding to 0.0 prints "0.0 %" with no sign, because a signed zero
+    # asserts a direction the measurement does not have.
+    "pct_signed": {"pattern": "#,##0.0", "unit": "%", "force_sign": True, "zero_unsigned": True},
+    # €/kWh to 3 dp: "0.094 €/kWh" / "0,094 €/kWh".
+    "eur_kwh": {"pattern": "#,##0.000", "unit": "€/kWh"},
+    # A bare count with grouping and no unit: "8,760" / "8.760".
+    "count": {"pattern": "#,##0"},
+    # A bare number to one/two decimals, no unit — the per-day cycle rate and similar.
+    "dec1": {"pattern": "#,##0.0"},
+    "dec2": {"pattern": "#,##0.00"},
+    # A number at its OWN natural precision, `%g`-style — a config value quoted back in a sentence
+    # ("10 kWh usable, 0.95 round-trip"), where the precision was decided by whoever typed it and
+    # imposing a second one here would undo the first. See `format_num`'s `general` branch: this
+    # one cannot be a CLDR pattern, because a pattern fixes the digit count and that is precisely
+    # what this kind must not do.
+    "general": {"general": True},
+    # A whole number carrying an explicit sign and no unit — the self-sufficiency tile's
+    # percentage-POINT delta ("+10", "−3"), which is a count of points rather than a percentage.
+    # No `zero_unsigned` here, deliberately: a zero-point change prints "+0 pp", matching what the
+    # old `f"{pp:+d} pp"` produced. The two kinds differ on this because the old code did, and
+    # changing either would change the English render.
+    "dec0_signed": {"pattern": "#,##0", "force_sign": True},
+}
+
+# U+2212 MINUS SIGN. Babel emits the locale's own minus, which for both en and nl is ASCII "-";
+# the app writes U+2212 throughout so one panel never shows two different minus glyphs. Applied
+# after formatting rather than by patching the pattern, because it must also catch the sign babel
+# puts on a negative number we did not explicitly sign.
+MINUS = "−"
+
+
+def num(value, kind: str = "count") -> dict:
+    """A NUMBER a template will format in the render locale: `{"num": value, "fmt": kind}`.
+
+    The numeric counterpart of `msg()`, and it exists for the same reason: a value formatted while
+    the view-model is built is formatted before anyone knows what language the page is in. So the
+    view-model hands out the number and the name of the convention, and `templates/_msg.html`
+    formats it against the request's locale — including when it rides inside a `msg()` pair's
+    params, which is where most figures live since 5a/5b.
+
+    `kind` names an entry in `_NUM_KINDS` (kwh, kwh_signed, pct, pct_signed, eur_kwh, count, …), so
+    the app has ONE definition of how it writes a kWh figure rather than one per call site. An
+    unknown kind raises here, at the point the view-model is built, rather than rendering wrongly.
+
+    A non-numeric `value` (None, or the raw string a not-yet-validated config can carry) passes
+    through to `format_num`, which renders it as text rather than raising on a page the user is
+    reading.
+    """
+    if kind not in _NUM_KINDS:
+        raise KeyError(f"unknown number format kind {kind!r}; known: {sorted(_NUM_KINDS)}")
+    return {"num": value, "fmt": kind}
+
+
+def format_num(value, kind: str, locale: str) -> str:
+    """Format a number per `kind` in `locale`. The render-time half of `num()`.
+
+    Also the direct entry point for tests and for the few places that hold a locale already, which
+    is why it takes the locale as a REQUIRED argument: there is no way to call a formatter here
+    without saying which language it is for, and therefore no way to leave a site accidentally
+    English. `num()` is the only locale-free spelling and it does not format.
+
+    Negative numbers come back with U+2212, not ASCII "-" (see `MINUS`).
+
+    Three sign behaviours, each because a call site needs it:
+
+    * plain — babel's own sign, with its ASCII "-" swapped for U+2212.
+    * `signed` — the MAGNITUDE is formatted and the minus prepended, so a value between −0.5 and 0
+      prints "0 kWh" rather than "−0 kWh". A signed zero is a formatting artefact, not a
+      measurement, and it reads as a bug.
+    * `force_sign` — as `signed`, and a non-negative value gets a "+". `zero_unsigned` then decides
+      whether a value that ROUNDS to zero keeps its sign: the percentage delta drops it ("0.0 %"),
+      the percentage-point delta keeps it ("+0"). Both match what the f-strings they replace did.
+
+    Zero-ness is asked of the ROUNDED TEXT, not of the input, because that is what the reader sees:
+    −0.04 renders "0.0" and must not carry a minus, while −0.06 renders "0.1" and must.
+    """
+    spec = _NUM_KINDS[kind]
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        # Not a number: show it as it came (None → "—", matching the old defensive formatters).
+        return "—" if value is None else str(value)
+
+    scaled = value * spec.get("scale", 1)
+    if spec.get("general"):
+        # `%g` picks the digits; only the SEPARATORS are localised. Handing the value to babel
+        # directly would not do: babel groups thousands where `%g` does not ("1,234.5" vs
+        # "1234.5") and expands an exponent to twenty zeroes where `%g` writes "1e+20". Both are
+        # arguably nicer, and both would change the English render, which this step may not do.
+        # So `%g` decides the text and this swaps in the locale's decimal separator.
+        # Only a LEADING "-" is the number's sign; a "-" after an "e" belongs to the exponent and
+        # must stay ASCII ("1e-07", not "1e−07"). These are panel-② config values quoted back to
+        # the user, so an exponent is unusual but reachable for a very small entry.
+        text = f"{scaled:g}"
+        text = MINUS + text[1:] if text.startswith("-") else text
+        point = format_decimal(1.5, locale=locale)[1]
+        return text.replace(".", point) + (
+            spec.get("space", " ") + spec["unit"] if spec.get("unit") else ""
+        )
+    if spec.get("signed") or spec.get("force_sign"):
+        text = format_decimal(abs(scaled), format=spec["pattern"], locale=locale)
+        rounds_to_zero = not any(ch.isdigit() and ch != "0" for ch in text)
+        unsigned = rounds_to_zero and (spec.get("zero_unsigned") or not spec.get("force_sign"))
+        if unsigned:
+            pass
+        elif scaled < 0:
+            text = MINUS + text
+        elif spec.get("force_sign"):
+            text = "+" + text
+    else:
+        # Format the MAGNITUDE and re-attach the sign, rather than letting babel sign it, for the
+        # same reason the `signed` branch does: babel given −0.4 and the pattern "#,##0" produces
+        # "-0", so a rounding artefact reaches the reader as "−0 kWh". The f-strings these kinds
+        # replace could not do that — `f"{round(-0.4):,}"` rounds to int 0 first — so signing here
+        # would be a regression rather than a new convention. `conversion_loss` is a floating
+        # difference of three sums and does land marginally below zero when the battery barely
+        # cycles, so this is reachable, not theoretical.
+        text = format_decimal(abs(scaled), format=spec["pattern"], locale=locale)
+        if scaled < 0 and any(ch.isdigit() and ch != "0" for ch in text):
+            text = MINUS + text
+
+    unit = spec.get("unit")
+    if unit:
+        text += spec.get("space", " ") + unit
+    return text
+
+
+def month_abbr(month: int, locale: str) -> str:
+    """The abbreviated calendar-month name for 1..12 in `locale` ("Jan" / "jan", "Mar" / "mrt").
+
+    The monthly chart's x-axis. It used to read from a table of English abbreviations in
+    `results_view`, which meant a Dutch page's axis said "Jan Feb Mar"; babel's CLDR data has the
+    abbreviation for every locale, so there is no table to translate and nothing to keep in step
+    when a language is added. Registered as the per-locale `monthname` Jinja filter.
+
+    An out-of-range value renders as its own number rather than raising: the chart is decoration on
+    a page of figures, and a broken axis label is not worth a 500.
+    """
+    try:
+        return Locale.parse(locale).months["format"]["abbreviated"][int(month)]
+    except (KeyError, ValueError, TypeError):
+        return str(month)
 
 
 def msg(msgid: str, /, **params) -> dict:

@@ -23,8 +23,15 @@
       initial load; the delegated fetch-handler calls it again after each swap. The inline draw is
       therefore gone from this template — only the data node and the chart container remain.
 
-  UI chrome is wrapped in _() for translation; values (numbers, units, coverage) stay literal.
+  UI chrome is wrapped in _() for translation; coverage strings and ISO dates stay literal.
   Labels/titles/caveats come pre-marked from the view-model and are translated here via _().
+
+  FIGURES are neither literal nor translated: they arrive from app/results_view.py as `i18n.num()`
+  pairs and are formatted by the `msg()` macro in the request's locale, because Dutch writes
+  3.924 kWh and +15,9 % where English writes 3,924 kWh and +15.9 %. That is why the KPI tiles',
+  the breakdown rows' and the secondary rows' `value` all go through `msg()` rather than being
+  printed with `{{ }}` — including the "A → B" comparisons, which are a message with two figures in
+  it precisely because neither half can be turned into text before the locale is known.
 
   The "Your data at a glance" figures are repeated inside this panel, above the Energy savings
   divider, from the SHARED data_glance macro (_data_glance.html) — the same content as panel ①'s
@@ -146,7 +153,7 @@
       {% for k in results.kpis %}
       <div class="stat">
         <div class="stat-title text-xs">{{ _(k.title) }}</div>
-        <div class="stat-value text-2xl">{{ k.value }}{% if k.unit %}<span class="text-base font-normal text-base-content/60"> {{ k.unit }}</span>{% endif %}</div>
+        <div class="stat-value text-2xl">{{ msg(k.value) }}{% if k.unit %}<span class="text-base font-normal text-base-content/60"> {{ k.unit }}</span>{% endif %}</div>
         {# `delta`/`extra` are either empty or a message (a pair from results_view, or a plain
            marked string from the sample view-model — msg() takes both). #}
         <div class="stat-desc">{% if k.delta %}{{ msg(k.delta) }}{% endif %}{% if k.extra %}<br>{{ msg(k.extra) }}{% endif %}</div>
@@ -164,7 +171,7 @@
             {% if row.gap_above %}<div class="h-2"></div>{% endif %}
             <div class="flex justify-between {% if row.rule_above %}font-semibold{% endif %}">
               <span>{{ _(row.label) }}</span>
-              <span class="figure-col">{{ row.value }}</span>
+              <span class="figure-col">{{ msg(row.value) }}</span>
             </div>
           {% endfor %}
         </div>
@@ -176,7 +183,7 @@
           <h3 class="text-sm font-semibold text-base-content/70">{{ _('Secondary metrics') }}</h3>
           {% for row in results.secondary %}
           <div class="flex justify-between">
-            <span>{{ _(row.label) }}</span><span class="figure-col">{{ row.value }}</span>
+            <span>{{ _(row.label) }}</span><span class="figure-col">{{ msg(row.value) }}</span>
           </div>
           {% endfor %}
         </div>
@@ -272,8 +279,14 @@
   {# The monthly grid-import data, embedded fresh on every (re)render so the swapped-in fragment carries
      the new window's series. window.drawMonthlyChart() (index.html) reads THIS node and draws into
      #monthly-chart above. The axis title is translated server-side. This node lives INSIDE
-     #panel-results so it is replaced together with the panel on a swap. #}
+     #panel-results so it is replaced together with the panel on a swap.
+
+     The view-models emit MONTH NUMBERS and the axis labels are made here, by the locale-bound
+     `monthname` filter (app/i18n.month_abbr): the chart is drawn client-side from this node, so
+     these strings are the last point at which the server can put the reader's language on the
+     x-axis. Doing it in the view-model was the old behaviour and it hardcoded English. #}
+  {%- set month_labels = results.chart.months | map('monthname') | list -%}
   <script id="monthly-data" type="application/json">
-    {{ {"months": results.chart.months, "values": results.chart["values"], "ytitle": _('kWh')} | tojson }}
+    {{ {"months": month_labels, "values": results.chart["values"], "ytitle": _('kWh')} | tojson }}
   </script>
 </section>

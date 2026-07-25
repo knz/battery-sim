@@ -23,6 +23,13 @@ use `_msg_n`, so a count of one does not read "1 intervals". The resolution labe
 returns is itself a msgid and travels as a NESTED message, since interpolation happens after
 translation and would otherwise substitute an untranslated English word into a Dutch sentence.
 
+**And every FIGURE is an `i18n.num()` pair, not a formatted number** (A6). The counts in this box
+run to thousands, and Dutch groups them with a point where English uses a comma ("8.760" against
+"8,760"), so a count formatted here — before the request's locale is known — is formatted in the
+wrong language half the time. The number and the name of a convention travel as a param and
+`templates/_msg.html` formats them at render time. Dates do NOT follow: `_fmt_date` stays ISO in
+both locales, deliberately, for the reasons its own docstring gives.
+
 Each mapping row now also carries per-slot source provenance (specs §2.2 slot-first sources):
 `source` (the descriptor key of the source that produced the series, or None) and `sources` (the
 sources the drawer may offer for that slot, as small {key,label,kind,blurb} dicts). Phase C's
@@ -43,7 +50,7 @@ import numpy as np
 from app.dataset import LoadedDataset
 from app.domain import normalize
 from app.domain.frames import QualityFlags, SeriesFrame
-from app.i18n import msg as _msg, msg_n as _msg_n
+from app.i18n import msg as _msg, msg_n as _msg_n, num
 from app.sample_data import _N
 from app.sources import registry
 
@@ -113,10 +120,23 @@ def _res_msg(seconds: int | None) -> dict:
     label = _RES_LABELS.get(seconds)
     if label is not None:
         return _msg(label)
-    return _msg(_RES_SECONDS, n=seconds)
+    return _msg(_RES_SECONDS, n=num(seconds, "count"))
 
 
 def _fmt_date(dt) -> str:
+    """A datetime as an ISO date ("2026-07-24"), the same form in every locale — deliberately.
+
+    Dates were in A6's scope and were considered. Babel's short date for `nl` is "24-07-2026" and
+    for `en` "7/24/26", and the pair is the argument against using them: 07/24 and 24-07 are the
+    same day written two ways, so a reader who is unsure which convention a page follows cannot
+    tell them apart, and the coverage line's whole job is to say unambiguously which days the run
+    spans. ISO is unambiguous, is what a Dutch reader sees on every meter readout, and is already
+    what `summary_view` emits in `coverage` — where `_data_glance.html` SPLITS the string on " → "
+    to show a start date on its own, so the shape is a contract rather than free presentation.
+
+    The one date-adjacent thing that IS localised is the monthly chart's month names, which are
+    words rather than digits and read plainly wrong in the other language (see `i18n.month_abbr`).
+    """
     return dt.date().isoformat()
 
 
@@ -187,7 +207,7 @@ def panel_data_from(dataset: LoadedDataset) -> dict:
                         "(%(res)s, %(n)s intervals)",
                         len(f.values),
                         res=_res_msg(f.resolution_s),
-                        n=len(f.values),
+                        n=num(len(f.values), "count"),
                     )
                     if f is not None
                     else None
@@ -239,7 +259,7 @@ def panel_data_from(dataset: LoadedDataset) -> dict:
                 "%(res)s (last %(n)s days)",
                 fine_days,
                 res=_res_msg(f.fine_resolution_s),
-                n=fine_days,
+                n=num(fine_days, "count"),
             ))
         series_rows.append(
             {
@@ -263,14 +283,14 @@ def panel_data_from(dataset: LoadedDataset) -> dict:
             "%(dates)s   (%(n)s days)",
             days,
             dates=f"{_fmt_date(window[0])} → {_fmt_date(window[1])}",
-            n=days,
+            n=num(days, "count"),
         ),
         "grid": _msg_n(
             "%(res)s  ·  %(n)s interval",
             "%(res)s  ·  %(n)s intervals",
             intervals,
             res=grid_msg,
-            n=f"{intervals:,}",
+            n=num(intervals, "count"),
         ),
         "series": series_rows,
         # "N interval(s)" was a written-out plural — legible but ungrammatical, and untranslatable
@@ -278,13 +298,13 @@ def panel_data_from(dataset: LoadedDataset) -> dict:
         # count the sentence prints, so the two cannot drift.
         "gaps": (
             _msg_n("%(n)s interval flagged as gaps",
-                   "%(n)s intervals flagged as gaps", gaps, n=gaps)
+                   "%(n)s intervals flagged as gaps", gaps, n=num(gaps, "count"))
             if gaps else _msg("none detected")
         ),
         # Not counted: the English carries no noun to pluralise. A translator whose language needs
         # one can still say so — the msgid is a whole clause, so it is theirs to rephrase.
         "resets": (
-            _msg("%(n)s detected and corrected", n=resets) if resets
+            _msg("%(n)s detected and corrected", n=num(resets, "count")) if resets
             else _msg("none detected")
         ),
         "registers": _register_summary(present),
@@ -305,7 +325,7 @@ def panel_data_from(dataset: LoadedDataset) -> dict:
             "Home Assistant · %(n)s series · simulated %(res)s",
             "Home Assistant · %(n)s series · simulated %(res)s",
             len(frames),
-            n=len(frames),
+            n=num(len(frames), "count"),
             res=grid_msg,
         ),
         "days": days,

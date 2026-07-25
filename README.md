@@ -52,7 +52,9 @@ resolved per request as **cookie → `Accept-Language` → English**, and a head
 UI strings are marked for translation in two places: `{{ _('...') }}` in the Jinja templates,
 and `_N('...')` in `app/sample_data.py` (a no-op extraction marker for chrome strings that
 live in the sample view-model; the template translates them with `_(value)` at render). Data
-values — entity IDs, numbers, coverage strings — are left untranslated.
+values — entity IDs, coverage strings — are left untranslated. Numbers are neither: they carry no
+words, so they never reach a catalog, but they are still written differently in each language and
+are formatted at render time (see **Numbers and dates** below).
 
 Catalogs live under `app/locales/<lang>/LC_MESSAGES/messages.{po,mo}`. The compiled `.mo`
 files are **committed**, so running the app needs no compile step — only updating translations
@@ -91,9 +93,9 @@ nothing — the string renders in English on a Dutch page while every catalog re
 View-models therefore emit the constant text and the values separately:
 
 ```python
-_msg("Your meter recorded %(meter)s imported over this period; …", meter=imp_str)
+_msg("Your meter recorded %(meter)s imported over this period; …", meter=num(imp_total, "kwh"))
 _msg_n("simulated %(res)s · %(n)s interval",     # count-driven plural
-       "simulated %(res)s · %(n)s intervals", n_intervals, res=label, n=f"{n_intervals:,}")
+       "simulated %(res)s · %(n)s intervals", n_intervals, res=label, n=num(n_intervals, "count"))
 ```
 
 and templates render them with the `msg()` macro in `app/templates/_msg.html`, which translates
@@ -104,6 +106,35 @@ A parameter may itself be a message, and is then translated before being substit
 an embedded WORD rather than a figure — a resolution label such as "hourly" or "15-min"
 (`app/data_view._res_msg`) appears inside a dozen sentences, and passing it as a bare string would
 leave one English word in each translated one, since interpolation runs after the lookup.
+
+**Numbers and dates.** A figure is not a msgid and does not go in a catalog, but it still depends
+on the locale: Dutch writes `3.924 kWh` and `0,094 €/kWh` where English writes `3,924 kWh` and
+`0.094 €/kWh` — the two separators are swapped. A view-model runs before the request's locale is
+known, so it must not format one. It emits a figure the same way it emits a sentence:
+
+```python
+num(3924.5, "kwh")      # → {"num": 3924.5, "fmt": "kwh"}, formatted at RENDER time
+```
+
+`num()` is in `app/i18n.py` and `kind` names an entry in its `_NUM_KINDS` table (`kwh`, `pct`,
+`eur_kwh`, `count`, `general`, …) — so how the app writes a kWh figure has one definition, and an
+unknown kind raises where the view-model is built rather than mid-render. The `msg()` macro formats
+such a figure whether it is the whole field or a param inside a sentence.
+
+`num()` is **not** an extraction keyword and needs none: nothing in it reaches a catalog. The unit
+suffixes (`kWh`, `€/kWh`, `%`, `pp`) live in that table as literals, deliberately — they are written
+identically in Dutch, and routing a symbol through gettext invites a translator to change one of the
+two places it appears. Every negative figure carries U+2212 (`−`), not the ASCII hyphen, on every
+path and in both locales; babel emits the hyphen, so `format_num` substitutes.
+
+To format one outside a template, call `i18n.format_num(value, kind, locale)` — the locale is a
+required argument on purpose, so no call site can quietly default to English. That is also how the
+tests assert English figures: they pass `locale="en"` explicitly rather than relying on a default.
+
+**Dates stay ISO** (`2026-07-24`) in both locales, and that is a decision rather than an omission —
+`en` short is `7/24/26` and `nl` short is `24-07-2026`, which are the same day written two ways, so
+a reader unsure which convention a page follows cannot tell them apart. Month NAMES are localised,
+because they are words (`app/i18n.month_abbr`, the `monthname` filter — the monthly chart's axis).
 
 **Literal percent signs need no escaping, in a msgid or in a translation.** Write `50%`, not
 `50%%` and not the fullwidth `％`. Two separate mechanisms make that true, and both are needed:

@@ -27,6 +27,7 @@ import numpy as np
 from app.dataset import LoadedDataset
 from app.domain.frames import QUALITY_DTYPE, QualityFlags, SeriesFrame
 from app.sample_data import _data_summary, _panel_data, _panel_results, sample_view
+from app import i18n
 from app.summary_view import data_summary_from
 
 
@@ -96,6 +97,22 @@ def _dataset(frames: list[SeriesFrame]) -> LoadedDataset:
     )
 
 
+def _render(m, locale: str = "en") -> str:
+    """Render a view-model message or FIGURE the way the template does — in English by default.
+
+    Goes through the real per-locale Jinja environment and the real `_msg.html` macro, so this
+    asserts what a reader sees rather than a reimplementation of the render.
+
+    `locale` is explicit and defaults to "en" because these tests assert English wording AND
+    English number conventions ("48 kWh", "0.142 \u20ac/kWh"). Those assertions stay valid as
+    assertions about English now that figures are formatted at render time (A6) — what changed is
+    that the locale has to be named. Pass locale="nl" to assert the Dutch form.
+    """
+    from app import i18n
+    tpl = '{% from "_msg.html" import msg with context %}{{ msg(m) }}'
+    return i18n.env_for(locale).from_string(tpl).render(m=m)
+
+
 def test_computed_grid_and_household_totals():
     # import 2 kWh/h, export 0, no PV, no battery → load = import − export = 2 kWh/h.
     #   imported = 2 * 24 = 48 kWh; exported = 0; consumption = load = 48 kWh.
@@ -103,10 +120,11 @@ def test_computed_grid_and_household_totals():
     ds = _dataset([_energy("grid_import_t1", 2.0), _energy("grid_export_t1", 0.0)])
     s = data_summary_from(ds)
     assert s is not None
-    assert s["grid"] == {"imported": "48 kWh", "exported": "0 kWh"}
+    assert {k: _render(v) for k, v in s["grid"].items()} == {
+        "imported": "48 kWh", "exported": "0 kWh"}
     # load = 48 − 0 = 48 kWh; self_sufficiency = 1 − 48/48 = 0 → "0%".
-    assert s["household"]["consumption"] == "48 kWh"
-    assert s["household"]["self_sufficiency"] == "0%"
+    assert _render(s["household"]["consumption"]) == "48 kWh"
+    assert _render(s["household"]["self_sufficiency"]) == "0%"
     assert s["household"]["net_battery"] is False
     assert s["days"] == 1
     assert s["coverage"] == "2026-01-01 → 2026-01-02"
@@ -126,9 +144,9 @@ def test_computed_self_sufficiency_with_pv():
         _energy("solar_production", 3.0),
     ])
     s = data_summary_from(ds)
-    assert s["household"]["self_sufficiency"] == "75%"
-    assert s["solar"]["produced"] == "72 kWh"
-    assert s["solar"]["self_consumption"] == "100%"
+    assert _render(s["household"]["self_sufficiency"]) == "75%"
+    assert _render(s["solar"]["produced"]) == "72 kWh"
+    assert _render(s["solar"]["self_consumption"]) == "100%"
     assert s["solar"]["partial"] is False  # PV spans the whole window here
     assert s["household"]["net_battery"] is False
     assert s["notes"] == []
@@ -142,7 +160,7 @@ def test_computed_tariff_registers_fold_together():
         _energy("grid_export_t1", 0.0),
     ])
     s = data_summary_from(ds)
-    assert s["grid"]["imported"] == "72 kWh"
+    assert _render(s["grid"]["imported"]) == "72 kWh"
 
 
 def test_computed_existing_battery_variant():
@@ -156,9 +174,10 @@ def test_computed_existing_battery_variant():
         _energy("battery_discharge", 1.0),
     ])
     s = data_summary_from(ds)
-    assert s["household"]["consumption"] == "96 kWh"
+    assert _render(s["household"]["consumption"]) == "96 kWh"
     assert s["household"]["net_battery"] is True
-    assert s["battery"] == {"charged": "48 kWh", "discharged": "24 kWh"}
+    assert {k: _render(v) for k, v in s["battery"].items()} == {
+        "charged": "48 kWh", "discharged": "24 kWh"}
 
 
 def test_computed_heavy_clamp_marks_reconstruction_unreliable():
@@ -174,7 +193,7 @@ def test_computed_heavy_clamp_marks_reconstruction_unreliable():
     assert any(n["key"] == "load_unreliable" for n in s["notes"])
     # The note carries the exported total so the warning can name it (48 kWh over the window).
     note = next(n for n in s["notes"] if n["key"] == "load_unreliable")
-    assert note["export_kwh"] == "72 kWh"  # 3 kWh/h × 24
+    assert _render(note["export_kwh"]) == "72 kWh"  # 3 kWh/h × 24
 
 
 def test_computed_small_clamp_stays_reliable():
@@ -202,8 +221,8 @@ def test_computed_negative_self_sufficiency_is_display_clamped():
         _energy("battery_discharge", 1.0),
     ])
     s = data_summary_from(ds)
-    assert s["household"]["consumption"] == "96 kWh"  # 4 kWh/h × 24
-    assert s["household"]["self_sufficiency"] == "0%"
+    assert _render(s["household"]["consumption"]) == "96 kWh"  # 4 kWh/h × 24
+    assert _render(s["household"]["self_sufficiency"]) == "0%"
     assert s["household"]["self_sufficiency_clamped"] is True
 
 
@@ -215,7 +234,7 @@ def test_computed_self_sufficiency_not_clamped_when_positive():
         _energy("solar_production", 3.0),
     ])
     s = data_summary_from(ds)
-    assert s["household"]["self_sufficiency"] == "75%"
+    assert _render(s["household"]["self_sufficiency"]) == "75%"
     assert s["household"]["self_sufficiency_clamped"] is False
 
 
@@ -228,10 +247,10 @@ def test_computed_price_stats_over_own_coverage():
         _price("price_spot", prices),
     ])
     s = data_summary_from(ds)
-    assert s["price"]["min"] == "−0.050 €/kWh"  # U+2212 minus, 3 dp
-    assert s["price"]["max"] == "0.200 €/kWh"
+    assert _render(s["price"]["min"]) == "−0.050 €/kWh"  # U+2212 minus, 3 dp
+    assert _render(s["price"]["max"]) == "0.200 €/kWh"
     # avg is the plain mean of the per-interval prices.
-    assert s["price"]["avg"] == f"{prices.mean():.3f} €/kWh"
+    assert _render(s["price"]["avg"]) == f"{prices.mean():.3f} €/kWh"
 
 
 def test_computed_returns_none_without_grid():
@@ -275,10 +294,10 @@ def test_computed_short_solar_does_not_clip_grid_totals():
     ds = _dataset_2day(meters_full + [solar_late])
     s = data_summary_from(ds)
     # Import spans the full 48 h (96 kWh), NOT clipped to solar's 24 h (which would give 48 kWh).
-    assert s["grid"]["imported"] == "96 kWh"
+    assert _render(s["grid"]["imported"]) == "96 kWh"
     assert s["days"] == 2
     # Solar reports its OWN 24 h span and flags partial so it is not read against the 48 h window.
-    assert s["solar"]["produced"] == "24 kWh"
+    assert _render(s["solar"]["produced"]) == "24 kWh"
     assert s["solar"]["partial"] is True
     assert s["solar"]["days"] == 1
 
@@ -298,7 +317,7 @@ def test_computed_near_zero_pv_omits_solar_with_note():
     assert s["solar"] is None
     assert any(n["key"] == "solar_empty" for n in s["notes"])
     # Household still computes (import 48, no real PV → load 48): the empty PV adds ~nothing.
-    assert s["household"]["consumption"] == "48 kWh"
+    assert _render(s["household"]["consumption"]) == "48 kWh"
 
 
 def test_computed_self_consumption_over_pv_window_not_full_window():
@@ -312,8 +331,8 @@ def test_computed_self_consumption_over_pv_window_not_full_window():
         _energy_subwindow("solar_production", 4.0, start_hour=24, n=24),
     ])
     s = data_summary_from(ds)
-    assert s["solar"]["produced"] == "96 kWh"
-    assert s["solar"]["self_consumption"] == "75%"
+    assert _render(s["solar"]["produced"]) == "96 kWh"
+    assert _render(s["solar"]["self_consumption"]) == "75%"
 
 
 def test_computed_window_restricts_totals_to_subwindow():
@@ -326,11 +345,11 @@ def test_computed_window_restricts_totals_to_subwindow():
     ])
     sub = (datetime(2026, 1, 1, tzinfo=timezone.utc), datetime(2026, 1, 2, tzinfo=timezone.utc))
     s = data_summary_from(ds, window=sub)
-    assert s["grid"]["imported"] == "48 kWh"  # 24 h × 2, HALF the full-window 96 kWh
+    assert _render(s["grid"]["imported"]) == "48 kWh"  # 24 h × 2, HALF the full-window 96 kWh
     assert s["days"] == 1
     assert s["coverage"] == "2026-01-01 → 2026-01-02"
     # The no-arg (full-coverage) call is unchanged: still the whole 48 h.
-    assert data_summary_from(ds)["grid"]["imported"] == "96 kWh"
+    assert _render(data_summary_from(ds)["grid"]["imported"]) == "96 kWh"
 
 
 def test_computed_clamp_price_to_window_restricts_price_stats():
@@ -346,19 +365,19 @@ def test_computed_clamp_price_to_window_restricts_price_stats():
     sub = (datetime(2026, 1, 1, tzinfo=timezone.utc), datetime(2026, 1, 2, tzinfo=timezone.utc))
     s = data_summary_from(ds, window=sub, clamp_price_to_window=True)
     # Only the 0.10 prices fall in the sub-window.
-    assert s["price"] == {
+    assert {k: _render(v) for k, v in s["price"].items()} == {
         "avg": "0.100 €/kWh",
         "min": "0.100 €/kWh",
         "max": "0.100 €/kWh",
     }
     # Full-coverage default: both halves, avg 0.50, min 0.10, max 0.90.
     full = data_summary_from(ds)
-    assert full["price"]["avg"] == "0.500 €/kWh"
-    assert full["price"]["min"] == "0.100 €/kWh"
-    assert full["price"]["max"] == "0.900 €/kWh"
+    assert _render(full["price"]["avg"]) == "0.500 €/kWh"
+    assert _render(full["price"]["min"]) == "0.100 €/kWh"
+    assert _render(full["price"]["max"]) == "0.900 €/kWh"
     # window given but clamp_price_to_window=False → price still over the series' OWN full coverage.
     unclamped = data_summary_from(ds, window=sub)
-    assert unclamped["price"]["avg"] == "0.500 €/kWh"
+    assert _render(unclamped["price"]["avg"]) == "0.500 €/kWh"
 
 
 def test_computed_view_satisfies_sample_shape_contract():
@@ -389,13 +408,6 @@ def test_computed_view_satisfies_sample_shape_contract():
 # halves of that: the SHAPE the template's `msg()` macro consumes, and the ENGLISH the pair
 # renders to — the wording is the msgid, so a test that only checked the shape would let the
 # English drift silently.
-
-def _render(m) -> str:
-    """Render a view-model message the way the template does, in English."""
-    from app import i18n
-    tpl = '{% from "_msg.html" import msg with context %}{{ msg(m) }}'
-    return i18n.env_for("en").from_string(tpl).render(m=m)
-
 
 def _panel(frames):
     from app.data_view import panel_data_from
@@ -561,9 +573,17 @@ def test_sample_panel_results_messages_render_the_wireframe_english():
     efc = r["kpis"][2]
     assert _render(efc["delta"]) == "0.66 / day"
     assert _render(efc["extra"]) == "2,410 kWh throughput"
-    # The first two tiles carry only figures, so they stay plain strings on both paths.
-    assert r["kpis"][0]["delta"] == "+34.2 %"
-    assert r["kpis"][1]["delta"] == "+21 pp"
+    # The first two tiles carry only figures — no words — so neither needs a msgid. They are no
+    # longer plain strings either: a figure is formatted in the render locale (A6), and the
+    # self-sufficiency comparison is a message whose two halves are figures.
+    assert _render(r["kpis"][0]["value"]) == "1,412"
+    assert _render(r["kpis"][0]["delta"]) == "+34.2 %"
+    assert _render(r["kpis"][1]["value"]) == "31% → 52%"
+    assert _render(r["kpis"][1]["delta"]) == "+21 pp"
+    # …and Dutch conventions in Dutch. The wording around them is the catalog's business; these
+    # two carry no words at all, so the separators are the whole assertion.
+    assert _render(r["kpis"][0]["value"], locale="nl") == "1.412"
+    assert _render(r["kpis"][0]["delta"], locale="nl") == "+34,2 %"
 
 
 def test_sample_panel_results_percent_signs_are_real_not_fullwidth():
@@ -629,3 +649,36 @@ def _walk_messages(obj) -> list:
         for v in obj:
             out.extend(_walk_messages(v))
     return out
+
+
+def test_the_load_unreliable_warning_renders_its_figure_not_a_dict():
+    """The warning must render through the real TEMPLATE, not just through `msg()`.
+
+    `export_kwh` is a `num()` pair (A6). `_data_glance.html` rendered this one warning with a bare
+    `_('…') | interpolate(export=…)`, which %-substitutes without formatting, so the page showed
+
+        ⚠ {'num': 72.0, 'fmt': 'kwh'} was exported to the grid but your solar…
+
+    in both locales — on the one note whose entire job is to explain a real data problem.
+
+    Nothing caught it. The English-render diff could not: this branch needs export > import with no
+    PV, which no live dataset in the tree produces, so the page never rendered it. The Dutch leakage
+    scan could not either: "num"/"fmt" are not English words. And the sibling assertion above
+    (`_render(note["export_kwh"]) == "72 kWh"`) passes regardless, because `_render` goes through
+    `msg()` — the very step the template was skipping. So this renders the actual macro.
+    """
+    ds = _dataset([_energy("grid_import_t1", 1.0), _energy("grid_export_t1", 3.0)])
+    summary = data_summary_from(ds)
+    assert any(n["key"] == "load_unreliable" for n in summary["notes"]), "fixture no longer triggers"
+
+    for locale in i18n.SUPPORTED:
+        html = i18n.env_for(locale).from_string(
+            '{% from "_data_glance.html" import data_glance with context %}'
+            "{{ data_glance(data_summary) }}"
+        ).render(data_summary=summary)
+        assert "'num'" not in html and "&#39;num&#39;" not in html, (
+            f"[{locale}] the warning rendered a raw num() dict instead of a formatted figure"
+        )
+        assert "72 kWh" in html or "72 kWh".replace(",", ".") in html, (
+            f"[{locale}] the exported total is missing from the warning"
+        )

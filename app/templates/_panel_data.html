@@ -42,6 +42,12 @@
   matches no catalog entry — which is exactly the defect the pairs exist to fix. The macro also
   accepts a bare string, which is what app/sample_data.py still supplies for the same fields.
 
+  It also formats a FIGURE, and the box's counts are figures. They arrive as `i18n.num()` pairs (a
+  number plus the name of a convention) rather than as text, because Dutch groups thousands with a
+  point where English uses a comma — "8.760 intervallen" against "8,760 intervals" — and the
+  view-model runs before the locale is known. Nothing to do here beyond routing them through the
+  same macro, which is the point of putting the formatting there.
+
   The `req` → marker mapping: required ●, conditional ◐ (PV-only), cost_optional ◒
   (cost-simulation-only), optional ○.
 

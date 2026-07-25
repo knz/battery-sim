@@ -447,6 +447,18 @@ def _fmt(value, places: int) -> str:
     A config carrying a raw string (the error path) still has to render a summary line and still
     has to put that string back in its input, so this never assumes a number.
 
+    **Deliberately NOT locale-aware**, unlike the figures in panels ① and ③ (A6, `app/i18n.num`).
+    Its output is the `value=` of a `<input type="number">` (`_panel_params.html`), which the
+    browser parses and `coerce_number` parses again on submit — and `coerce_number` REJECTS "1,5"
+    on purpose, because a comma there could as easily be a thousands separator as a decimal point
+    and guessing would silently change the user's number. A localised value here would therefore
+    round-trip a Dutch user's own stored setting into a field error on the next save. This is a
+    machine-readable form value that happens to be visible, not a figure being presented.
+
+    `summary_line` below shares it, and shares the reasoning by consequence: the collapsed line is
+    a compact technical readout of those same field values (see its own docstring), so the two
+    agreeing matters more than either matching prose conventions.
+
     Fixed-point formatting of an int goes through float, so an int too large to be a float raises
     `OverflowError` here for the same reason it did in `_finite` — and this is the RENDER path,
     which runs for a blocking config too. It falls back to `str(value)`, which shows the user

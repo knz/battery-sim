@@ -33,7 +33,7 @@
     data_summary = {
       coverage: str, days: int,
       grid:      {imported, exported},                       # always
-      household: {consumption, self_sufficiency,             # str, or None when reconstruction
+      household: {consumption, self_sufficiency,             # num(), or None when reconstruction
                   net_battery: bool,                         #   is unreliable (both hidden)
                   self_sufficiency_clamped: bool},           # neg. clamped to 0% → caveat
       solar:     {produced, self_consumption?,               # PV present (self_consumption omitted
@@ -42,7 +42,20 @@
       price:     {avg, min, max} | None,                     # spot price present
       notes:     [{key, ...params}],                         # data-quality caveats (may be empty)
     }
+
+  Every FIGURE in that shape is a `num()` dict, not a string (A6) — `{"num": 4129, "fmt": "kwh"}`
+  — and is rendered through the `msg()` macro below, which formats it in the request's locale.
+  Dutch writes 4.129 kWh and 0,142 €/kWh where English writes 4,129 kWh and 0.142 €/kWh, and both
+  producers (app/summary_view.py computed, app/sample_data._data_summary sample) run before the
+  locale is known, so the number travels and the formatting happens here. `coverage` and `days`
+  are NOT figures in that sense: `coverage` is a pair of ISO dates this macro splits on " → " (see
+  the "since" line below), and `days` is a small int paired with `ngettext`.
 #}
+{# `with context` is required for the same reason _panel_data.html says it is: a macro import does
+   not inherit the importing template's context, which is where the i18n extension keeps the
+   per-request `_()`/`ngettext` — and, for `msg`, where the locale-bound `numfmt` filter is
+   reached from. #}
+{% from "_msg.html" import msg with context %}
 {# `title` is the section heading (and aria-label). It defaults to panel ①'s
    "Your data at a glance"; panel ③'s copy passes its own ("Your energy use during the selected
    period") since it is scoped to the selected date range, not the whole dataset. Callers pass an
@@ -92,8 +105,8 @@
       <div class="rounded-box border border-base-300 bg-base-200/40 p-3">
         <h3 class="text-xs font-semibold uppercase tracking-wide text-base-content/60">{{ _('Grid') }}</h3>
         <dl class="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-sm">
-          <dt class="text-base-content/60">{{ _('Imported') }}</dt><dd class="text-right font-medium">{{ data_summary.grid.imported }}</dd>
-          <dt class="text-base-content/60">{{ _('Exported') }}</dt><dd class="text-right font-medium">{{ data_summary.grid.exported }}</dd>
+          <dt class="text-base-content/60">{{ _('Imported') }}</dt><dd class="text-right font-medium">{{ msg(data_summary.grid.imported) }}</dd>
+          <dt class="text-base-content/60">{{ _('Exported') }}</dt><dd class="text-right font-medium">{{ msg(data_summary.grid.exported) }}</dd>
         </dl>
         <p class="mt-1 text-xs text-base-content/50">{{ _('as your meter recorded them') }}</p>
       </div>
@@ -118,7 +131,7 @@
                     data-info-title="{{ _('Consumption') }}"
                     data-info-body="{% if data_summary.household.net_battery %}{{ _('Your smart meter only sees energy crossing the grid connection, so household consumption is reconstructed: load = grid import − grid export + solar produced + battery discharged − battery charged. Because you have an existing battery, its charge and discharge are included, so this is your consumption net of that battery. Intervals where the result is negative (a data problem) are clamped to zero.') }}{% else %}{{ _('Your smart meter only sees energy crossing the grid connection, so household consumption is reconstructed: load = grid import − grid export + solar produced. Intervals where the result is negative (a data problem) are clamped to zero.') }}{% endif %}">ⓘ</button>
           </dt>
-          <dd class="text-right font-medium">{{ data_summary.household.consumption or '—' }}</dd>
+          <dd class="text-right font-medium">{{ msg(data_summary.household.consumption) or '—' }}</dd>
           <dt class="text-base-content/60">
             {{ _('Self-sufficiency') }}
             <button type="button" class="btn btn-ghost btn-xs btn-circle align-middle slot-info-btn"
@@ -126,7 +139,7 @@
                     data-info-title="{{ _('Self-sufficiency') }}"
                     data-info-body="{{ _('The share of your household consumption met without drawing from the grid: self-sufficiency = 1 − grid import ÷ consumption. 0% means every kWh came from the grid; higher means more was covered by your own solar (and existing battery). It uses the reconstructed consumption above.') }}">ⓘ</button>
           </dt>
-          <dd class="text-right font-medium">{{ data_summary.household.self_sufficiency or '—' }}</dd>
+          <dd class="text-right font-medium">{{ msg(data_summary.household.self_sufficiency) or '—' }}</dd>
         </dl>
         {% if data_summary.household.net_battery %}
         <p class="mt-1 text-xs text-base-content/50">{{ _('net of your existing battery') }}</p>
@@ -147,7 +160,7 @@
       <div class="rounded-box border border-base-300 bg-base-200/40 p-3">
         <h3 class="text-xs font-semibold uppercase tracking-wide text-base-content/60">{{ _('Solar') }}</h3>
         <dl class="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-sm">
-          <dt class="text-base-content/60">{{ _('Produced') }}</dt><dd class="text-right font-medium">{{ data_summary.solar.produced }}</dd>
+          <dt class="text-base-content/60">{{ _('Produced') }}</dt><dd class="text-right font-medium">{{ msg(data_summary.solar.produced) }}</dd>
           {% if data_summary.solar.self_consumption %}
           <dt class="text-base-content/60">
             {{ _('Self-consumption') }}
@@ -156,7 +169,7 @@
                     data-info-title="{{ _('Self-consumption') }}"
                     data-info-body="{{ _('The share of your solar production you used yourself rather than exporting: self-consumption = 1 − grid export ÷ solar produced, measured over the period your solar data covers. 100% means none of your production was exported; lower means more went back to the grid.') }}">ⓘ</button>
           </dt>
-          <dd class="text-right font-medium">{{ data_summary.solar.self_consumption }}</dd>
+          <dd class="text-right font-medium">{{ msg(data_summary.solar.self_consumption) }}</dd>
           {% endif %}
         </dl>
         {# The PV series can cover only part of the (grid-driven) window — panels installed
@@ -179,8 +192,8 @@
     <div class="rounded-box border border-base-300 bg-base-200/40 p-3">
       <h3 class="text-xs font-semibold uppercase tracking-wide text-base-content/60">{{ _('Your existing battery') }}</h3>
       <dl class="mt-1 flex flex-wrap gap-x-8 gap-y-0.5 text-sm">
-        <div class="flex gap-3"><dt class="text-base-content/60">{{ _('Charged') }}</dt><dd class="font-medium">{{ data_summary.battery.charged }}</dd></div>
-        <div class="flex gap-3"><dt class="text-base-content/60">{{ _('Discharged') }}</dt><dd class="font-medium">{{ data_summary.battery.discharged }}</dd></div>
+        <div class="flex gap-3"><dt class="text-base-content/60">{{ _('Charged') }}</dt><dd class="font-medium">{{ msg(data_summary.battery.charged) }}</dd></div>
+        <div class="flex gap-3"><dt class="text-base-content/60">{{ _('Discharged') }}</dt><dd class="font-medium">{{ msg(data_summary.battery.discharged) }}</dd></div>
       </dl>
       <p class="mt-1 text-xs text-base-content/50">
         ⓘ {{ _('These come from the battery you already own. The consumption and self-consumption figures above are reconstructed net of it, so they describe the house rather than the meter.') }}
@@ -193,9 +206,9 @@
     <div class="rounded-box border border-base-300 bg-base-200/40 p-3">
       <h3 class="text-xs font-semibold uppercase tracking-wide text-base-content/60">{{ _('Spot price over this period') }}</h3>
       <p class="mt-1 text-sm">
-        {{ _('Average') }} <span class="font-medium">{{ data_summary.price.avg }}</span>
-        · {{ _('low') }} <span class="font-medium">{{ data_summary.price.min }}</span>
-        · {{ _('high') }} <span class="font-medium">{{ data_summary.price.max }}</span>
+        {{ _('Average') }} <span class="font-medium">{{ msg(data_summary.price.avg) }}</span>
+        · {{ _('low') }} <span class="font-medium">{{ msg(data_summary.price.min) }}</span>
+        · {{ _('high') }} <span class="font-medium">{{ msg(data_summary.price.max) }}</span>
       </p>
     </div>
     {% endif %}
@@ -207,7 +220,16 @@
     {% for note in data_summary.notes %}
       {% if note.key == 'load_unreliable' %}
       <div role="alert" class="alert alert-warning text-sm">
-        <span>⚠ {{ _('%(export)s was exported to the grid but your solar (and battery) data does not account for it, so the household consumption and self-sufficiency could not be reconstructed reliably and are hidden. This usually means a solar sensor is not reporting all of your production, or a battery is not mapped. Check your data sources.') | interpolate(export=note.export_kwh) }}</span>
+        {# Rendered through msg(), NOT `_(…) | interpolate(…)`. `export_kwh` is a num() pair now,
+           and bare interpolation substitutes its dict repr — this line printed
+           "{'num': 72.0, 'fmt': 'kwh'} was exported to the grid…" on the very warning that exists
+           to diagnose bad solar data. msg() formats a figure param in the render locale.
+
+           The msgid is written as a literal `_()` call so `pybabel extract` still sees it here
+           (this string lives in the template, not in a view-model). msg() then looks the already
+           translated result up a second time, which is a no-op — a translated string is not a
+           msgid, so gettext returns it unchanged. Verified in both locales. #}
+        <span>⚠ {{ msg({'msgid': _('%(export)s was exported to the grid but your solar (and battery) data does not account for it, so the household consumption and self-sufficiency could not be reconstructed reliably and are hidden. This usually means a solar sensor is not reporting all of your production, or a battery is not mapped. Check your data sources.'), 'params': {'export': note.export_kwh}}) }}</span>
       </div>
       {% elif note.key == 'solar_empty' %}
       <p class="text-xs text-base-content/50">ⓘ {{ _('A solar sensor is mapped but reported almost no production over this period, so the Solar figures are hidden. It may not be wired up correctly.') }}</p>

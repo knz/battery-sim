@@ -33,6 +33,7 @@ from datetime import datetime, timedelta, timezone
 import numpy as np
 import pytest
 
+from app.i18n import format_num, month_abbr
 from app.results_view import PERIOD_DAYS, resolve_window, results_from
 from tests.test_data_summary import (
     HOURS,
@@ -48,17 +49,28 @@ from tests.test_data_summary import (
 _ETA = 0.9486832980505138
 
 
-def _en(m) -> str:
-    """Render a view-model message as the ENGLISH sentence a reader sees.
+def _en(m, locale: str = "en") -> str:
+    """Render a view-model message or figure as the sentence a reader sees, in ENGLISH by default.
 
-    The same two steps templates/_msg.html performs — pick the form, then interpolate — with the
-    null catalog, so the msgid IS the English text. A plain string passes through unchanged, which
-    keeps the helper usable against any view-model field whose shape is still a bare literal.
+    The same steps templates/_msg.html performs, with the null catalog so the msgid IS the English
+    text: format any FIGURE param, render any NESTED message param, pick the plural form, then
+    interpolate. A plain string passes through unchanged, which keeps the helper usable against a
+    view-model field whose shape is still a bare literal.
+
+    `locale` is explicit and defaults to "en" because these tests assert on English wording and
+    English number conventions ("3,924 kWh"). Those assertions are still correct — they are
+    assertions ABOUT ENGLISH — and naming the locale is what keeps them so now that the figures are
+    formatted at render time (A6) rather than baked in by the view-model. Pass locale="nl" to
+    assert the Dutch form of the same field.
     """
+    if isinstance(m, dict) and "fmt" in m:
+        return format_num(m["num"], m["fmt"], locale)
     if not isinstance(m, dict):
         return m
+    params = {k: _en(v, locale) if isinstance(v, dict) else v
+              for k, v in (m.get("params") or {}).items()}
     text = m["plural"] if "plural" in m and m["n"] != 1 else m["msgid"]
-    return text % (m.get("params") or {})
+    return text % params
 
 
 def _caveats(r) -> list[str]:
@@ -96,16 +108,16 @@ def test_results_reports_a_real_simulated_saving():
     assert saved == pytest.approx(3.0747331922020606, abs=1e-9)
 
     saved_tile = next(k for k in r["kpis"] if k["title"] == "GRID IMPORT SAVED")
-    assert saved_tile["value"] == "3"  # round(3.0747)
+    assert _en(saved_tile["value"]) == "3"  # round(3.0747)
     assert saved_tile["unit"] == "kWh"
-    assert saved_tile["delta"] == "+6.4 %"  # 100 × 3.0747 / 48
+    assert _en(saved_tile["delta"]) == "+6.4 %"  # 100 × 3.0747 / 48
 
     cycles = next(k for k in r["kpis"] if k["title"] == "EQUIVALENT FULL CYCLES")
-    assert cycles["value"] == "0"          # 0.40 EFC rounds to 0 whole cycles
+    assert _en(cycles["value"]) == "0"     # 0.40 EFC rounds to 0 whole cycles
     assert _en(cycles["delta"]) == "0.40 / day"  # 0.40 over a 1-day window
     assert _en(cycles["extra"]) == "4 kWh throughput"  # round(3.7947) AC delivered
 
-    by_label = {row["label"]: row["value"] for row in r["energy_breakdown"]}
+    by_label = {row["label"]: _en(row["value"]) for row in r["energy_breakdown"]}
     assert by_label["Grid import, no battery"] == "48 kWh"
     assert by_label["Grid import, with battery"] == "45 kWh"  # round(48 − 3.0747)
     assert by_label["Grid import avoided"] == "3 kWh"
@@ -157,8 +169,8 @@ def test_results_self_sufficiency_shows_baseline_and_battery_apart():
     assert batt_ss == pytest.approx(0.7837, abs=1e-4)
 
     ss = next(k for k in r["kpis"] if k["title"] == "SELF-SUFFICIENCY")
-    assert ss["value"] == "75% → 78%"
-    assert ss["delta"] == "+3 pp"
+    assert _en(ss["value"]) == "75% → 78%"
+    assert _en(ss["delta"]) == "+3 pp"
 
 
 # ── §7.1: one information set on both sides of every comparison ──────────────────────────────
@@ -208,10 +220,10 @@ def test_self_sufficiency_tile_uses_the_simulated_baseline_not_the_meter():
     simulated_ss = 1 - 24.0 / 96.0     # the RIGHT one: run A's import over the same load
     assert measured_ss == pytest.approx(0.50) and simulated_ss == pytest.approx(0.75)
 
-    assert ss["value"] == "75% → 78%", "the left half must be run A's simulated baseline"
-    assert ss["value"] != "50% → 78%", "the left half must NOT be the measured self-sufficiency"
-    assert ss["delta"] == "+3 pp"
-    assert ss["delta"] != "+28 pp", "the measured baseline inflates the delta by 25 pp here"
+    assert _en(ss["value"]) == "75% → 78%", "the left half must be run A's simulated baseline"
+    assert _en(ss["value"]) != "50% → 78%", "the left half must NOT be the measured self-sufficiency"
+    assert _en(ss["delta"]) == "+3 pp"
+    assert _en(ss["delta"]) != "+28 pp", "the measured baseline inflates the delta by 25 pp here"
 
     # And the metrics layer really does offer both — the view is choosing, not falling back.
     from app.domain.metrics import energy_metrics
@@ -241,8 +253,8 @@ def test_panel_states_the_resolution_loss_between_meter_and_simulated_baseline()
     assert r is not None
 
     # The two figures the caveat reconciles are both actually on the panel.
-    assert r["data_summary"]["grid"]["imported"] == "48 kWh"
-    by_label = {row["label"]: row["value"] for row in r["energy_breakdown"]}
+    assert _en(r["data_summary"]["grid"]["imported"]) == "48 kWh"
+    by_label = {row["label"]: _en(row["value"]) for row in r["energy_breakdown"]}
     assert by_label["Grid import, no battery"] == "24 kWh"
 
     note = next((c for c in _caveats(r) if "no-battery baseline" in c), None)
@@ -274,9 +286,9 @@ def test_self_consumption_compares_one_information_set_on_both_sides():
 
     # Measured: 24 kWh exported against 72 kWh produced → 1 − 24/72 = 0.667 → "67%".
     # Simulated: run A exports nothing at all (load 4 ≥ PV 3 in every hour) → 1 − 0/72 = 1 → "100%".
-    assert r["data_summary"]["grid"]["exported"] == "24 kWh"
-    assert row["value"] == "100% → 100%", "both halves are run figures over the same window"
-    assert row["value"] != "67% → 100%", "the left half must not be the measured export ratio"
+    assert _en(r["data_summary"]["grid"]["exported"]) == "24 kWh"
+    assert _en(row["value"]) == "100% → 100%", "both halves are run figures over the same window"
+    assert _en(row["value"]) != "67% → 100%", "the left half must not be the measured export ratio"
 
 
 def test_self_consumption_uses_the_pv_series_own_coverage_window():
@@ -338,9 +350,9 @@ def test_self_consumption_uses_the_pv_series_own_coverage_window():
     r = results_from(ds, window)
     row = next(s for s in r["secondary"] if s["label"] == "Self-consumption ratio")
     from app.results_view import _fmt_pct
-    assert row["value"] == (
-        f"{_fmt_pct(max(0.0, masked.self_consumption_baseline))} → "
-        f"{_fmt_pct(max(0.0, masked.self_consumption_battery))}"
+    assert _en(row["value"]) == (
+        f"{_en(_fmt_pct(max(0.0, masked.self_consumption_baseline)))} → "
+        f"{_en(_fmt_pct(max(0.0, masked.self_consumption_battery)))}"
     )
 
 
@@ -374,9 +386,9 @@ def test_zero_load_household_reports_neither_side_of_self_sufficiency():
 
     r = results_from(ds, window)
     ss = next(k for k in r["kpis"] if k["title"] == "SELF-SUFFICIENCY")
-    assert ss["value"] == "n/a → n/a"
-    assert ss["value"] != "n/a → 100%", "a household with no load is not 100% self-sufficient"
-    assert ss["value"] != "n/a → 0%", "nor 0% — absence, not a measurement"
+    assert _en(ss["value"]) == "n/a → n/a"
+    assert _en(ss["value"]) != "n/a → 100%", "a household with no load is not 100% self-sufficient"
+    assert _en(ss["value"]) != "n/a → 0%", "nor 0% — absence, not a measurement"
     assert ss["delta"] == "", "no delta between two absences"
 
 
@@ -384,16 +396,22 @@ def test_kwh_and_signed_kwh_use_the_same_minus_glyph():
     """Both formatters render a negative with U+2212, never the ASCII hyphen.
 
     `_fmt_kwh`'s callers all pass non-negative quantities today, so this is latent rather than
-    live — but Python's `format` emits "-" and `_fmt_signed_kwh` emits "−", and two different
-    minus glyphs on one panel is the kind of inconsistency that survives until someone screenshots
-    it.
+    live — but Python's `format` emits "-" and so does babel (both locales' CLDR minus IS the ASCII
+    hyphen), while `_fmt_signed_kwh` emits "−", and two different minus glyphs on one panel is the
+    kind of inconsistency that survives until someone screenshots it.
+
+    Asserted in BOTH locales, because the formatting moved to render time (A6) and the minus is
+    now applied by `i18n.format_num` after babel: a locale whose CLDR minus differs, or a code path
+    that returns babel's output unmodified, would show up here rather than on a screenshot.
     """
     from app.results_view import _fmt_kwh, _fmt_signed_kwh
 
-    assert _fmt_kwh(-1234.0) == "−1,234 kWh"
-    assert "-" not in _fmt_kwh(-1234.0), "ASCII hyphen must not appear"
-    assert _fmt_kwh(-1234.0)[0] == _fmt_signed_kwh(-1234.0)[0]
-    assert _fmt_kwh(1234.0) == "1,234 kWh"  # unchanged on the normal path
+    for locale, expected in (("en", "−1,234 kWh"), ("nl", "−1.234 kWh")):
+        assert _en(_fmt_kwh(-1234.0), locale) == expected
+        assert "-" not in _en(_fmt_kwh(-1234.0), locale), "ASCII hyphen must not appear"
+        assert _en(_fmt_kwh(-1234.0), locale)[0] == _en(_fmt_signed_kwh(-1234.0), locale)[0]
+    assert _en(_fmt_kwh(1234.0)) == "1,234 kWh"       # unchanged on the normal path
+    assert _en(_fmt_kwh(1234.0), "nl") == "1.234 kWh" # …and Dutch-separated in Dutch
 
 
 def test_no_caveat_contains_a_literal_percent_sign():
@@ -413,7 +431,7 @@ def test_no_caveat_contains_a_literal_percent_sign():
     which catches a params key that no placeholder consumes, or a placeholder no key fills
     (`interpolate` raises on the latter).
     """
-    from jinja2 import Environment
+    from html import unescape
 
     from app import i18n
     from tests.test_data_summary import _price
@@ -433,11 +451,14 @@ def test_no_caveat_contains_a_literal_percent_sign():
         [_energy("grid_import_t1", 2.0), _energy("grid_export_t1", 1.0),
          _energy("solar_production", 3.0)],
     ]
-    env = Environment(extensions=["jinja2.ext.i18n"])
-    env.filters["interpolate"] = i18n.interpolate
-    i18n.install_for(env, "en")
-    # The template's own two steps, in order: translate the constant msgid, then substitute.
-    tmpl = env.from_string("{{ _(m.msgid) | interpolate(**(m.params or {})) }}")
+    # The REAL render path: the real per-locale environment and the real `_msg.html` macro, not a
+    # hand-rolled two-liner. It used to be the latter — `_(m.msgid) | interpolate(**m.params)` —
+    # which stopped being the whole story when figures moved to render time (A6): the macro also
+    # formats a param that is a NUMBER and renders one that is a nested MESSAGE, and a
+    # reimplementation that skips either would assert against itself rather than against the page.
+    tmpl = i18n.env_for("en").from_string(
+        '{% from "_msg.html" import msg with context %}{{ msg(m) }}'
+    )
 
     seen = 0
     branches: set[str] = set()
@@ -451,7 +472,10 @@ def test_no_caveat_contains_a_literal_percent_sign():
             # Every caveat here is a pair (no counted caveat exists yet), and the real render path
             # reproduces the English sentence exactly.
             assert isinstance(m, dict) and "plural" not in m
-            assert tmpl.render(m=m) == c
+            # `unescape` because the macro autoescapes its output (an apostrophe becomes &#39;)
+            # while `_en` above does not. The escaping is correct and wanted on the page; it is
+            # simply not what this assertion is about.
+            assert unescape(tmpl.render(m=m)) == c
     assert seen >= 5, "the scenarios above should raise several caveats between them"
     # The newest caveat is genuinely among them — the guard is only worth what it covers, and this
     # one is reachable from exactly one of the scenarios above.
@@ -481,7 +505,7 @@ def test_results_pv_shows_self_consumption_equal_halves():
     ])
     r = results_from(ds, (_WIN_START, _WIN_END))
     sc = next(row for row in r["secondary"] if row["label"] == "Self-consumption ratio")
-    assert sc["value"] == "100% → 100%"
+    assert _en(sc["value"]) == "100% → 100%"
 
 
 def test_results_state_the_parameter_set_they_were_computed_under():
@@ -540,13 +564,13 @@ def test_results_reports_a_negative_saving_honestly():
     assert 100 * saved / 48 == pytest.approx(-12.48, abs=1e-2)
 
     saved_tile = next(k for k in r["kpis"] if k["title"] == "GRID IMPORT SAVED")
-    assert saved_tile["value"] == "−6"      # round(5.9905), signed
-    assert saved_tile["delta"] == "−12.5 %"  # the percentage keeps the sign too
+    assert _en(saved_tile["value"]) == "−6"      # round(5.9905), signed
+    assert _en(saved_tile["delta"]) == "−12.5 %"  # the percentage keeps the sign too
 
     labels = [row["label"] for row in r["energy_breakdown"]]
     assert "Grid import avoided" not in labels, "a cost must not be captioned 'avoided'"
     assert "Extra grid import" in labels
-    by_label = {row["label"]: row["value"] for row in r["energy_breakdown"]}
+    by_label = {row["label"]: _en(row["value"]) for row in r["energy_breakdown"]}
     assert by_label["Extra grid import"] == "6 kWh"   # the magnitude; the label has the direction
     assert by_label["Grid import, no battery"] == "48 kWh"
     assert by_label["Grid import, with battery"] == "54 kWh"  # round(48 + 5.9905)
@@ -580,12 +604,15 @@ def test_negative_saving_never_renders_a_signed_zero():
     """A saving that rounds to zero prints "0 kWh" / "0.0 %", never "−0" — that reads as a bug."""
     from app.results_view import _fmt_signed_kwh, _fmt_signed_pct
 
-    assert _fmt_signed_kwh(-0.4) == "0 kWh"
-    assert _fmt_signed_kwh(-1.6) == "−2 kWh"
-    assert _fmt_signed_kwh(1.6) == "2 kWh"
-    assert _fmt_signed_pct(-0.04) == "0.0 %"
-    assert _fmt_signed_pct(-34.21) == "−34.2 %"
-    assert _fmt_signed_pct(8.75) == "+8.8 %"
+    assert _en(_fmt_signed_kwh(-0.4)) == "0 kWh"
+    assert _en(_fmt_signed_kwh(-1.6)) == "−2 kWh"
+    assert _en(_fmt_signed_kwh(1.6)) == "2 kWh"
+    assert _en(_fmt_signed_pct(-0.04)) == "0.0 %"
+    assert _en(_fmt_signed_pct(-34.21)) == "−34.2 %"
+    assert _en(_fmt_signed_pct(8.75)) == "+8.8 %"
+    # The zero guard is locale-independent: it is about the SIGN, not the separators.
+    assert _en(_fmt_signed_kwh(-0.4), "nl") == "0 kWh"
+    assert _en(_fmt_signed_pct(-0.04), "nl") == "0,0 %"
 
 
 def test_self_sufficiency_display_clamp_fires_with_its_caveat():
@@ -608,9 +635,11 @@ def test_self_sufficiency_display_clamp_fires_with_its_caveat():
 
     # The clamp itself: negative → 0% AND flagged; non-negative → passed through, not flagged;
     # None (not computable) → absence, which is NOT a clamp.
-    assert _clamped_pct(-0.12) == ("0%", True)
-    assert _clamped_pct(0.0) == ("0%", False)
-    assert _clamped_pct(0.52) == ("52%", False)
+    assert (_en(_clamped_pct(-0.12)[0]), _clamped_pct(-0.12)[1]) == ("0%", True)
+    assert (_en(_clamped_pct(0.0)[0]), _clamped_pct(0.0)[1]) == ("0%", False)
+    assert (_en(_clamped_pct(0.52)[0]), _clamped_pct(0.52)[1]) == ("52%", False)
+    # "n/a" stays a plain STRING rather than becoming a figure — it is not one, and it is the
+    # same abbreviation in Dutch, so it needs neither formatting nor a msgid.
     assert _clamped_pct(None) == ("n/a", False)
 
     ds = _dataset([
@@ -621,7 +650,7 @@ def test_self_sufficiency_display_clamp_fires_with_its_caveat():
     r = results_from(ds, (_WIN_START, _WIN_END))
     assert r is not None
     ss = next(k for k in r["kpis"] if k["title"] == "SELF-SUFFICIENCY")
-    assert ss["value"].endswith("→ 0%"), "a negative self-sufficiency must display as 0%"
+    assert _en(ss["value"]).endswith("→ 0%"), "a negative self-sufficiency must display as 0%"
     assert any("shown as zero" in c for c in _caveats(r))
 
     # The underlying metric is untouched — the clamp is presentation only.
@@ -644,7 +673,10 @@ def test_results_period_line_and_monthly_import_chart_are_real():
     ds = _dataset([_energy("grid_import_t1", 2.0), _energy("grid_export_t1", 0.0)])
     r = results_from(ds, (_WIN_START, _WIN_END))
     assert r["period"] == "2026-01-01 → 2026-01-02 · simulated hourly · 24 intervals"
-    assert r["chart"]["months"] == ["Jan"]
+    # `months` are month NUMBERS now; the locale-bound `monthname` filter names them at render
+    # time (A6), so a Dutch axis reads "jan" rather than the English table this used to assert.
+    assert r["chart"]["months"] == [1]
+    assert month_abbr(1, "en") == "Jan" and month_abbr(1, "nl") == "jan"
     assert r["chart"]["values"] == [48]  # 2 kWh/h × 24 h
 
 
@@ -707,7 +739,7 @@ def test_benchmark_box_has_the_three_unconditional_rows_in_wireframe_order():
     """§2.4's box: No battery, Your policy, Perfect foresight — always, in that order."""
     block = _bench_block(capture=0.70, capture_unconstrained=None)
     assert _labels(block) == ["No battery", "Your policy", "Perfect foresight"]
-    assert block["rows"][0]["value"] == "0 kWh"
+    assert _en(block["rows"][0]["value"]) == "0 kWh"
     assert block["rows"][0]["frac"] == 0.0
     assert block["rows"][0]["dot"] is False
     # Every bar fill is a fraction of the widest row, so none can overflow its track.
@@ -890,7 +922,8 @@ def test_results_includes_window_clamped_data_summary():
     r = results_from(ds, window)
     assert "data_summary" in r
     # Grid totals over the window (import 2 kWh/h × 24 = 48 kWh).
-    assert r["data_summary"]["grid"] == {"imported": "48 kWh", "exported": "0 kWh"}
+    assert {k: _en(v) for k, v in r["data_summary"]["grid"].items()} == {
+        "imported": "48 kWh", "exported": "0 kWh"}
     # Window-clamped, price included: identical to the direct call over the effective window.
     rec = reconcile_grid(ds, window)
     expected = data_summary_from(ds, window=rec.window, clamp_price_to_window=True)
@@ -907,7 +940,7 @@ def test_results_data_summary_window_clamped_totals():
     ])
     sub = (_WIN_START, _WIN_END)  # first 24 h of the 48 h coverage
     r = results_from(ds, sub)
-    assert r["data_summary"]["grid"]["imported"] == "48 kWh"
+    assert _en(r["data_summary"]["grid"]["imported"]) == "48 kWh"
 
 
 # ── resolve_window ───────────────────────────────────────────────────────────────────────────
@@ -1127,7 +1160,7 @@ def test_capture_ratio_shape_3_zero_bound_with_a_positive_policy_row_does_not_co
     """
     block = _shape_block(policy_saved=9.0, pf_saved=0.0, drift=-5.0)
     # The row the gloss must not contradict is still there and still honest.
-    assert next(r for r in block["rows"] if r["label"] == "Your policy")["value"] == "9 kWh"
+    assert _en(next(r for r in block["rows"] if r["label"] == "Your policy")["value"]) == "9 kWh"
     assert "could not have avoided any grid import, so there is no capture ratio" \
         not in _en(block["gloss"])
     # It says something TRUE about the situation instead: the saving is not one the benchmark
@@ -1159,8 +1192,8 @@ def test_capture_ratio_shape_4_above_one_is_never_a_plain_percentage():
     assert "did not come out usable" in _en(block["gloss"])
     assert "%" not in _en(block["gloss"])
     # The ROWS stay honest — the defect was the ratio and the gloss, never the bars.
-    assert next(r for r in block["rows"] if r["label"] == "Your policy")["value"] == "1,000 kWh"
-    assert next(r for r in block["rows"] if r["label"] == "Perfect foresight")["value"] == "35 kWh"
+    assert _en(next(r for r in block["rows"] if r["label"] == "Your policy")["value"]) == "1,000 kWh"
+    assert _en(next(r for r in block["rows"] if r["label"] == "Perfect foresight")["value"]) == "35 kWh"
 
 
 def test_capture_ratio_exactly_one_is_a_result_not_a_fault():

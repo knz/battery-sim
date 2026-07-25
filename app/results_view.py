@@ -94,6 +94,14 @@ Also here (Deliverable C): `resolve_window` turns a request (a preset period, or
 start/end range) into a concrete UTC window against the dataset's coverage, anchored to the END of
 data coverage (§7.4), clamped to coverage, never padding with zeros.
 
+**Sentences are `(msgid, params)` pairs and figures are `i18n.num()` pairs** — neither is turned
+into text here. A sentence assembled with an f-string is a msgid no `pybabel extract` run can see;
+a figure formatted with `f"{x:,.0f}"` is formatted before the request's locale is known, and Dutch
+writes 3.924 kWh and 0,094 €/kWh where English writes 3,924 kWh and 0.094 €/kWh. Both are resolved
+by `templates/_msg.html` at render time, which is the only place the locale exists. The `_fmt_*`
+helpers below therefore return figures rather than strings, and `_arrow` exists because an
+"A → B" comparison is two figures and so cannot be joined into one string either.
+
 Main items:
     PERIOD_DAYS               preset name → span in days (§7.4 predefined ranges).
     min_annualisation_days    below this a window is too short to annualise (specs appendix-a, §7.4).
@@ -123,7 +131,7 @@ from app.domain.simconfig import SimulationConfig
 from app.domain.simframe import simulation_frame
 from app.domain.simulate import run_all
 from app.data_view import _fmt_res, _res_msg
-from app.i18n import msg as _msg, msg_n as _msg_n
+from app.i18n import msg as _msg, msg_n as _msg_n, num
 from app.sample_data import _N
 from app.summary_view import data_summary_from
 
@@ -192,9 +200,11 @@ _FAULT_GLOSS = _N(
     "capture ratio is shown. Selecting a longer period usually resolves it."
 )
 
-# Short calendar-month names for the monthly chart x-axis (index 1..12).
-_MONTH_ABBR = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-               "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+# The monthly chart's x-axis labels used to be a table of English month abbreviations here. They
+# are gone: `_monthly_import` now emits month NUMBERS and the template's locale-bound `monthname`
+# filter (app/i18n.month_abbr) renders them, so a Dutch axis reads "jan feb mrt" rather than
+# "Jan Feb Mar". Babel's CLDR data owns the abbreviations for every locale, which is one fewer
+# table to translate and one fewer to keep in step with a new language.
 
 
 def _coverage_window(dataset: LoadedDataset) -> tuple[datetime, datetime]:
@@ -284,18 +294,21 @@ def _period_selected_for(dataset: LoadedDataset, window: tuple[datetime, datetim
     return _PERIOD_SELECTED_BY_NAME.get(best_name, "1 year")
 
 
-def _g(value) -> str:
-    """A config value for a caveat sentence: `%g`-style when numeric, as-is otherwise.
+def _g(value) -> dict:
+    """A config value for a caveat sentence: a figure at its OWN natural precision (`%g`-style).
+
+    The precision was decided by whoever typed the value into panel ②, so this kind keeps it
+    (`i18n._NUM_KINDS["general"]`) rather than imposing a digit count — "10 kWh usable, 0.95
+    round-trip" reads as the user set it. Under A6 it emits a figure rather than a string, so a
+    Dutch reader sees "0,95 round-trip".
 
     Only VALID configs are persisted, so in practice these are always numbers. But
     `SimulationConfig` is constructible from anything (its construction never raises, by design),
-    and a caller may hand this function a config that has not been validated — an f-string `:g`
-    on a `None` or a raw string would raise on a page the user is looking at. Formatting defensively
-    is cheaper than a 500.
+    and a caller may hand this function a config that has not been validated. `i18n.format_num`
+    keeps the old defensiveness for that case — a non-number renders as itself and a None as "—",
+    rather than raising on a page the user is looking at.
     """
-    if isinstance(value, (int, float)) and not isinstance(value, bool):
-        return f"{value:g}"
-    return "—" if value is None else str(value)
+    return num(value, "general")
 
 
 def _policy_key(value) -> str:
@@ -303,58 +316,79 @@ def _policy_key(value) -> str:
     return value.value if hasattr(value, "value") else str(value)
 
 
-def _fmt_kwh(total: float) -> str:
-    """kWh total → "1,234 kWh" (thousands-separated, rounded to whole kWh, matching summary_view).
+# ── Figures (A6: locale-aware, formatted at RENDER time) ─────────────────────────────────────
+#
+# These returned finished strings ("1,234 kWh") built while this module ran, which is before the
+# request's locale is known — so a Dutch page showed English separators (Dutch writes 1.234 kWh,
+# 0,094 €/kWh, +15,9 %). They now return `i18n.num()` dicts: the NUMBER plus the name of a
+# convention, formatted by `templates/_msg.html`'s locale-bound `numfmt` filter at render time.
+# The convention table is `i18n._NUM_KINDS`, shared with `summary_view`, so "how the app writes a
+# kWh figure" — including the U+2212 minus and the minus-zero guard these functions used to own
+# individually — has one definition rather than four.
+#
+# The unit suffixes ("kWh", "%") stay literal in that table and out of the catalogs: they are
+# written identically in Dutch, and routing a symbol through gettext invites a translator to
+# change one of the two places it appears.
 
-    Every caller passes a non-negative quantity, so the sign is not expected to appear — but when
-    it does it is rendered with U+2212 MINUS SIGN, matching `_fmt_signed_kwh` and `_fmt_signed_pct`.
-    Python's `format` emits ASCII "-", which would put two different minus glyphs on one panel.
+
+def _fmt_kwh(total: float) -> dict:
+    """kWh total → a number rendered as "1,234 kWh" / "1.234 kWh" in the render locale."""
+    return num(total, "kwh")
+
+
+def _fmt_pct(fraction: float) -> dict:
+    """A 0..1 fraction → a number rendered as an integer percent ("31%")."""
+    return num(fraction, "pct")
+
+
+def _fmt_signed_kwh(total: float) -> dict:
+    """A kWh figure that may be NEGATIVE → a number rendered "1,234 kWh" / "−1,234 kWh" (U+2212).
+
+    Used for the saving, which §7.2 item 9 says may legitimately come out negative. The minus-zero
+    guard (a value between −0.5 and 0 prints "0 kWh", not "−0 kWh" — a signed zero is a formatting
+    artefact, not a measurement) now lives in `i18n.format_num`'s signed branch.
     """
-    return f"{round(total):,} kWh".replace("-", "−")
+    return num(total, "kwh_signed")
 
 
-def _fmt_pct(fraction: float) -> str:
-    """A 0..1 fraction → an integer-percent string like "31%" (the sample's presentation)."""
-    return f"{round(100 * fraction)}%"
-
-
-def _fmt_signed_kwh(total: float) -> str:
-    """A kWh figure that may be NEGATIVE → "1,234 kWh" / "−1,234 kWh" (U+2212, matching the app).
-
-    Used for the saving, which §7.2 item 9 says may legitimately come out negative. `round()` is
-    applied to the MAGNITUDE so a value between −0.5 and 0 prints "0 kWh" rather than "−0 kWh":
-    a signed zero is a formatting artefact, not a measurement, and it reads as a bug.
-    """
-    whole = round(abs(total))
-    sign = "−" if total < 0 and whole != 0 else ""
-    return f"{sign}{whole:,} kWh"
-
-
-def _fmt_signed_pct(pct: float) -> str:
-    """A percentage that may be negative → "−34.2 %" / "+12.0 %" (one decimal, §2.4's tile).
+def _fmt_signed_pct(pct: float) -> dict:
+    """A percentage that may be negative → a number rendered "−34.2 %" / "+12.0 %" (§2.4's tile).
 
     Explicitly signed, because the tile's delta line has to distinguish a saving from a cost and
-    an unsigned "34.2 %" beside a negative saving would read as the opposite of the truth. Same
-    minus-zero guard as `_fmt_signed_kwh`: a value rounding to 0.0 prints without a sign.
+    an unsigned "34.2 %" beside a negative saving would read as the opposite of the truth.
     """
-    rounded = round(abs(pct), 1)
-    if rounded == 0.0:
-        return "0.0 %"
-    return f"{'−' if pct < 0 else '+'}{rounded:.1f} %"
+    return num(pct, "pct_signed")
 
 
-def _clamped_pct(fraction: float | None) -> tuple[str, bool]:
-    """A §6.11 ratio → (integer-percent string, did-the-display-clamp-fire) per §2.3a.
+def _clamped_pct(fraction: float | None) -> tuple[dict | str, bool]:
+    """A §6.11 ratio → (a percent figure, did-the-display-clamp-fire) per §2.3a.
 
     `max(0, ·)` is applied to the DISPLAYED value only; the caller raises a caveat when the second
-    element is True. `None` (the metric is not computable) formats as "n/a" and does not count as
-    a clamp — absence and a clamped negative are different statements.
+    element is True. `None` (the metric is not computable) gives the literal "n/a" and does not
+    count as a clamp — absence and a clamped negative are different statements. "n/a" stays a
+    string rather than becoming a figure because it is not one; it is the same abbreviation in
+    Dutch, so it needs neither formatting nor a msgid.
     """
     if fraction is None:
         return "n/a", False
     if fraction < 0:
         return _fmt_pct(0.0), True
     return _fmt_pct(fraction), False
+
+
+def _arrow(before, after) -> dict:
+    """A "before → after" comparison, as a message pair whose halves are formatted at render time.
+
+    §2.4's self-sufficiency tile, the self-consumption row and the grid-export row all state a
+    change as `A → B`. Each half is a figure, so under A6 neither can be turned into text here —
+    which means the pair cannot be joined with an f-string either. Making the whole thing a
+    `_msg` pair with the arrow in the msgid lets the two halves be formatted in the render locale
+    (`templates/_msg.html` renders a param that is itself a figure) and, incidentally, lets a
+    translator move the arrow if some language wants it elsewhere.
+
+    Either half may also be the literal "n/a" (`_clamped_pct`), which passes through as a string.
+    """
+    return _msg("%(before)s → %(after)s", before=before, after=after)
 
 
 def _self_sufficiency(rec: ReconciledGrid) -> float:
@@ -626,7 +660,7 @@ def _benchmark_block(bench: EnergyBenchmark, eta_d: float) -> dict:
                 "reaches it, so treat this as a floor on what a better policy could achieve, not "
                 "as a target.",
                 residual=_fmt_kwh(abs(bench.policy_soc_delta_kwh)),
-                pct=round(100 * corrected_ratio),
+                pct=num(round(100 * corrected_ratio), "count"),
             )
     elif bench.capture_ratio > 1.0 + RATIO_RANGE_EPS:
         # Shape 4: above the bound with no drift to explain it. Fixture 6 says this cannot happen.
@@ -643,9 +677,9 @@ def _benchmark_block(bench: EnergyBenchmark, eta_d: float) -> dict:
             "target. Allowed to export, that ceiling rises to %(ceiling)s "
             "(a %(unc_pct)s percent capture) — the extra "
             "is arbitrage your export setting currently forbids.",
-            pct=round(100 * bench.capture_ratio),
+            pct=num(round(100 * bench.capture_ratio), "count"),
             ceiling=_fmt_kwh(unc),
-            unc_pct=round(100 * bench.capture_ratio_unconstrained),
+            unc_pct=num(round(100 * bench.capture_ratio_unconstrained), "count"),
         )
     else:
         # Shape 1: the normal case. A NEGATIVE ratio reaches here only with an immaterial drift,
@@ -656,7 +690,7 @@ def _benchmark_block(bench: EnergyBenchmark, eta_d: float) -> dict:
             "perfectly-informed battery could have avoided. "
             "Perfect foresight knows every future price exactly and no real controller reaches "
             "it, so treat this as a floor on what a better policy could achieve, not as a target.",
-            pct=round(100 * bench.capture_ratio),
+            pct=num(round(100 * bench.capture_ratio), "count"),
         )
 
     return {"rows": rows, "gloss": gloss}
@@ -666,9 +700,15 @@ def _monthly_import(rec: ReconciledGrid) -> dict:
     """Monthly Σ grid-import over the window for the chart, as {"months": [...], "values": [...]}.
 
     A real series (not sample data): each grid interval's import is bucketed by the calendar month
-    its start falls in, summed, and rounded to whole kWh. Months are short names in chronological
-    order across the window. This stays in scope (no simulation needed) while being an honest,
-    dataset-derived monthly breakdown of measured grid import.
+    its start falls in, summed, and rounded to whole kWh. Months are in chronological order across
+    the window. This stays in scope (no simulation needed) while being an honest, dataset-derived
+    monthly breakdown of measured grid import.
+
+    `months` carries MONTH NUMBERS (1–12), not names (A6). The names used to come from a module-level
+    English table, which put "Jan Feb Mar" on the x-axis of a Dutch page — babel knows the Dutch
+    abbreviations ("jan feb mrt"), and the template's locale-bound `monthname` filter applies them
+    at render time, which is where the locale is. The year is not carried: a window can span the
+    same month in two years and the axis then shows it twice, which is what it did before.
     """
     n = len(rec.imp)
     win_start = np.datetime64(rec.window[0].replace(tzinfo=None), "s")
@@ -676,14 +716,14 @@ def _monthly_import(rec: ReconciledGrid) -> dict:
     # (year, month) key per interval, kept in first-seen (chronological) order.
     years = bucket_start.astype("datetime64[Y]").astype(int) + 1970
     months = bucket_start.astype("datetime64[M]").astype(int) % 12 + 1
-    labels: list[str] = []
+    labels: list[int] = []
     values: list[float] = []
     seen: dict[tuple[int, int], int] = {}
     for i in range(n):
         key = (int(years[i]), int(months[i]))
         if key not in seen:
             seen[key] = len(values)
-            labels.append(_MONTH_ABBR[key[1]])
+            labels.append(key[1])
             values.append(0.0)
         values[seen[key]] += float(rec.imp[i])
     return {"months": labels, "values": [round(v) for v in values]}
@@ -746,7 +786,10 @@ def results_from(
         "simulated %(res)s · %(n)s intervals",
         intervals,
         res=res_msg,
-        n=f"{intervals:,}",
+        # The count reaching ngettext (the positional `intervals`) and the count PRINTED are the
+        # same value by construction; the printed one is now a figure formatted in the render
+        # locale ("8,760" / "8.760") rather than an f-string's English grouping.
+        n=num(intervals, "count"),
     )
     period_days = (eff[1] - eff[0]).days
     # `period` stays the whole line as one PLAIN string for any consumer that wants it unsplit (the
@@ -800,13 +843,15 @@ def results_from(
         # invented battery numbers rather than raising on a page the user is looking at. This is
         # the ONE place the MEASURED self-sufficiency is shown as a tile value, and it is safe
         # precisely because there is no simulated figure beside it to be compared against.
-        # The tile VALUES stay plain strings. They are figures, not prose: "n/a" is the same
-        # abbreviation in Dutch and the rest are formatted numbers, so there is no msgid to be had.
-        # Only `delta` and `extra`, which carry words ("/ day", "throughput"), become `_msg` pairs.
+        # The tile VALUES carry no prose — "n/a" is the same abbreviation in Dutch, and the rest
+        # are figures, so none of them needs a msgid. They are no longer plain strings either: a
+        # figure is a `num()` dict formatted in the render locale (A6), and the `A → n/a`
+        # comparison is an `_arrow` pair so its numeric half can be. `delta`/`extra` carry words
+        # ("/ day", "throughput") and stay `_msg` pairs with their figures riding as params.
         ss_str = _fmt_pct(_self_sufficiency(rec))
         kpis = [
             {"title": "GRID IMPORT SAVED", "value": "n/a", "unit": "kWh", "delta": ""},
-            {"title": "SELF-SUFFICIENCY", "value": f"{ss_str} → n/a", "delta": ""},
+            {"title": "SELF-SUFFICIENCY", "value": _arrow(ss_str, "n/a"), "delta": ""},
             {"title": "EQUIVALENT FULL CYCLES", "value": "n/a", "delta": "", "extra": ""},
         ]
         energy_breakdown = [
@@ -819,7 +864,11 @@ def results_from(
         # (an energy-only run of a no-PV battery pays round-trip losses and standby for a price
         # spread it does not price), so nothing here may assume it is positive.
         negative_saving = metrics.saved_kwh < 0
-        saved_value = _fmt_signed_kwh(metrics.saved_kwh).removesuffix(" kWh")
+        # The tile renders its unit itself, in its own smaller type, so this half carries the
+        # figure WITHOUT the "kWh" suffix — the `kwh_bare` kind, rather than formatting the signed
+        # kWh figure and stripping the suffix back off, which under A6 would mean stripping a
+        # string this module no longer has.
+        saved_value = num(metrics.saved_kwh, "kwh_bare")
         saved_delta = (
             _fmt_signed_pct(metrics.saved_pct) if metrics.saved_pct is not None else "n/a"
         )
@@ -850,18 +899,24 @@ def results_from(
             ss_base_frac = max(0.0, metrics.self_sufficiency_baseline)
             ss_batt_frac = max(0.0, metrics.self_sufficiency_battery)
             ss_delta_pp = round(100 * ss_batt_frac) - round(100 * ss_base_frac)
-            ss_delta = f"{ss_delta_pp:+d} pp"
+            # "pp" (percentage points) is a UNIT, and it is the same abbreviation in Dutch, so it
+            # stays literal for the same reason "kWh" does — see the figures block above. The
+            # number is a signed integer count of points, hence `pct_signed` on an already-integer
+            # value rather than a second signed-integer kind: the pattern rounds to one decimal,
+            # which for a whole number of points is exact and prints "+10.0". That WOULD have
+            # changed the English render, so it does not: `dec0_signed` keeps "+10 pp".
+            ss_delta = _msg("%(pp)s pp", pp=num(ss_delta_pp, "dec0_signed"))
         kpis = [
             {"title": "GRID IMPORT SAVED", "value": saved_value, "unit": "kWh",
              "delta": saved_delta},
             {"title": "SELF-SUFFICIENCY",
-             "value": f"{ss_base_str} → {ss_batt_str}",
+             "value": _arrow(ss_base_str, ss_batt_str),
              "delta": ss_delta},
             # `delta` and `extra` carry WORDS ("/ day", "throughput"), so they are `_msg` pairs;
-            # the two above carry only formatted numbers and stay plain strings.
+            # their figures ride as params and are formatted in the render locale like every other.
             {"title": "EQUIVALENT FULL CYCLES",
-             "value": f"{metrics.efc:,.0f}" if metrics.efc is not None else "n/a",
-             "delta": (_msg("%(n)s / day", n=f"{metrics.cycles_per_day:.2f}")
+             "value": num(metrics.efc, "count") if metrics.efc is not None else "n/a",
+             "delta": (_msg("%(n)s / day", n=num(metrics.cycles_per_day, "dec2"))
                        if metrics.cycles_per_day is not None else ""),
              "extra": _msg("%(kwh)s throughput", kwh=_fmt_kwh(metrics.throughput_kwh))},
         ]
@@ -912,11 +967,12 @@ def results_from(
                 and metrics.self_consumption_battery is not None):
             sc_base, _ = _clamped_pct(metrics.self_consumption_baseline)
             sc_batt, _ = _clamped_pct(metrics.self_consumption_battery)
-            secondary.append({"label": "Self-consumption ratio", "value": f"{sc_base} → {sc_batt}"})
+            secondary.append({"label": "Self-consumption ratio",
+                              "value": _arrow(sc_base, sc_batt)})
         secondary.append({
             "label": "Grid export",
-            "value": f"{_fmt_kwh(metrics.baseline_export_kwh)} → "
-                     f"{_fmt_kwh(metrics.battery_export_kwh)}",
+            "value": _arrow(_fmt_kwh(metrics.baseline_export_kwh),
+                            _fmt_kwh(metrics.battery_export_kwh)),
         })
         # "Intervals battery was full / empty" omitted — needs a SoC-bound comparison the metrics
         # layer does not compute yet; omitted rather than guessed.
@@ -1121,7 +1177,7 @@ def results_from(
             "annual savings by a factor of roughly 2–3. Select 6 months or 1 year to see an annual "
             "figure.",
             min_annualisation_days,
-            n=min_annualisation_days,
+            n=num(min_annualisation_days, "count"),
         )
 
     return result

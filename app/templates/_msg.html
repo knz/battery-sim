@@ -37,25 +37,42 @@
   nested message gets it translated on its own first, then substituted. Only one level is needed
   in practice, but the recursion is unbounded because the macro simply calls itself.
 
+  A PARAM MAY ALSO BE A NUMBER awaiting formatting — `{"num": 3924.5, "fmt": "kwh"}`, built by
+  `app/i18n.num()` — and is formatted here by the `numfmt` filter, which is BOUND TO THE RENDER
+  LOCALE by `i18n.env_for`. Same reason as the nested message, one step further: Dutch writes
+  3.924 kWh where English writes 3,924 kWh, and the view-model that computes the figure runs
+  before anyone knows which language the page is in. So a figure travels as a number and becomes
+  text here. `msg(n)` on a bare number dict works too, for a view-model field that is a figure and
+  nothing else.
+
   EMPTY AND MISSING VALUES RENDER AS NOTHING, and that guard is load-bearing rather than defensive
   tidiness. In gettext the empty msgid is the catalog's own METADATA entry, so `_('')` returns the
   whole PO header — "Project-Id-Version: … POT-Creation-Date: …" — straight onto the page. A None
   renders the string "None". Both are the kind of thing a caller produces by accident (a field the
   view-model left unset), and neither should ever be visible, so they are filtered here once rather
   than guarded at each of the call sites.
+
+  A NUMBER DICT IS EXEMPT from that falsy guard, because `{"num": 0, "fmt": "kwh"}` is falsy in
+  Jinja's eyes only if you look at the number, and "0 kWh" is a real figure the panels print
+  (the benchmark box's "No battery" row is exactly it). The mapping itself is always truthy, so
+  the ordering below — mapping tests before the falsy test could reach a dict — is what keeps it
+  safe; the guard only ever sees a string or None.
 #}
 {%- macro msg(m) -%}
-{%- if not m -%}
+{%- if m is mapping and m.fmt is defined -%}
+{#- a bare number: format it in the render locale. -#}
+{{- m | numfmt -}}
+{%- elif not m -%}
 {#- empty / None / missing: render nothing. See the header — `_('')` is the PO metadata block. -#}
 {%- elif m is mapping -%}
-{#- Render any param that is itself a message, so an embedded label is translated before it is
-    substituted (see the header). Non-message params pass through untouched, and are escaped by
-    the Markup substitution below. A nested render comes back as Markup — already escaped once, by
-    its own autoescaped body — and Markup substitution passes it through unchanged rather than
-    escaping it a second time. -#}
+{#- Render any param that is itself a message OR a number, so an embedded label is translated and
+    an embedded figure is formatted in the render locale before either is substituted (see the
+    header). Other params pass through untouched, and are escaped by the Markup substitution below.
+    A nested render comes back as Markup — already escaped once, by its own autoescaped body — and
+    Markup substitution passes it through unchanged rather than escaping it a second time. -#}
 {%- set p = {} -%}
 {%- for k, v in (m.params or {}).items() -%}
-{%- set _ = p.update({k: (msg(v) if (v is mapping and v.msgid is defined) else v)}) -%}
+{%- set _ = p.update({k: (msg(v) if (v is mapping and (v.msgid is defined or v.fmt is defined)) else v)}) -%}
 {%- endfor -%}
 {#- `| e` on the TRANSLATED msgid, then `| safe` on the result. A translated msgid is trusted
     text, so escaping it is a no-op in practice, but it turns the string into Markup, and

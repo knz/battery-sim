@@ -45,12 +45,20 @@ page while the live page rendered in Dutch. Where a field's illustrative wording
 real one, this module deliberately reuses the REAL msgid rather than minting a parallel copy,
 so the two cannot drift apart in the catalog.
 
-Data values are left bare: entity IDs, statistic IDs, ISO dates, formatted numbers, and the
-band figures in `_data_summary()` (which the computed path, app/summary_view.py, also emits as
-plain formatted strings).
+  * `num(...)` (app/i18n.num) — a FIGURE, as the number plus the name of a convention, formatted
+    at render time in the request's locale (A6). Same reasoning as the pair, applied to digits
+    rather than words: Dutch writes 4.129 kWh and 0,142 €/kWh where English writes 4,129 kWh and
+    0.142 €/kWh, and a number written out here is written out in one language. Every figure in
+    this module — the glance band, the KPI tiles, the breakdown, the benchmark rows, the counts
+    inside sentences — is a `num()`, matching what the computed paths emit.
+
+Data values are left bare where they are genuinely locale-independent: entity IDs, statistic IDs,
+ISO dates (see `data_view._fmt_date` for why dates do not follow the figures), the `period`
+fallback line, and the chart's month NUMBERS, which the template names through the locale-bound
+`monthname` filter.
 """
 
-from app.i18n import msg as _msg, msg_n as _msg_n
+from app.i18n import msg as _msg, msg_n as _msg_n, num
 
 
 def _N(s: str) -> str:
@@ -136,7 +144,7 @@ def _recorded_fine(label: str, days: int) -> dict:
         "%(res)s (last %(n)s days)",
         days,
         res=_res(label),
-        n=days,
+        n=num(days, "count"),
     )
 
 
@@ -156,7 +164,7 @@ def _panel_data():
             "Home Assistant · %(n)s series · simulated %(res)s",
             "Home Assistant · %(n)s series · simulated %(res)s",
             5,
-            n=5,
+            n=num(5, "count"),
             res=_res("hourly"),
         ),
         "days": 412,
@@ -203,14 +211,14 @@ def _panel_data():
                 "%(dates)s   (%(n)s days)",
                 416,
                 dates="2025-06-01 → 2026-07-21",
-                n=416,
+                n=num(416, "count"),
             ),
             "grid": _msg_n(
                 "%(res)s  ·  %(n)s interval",
                 "%(res)s  ·  %(n)s intervals",
                 8760,
                 res=_res("hourly"),
-                n="8,760",
+                n=num(8760, "count"),
             ),
             # Per-series granularity (§2.2 "Granularity, per series").
             # `warn` marks the one lossy reconciliation (a price averaged down).
@@ -245,11 +253,11 @@ def _panel_data():
                 "%(n)s gap totalling %(hours)s h  (%(pct)s)",
                 "%(n)s gaps totalling %(hours)s h  (%(pct)s)",
                 3,
-                n=3, hours="4.2", pct="0.04%",
+                n=num(3, "count"), hours=num(4.2, "dec1"), pct=num(0.0004, "pct_dec2"),
             ),
             # Same msgid as data_view's uncounted reset line (its English carries no noun to
             # pluralise, so a translator whose language needs one rephrases the whole clause).
-            "resets": _msg("%(n)s detected and corrected", n=2),
+            "resets": _msg("%(n)s detected and corrected", n=num(2, "count")),
             # A literal "%" is inert everywhere now — app/i18n.interpolate doubles every percent
             # sign that does not begin a "%(name)s" placeholder, and _() no longer %-formats at
             # all (i18n.install_for, newstyle=False). The fullwidth "％" this string used to carry
@@ -257,7 +265,7 @@ def _panel_data():
             "load_warning": _msg(
                 "Reconstructed load is negative in %(n)s intervals (%(pct)s). Usually means the "
                 "solar sensor does not cover the whole house, or a clock offset between sensors.",
-                n=41, pct="0.41%",
+                n=num(41, "count"), pct=num(0.0041, "pct_dec2"),
             ),
             # The real path words this "import T1 <mark> · T2 <mark>" with the per-register marks
             # as nested messages, because there it picks one of three marks per register at
@@ -288,34 +296,44 @@ def _data_summary():
     Numbers are illustrative and consistent with the panel ①/③ samples (4,129 kWh imported,
     3,180 kWh exported, 31% self-sufficiency). Consumption is the reconstructed household load
     net of the existing battery; self-consumption is 1 − export/pv.
+
+    Every FIGURE here is a `num()` dict rather than a pre-formatted string (A6), matching what
+    `summary_view.data_summary_from` now emits: the number travels and `templates/_msg.html`
+    formats it in the render locale, so this band reads 4.129 kWh on a Dutch page and 4,129 kWh on
+    an English one. Writing them as literal strings here would have hardcoded the English
+    separators into the fresh-install page — the same defect on the sample side, which is what A7
+    was about the first time. `coverage` and `days` stay as they are, for the reasons
+    `summary_view`'s module docstring gives (the template splits `coverage` on " → ").
     """
     return {
         "coverage": "2025-06-01 → 2026-07-21",
         "days": 416,
         # Always present.
-        "grid": {"imported": "4,129 kWh", "exported": "3,180 kWh"},
+        "grid": {"imported": num(4129, "kwh"), "exported": num(3180, "kwh")},
         # Always present. `net_battery` flags that the reconstruction stripped an existing
         # battery (§6.3), so the template labels this (and Solar) "net of your existing battery".
         # `self_sufficiency_clamped` marks a negative self-sufficiency the display clamped to ≥ 0%
         # (import > load over the window — an existing battery net-charging; §2.3a); False here.
         "household": {
-            "consumption": "6,540 kWh", "self_sufficiency": "31%", "net_battery": True,
+            "consumption": num(6540, "kwh"), "self_sufficiency": num(0.31, "pct"),
+            "net_battery": True,
             "self_sufficiency_clamped": False,
         },
         # PV present (CONFIG.has_pv). Omitted (None) for a no-PV dataset. `partial` False here
         # (the sample PV spans the whole window); a real short-coverage PV series sets it True and
         # carries its own coverage/days so "Produced" is not read against the full window.
         "solar": {
-            "produced": "4,820 kWh", "self_consumption": "58%",
+            "produced": num(4820, "kwh"), "self_consumption": num(0.58, "pct"),
             "coverage": "2025-06-01 → 2026-07-21", "days": 416, "partial": False,
         },
         # Existing battery present: its measured charge-in / discharge-out over the window. This
         # is the battery the household ALREADY owns, not the one panel ② will simulate. Omitted
         # (None) when no battery_charge/battery_discharge series was mapped.
-        "battery": {"charged": "2,510 kWh", "discharged": "2,240 kWh"},
+        "battery": {"charged": num(2510, "kwh"), "discharged": num(2240, "kwh")},
         # Spot price context over the window (battery-free: the price is an input, §1.4). Omitted
         # (None) when no price series was loaded.
-        "price": {"avg": "0.142 €/kWh", "min": "−0.021 €/kWh", "max": "0.487 €/kWh"},
+        "price": {"avg": num(0.142, "eur_kwh"), "min": num(-0.021, "eur_kwh"),
+                  "max": num(0.487, "eur_kwh")},
         # Data-quality caveats (specs §2.3a): empty in this clean sample. The computed path
         # (app/summary_view.py) fills e.g. {"key": "load_unreliable", ...} or {"key": "solar_empty"}.
         "notes": [],
@@ -338,7 +356,7 @@ def _panel_results():
             "simulated %(res)s · %(n)s intervals",
             8760,
             res=_res("hourly"),
-            n="8,760",
+            n=num(8760, "count"),
         ),
         # No `periods` list: the template hardcodes its five preset buttons (token, label, key)
         # and only reads `period_selected` to decide which is active. The computed path dropped
@@ -357,29 +375,32 @@ def _panel_results():
             # ("+34.2 %", "+21 pp"), so they stay plain strings — as they do on the computed path,
             # which has no msgid to offer for a number. The third tile's `delta`/`extra` carry
             # words ("/ day", "throughput") and so are `_msg` pairs with the real path's msgids.
-            {"title": _N("GRID IMPORT SAVED"), "value": "1,412", "unit": "kWh", "delta": "+34.2 %"},
-            {"title": _N("SELF-SUFFICIENCY"), "value": "31% → 52%", "delta": "+21 pp"},
-            {"title": _N("EQUIVALENT FULL CYCLES"), "value": "241",
-             "delta": _msg("%(n)s / day", n="0.66"),
-             "extra": _msg("%(kwh)s throughput", kwh="2,410 kWh")},
+            {"title": _N("GRID IMPORT SAVED"), "value": num(1412, "kwh_bare"), "unit": "kWh",
+             "delta": num(34.2, "pct_signed")},
+            {"title": _N("SELF-SUFFICIENCY"),
+             "value": _msg("%(before)s → %(after)s", before=num(0.31, "pct"), after=num(0.52, "pct")),
+             "delta": _msg("%(pp)s pp", pp=num(21, "dec0_signed"))},
+            {"title": _N("EQUIVALENT FULL CYCLES"), "value": num(241, "count"),
+             "delta": _msg("%(n)s / day", n=num(0.66, "dec2")),
+             "extra": _msg("%(kwh)s throughput", kwh=num(2410, "kwh"))},
         ],
         # "Where the energy comes from" breakdown.
         "energy_breakdown": [
-            {"label": _N("Grid import, no battery"), "value": "4,129 kWh"},
-            {"label": _N("Grid import, with battery"), "value": "2,717 kWh"},
-            {"label": _N("Grid import avoided"), "value": "1,412 kWh", "rule_above": True},
-            {"label": _N("Charged into the battery"), "value": "2,664 kWh", "gap_above": True},
-            {"label": _N("Discharged from the battery"), "value": "2,410 kWh"},
-            {"label": _N("Conversion losses"), "value": "254 kWh"},
-            {"label": _N("Standby consumption"), "value": "263 kWh"},
+            {"label": _N("Grid import, no battery"), "value": num(4129, "kwh")},
+            {"label": _N("Grid import, with battery"), "value": num(2717, "kwh")},
+            {"label": _N("Grid import avoided"), "value": num(1412, "kwh"), "rule_above": True},
+            {"label": _N("Charged into the battery"), "value": num(2664, "kwh"), "gap_above": True},
+            {"label": _N("Discharged from the battery"), "value": num(2410, "kwh")},
+            {"label": _N("Conversion losses"), "value": num(254, "kwh")},
+            {"label": _N("Standby consumption"), "value": num(263, "kwh")},
         ],
         # Benchmark bars. `frac` is the bar fill 0..1 relative to the widest baseline.
         "benchmark": {
             "rows": [
-                {"label": _N("No battery"), "value": "0 kWh", "frac": 0.0, "dot": False},
-                {"label": _N("Your policy"), "value": "1,412 kWh", "frac": 0.61, "dot": True},
-                {"label": _N("Perfect foresight"), "value": "1,988 kWh", "frac": 0.86, "dot": True},
-                {"label": _N("…if export allowed"), "value": "2,311 kWh", "frac": 1.0, "dot": True},
+                {"label": _N("No battery"), "value": num(0, "kwh"), "frac": 0.0, "dot": False},
+                {"label": _N("Your policy"), "value": num(1412, "kwh"), "frac": 0.61, "dot": True},
+                {"label": _N("Perfect foresight"), "value": num(1988, "kwh"), "frac": 0.86, "dot": True},
+                {"label": _N("…if export allowed"), "value": num(2311, "kwh"), "frac": 1.0, "dot": True},
             ],
             # The wireframe's gloss, which is shorter than the computed path's (results_view's
             # shape-1 variants also state what perfect foresight knows) and states the ratios with
@@ -392,9 +413,9 @@ def _panel_results():
                 "could have avoided. Allowed to export, that ceiling rises to %(ceiling)s "
                 "(a %(unc_pct)s capture) — the extra is arbitrage your export setting "
                 "currently forbids.",
-                pct="71%",
-                ceiling="2,311 kWh",
-                unc_pct="61%",
+                pct=num(0.71, "pct"),
+                ceiling=num(2311, "kwh"),
+                unc_pct=num(0.61, "pct"),
             ),
         },
         # The third row is KEPT even though results_from() does not emit it. §2.4's wireframe
@@ -403,15 +424,22 @@ def _panel_results():
         # difference, so the divergence is documented on both sides rather than silent. Drop it
         # here only when §2.4 drops it, or when the computed path starts emitting it.
         "secondary": [
-            {"label": _N("Self-consumption ratio"), "value": "58% → 81%"},
-            {"label": _N("Grid export"), "value": "3,180 → 1,742 kWh"},
-            {"label": _N("Intervals battery was full / empty"), "value": "1,204 / 2,988"},
+            {"label": _N("Self-consumption ratio"),
+             "value": _msg("%(before)s → %(after)s", before=num(0.58, "pct"), after=num(0.81, "pct"))},
+            {"label": _N("Grid export"),
+             "value": _msg("%(before)s → %(after)s", before=num(3180, "count"), after=num(1742, "kwh"))},
+            {"label": _N("Intervals battery was full / empty"),
+             "value": _msg("%(full)s / %(empty)s", full=num(1204, "count"), empty=num(2988, "count"))},
         ],
         # Monthly grid-import bar chart (Plotly). Values are illustrative. The computed path
         # (results_view._monthly_import) plots measured monthly import here, and the tab is
         # labelled for that; a per-month SAVINGS series is not built.
+        # `months` are MONTH NUMBERS, matching what results_view._monthly_import now emits: the
+        # template's locale-bound `monthname` filter renders them, so the axis reads "aug sep okt"
+        # on a Dutch page instead of the English abbreviations that used to be written out here
+        # (A6). 8..12 then 1..7 is the same Aug→Jul span as before.
         "chart": {
-            "months": ["Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul"],
+            "months": [8, 9, 10, 11, 12, 1, 2, 3, 4, 5, 6, 7],
             "values": [64, 88, 112, 150, 176, 188, 172, 150, 120, 96, 78, 60],
         },
         # Caveats, as `_msg` pairs — the same shape results_view.results_from emits, so the
@@ -426,12 +454,12 @@ def _panel_results():
             _msg("Simulated at %(res)s resolution. A 5-minute re-run over the last %(n)s days "
                  "gives %(delta)s lower savings — hourly buckets hide within-hour import/export "
                  "overlap and flatter the battery. Treat the headline figure as an upper bound.",
-                 res=_res("hourly"), n=9, delta="8.4%"),
+                 res=_res("hourly"), n=num(9, "count"), delta=num(0.084, "pct_dec1")),
             _msg("Spot prices are quarter-hourly but the run is %(res)s, so the battery acted on "
                  "an averaged price and could not chase within-hour swings.",
                  res=_res("hourly")),
             _msg("%(pct)s of intervals had negative reconstructed load (clamped to 0).",
-                 pct="0.41%"),
+                 pct=num(0.0041, "pct_dec2")),
         ],
     }
 

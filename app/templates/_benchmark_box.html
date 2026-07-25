@@ -34,7 +34,10 @@
     {% for row in benchmark.rows %}
     <div class="flex items-center gap-3">
       <span class="w-36 text-sm">{{ _(row.label) }}</span>
-      <span class="w-20 figure-col text-sm">{{ row.value }}</span>
+      <span class="w-20 figure-col text-sm">{{ msg(row.value) }}</span>
+      {# `frac` is NOT a figure and must not go through msg()/numfmt: it is a CSS length, and a
+         Dutch decimal comma in `width: 51,3%` is not a number CSS can read. Jinja's own `round`
+         is locale-independent, which is what a machine-read value needs. #}
       <div class="bench-track">
         <div class="bench-fill" style="width: {{ (row.frac * 100) | round(1) }}%"></div>
         {% if row.dot %}<div class="bench-dot" style="left: {{ (row.frac * 100) | round(1) }}%"></div>{% endif %}

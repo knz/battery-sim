@@ -809,3 +809,209 @@ each failed as intended.
 
 Full suite: 514 passed, 2 skipped.
 
+
+### Step 6 in progress (A6 — locale-aware number and date formatting)
+
+**Design chosen: (b) defer formatting to render time.** The view-models emit a NUMBER plus a
+format kind — `num(3924.5, "kwh")` → `{"num": 3924.5, "fmt": "kwh"}` — and `templates/_msg.html`
+formats it with the render locale, which is the only place that knows the locale.
+
+Why (b) over threading a `locale` argument, given maintainability is the stated priority:
+
+1. **The seam already exists.** 5a/5b/5c made every user-facing figure travel as a `params` entry
+   inside a `(msgid, params)` pair, and `_msg.html` already renders a param that is itself a
+   *message*, recursively, for exactly the same reason: a value that needs the catalog cannot be
+   resolved before the locale is known. A number needs the locale for the same reason a word does.
+   Adding a second kind of render-time param is one branch in one macro, not a new mechanism.
+2. **Threading would make the locale a parameter of the numeric pipeline.** `results_from` is a
+   simulation entry point — it reconciles series, runs A/B/C, computes §6.11 metrics. Giving it a
+   `locale` means the language reaches into the module that owns the physics, and every future
+   caller (a test, a CLI, an export) has to have an opinion about language to get a number. The
+   view-models stay pure data under (b): same output for every locale, which is also what makes
+   them cacheable and diffable.
+3. **It cannot be half-done.** Threading is enforced by nothing — a new `_fmt_kwh(x)` call that
+   forgets to pass the locale still compiles and still renders English on a Dutch page, which is
+   this defect exactly. Under (b) a formatter is not callable without a locale at all (the
+   `_fmt_*` helpers take `locale` as a required argument), and the only locale-free way to produce
+   a figure is `num()`, which cannot render English because it does not render.
+
+Costs accepted: a view-model field is no longer a `str`, so anything reading one as text needs the
+renderer. That is why the change is scoped to the fields the templates render through `msg()`.
+
+#### What was implemented
+
+**`app/i18n.py`** gains the render-time half: `num(value, kind)` (the view-model's producer, which
+raises on an unknown kind so a typo fails where the code is rather than mid-render), `format_num`
+(the formatter, with `locale` as a REQUIRED argument), `month_abbr`, and a `_NUM_KINDS` table of 13
+conventions. `env_for` registers two per-locale filters closed over the locale, `numfmt` and
+`monthname` — sound only because an environment is built once per locale and never mutated, which
+is step 3's change paying off a second time.
+
+**`templates/_msg.html`** renders a figure the way it already rendered a nested message: as the
+whole field, or as a param inside a `(msgid, params)` pair, which is where most figures live since
+5a/5b/5c. The number branch is tested BEFORE the falsy guard, because `{"num": 0, "fmt": "kwh"}`
+must render "0 kWh" — the benchmark box's "No battery" row is exactly that.
+
+**The four view modules** stopped formatting. `results_view`'s and `summary_view`'s `_fmt_*` helpers
+return figures instead of strings; `_g` became the `general` kind. Every count riding as a param in
+`data_view` and `sample_data` became a figure, and the sample's glance band and panel-③ tiles with
+them — leaving those as literal strings would have hardcoded English separators into the
+fresh-install page, which is A7's defect from the other side.
+
+**Three new msgids**, all composites the old code built with f-strings and now cannot:
+`%(before)s → %(after)s` (`results_view._arrow` — the self-sufficiency tile, the self-consumption
+and grid-export rows; two figures cannot be joined into a string when neither is one yet),
+`%(pp)s pp`, and the sample's `%(full)s / %(empty)s`. Extraction: 265 → 268, **none lost**.
+
+#### Decisions inside the scope the brief left open
+
+**Units and symbols stay literal, in `_NUM_KINDS` rather than the catalogs.** `kWh`, `€/kWh`, `%`
+and `pp` are written identically in Dutch; putting a symbol through gettext invites a translator to
+change one of the two places it appears, and buys nothing.
+
+**`pp` folded in, month names folded in, dates deliberately NOT.** `pp` needed a msgid anyway
+because its number became a figure. The month abbreviations were an English table in `results_view`
+that put "Jan Feb Mar" on a Dutch axis; babel's CLDR has every locale's, so the table is gone and
+the view-models emit month NUMBERS which the template names — the chart is drawn client-side from a
+JSON node, so that is the last point the server can put the reader's language on the axis. Dates
+stay ISO in both locales: `en` short is `7/24/26` and `nl` short is `24-07-2026`, the same day
+written two ways, so a reader unsure which convention a page follows cannot tell them apart — and
+`_data_glance.html` SPLITS `solar.coverage` on " → " to show a start date, so the shape is a
+contract, not free presentation.
+
+**`params_view._fmt` is out of scope, and the brief was wrong to list it.** Its output is the
+`value=` of `<input type="number">`, which `coerce_number` parses back on submit — and that function
+REJECTS "1,5" on purpose, because a comma there could be either separator and guessing would
+silently change the user's number. Localising it would round-trip a Dutch user's own stored setting
+into a field error. Left alone, with the reasoning recorded in its docstring. `summary_line` shares
+it and shares the reasoning.
+
+**U+2212 preserved and now enforced in one place.** Babel emits ASCII "-" for both locales (their
+CLDR minus IS the hyphen), so `format_num` substitutes after formatting. The signed-zero guard moved
+there too. The two guards differ on zero, and deliberately: `pct_signed` drops the sign at zero
+("0.0 %") and `dec0_signed` keeps it ("+0 pp"), because the f-strings they replace did — changing
+either would have changed the English render.
+
+#### Verification
+
+**English render unchanged.** Captured before/after on all three routes plus the sample view-model
+rendered directly through `index.html` (needed because `GET /` on this machine renders the persisted
+COMPUTED view-models, not the sample, so a `GET /` diff alone proves nothing about `sample_data`).
+Visible text: **byte-identical on all four**. RAW HTML against a HEAD worktree sharing the same data
+directory: identical modulo whitespace (the `{%- set -%}` line the chart labels needed), which the
+JSON chart node and every attribute are inside — so the check covers what visible-text stripping
+would have hidden.
+
+**Dutch renders Dutch.** `3.924 kWh`, `0,094 €/kWh`, `−0,500 €/kWh`, `+15,9 %`, `8.760 intervals`,
+`0,95 round-trip`, `2.030 kWh → 1.104 kWh`, and the chart axis `jan feb mrt … okt`. English on the
+same routes: `3,924 kWh`, `0.094 €/kWh`, `Jan Feb Mar … Oct`.
+
+**Tests: 550 passed, 2 skipped, 6 failed** — the six are `test_no_english_leakage.py`, the same 6 of
+7 as before this step, still red for the same reason (catalogs not regenerated; that pass runs
+after).
+
+Existing English assertions were given an EXPLICIT locale rather than loosened: `_en(m, locale="en")`
+in `test_results_view.py` and `_render(m, locale="en")` in `test_data_summary.py`, both defaulting to
+"en" and both documenting that the assertion is about English. `_render` already went through the
+real per-locale env and the real macro; `test_no_caveat_contains_a_literal_percent_sign` was switched
+to do the same, because its hand-rolled `_(msgid) | interpolate(...)` stopped being the whole render
+once figures moved (it would have asserted against a reimplementation of itself).
+
+**21 new tests** in `tests/test_i18n.py`: the convention table across both locales (the `3,924` /
+`3.924` and `0.094` / `0,094` pair IS the defect); U+2212 asserted per kind × locale, parametrised
+over `_NUM_KINDS` so a NEW kind is covered by construction; the two zero behaviours; the unknown-kind
+raise; non-numeric fallback; the macro's figure rendering at top level and as a param; the zero-figure
+guard; month names; the filters' locale binding; and an end-to-end route test asserting on the
+SEPARATORS rather than on any figure, since the persisted dataset's numbers move between runs.
+
+Mutation-tested: ASCII minus → 14 failures; `format_num` ignoring its locale → 11; moving the number
+branch after the falsy guard → the zero-figure test alone, as intended.
+
+#### Uncertainties and things left alone
+
+- **The committed `messages.pot` is stale** (239 msgids against 265 extracted at HEAD), consistent
+  with the catalog pass not having run since 5a. So the extraction diff above is HEAD-extract against
+  final-extract, not against the committed file — diffing against the committed `.pot` would have
+  attributed steps 5a–5c's msgids to this step.
+- `_fmt_res` still formats its own `%(n)ss` fallback with a plain int. It feeds only
+  `results["period"]`, the deliberately-untranslated unsplit fallback line, so it is consistent — but
+  it is the one number in these modules still formatted at build time, and worth a second look if
+  that field ever becomes user-facing.
+- The `general` kind derives its digits from `%g` and only swaps the decimal separator, rather than
+  handing the value to babel. Babel groups thousands where `%g` does not and expands `1e+20` to
+  twenty zeroes; both are arguably nicer and both would have changed the English render. If the
+  English is ever allowed to move, this is the place that should.
+- The sample's `%(before)s → %(after)s` is written out again rather than imported from
+  `results_view._arrow` (importing would cycle). Identical literals, so one catalog entry — but two
+  places to keep in step, and only extraction proves they are.
+### Step 6 complete (A6 — locale-aware figures), after one rework cycle
+
+**Design: defer formatting to render time.** View-models emit `i18n.num(value, kind)`;
+`templates/_msg.html` formats it in the render locale via a per-locale `numfmt` filter.
+`format_num(value, kind, locale)` takes the locale as a *required* argument, and `num()` — the only
+locale-free spelling — does not format. The user's ruling was "explicit, not a ContextVar"; within
+that, deferring beat threading a `locale` parameter for three reasons:
+
+- the seam already existed — 5a–5c made every figure travel as a `params` entry, and `_msg.html`
+  already renders a param that is itself a *message*, recursively, for the same reason a figure
+  needs deferring: the locale is not known when the view-model is built;
+- threading would put the display language into the simulation's signature. `results_from` runs
+  A/B/C and computes §6.11 metrics; a `locale` argument means every future caller — test, CLI,
+  export — needs an opinion about language to get a number;
+- it cannot be half-done. A new `_fmt_kwh(x)` that forgets its locale argument still compiles and
+  still renders English on a Dutch page — this exact defect.
+
+Month names now come from babel's CLDR (`month_abbr`), replacing an English `_MONTH_ABBR` table, so
+the Dutch axis reads `jan feb mrt … okt`. Units (`kWh`, `€/kWh`, `%`, `pp`) stay literals in the
+`_NUM_KINDS` table rather than going through gettext — they are written identically in Dutch, and
+routing a symbol through a catalog invites a translator to change one of two places. **Dates are
+deliberately NOT localised**: babel's short forms are `7/24/26` (en) and `24-07-2026` (nl), the same
+day written two ways, so a reader unsure which convention a page follows cannot tell them apart.
+
+**The brief was wrong about one thing** and the agent pushed back correctly: `params_view._fmt` must
+stay English. Its output is the `value=` of an `<input type="number">` that `coerce_number` parses
+back, and that function deliberately rejects `1,5` — localising it would turn a Dutch user's own
+stored setting into a field error on next render.
+
+Verified: 550 tests pass; English byte-identical on all three routes against a HEAD worktree sharing
+the same `BATTERY_SIM_DATA_DIR` (my first attempt compared against an empty-state render and proved
+nothing); Dutch shows `8.765 kWh`, `0,094 €/kWh`, `+15,9 %`; all 13 kinds emit U+2212 in both
+locales; extraction 316 → 319, 3 added, none lost.
+
+#### Review found one user-visible defect the verification missed, plus three real problems
+
+**1. A raw Python dict printed on the page.** `_data_glance.html`'s `load_unreliable` warning used a
+bare `_('…') | interpolate(export=…)`, which %-substitutes without formatting. With `export_kwh` now
+a `num()` pair it rendered, in both locales:
+
+    ⚠ {'num': 72.0, 'fmt': 'kwh'} was exported to the grid but your solar…
+
+on the one warning whose entire job is to explain a real data problem. Fixed to render through
+`msg()`.
+
+*Why three verification methods all missed it, which is the instructive part.* The branch needs
+export > import with no PV — no dataset in the tree produces that, so the page never rendered it and
+the English diff could not see it. The Dutch leakage scan could not either: `num`/`fmt` are not
+English words. And the existing test asserting the figure (`_render(note["export_kwh"]) == "72 kWh"`)
+passes regardless, because `_render` goes through `msg()` — precisely the step the template was
+skipping. A test can assert a path the page does not take. The new guard renders the real
+`_data_glance` macro against the triggering fixture in both locales; it fails on the original form
+and passes on the fix.
+
+**2. Four test assertions had gone silently vacuous.** Each is a `!=` guard whose sibling `==` line
+was correctly wrapped in `_en()` while it was left comparing a dict to a string — trivially unequal,
+so unfailable. Each named a real defect it existed to catch ("a household with no load is not 100%
+self-sufficient"). Re-wrapped and mutation-tested.
+
+**3. The minus-zero guard had been dropped for unsigned kinds** — an English-render change the
+"byte-identical" check missed because it needs a marginally-negative input. `format_num` handed
+`-0.4` to babel with pattern `#,##0`, giving `−0 kWh` where the old `f"{round(total):,}"` gave
+`0 kWh`. Reachable: `conversion_loss` is a floating difference of three sums and does land just
+below zero when the battery barely cycles. The guard now applies to every kind, so `kwh`, `count`
+and `pct` no longer disagree with `kwh_bare` about the same artefact.
+
+**4. `general` put U+2212 inside an exponent** (`1e−07`), because it replaced every `-`. Only a
+leading sign is the number's; the exponent's stays ASCII.
+
+Full suite: 550 passed, 2 skipped. Leakage test still red — catalogs next.
+

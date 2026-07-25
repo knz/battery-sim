@@ -428,3 +428,176 @@ def test_a_value_with_markup_cannot_reach_the_page_unescaped_through_msg():
     out = _msg_render("en", {"msgid": "id: %(v)s", "params": {"v": "<img src=x onerror=1>"}})
     assert "<img" not in out
     assert "&lt;img" in out
+
+
+# ── 6. Locale-aware figures (A6) ────────────────────────────────────────────────────────────────
+#
+# Every figure the UI shows used to be formatted with a hardcoded English convention while the
+# view-model was being BUILT — `f"{x:,.0f}"` — which is before the request's locale is known. Dutch
+# swaps both separators against English, so a Dutch reader saw "3,924 kWh" and "0.094 €/kWh" where
+# Dutch writes "3.924 kWh" and "0,094 €/kWh".
+#
+# The fix mirrors what `msg()` did for sentences: a view-model emits `i18n.num(value, kind)` — the
+# NUMBER plus the name of a convention — and formatting happens at RENDER time, where the locale is.
+# `format_num` is the formatter and takes the locale as a REQUIRED argument, so there is no way to
+# call it without saying which language it is for; `num()` is the only locale-free spelling and it
+# does not format. These pin the conventions, the render-time wiring, and the two places the old
+# per-helper logic lived (the U+2212 minus and the signed-zero guard).
+
+
+@pytest.mark.parametrize(
+    "value,kind,en,nl",
+    [
+        # The two separators, swapped. This pair IS the defect.
+        (3924.0, "kwh", "3,924 kWh", "3.924 kWh"),
+        (0.094, "eur_kwh", "0.094 €/kWh", "0,094 €/kWh"),
+        # Rounding to whole kWh, and a grouping boundary in both directions.
+        (999.4, "kwh", "999 kWh", "999 kWh"),
+        (1000.0, "kwh", "1,000 kWh", "1.000 kWh"),
+        # Integer percent of a fraction, unspaced (§2.3a's band).
+        (0.31, "pct", "31%", "31%"),
+        # Signed percentage to one decimal (§2.4's tile delta).
+        (15.9, "pct_signed", "+15.9 %", "+15,9 %"),
+        (-34.21, "pct_signed", "−34.2 %", "−34,2 %"),
+        # Percentage points: a signed COUNT of points, so it keeps a sign at zero.
+        (21, "dec0_signed", "+21", "+21"),
+        (0, "dec0_signed", "+0", "+0"),
+        # A bare grouped count and the per-day cycle rate.
+        (8760, "count", "8,760", "8.760"),
+        (0.23, "dec2", "0.23", "0,23"),
+        # Natural precision (`%g`), for a config value quoted back at the user.
+        (0.95, "general", "0.95", "0,95"),
+        (10.0, "general", "10", "10"),
+    ],
+)
+def test_figures_use_each_locales_conventions(value, kind, en, nl):
+    assert i18n.format_num(value, kind, "en") == en
+    assert i18n.format_num(value, kind, "nl") == nl
+
+
+@pytest.mark.parametrize("kind", sorted(i18n._NUM_KINDS))
+def test_every_kind_renders_a_negative_with_u2212_and_never_an_ascii_hyphen(kind):
+    """The U+2212 convention, across every kind and both locales.
+
+    It is not decoration. Some figures are explicitly signed by this module and some carry babel's
+    own sign, and both locales' CLDR minus IS the ASCII hyphen — so without the substitution one
+    panel would show two different minus glyphs, which is the kind of inconsistency that survives
+    until someone screenshots it. Asserted per kind because a new kind is exactly where it would be
+    forgotten.
+    """
+    for locale in ("en", "nl"):
+        out = i18n.format_num(-1234.5, kind, locale)
+        assert "-" not in out, f"{kind}/{locale}: ASCII hyphen in {out!r}"
+        assert i18n.MINUS in out, f"{kind}/{locale}: no U+2212 in {out!r}"
+
+
+def test_a_signed_zero_is_never_printed_but_a_point_delta_keeps_its_sign():
+    """Two deliberately different behaviours, both inherited from the f-strings they replace.
+
+    A saving that rounds to zero prints "0 kWh" / "0.0 %": a signed zero is a formatting artefact,
+    not a measurement, and it reads as a bug. A zero-point self-sufficiency change prints "+0",
+    because `f"{0:+d} pp"` did. Zero-ness is asked of the ROUNDED TEXT, not the input — −0.04
+    renders "0.0" and must not carry a minus, −0.06 renders "0.1" and must.
+    """
+    assert i18n.format_num(-0.4, "kwh_signed", "en") == "0 kWh"
+    assert i18n.format_num(-0.04, "pct_signed", "en") == "0.0 %"
+    assert i18n.format_num(-0.06, "pct_signed", "en") == "−0.1 %"
+    assert i18n.format_num(0, "dec0_signed", "en") == "+0"
+
+
+def test_num_rejects_an_unknown_kind_where_the_view_model_is_built():
+    """At `num()`, not at render: a typo'd kind is a code bug and should fail before it reaches a
+    page. The alternative is a KeyError inside a Jinja filter mid-render, or worse, a silent skip."""
+    with pytest.raises(KeyError):
+        i18n.num(1.0, "kwh_signd")
+
+
+@pytest.mark.parametrize("value", [None, "abc"])
+def test_a_non_numeric_value_renders_as_text_rather_than_raising(value):
+    """`params_view`/`results_view` can be handed an unvalidated config whose fields are a raw
+    string or None (SimulationConfig construction never raises, by design). Formatting defensively
+    is cheaper than a 500 on the page the user is looking at."""
+    out = i18n.format_num(value, "general", "nl")
+    assert out == ("—" if value is None else "abc")
+
+
+def test_a_figure_is_formatted_by_the_msg_macro_in_the_render_locale():
+    """The render-time wiring: a bare `num()` dict, and one riding inside a message's params.
+
+    The second is the case that matters — since steps 5a/5b/5c most figures reach the page as a
+    param of a (msgid, params) pair, so the macro has to format them there, not only at top level.
+    """
+    assert _msg_render("en", i18n.num(3924.0, "kwh")) == "3,924 kWh"
+    assert _msg_render("nl", i18n.num(3924.0, "kwh")) == "3.924 kWh"
+
+    m = i18n.msg("%(kwh)s throughput", kwh=i18n.num(2410.0, "kwh"))
+    assert _msg_render("en", m) == "2,410 kWh throughput"
+    assert _msg_render("nl", m).startswith("2.410 kWh")
+
+
+def test_a_zero_figure_renders_rather_than_being_swallowed_by_the_empty_guard():
+    """`{"num": 0, ...}` must survive the macro's falsy guard. "0 kWh" is a real figure the panels
+    print — the benchmark box's "No battery" row is exactly it — and a mapping is always truthy, so
+    the guard only ever sees a string or None. Pinned because the ordering that makes it safe (the
+    number branch first) is easy to lose in a later edit."""
+    assert _msg_render("en", i18n.num(0, "kwh")) == "0 kWh"
+    assert _msg_render("en", i18n.msg("%(v)s x", v=i18n.num(0.0, "count"))) == "0 x"
+
+
+def test_month_abbreviations_come_from_the_catalog_of_each_locale():
+    """The monthly chart's x-axis. It read from a table of English abbreviations in `results_view`,
+    which put "Jan Feb Mar" on a Dutch page's axis; babel's CLDR data has every locale's."""
+    assert [i18n.month_abbr(m, "en") for m in (1, 3, 5, 10)] == ["Jan", "Mar", "May", "Oct"]
+    assert [i18n.month_abbr(m, "nl") for m in (1, 3, 5, 10)] == ["jan", "mrt", "mei", "okt"]
+    # Out of range renders as its own number: a broken axis label is not worth a 500 on a page of
+    # figures.
+    assert i18n.month_abbr(13, "en") == "13"
+
+
+def test_the_number_filters_are_bound_to_their_own_locale_on_every_environment():
+    """`numfmt` and `monthname` take no locale argument at the call site — they cannot, because a
+    template does not know one. They are closed over the locale by `env_for`, which is only sound
+    because an environment is built once per locale and never mutated (the step-3 change). If a
+    filter ever read an ambient locale instead, this would catch it."""
+    for code, expected in (("en", "1,234"), ("nl", "1.234")):
+        env = i18n.env_for(code)
+        assert env.filters["numfmt"]({"num": 1234, "fmt": "count"}) == expected
+        assert env.filters["monthname"](3) == ("Mar" if code == "en" else "mrt")
+
+
+def test_the_rendered_dutch_pages_use_dutch_number_conventions():
+    """End-to-end, on the real routes: the defect A6 was filed for, and its fix.
+
+    The unit tests above pin the formatter and the macro; this pins the WIRING through the whole
+    stack — view-model, template, route. It asserts on the SEPARATORS rather than on any particular
+    figure, because the persisted dataset's numbers change between runs while the convention does
+    not: a grouped figure on a Dutch page must use "." and a decimal must use ",", and the reverse
+    on an English one. `\\d{1,3},\\d{3}` on a Dutch page is the exact shape of the bug.
+    """
+    import re
+
+    from starlette.testclient import TestClient
+
+    from app.main import app
+
+    client = TestClient(app)
+
+    def visible(lang: str) -> str:
+        r = client.post("/results", json={"period": "last_1_year"},
+                        headers={"Cookie": f"lang={lang}"})
+        assert r.status_code == 200
+        html = re.sub(r"<(script|style).*?</\1>", " ", r.text, flags=re.S)
+        return re.sub(r"<[^>]+>", " ", html)
+
+    en, nl = visible("en"), visible("nl")
+
+    # A grouped kWh figure exists on both pages, written each locale's way and never the other's.
+    assert re.search(r"\d{1,3},\d{3} kWh", en), "English should group thousands with a comma"
+    assert not re.search(r"\d{1,3}\.\d{3} kWh", en), "English must not group with a point"
+    assert re.search(r"\d{1,3}\.\d{3} kWh", nl), "Dutch should group thousands with a point"
+    assert not re.search(r"\d{1,3},\d{3} kWh", nl), "Dutch must not group with a comma"
+
+    # The spot-price line, which is where the decimal separator shows.
+    assert re.search(r"\d,\d{3} €/kWh", nl), "Dutch should use a decimal comma for €/kWh"
+    assert not re.search(r"\d\.\d{3} €/kWh", nl), "Dutch must not use a decimal point"
+    assert re.search(r"\d\.\d{3} €/kWh", en), "English should use a decimal point for €/kWh"
