@@ -16,7 +16,7 @@ owes those consumers is a shape they can bind to and a validation result they ca
 
 ## The grouping
 
-Four dataclasses composed into one `SimulationConfig`:
+Five dataclasses composed into one `SimulationConfig`:
 
     BatteryConfig    the battery being simulated: capacity, SoC window, powers, efficiency,
                      standby, coupling, initial SoC. Plus the derived SoC bounds in kWh and the
@@ -29,14 +29,17 @@ Four dataclasses composed into one `SimulationConfig`:
                      each because check 12 (§7.3) is a check ACROSS the two bands; splitting them
                      would put the only cross-cutting validation in neither object.
     TopologyConfig   pv_coupling, battery_phases, approximated (§2.5, §4.5).
+    PricingConfig    the contract and its rates: contract type, supplier markup, energy tax,
+                     VAT, feed-in α/β and floor mode, terugleverkosten, the dal window,
+                     degradation (§2.3's Pricing box, §6.5). Inert — but RETAINED, see below —
+                     when `simulate_cost` is false.
 
 The grouping mirrors the panel-② form boxes one-to-one, so an issue keyed `battery.min_soc_pct`
 names both the field and the box the user has to open to fix it.
 
 `has_pv` and `simulate_cost` sit on `SimulationConfig` itself, not in any group: each of them
 conditions SEVERAL groups (has_pv → topology.pv_coupling and battery.coupling; simulate_cost →
-policy.economic_guard and the whole pricing section that is not modelled here yet), so neither
-belongs to one box.
+policy.economic_guard and the whole of `PricingConfig`), so neither belongs to one box.
 
 ## Mutability: derived quantities are PROPERTIES, never cached fields
 
@@ -117,22 +120,49 @@ must not depend on the caller having called `validate()`:
 so a config that has passed the run precondition also LOOKS right in a debugger or a persisted
 file, not merely through its accessors.
 
+## The cost parameters are RETAINED, never forced — the opposite of `economic_guard`
+
+`PricingConfig` carries the §6.5 contract parameters. Appendix A lists all of them as inert when
+`simulate_cost` is false and says in as many words that they are "retained at their stored values
+so that enabling cost simulation later restores the user's configuration rather than resetting
+it". So nothing in `_force_invariants` touches this group, and there is no forcing property over
+any of its fields.
+
+That is deliberately unlike `economic_guard`, which appendix A singles out as "additionally
+FORCED off rather than merely hidden". The distinction is about what reads the value. A DISPATCH
+input that would make §6.7 read a cost array that does not exist has to be neutralised whether or
+not anyone validated; a PRICE that is simply never consulted in an energy-only run — because
+§6.5 states the whole pricing package is skipped outright, not called with neutral parameters —
+changes no number by being stored. Clearing it would only lose the user's answer.
+
+`validate()` follows the same line: the pricing checks run ONLY when `simulate_cost` is true.
+Panel ② hides the entire Pricing box in energy-only mode (§2.3: "the whole Pricing box above,
+Advanced included, is hidden when cost simulation is off"), so blocking a run on a field the user
+was never shown would be an error with no input to attach itself to.
+
 ## What is deliberately NOT here
 
-The cost-model parameters (energy tax, VAT, markup, feed-in α/β, terugleverkosten, dal window,
-degradation, supplier settlement). Appendix A lists them as inert when `simulate_cost = false`,
-which is the default, and the §6.10 cost accounting that consumes them is a later increment.
-Adding them now would mean inventing the contract-type structure (§6.5) ahead of its consumer.
+The §6.5 machinery that CONSUMES the pricing parameters — `bare_supply_price`, `import_price`,
+`export_price_net`, the period feed-in floor — and the §6.10 cost accounting. This module holds
+the parameter set and its validation; the pricing module is a later increment.
+
+Three `PricingConfig` fields are vocabulary rather than implementation: `Contract.FIXED` and
+`Contract.VARIABLE`, and `TlkMode.TIERED`. §6.5 defines all three and only the DYNAMIC / FLAT
+paths are built. The enums carry every value so that the stored parameter set, the radio labels
+and the eventual dispatch on contract type all name the same things; a `rate_schedule` for
+VARIABLE and a `tlk_tiers` table for TIERED are not modelled and are absent rather than stubbed.
 
 Main items:
     ChargePolicy / DischargePolicy / Coupling / PvCoupling / BatteryPhases   the enums.
+    Contract / FeedinFloorMode / TlkMode              the §6.5 pricing vocabulary.
     RTE_MIN, NOMINAL_PHASE_VOLTAGE_V                the appendix-A / E-A constants.
     _finite()                                       the non-raising numeric funnel.
     connection_capacity_kw()                        EXACT phases × A × 230 V / 1000, for physics.
     connection_capacity_kw_display()                the rounded figure, for panel ② only.
-    BatteryConfig, GridConfig, PolicyConfig, TopologyConfig, SimulationConfig   the parameter set.
+    BatteryConfig, GridConfig, PolicyConfig, TopologyConfig, PricingConfig, SimulationConfig
+                                                     the parameter set.
     ConfigIssue, ValidationResult                    field-keyed validation output.
-    SimulationConfig.validate()                      §7.3 checks 11 and 12.
+    SimulationConfig.validate()                      §7.3 checks 11 and 12, plus §6.5's ranges.
     SimulationConfig.offerable_charge_policies() / .offerable_discharge_policies()
                                                      UI gating only — NOT dispatch semantics.
 """
@@ -196,6 +226,68 @@ class BatteryPhases(str, Enum):
     ONE_PHASE = "one_phase"
     THREE_PHASE = "three_phase"
     THREE_TIMES_ONE_PHASE = "three_times_one_phase"
+
+
+class Contract(str, Enum):
+    """§6.5's three contract types — the vocabulary of the whole pricing package.
+
+    §6.5: "DYNAMIC, FIXED and VARIABLE are the vocabulary everywhere in this package, radio
+    labels and result fields included: the user-facing name of a contract type is the enum value
+    lower-cased, with no country qualifier." Hence the lowercase values, and hence all three
+    being present even though only the DYNAMIC rate source is built: the enum is what panel ②'s
+    radio group, the persisted parameter set and the eventual `bare_supply_price` dispatch all
+    name their cases from, so a missing member would mean three places inventing their own.
+
+    FIXED takes its rates from `PricingConfig.rate_normaal` / `rate_dal`. VARIABLE needs a dated
+    rate SCHEDULE (§6.5 `lookup_schedule`), which is a table rather than a pair of numbers and is
+    not modelled here.
+    """
+
+    DYNAMIC = "dynamic"
+    FIXED = "fixed"
+    VARIABLE = "variable"
+
+
+class FeedinFloorMode(str, Enum):
+    """§6.5 — over what period the statutory "compensation may not be negative" floor is assessed.
+
+        MONTHLY       the period the statute names. Artikel 2.34, zevende lid Energiewet says
+                      "gemiddeld gewogen over een periode van een maand" — weighted-averaged over
+                      a period of a month — so individual negative-price intervals do not breach
+                      the floor as long as the month's aggregate is non-negative. Appendix A's
+                      default. Note the statute says neither *ten minste* nor *precies* a month;
+                      whether a longer assessment period is lawful is an inference from its
+                      silence and is unverified in both directions (§6.5 point 3, §8.14). Do not
+                      restate this as "at least one month" — §6.5 explicitly disclaims that
+                      phrasing, and a settled-sounding legal claim here propagates into UI copy.
+        PER_INTERVAL  the v1.1 behaviour, "retained for reproducibility. Stricter than the law."
+                      §6.5 notes it is also a shape a supplier could genuinely offer.
+
+    The two are NOT a rounding difference: per-interval clamping is always ≥ the period aggregate,
+    because clamping discards each negative term while the aggregate lets them offset positives.
+
+    The assessment PERIOD (`feedin_floor_period`, appendix A "calendar month") is a separate
+    parameter and is not modelled here — §6.5 leaves whether longer periods are lawful open
+    (§8.14), and nothing in this module consumes a period yet.
+    """
+
+    MONTHLY = "monthly"
+    PER_INTERVAL = "per_interval"
+
+
+class TlkMode(str, Enum):
+    """§6.5 — how terugleverkosten are charged.
+
+        FLAT    a rate per fed-in kWh, `tlk_eur_per_kwh`. §6.5: from 2027 these must be expressed
+                per fed-in kWh, so FLAT "is the default and the expected shape", and background
+                E5.2 makes it close to the only clearly compliant one.
+        TIERED  a staffel on ANNUALISED export. Retained as vocabulary because volume is plainly
+                related to feed-in and so a staffel remains arguable, but not built: it needs a
+                tier table, an annualisation, and the `min_tlk_tiering_days` fallback to FLAT.
+    """
+
+    FLAT = "flat"
+    TIERED = "tiered"
 
 
 # ── The non-raising numeric funnel ───────────────────────────────────────────────────────────
@@ -561,6 +653,74 @@ class TopologyConfig:
     approximated: bool = False
 
 
+@dataclass
+class PricingConfig:
+    """The contract and its rates (§2.3's Pricing box; consumed by §6.5 and §6.10).
+
+    Defaults are appendix A, except `rate_normaal` / `rate_dal`, which appendix A does not
+    tabulate — those come from §2.3's Fixed sub-panel wireframe, the same arrangement as
+    `PolicyConfig`'s bands. Fields, in the order the panel-② box shows them:
+
+        contract              DYNAMIC / FIXED / VARIABLE (§6.5). Selects the rate source, i.e.
+                      which of the fields below `bare_supply_price` reads. Appendix A does not
+                      tabulate it; DYNAMIC is the only source built, and §2.3's wireframe
+                      preselects it.
+        supplier_markup       the inkoopvergoeding added to the bare spot price. DYNAMIC only —
+                      §6.5's FIXED and VARIABLE branches never read it.
+        energy_tax_excl_vat / vat_rate   `import_price = (bare + tax) * (1 + vat)` (§6.5). Both
+                      2026 figures; appendix A notes they change on 1 January 2027.
+        feedin_alpha / feedin_beta   `compensation = α × bare + β`, NOT clamped per interval.
+                      Appendix A's 0.50 / 0.0000 is §6.5's "Legal minimum" preset, the statutory
+                      floor valid to 1 Jan 2030.
+        feedin_floor_mode     over what period the ≥0 floor is assessed; see `FeedinFloorMode`.
+        tlk_mode / tlk_eur_per_kwh   terugleverkosten; see `TlkMode`. The rate is appendix A's
+                      explicit PLACEHOLDER — "2027 tariffs unpublished".
+        dal_start_hour / dal_end_hour / dal_weekends   the day/night window §6.4 assigns a
+                      `tariff_zone` from, read by the FIXED and VARIABLE rate sources. The
+                      default 23 → 7 WRAPS midnight, which is the normal shape and not an
+                      inversion; `validate()` is written to know that.
+        degradation_eur_per_kwh   the §6.10 waterfall's degradation term, per kWh withdrawn.
+                      Appendix A default 0.0, "Disabled", and itself an open question (§8.3).
+        rate_normaal / rate_dal   the two FIXED rates, excl. energy tax and VAT (§6.5's
+                      `where(tariff_zone == DAL, cfg.rate_dal, cfg.rate_normaal)`). Stored
+                      whatever the contract type, like everything else here.
+
+    **Nothing in this object is forced, and nothing in it is cleared when `simulate_cost` is
+    false.** Appendix A lists every field here as inert-but-RETAINED; see the module comment for
+    why that is the opposite treatment from `economic_guard` and why it is not an inconsistency.
+
+    Not modelled, deliberately, for two different reasons — do not collapse them:
+
+      * VARIABLE's dated `rate_schedule` and TIERED's tier table each need a STRUCTURE rather
+        than a scalar (a dated schedule, a tier table), and each belongs with the §6.5 code that
+        reads it. Neither contract type is built this increment.
+      * `feedin_floor_period` and `supplier_settlement` are plain SCALARS — appendix A gives
+        "calendar month" and `hourly` — and are absent for a different reason: nothing consumes
+        them yet. §6.5 leaves the lawful period open (§8.14), and `supplier_settlement` is read
+        by §6.16's price bracketing, not by §6.5 at all. Adding either now would be a field no
+        code reads.
+    """
+
+    contract: Contract = Contract.DYNAMIC
+    supplier_markup: float = 0.0205
+    energy_tax_excl_vat: float = 0.09161
+    vat_rate: float = 0.21
+    feedin_alpha: float = 0.50
+    feedin_beta: float = 0.0000
+    feedin_floor_mode: FeedinFloorMode = FeedinFloorMode.MONTHLY
+    tlk_mode: TlkMode = TlkMode.FLAT
+    tlk_eur_per_kwh: float = 0.0400
+    dal_start_hour: float = 23
+    dal_end_hour: float = 7
+    dal_weekends: bool = True
+    degradation_eur_per_kwh: float = 0.0
+    # §2.3's Fixed sub-panel wireframe, NOT appendix A — which tabulates no fixed-contract rates
+    # at all. Same provenance as PolicyConfig's bands, and marked as such for the same reason: a
+    # reader checking the shipped defaults against appendix A must not conclude these two drifted.
+    rate_normaal: float = 0.1350
+    rate_dal: float = 0.1180
+
+
 # ── The whole parameter set ──────────────────────────────────────────────────────────────────
 
 
@@ -568,8 +728,8 @@ class TopologyConfig:
 class SimulationConfig:
     """One run's parameters: the `cfg` of §6.6–§6.9, with the two run-wide flags.
 
-        battery / grid / policy / topology   the four groups above. **Copied on construction** —
-                      see `__post_init__`.
+        battery / grid / policy / topology / pricing   the five groups above. **Copied on
+                      construction** — see `__post_init__`.
         has_pv        appendix A default true. "Asked explicitly, never inferred" (§8.16) — which
                       is why it is a field here and not read off whether a solar slot is mapped.
                       `SimulationFrame.has_pv_series` reports the DATA side of the same question;
@@ -582,7 +742,9 @@ class SimulationConfig:
                       battery being SIMULATED — panel ②'s battery is a replacement, so no part of
                       the dispatch core reads this flag.
         simulate_cost appendix A default false — energy-only, so a first result needs no contract
-                      knowledge (§8.18).
+                      knowledge (§8.18). It gates the whole `pricing` group: panel ② hides the
+                      box, §6.5 skips the pricing package outright, and `validate()` runs no
+                      pricing check. What it does NOT do is clear any of those parameters.
         dp_soc_levels / dp_action_levels   §6.12's DP discretisation, appendix A's 101 and 41.
                       Shared by BOTH perfect-foresight runs (D and E) — the two objectives differ
                       only in `transition_cost`, so a single pair of grid sizes is correct.
@@ -594,6 +756,7 @@ class SimulationConfig:
     grid: GridConfig = field(default_factory=GridConfig)
     policy: PolicyConfig = field(default_factory=PolicyConfig)
     topology: TopologyConfig = field(default_factory=TopologyConfig)
+    pricing: PricingConfig = field(default_factory=PricingConfig)
     has_pv: bool = True
     has_battery: bool = False
     simulate_cost: bool = False
@@ -607,7 +770,7 @@ class SimulationConfig:
     dp_action_levels: int = 41
 
     def __post_init__(self) -> None:
-        """Defensively copy the four sub-configs, then normalise the forced settings.
+        """Defensively copy the five sub-configs, then normalise the forced settings.
 
         **The copy is not paranoia about aliasing in general — it is required by the forcing.**
         `_force_invariants` WRITES to the sub-objects (it clears `pv_coupling`, sets `coupling` to
@@ -620,8 +783,14 @@ class SimulationConfig:
 
         That is a realistic Phase-6 shape: "clone this config", or a with-PV / without-PV
         comparison, naturally reuses a group. A shallow `dataclasses.replace` is enough — every
-        field in the four groups is a float, bool, None or enum, all immutable, so there is nothing
+        field in the five groups is a float, bool, None or enum, all immutable, so there is nothing
         deeper to share.
+
+        `pricing` is copied along with the rest even though `_force_invariants` never writes to it
+        (appendix A: cost parameters are retained, not forced). The second reason for the copy
+        stands on its own — a caller who hands the same `PricingConfig` to two configs and then
+        edits one must not move the other — and a group that is copied only while something
+        happens to write to it is a copy that silently disappears the day that write is removed.
 
         Note the `default_factory` on each field is already correct and unrelated: two default
         `SimulationConfig()`s each build their own groups and never shared one.
@@ -630,6 +799,7 @@ class SimulationConfig:
         self.grid = dataclasses.replace(self.grid)
         self.policy = dataclasses.replace(self.policy)
         self.topology = dataclasses.replace(self.topology)
+        self.pricing = dataclasses.replace(self.pricing)
         self._force_invariants()
 
     def _force_invariants(self) -> None:
@@ -654,8 +824,18 @@ class SimulationConfig:
            when `pv` is all zeros, so the two settings give bit-identical results. Forcing them
            keeps the result object from reporting a coupling for a PV array that is not there.
 
-        Note what is NOT forced: `policy.charge_policy` is left alone when `has_pv` is false. §6.6
-        is explicit that P1 charges nothing and P3 degenerates to P2 there — the code "already
+        Note what is NOT forced, first: **the whole of `pricing`.** `simulate_cost = false` clears
+        no pricing field and no property masks one. Appendix A puts `economic_guard` and the cost
+        parameters on opposite sides of exactly this line — the cost parameters are "retained at
+        their stored values", `economic_guard` is "additionally FORCED off rather than merely
+        hidden" — and the reason is what reads them. `economic_guard` is a DISPATCH input: left
+        true, §6.7 reads `p_export_net`, an array an energy-only run never built. A rate is read
+        only by the §6.5 pricing package, which that same run skips outright rather than calling
+        with neutral parameters, so a stored rate cannot reach a number. Forcing it would buy no
+        safety and would throw away the user's configuration on a checkbox toggle.
+
+        Note what is NOT forced, second: `policy.charge_policy` is left alone when `has_pv` is
+        false. §6.6 is explicit that P1 charges nothing and P3 degenerates to P2 there — "already
         computes the right answer" — so rewriting a stored P3 to P2 would change nothing about the
         run while silently discarding the user's answer if they later turn PV back on. Which
         policies panel ② should OFFER is a separate question; see `offerable_charge_policies`.
@@ -890,6 +1070,14 @@ class SimulationConfig:
             clamped silently (that would hide the user's own two numbers combining badly); check
             11's bound is on the round-trip figure, which is the number the user typed.
 
+        **The pricing checks run ONLY when `simulate_cost` is true**, funnel included. Panel ②
+        hides the entire Pricing box in energy-only mode (§2.3), so a blocking error keyed to
+        `pricing.vat_rate` there would refuse a run the user cannot see the cause of, let alone
+        fix — and it would refuse it over a parameter that changes no number, since §6.5's whole
+        package is skipped in that mode. Note this is a gate on REPORTING, not on storage: the
+        stored values are untouched either way (appendix A's retention rule), so turning cost
+        simulation on surfaces exactly the issues that were always latent in them.
+
         The forced invariants are re-applied first. `validate()` is the point the run precondition
         passes through, so it is where a config that has been mutated since construction gets its
         stored values normalised again. The read-path properties already made the forcing safe;
@@ -899,7 +1087,7 @@ class SimulationConfig:
 
         errors: list[ConfigIssue] = []
         warnings: list[ConfigIssue] = []
-        b, g, p = self.battery, self.grid, self.policy
+        b, g, p, pr = self.battery, self.grid, self.policy, self.pricing
 
         # ---- non-numeric / non-finite inputs ---------------------------------------------------
         # Checked FIRST and per field, because everything below compares numbers: an empty Phase-6
@@ -926,6 +1114,23 @@ class SimulationConfig:
             ("policy.band_c", p.band_c),
             ("policy.band_d", p.band_d),
         )
+        # The Pricing box's numerics join the SAME funnel, but only when the box exists. See the
+        # docstring: in energy-only mode panel ② does not show these fields and §6.5 does not read
+        # them, so reporting on them would be an error with no input to attach itself to.
+        if self.simulate_cost:
+            numeric_fields += (
+                ("pricing.supplier_markup", pr.supplier_markup),
+                ("pricing.energy_tax_excl_vat", pr.energy_tax_excl_vat),
+                ("pricing.vat_rate", pr.vat_rate),
+                ("pricing.feedin_alpha", pr.feedin_alpha),
+                ("pricing.feedin_beta", pr.feedin_beta),
+                ("pricing.tlk_eur_per_kwh", pr.tlk_eur_per_kwh),
+                ("pricing.dal_start_hour", pr.dal_start_hour),
+                ("pricing.dal_end_hour", pr.dal_end_hour),
+                ("pricing.degradation_eur_per_kwh", pr.degradation_eur_per_kwh),
+                ("pricing.rate_normaal", pr.rate_normaal),
+                ("pricing.rate_dal", pr.rate_dal),
+            )
         for name, value in numeric_fields:
             if _finite(value) is None:
                 non_numeric.add(name)
@@ -1114,6 +1319,98 @@ class SimulationConfig:
                     f"connection must be 1-phase or 3-phase (got {g.phases})",
                 )
             )
+
+        # ---- §6.5 pricing ranges — cost mode only ---------------------------------------------
+        # Same gate as the funnel above, for the same reason. Everything here BLOCKS: unlike a
+        # band, none of these has a well-defined simulation outside its range. A VAT rate of 3.0
+        # or an α of −2 does not produce a coarse or surprising euro figure, it produces a
+        # confident wrong one, which is the outcome §1 says the app must refuse over.
+        if self.simulate_cost:
+            # α and VAT are fractions by construction: `import_price` multiplies by `1 + vat_rate`
+            # and `compensation = alpha * bare + beta`. Both bounds are INCLUSIVE — 0 VAT and a
+            # 0 or 1.0 α are all meaningful settings (§6.5's preset table lists α = 0.00 for a
+            # flat feed-in rate and α = 1.00 for spot), so only outside [0, 1] is unrepresentable.
+            for name, value in (("vat_rate", pr.vat_rate), ("feedin_alpha", pr.feedin_alpha)):
+                if numeric(f"pricing.{name}") and not (0.0 <= value <= 1.0):
+                    errors.append(
+                        ConfigIssue(
+                            f"pricing.{name}",
+                            "fraction_out_of_range",
+                            f"{name} must be between 0 and 1 (got {value})",
+                        )
+                    )
+            # Three charges that have no negative reading. Note what is NOT here: `feedin_beta`
+            # and `supplier_markup` are signed on purpose — §6.5's "Spot minus fee" preset is
+            # β = −0.0200, and a markup can in principle be a discount.
+            #
+            # `rate_normaal`/`rate_dal` are checked for finiteness only, and that is a DEFERRAL
+            # rather than a judgement that a negative supply rate is meaningful. They belong to
+            # the FIXED contract, which is not built this increment (only DYNAMIC is), so no code
+            # reads them yet and any bound written now would be guessed rather than derived from
+            # a consumer. Whoever builds FIXED should decide it against §6.5 — the obvious
+            # `< 0.0` check would fit beside the three below.
+            for name, value in (
+                ("energy_tax_excl_vat", pr.energy_tax_excl_vat),
+                ("tlk_eur_per_kwh", pr.tlk_eur_per_kwh),
+                ("degradation_eur_per_kwh", pr.degradation_eur_per_kwh),
+            ):
+                if numeric(f"pricing.{name}") and value < 0.0:
+                    errors.append(
+                        ConfigIssue(
+                            f"pricing.{name}",
+                            "rate_negative",
+                            f"{name} cannot be negative (got {value})",
+                        )
+                    )
+            # The dal window's two ends are hours-of-day, so [0, 24). 24 itself is excluded
+            # because it is 0 of the next day, not an hour this one has.
+            #
+            # **A window that wraps midnight is NORMAL and is not checked for.** Appendix A's
+            # default is 23 → 7, i.e. start > end, which is what a night tariff looks like
+            # everywhere in the Netherlands. An "inverted range" check of the shape used on the
+            # price bands would flag the shipped default, which is how that mistake announces
+            # itself; there is no inversion to detect here, only two independent hours.
+            for name, value in (
+                ("dal_start_hour", pr.dal_start_hour),
+                ("dal_end_hour", pr.dal_end_hour),
+            ):
+                if numeric(f"pricing.{name}") and not (0.0 <= value < 24.0):
+                    errors.append(
+                        ConfigIssue(
+                            f"pricing.{name}",
+                            "hour_out_of_range",
+                            f"{name} must be an hour in [0, 24) (got {value})",
+                        )
+                    )
+
+            # ---- the three enum-typed selectors -----------------------------------------------
+            # Checked by TYPE, not by range, and checked here rather than left to the reader's
+            # goodwill because §6.5 dispatches on these with an if/elif/else chain: a `tlk_mode`
+            # of None or the bare string "flat" (not the enum) falls to the `else` and reaches
+            # `tiered_tlk_rate` with no tier table, and a bad `contract` silently prices as
+            # whichever branch is last. A wrong euro figure from a mistyped enum is exactly the
+            # confident-wrong-answer §1 refuses, so it blocks.
+            #
+            # This is stricter than the module's older enum fields (`charge_policy`, `coupling`,
+            # `battery_phases`), which are unvalidated. That is a gap in those, not a precedent to
+            # follow — see `dp_soc_levels` above for the same argument applied to a non-float.
+            # `dal_weekends` is deliberately NOT here: every Python object is truthy or falsy, so
+            # `bool(x)` has a defined answer for anything the form can submit, and there is no
+            # such thing as an unrepresentable value for it.
+            for name, value, enum_cls in (
+                ("contract", pr.contract, Contract),
+                ("feedin_floor_mode", pr.feedin_floor_mode, FeedinFloorMode),
+                ("tlk_mode", pr.tlk_mode, TlkMode),
+            ):
+                if not isinstance(value, enum_cls):
+                    errors.append(
+                        ConfigIssue(
+                            f"pricing.{name}",
+                            "not_a_choice",
+                            f"{name} must be one of "
+                            f"{', '.join(m.value for m in enum_cls)} (got {value!r})",
+                        )
+                    )
 
         # ---- check 12: band overlap — WARN, never block ---------------------------------------
         # §7.3 check 12 and §6.7: "Validate at config time and warn ... At runtime, net the

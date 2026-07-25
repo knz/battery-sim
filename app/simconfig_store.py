@@ -46,6 +46,10 @@ Appendix A draws a distinction that is easy to miss. The twelve cost-only parame
 must NOT be added here. Doing so would build a shadow copy of the parameter set with its own
 drift surface, for no behaviour that is not already correct.
 
+Those that live on `PricingConfig` are carried by the ordinary `"pricing"` group below, written
+and read unconditionally — appendix A's retention is only half-honoured if the values survive in
+process but not across a restart.
+
 `economic_guard` is different, and appendix A says so separately: it is "*additionally* **forced**
 off rather than merely hidden, because it reads a cost-model output"
 (specs/appendix-a-defaults.md). It is the forcing, not the inertness, that puts it here. If a
@@ -61,7 +65,7 @@ normalisation is deliberate and well-argued in `simconfig.py` (a persisted or in
 should LOOK right, and the read-path property is what makes the forcing safe), but it means the
 retained value has to live somewhere the forcing does not reach.
 
-That somewhere is this document. `retained.economic_guard` is a slot beside the four groups,
+That somewhere is this document. `retained.economic_guard` is a slot beside the five groups,
 written from the config's raw field only when it is meaningfully set and otherwise carried
 forward from what was already on disk. On load, it is restored into `policy.economic_guard` when
 `simulate_cost` is true — where the forcing does not apply, so it survives — and left in the slot
@@ -94,10 +98,14 @@ from app.domain.simconfig import (
     ChargePolicy,
     Coupling,
     DischargePolicy,
+    Contract,
+    FeedinFloorMode,
     GridConfig,
     PolicyConfig,
+    PricingConfig,
     PvCoupling,
     SimulationConfig,
+    TlkMode,
     TopologyConfig,
 )
 
@@ -134,7 +142,7 @@ def to_dict(
 ) -> dict:
     """`cfg` as a JSON-safe document.
 
-    Enums are written as their `.value` string, `None` stays `None`. The four groups keep their
+    Enums are written as their `.value` string, `None` stays `None`. The five groups keep their
     nesting so the document reads like the form boxes it came from, and so a dotted validation
     path ("battery.min_soc_pct") locates a value in the file by the same route.
 
@@ -155,7 +163,7 @@ def to_dict(
     submission actually drew the checkbox, so its absence means unticked"; without it a stored
     `True` is carried forward untouched.
     """
-    b, g, p, t = cfg.battery, cfg.grid, cfg.policy, cfg.topology
+    b, g, p, t, pr = cfg.battery, cfg.grid, cfg.policy, cfg.topology, cfg.pricing
     prior = retained if isinstance(retained, dict) else {}
     if bool(p.economic_guard) or guard_submitted:
         keep_guard = bool(p.economic_guard)
@@ -202,6 +210,28 @@ def to_dict(
             "pv_coupling": _enum_value(t.pv_coupling),
             "battery_phases": _enum_value(t.battery_phases),
             "approximated": bool(t.approximated),
+        },
+        # Written unconditionally, whatever `simulate_cost` says. Appendix A calls the cost
+        # parameters inert-but-RETAINED, and a document that only carried them when the box was
+        # ticked would honour that in memory and lose it at the next restart — the same
+        # half-retention the `retained` block exists to avoid for `economic_guard`. Nothing here
+        # is forced, so the raw fields are the stored values already.
+        "pricing": {
+            "contract": _enum_value(pr.contract),
+            "supplier_markup": pr.supplier_markup,
+            "energy_tax_excl_vat": pr.energy_tax_excl_vat,
+            "vat_rate": pr.vat_rate,
+            "feedin_alpha": pr.feedin_alpha,
+            "feedin_beta": pr.feedin_beta,
+            "feedin_floor_mode": _enum_value(pr.feedin_floor_mode),
+            "tlk_mode": _enum_value(pr.tlk_mode),
+            "tlk_eur_per_kwh": pr.tlk_eur_per_kwh,
+            "dal_start_hour": pr.dal_start_hour,
+            "dal_end_hour": pr.dal_end_hour,
+            "dal_weekends": bool(pr.dal_weekends),
+            "degradation_eur_per_kwh": pr.degradation_eur_per_kwh,
+            "rate_normaal": pr.rate_normaal,
+            "rate_dal": pr.rate_dal,
         },
     }
 
@@ -269,7 +299,9 @@ def from_dict(doc: object) -> SimulationConfig:
     g_raw = doc.get("grid") if isinstance(doc.get("grid"), dict) else {}
     p_raw = doc.get("policy") if isinstance(doc.get("policy"), dict) else {}
     t_raw = doc.get("topology") if isinstance(doc.get("topology"), dict) else {}
+    r_raw = doc.get("pricing") if isinstance(doc.get("pricing"), dict) else {}
     db_, dg, dp, dt = dflt.battery, dflt.grid, dflt.policy, dflt.topology
+    dr = dflt.pricing
 
     battery = BatteryConfig(
         usable_capacity_kwh=_number_or_default(
@@ -330,11 +362,39 @@ def from_dict(doc: object) -> SimulationConfig:
         ),
         approximated=bool(t_raw.get("approximated", dt.approximated)),
     )
+    # Read whatever `simulate_cost` says, for the retention rule appendix A states: the stored
+    # values are what enabling cost simulation later restores. An absent `pricing` block — every
+    # document written before the group existed — takes the appendix-A defaults field by field,
+    # which is the same forward-compatibility rule the other four groups get.
+    pricing = PricingConfig(
+        contract=_enum_or_default(Contract, r_raw.get("contract"), dr.contract),
+        supplier_markup=_number_or_default(r_raw.get("supplier_markup"), dr.supplier_markup),
+        energy_tax_excl_vat=_number_or_default(
+            r_raw.get("energy_tax_excl_vat"), dr.energy_tax_excl_vat
+        ),
+        vat_rate=_number_or_default(r_raw.get("vat_rate"), dr.vat_rate),
+        feedin_alpha=_number_or_default(r_raw.get("feedin_alpha"), dr.feedin_alpha),
+        feedin_beta=_number_or_default(r_raw.get("feedin_beta"), dr.feedin_beta),
+        feedin_floor_mode=_enum_or_default(
+            FeedinFloorMode, r_raw.get("feedin_floor_mode"), dr.feedin_floor_mode
+        ),
+        tlk_mode=_enum_or_default(TlkMode, r_raw.get("tlk_mode"), dr.tlk_mode),
+        tlk_eur_per_kwh=_number_or_default(r_raw.get("tlk_eur_per_kwh"), dr.tlk_eur_per_kwh),
+        dal_start_hour=_number_or_default(r_raw.get("dal_start_hour"), dr.dal_start_hour),
+        dal_end_hour=_number_or_default(r_raw.get("dal_end_hour"), dr.dal_end_hour),
+        dal_weekends=bool(r_raw.get("dal_weekends", dr.dal_weekends)),
+        degradation_eur_per_kwh=_number_or_default(
+            r_raw.get("degradation_eur_per_kwh"), dr.degradation_eur_per_kwh
+        ),
+        rate_normaal=_number_or_default(r_raw.get("rate_normaal"), dr.rate_normaal),
+        rate_dal=_number_or_default(r_raw.get("rate_dal"), dr.rate_dal),
+    )
     return SimulationConfig(
         battery=battery,
         grid=grid,
         policy=policy,
         topology=topology,
+        pricing=pricing,
         has_pv=bool(doc.get("has_pv", dflt.has_pv)),
         has_battery=bool(doc.get("has_battery", dflt.has_battery)),
         simulate_cost=bool(doc.get("simulate_cost", dflt.simulate_cost)),
@@ -462,15 +522,21 @@ def clone(cfg: SimulationConfig) -> SimulationConfig:
     """A deep-enough copy of `cfg`.
 
     `SimulationConfig.__post_init__` already `dataclasses.replace`s each group, and every field in
-    those groups is immutable (float/bool/None/enum), so re-constructing from the four groups is a
+    those groups is immutable (float/bool/None/enum), so re-constructing from the five groups is a
     full copy. Used by the form layer to derive a candidate config from the stored one without
     mutating what is on disk.
+
+    **Every group has to be named here.** This rebuilds the config field by field rather than
+    copying it, so a group left out is not aliased — it is silently replaced by its appendix-A
+    default. `/params` builds its candidate on `clone`, which would make any parameter submission
+    reset the omitted group. That is the defect `test_clone_preserves_has_battery` exists for.
     """
     return SimulationConfig(
         battery=dataclasses.replace(cfg.battery),
         grid=dataclasses.replace(cfg.grid),
         policy=dataclasses.replace(cfg.policy),
         topology=dataclasses.replace(cfg.topology),
+        pricing=dataclasses.replace(cfg.pricing),
         has_pv=cfg.has_pv,
         has_battery=cfg.has_battery,
         simulate_cost=cfg.simulate_cost,

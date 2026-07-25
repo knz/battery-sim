@@ -34,11 +34,19 @@ What these pin, and why each is worth a test:
     rewrite another's.
   * **Construction never raises**, for None / str / nan / inf, with `validate()` reporting each
     against the field that carries it — an empty Phase-6 form field is exactly this case.
+  * **The pricing group's two opposing rules.** Its parameters are RETAINED when `simulate_cost`
+    is false (appendix A) — the opposite of `economic_guard`, which the same appendix forces off —
+    while its validation is GATED on that same flag, because §2.3 hides the whole Pricing box in
+    energy-only mode and an error keyed to a hidden field refuses a run the user cannot fix. The
+    retention test walks every field of the dataclass so a newly added one cannot escape it.
+    Retention is pinned at BOTH layers: in process, and across the store's document and its file —
+    values that revert at the next restart honour appendix A only until the tab is closed.
   * **Offerability without PV**, together with the absence of any has_pv effect on the fields
     §6.6/§6.7 dispatch on — the spec says that branch must not exist, so the test checks the
     dispatch-relevant fields are untouched rather than only checking the UI query.
 """
 
+import dataclasses
 import math
 
 import pytest
@@ -48,12 +56,16 @@ from app.domain.simconfig import (
     BatteryConfig,
     BatteryPhases,
     ChargePolicy,
+    Contract,
     Coupling,
     DischargePolicy,
+    FeedinFloorMode,
     GridConfig,
     PolicyConfig,
+    PricingConfig,
     PvCoupling,
     SimulationConfig,
+    TlkMode,
     TopologyConfig,
     connection_capacity_kw,
     connection_capacity_kw_display,
@@ -85,6 +97,18 @@ _APPENDIX_A_DEFAULTS = [
     ("topology.battery_phases", BatteryPhases.THREE_PHASE),
     ("has_pv", True),
     ("simulate_cost", False),
+    # The Pricing box (§2.3), inert while simulate_cost is false but shipped with these values.
+    ("pricing.supplier_markup", 0.0205),
+    ("pricing.energy_tax_excl_vat", 0.09161),
+    ("pricing.vat_rate", 0.21),
+    ("pricing.feedin_alpha", 0.50),
+    ("pricing.feedin_beta", 0.0000),
+    ("pricing.feedin_floor_mode", FeedinFloorMode.MONTHLY),
+    ("pricing.tlk_eur_per_kwh", 0.0400),
+    ("pricing.dal_start_hour", 23),
+    ("pricing.dal_end_hour", 7),
+    ("pricing.dal_weekends", True),
+    ("pricing.degradation_eur_per_kwh", 0.0),
 ]
 
 # §2.3 wireframe (appendix A carries no default for these).
@@ -95,6 +119,12 @@ _WIREFRAME_DEFAULTS = [
     ("policy.band_b", 0.040),
     ("policy.band_c", 0.180),
     ("policy.band_d", 9.999),
+    # §2.3 preselects Dynamic and shows flat terugleverkosten; appendix A tabulates neither
+    # `contract` nor `tlk_mode`, and neither of the two fixed-contract rates.
+    ("pricing.contract", Contract.DYNAMIC),
+    ("pricing.tlk_mode", TlkMode.FLAT),
+    ("pricing.rate_normaal", 0.1350),
+    ("pricing.rate_dal", 0.1180),
 ]
 
 
@@ -941,3 +971,457 @@ def test_has_battery_does_not_touch_the_dispatch_config():
     assert on.offerable_discharge_policies() == off.offerable_discharge_policies()
     assert on.coupling is off.coupling
     assert on.pv_coupling == off.pv_coupling
+
+
+# ── Pricing (§2.3's Pricing box, §6.5) ───────────────────────────────────────────────────────
+#
+# Two rules govern everything below and they pull in opposite directions, which is why each gets
+# its own tests rather than being folded into the existing ones:
+#
+#   RETENTION   appendix A: the cost parameters are "retained at their stored values so that
+#               enabling cost simulation later restores the user's configuration". So NOTHING
+#               clears them — unlike `economic_guard`, which appendix A singles out as
+#               "additionally forced off".
+#   GATING      §2.3 hides the whole Pricing box when cost simulation is off, so `validate()`
+#               must report nothing against it in that mode. The easy mistake is to validate the
+#               stored values unconditionally, which blocks an energy-only run over an input the
+#               user was never shown and cannot reach.
+
+
+def test_all_three_contract_types_exist_as_vocabulary():
+    """§6.5: DYNAMIC/FIXED/VARIABLE are "the vocabulary everywhere in this package".
+
+    Only the DYNAMIC rate source is built. The enum still carries all three because panel ②'s
+    radio group, the persisted parameter set and the eventual `bare_supply_price` dispatch all
+    name their cases from it. The VALUES are pinned as literals because §6.5 makes the
+    user-facing label the enum value lower-cased — a renamed member would silently move a label.
+    """
+    assert [c.value for c in Contract] == ["dynamic", "fixed", "variable"]
+    assert [m.value for m in FeedinFloorMode] == ["monthly", "per_interval"]
+    assert [m.value for m in TlkMode] == ["flat", "tiered"]
+
+
+def test_the_default_dal_window_wraps_midnight_and_is_not_an_error():
+    """23 → 7 is a night tariff, not an inverted range.
+
+    The bands get an `band_inverted` warning when lower > upper; applying the same shape here
+    would flag appendix A's own default on every cost run. Both ends are independent hours.
+    """
+    cfg = SimulationConfig(simulate_cost=True)
+    assert cfg.pricing.dal_start_hour == 23
+    assert cfg.pricing.dal_end_hour == 7
+    assert cfg.pricing.dal_start_hour > cfg.pricing.dal_end_hour
+    result = cfg.validate()
+    assert result.errors == ()
+    assert result.warnings == ()
+
+
+def test_a_default_cost_run_validates_clean():
+    """Turning cost simulation on must not itself produce a finding on the shipped defaults."""
+    assert not SimulationConfig(simulate_cost=True).validate().blocking
+
+
+# ---- the gate: silent without cost simulation, reported with it ----
+
+
+@pytest.mark.parametrize(
+    "kwargs,expected_field,code",
+    [
+        ({"vat_rate": 1.5}, "pricing.vat_rate", "fraction_out_of_range"),
+        ({"vat_rate": -0.01}, "pricing.vat_rate", "fraction_out_of_range"),
+        ({"feedin_alpha": 1.01}, "pricing.feedin_alpha", "fraction_out_of_range"),
+        ({"feedin_alpha": -0.5}, "pricing.feedin_alpha", "fraction_out_of_range"),
+        ({"energy_tax_excl_vat": -0.01}, "pricing.energy_tax_excl_vat", "rate_negative"),
+        ({"tlk_eur_per_kwh": -0.04}, "pricing.tlk_eur_per_kwh", "rate_negative"),
+        (
+            {"degradation_eur_per_kwh": -0.01},
+            "pricing.degradation_eur_per_kwh",
+            "rate_negative",
+        ),
+        ({"dal_start_hour": 24}, "pricing.dal_start_hour", "hour_out_of_range"),
+        ({"dal_start_hour": -1}, "pricing.dal_start_hour", "hour_out_of_range"),
+        ({"dal_end_hour": 25}, "pricing.dal_end_hour", "hour_out_of_range"),
+        ({"vat_rate": None}, "pricing.vat_rate", "not_a_number"),
+        ({"feedin_beta": "0.02"}, "pricing.feedin_beta", "not_a_number"),
+        ({"supplier_markup": float("nan")}, "pricing.supplier_markup", "not_a_number"),
+        ({"rate_dal": float("inf")}, "pricing.rate_dal", "not_a_number"),
+    ],
+)
+def test_pricing_issues_are_reported_only_when_costs_are_simulated(kwargs, expected_field, code):
+    """The same broken value: silent in energy-only mode, blocking with cost simulation on.
+
+    Both halves matter. Reporting it in energy-only mode would refuse a run over a hidden field
+    (§2.3); NOT reporting it with cost simulation on would let §6.5 price the window off it.
+    """
+    pricing = PricingConfig(**kwargs)
+
+    quiet = SimulationConfig(pricing=pricing, simulate_cost=False).validate()
+    assert quiet.errors == ()
+    assert not quiet.blocking
+    # WARNINGS too, not just errors. The gate is on reporting anything about a hidden field: a
+    # pricing warning added later that skipped the `simulate_cost` check would otherwise leak
+    # past this test with the suite green.
+    assert not any(i.field.startswith("pricing.") for i in quiet.warnings)
+
+    loud = SimulationConfig(pricing=pricing, simulate_cost=True).validate()
+    assert loud.blocking
+    assert expected_field in loud.fields_with_errors()
+    assert any(i.code == code and i.field == expected_field for i in loud.errors)
+
+
+@pytest.mark.parametrize(
+    "field,kwargs",
+    [
+        ("pricing.contract", {"contract": None}),
+        # A bare string, not the enum. The likeliest real mistake: it compares equal to nothing
+        # in §6.5's if/elif chain even though it LOOKS right in a debugger.
+        ("pricing.contract", {"contract": "dynamic"}),
+        ("pricing.feedin_floor_mode", {"feedin_floor_mode": None}),
+        ("pricing.feedin_floor_mode", {"feedin_floor_mode": "monthly"}),
+        ("pricing.tlk_mode", {"tlk_mode": None}),
+        ("pricing.tlk_mode", {"tlk_mode": "flat"}),
+    ],
+)
+def test_a_pricing_selector_that_is_not_its_enum_blocks(field, kwargs):
+    """§6.5 dispatches on these with if/elif/else, so a non-enum value takes a silent branch.
+
+    A `tlk_mode` of None or of the bare string "flat" falls through to the `else` and reaches
+    `tiered_tlk_rate` with no tier table; a bad `contract` prices as whichever branch is last.
+    Either way the run produces a confident wrong euro figure rather than an error, which is the
+    outcome §1 says the app must refuse.
+    """
+    pricing = PricingConfig(**kwargs)
+
+    # Gated like every other pricing check: invisible in an energy-only run.
+    assert not SimulationConfig(pricing=pricing, simulate_cost=False).validate().blocking
+
+    result = SimulationConfig(pricing=pricing, simulate_cost=True).validate()
+    assert result.blocking
+    assert any(i.code == "not_a_choice" and i.field == field for i in result.errors)
+
+
+def test_the_shipped_enum_selectors_validate_clean():
+    """The mirror of the test above — every real enum member is accepted."""
+    for contract in Contract:
+        for mode in FeedinFloorMode:
+            for tlk in TlkMode:
+                pricing = PricingConfig(
+                    contract=contract, feedin_floor_mode=mode, tlk_mode=tlk
+                )
+                result = SimulationConfig(pricing=pricing, simulate_cost=True).validate()
+                assert not any(i.code == "not_a_choice" for i in result.errors)
+
+
+def test_dal_weekends_takes_anything_because_every_object_is_truthy():
+    """Deliberately NOT type-checked, unlike the three enums beside it.
+
+    `bool(x)` has a defined answer for every Python object, so there is no unrepresentable value
+    to reject — pinning that this is a decision rather than an oversight.
+    """
+    for value in (True, False, None, 0, 1, "", "yes", [], object()):
+        cfg = SimulationConfig(
+            pricing=PricingConfig(dal_weekends=value), simulate_cost=True
+        )
+        assert not any(i.field == "pricing.dal_weekends" for i in cfg.validate().errors)
+
+
+def test_turning_cost_simulation_on_surfaces_the_issue_without_reconstruction():
+    """The gate is on reporting, not on storage — flipping the flag is enough to reveal it."""
+    cfg = SimulationConfig(pricing=PricingConfig(vat_rate=2.0), simulate_cost=False)
+    assert not cfg.validate().blocking
+    cfg.simulate_cost = True
+    assert "pricing.vat_rate" in cfg.validate().fields_with_errors()
+
+
+@pytest.mark.parametrize("value", [0.0, 0.21, 1.0])
+def test_the_fraction_bounds_are_inclusive(value):
+    """0 and 1 are meaningful settings, so only OUTSIDE [0, 1] is unrepresentable.
+
+    §6.5's preset table lists α = 0.00 (a flat feed-in rate) and α = 1.00 (spot), and a zero VAT
+    rate is a perfectly ordinary thing to model. An exclusive bound would reject all three.
+    """
+    result = SimulationConfig(
+        pricing=PricingConfig(vat_rate=value, feedin_alpha=value), simulate_cost=True
+    ).validate()
+    assert not any(i.code == "fraction_out_of_range" for i in result.errors)
+
+
+def test_a_negative_feedin_beta_and_markup_are_accepted():
+    """§6.5's "Spot minus fee" preset is β = −0.0200 — signed on purpose, so no sign check."""
+    result = SimulationConfig(
+        pricing=PricingConfig(feedin_alpha=1.00, feedin_beta=-0.0200, supplier_markup=-0.005),
+        simulate_cost=True,
+    ).validate()
+    assert not result.blocking
+
+
+def test_hour_23_and_hour_0_are_inside_the_window_bound_but_24_is_not():
+    """[0, 24): 24 is hour 0 of the next day, not an hour this one has."""
+    ok = SimulationConfig(
+        pricing=PricingConfig(dal_start_hour=23, dal_end_hour=0), simulate_cost=True
+    ).validate()
+    assert not any(i.code == "hour_out_of_range" for i in ok.errors)
+    bad = SimulationConfig(
+        pricing=PricingConfig(dal_start_hour=0, dal_end_hour=24), simulate_cost=True
+    ).validate()
+    assert bad.fields_with_errors() == {"pricing.dal_end_hour"}
+
+
+def test_a_bad_pricing_field_is_reported_once_not_twice():
+    """`vat_rate=None` is one mistake: "not a number", not that plus "outside [0, 1]"."""
+    result = SimulationConfig(
+        pricing=PricingConfig(vat_rate=None), simulate_cost=True
+    ).validate()
+    vat_errors = [i for i in result.errors if i.field == "pricing.vat_rate"]
+    assert len(vat_errors) == 1
+    assert vat_errors[0].code == "not_a_number"
+
+
+# ---- retention: nothing clears a cost parameter ----
+
+
+def test_construction_never_raises_on_a_nonsense_pricing_config():
+    """Same guarantee as everywhere else: the form must be able to hold what the user typed."""
+    cfg = SimulationConfig(
+        pricing=PricingConfig(vat_rate=None, tlk_eur_per_kwh="0.04", feedin_alpha=float("nan")),
+        simulate_cost=True,
+    )
+    assert cfg.validate().blocking
+
+
+def test_cost_parameters_are_retained_not_reset_when_costs_are_off():
+    """Appendix A, verbatim: retained "so that enabling cost simulation later restores the
+    user's configuration rather than resetting it".
+
+    This is the OPPOSITE treatment from `economic_guard`, which the same appendix forces off. The
+    difference is what reads the value: the guard is a dispatch input that would make §6.7 read a
+    cost array that does not exist, while a rate is read only by the §6.5 package, which an
+    energy-only run skips outright. A stored rate therefore cannot reach a number.
+    """
+    custom = PricingConfig(
+        contract=Contract.FIXED,
+        supplier_markup=0.03,
+        energy_tax_excl_vat=0.10,
+        vat_rate=0.09,
+        feedin_alpha=1.0,
+        feedin_beta=-0.02,
+        feedin_floor_mode=FeedinFloorMode.PER_INTERVAL,
+        tlk_mode=TlkMode.TIERED,
+        tlk_eur_per_kwh=0.05,
+        dal_start_hour=21,
+        dal_end_hour=6,
+        dal_weekends=False,
+        degradation_eur_per_kwh=0.02,
+        rate_normaal=0.15,
+        rate_dal=0.12,
+    )
+    cfg = SimulationConfig(pricing=custom, simulate_cost=False)
+    cfg.validate()  # the point where economic_guard and pv_coupling ARE normalised
+    for f in dataclasses.fields(PricingConfig):
+        assert getattr(cfg.pricing, f.name) == getattr(custom, f.name), f.name
+
+    # ...and the round trip: turning cost simulation back on restores the user's configuration.
+    cfg.simulate_cost = True
+    cfg.validate()
+    assert cfg.pricing.contract is Contract.FIXED
+    assert cfg.pricing.dal_start_hour == 21
+    assert cfg.pricing.tlk_mode is TlkMode.TIERED
+
+
+def test_pricing_is_copied_so_two_configs_cannot_share_one():
+    """The fifth group joins the defensive copy — a clone or an A/B comparison reuses a group."""
+    shared = PricingConfig()
+    c1 = SimulationConfig(pricing=shared, simulate_cost=True)
+    c2 = SimulationConfig(pricing=shared, simulate_cost=True)
+    c1.pricing.vat_rate = 0.09
+    assert c2.pricing.vat_rate == 0.21
+    assert shared.vat_rate == 0.21  # the caller's own object is untouched too
+
+
+def test_clone_preserves_the_pricing_group():
+    """`clone` rebuilds field by field, so an unnamed group is reset rather than aliased.
+
+    `/params` builds its candidate on `clone`, so a dropped group would be cleared by any
+    parameter submission — the same cross-panel data loss `test_clone_preserves_has_battery`
+    pins for `has_battery`. Serialisation of the group to disk is a later phase; this is only
+    the in-process copy.
+    """
+    from app.simconfig_store import clone
+
+    cfg = SimulationConfig(pricing=PricingConfig(vat_rate=0.09, contract=Contract.FIXED))
+    assert clone(cfg).pricing.vat_rate == pytest.approx(0.09)
+    assert clone(cfg).pricing.contract is Contract.FIXED
+
+
+def test_two_default_configs_do_not_share_their_pricing():
+    a, b = SimulationConfig(), SimulationConfig()
+    a.pricing.tlk_eur_per_kwh = 99.0
+    assert b.pricing.tlk_eur_per_kwh == pytest.approx(0.0400)
+
+
+# ---- the pricing group on disk (app/simconfig_store.py) ----
+
+
+def _non_default_pricing() -> PricingConfig:
+    """Every field moved off its appendix-A default, all three enums included.
+
+    Written out longhand so that ADDING a field to `PricingConfig` without teaching the store
+    about it fails the round-trip test below rather than passing on a shorter list.
+    """
+    return PricingConfig(
+        contract=Contract.FIXED,
+        supplier_markup=0.0333,
+        energy_tax_excl_vat=0.10,
+        vat_rate=0.09,
+        feedin_alpha=0.80,
+        feedin_beta=-0.02,
+        feedin_floor_mode=FeedinFloorMode.PER_INTERVAL,
+        tlk_mode=TlkMode.TIERED,
+        tlk_eur_per_kwh=0.055,
+        dal_start_hour=21,
+        dal_end_hour=6,
+        dal_weekends=False,
+        degradation_eur_per_kwh=0.02,
+        rate_normaal=0.15,
+        rate_dal=0.12,
+    )
+
+
+def test_pricing_round_trips_through_the_document():
+    """Every field, through `to_dict` → `from_dict`, with the enums as their `.value` strings.
+
+    The group joined `clone` before it joined the serialisation, so the parameters survived in
+    process but reverted to appendix A at the next restart — retention honoured only until the
+    user closed the tab.
+    """
+    from app.simconfig_store import from_dict, to_dict
+
+    custom = _non_default_pricing()
+    doc = to_dict(SimulationConfig(pricing=custom, simulate_cost=True))
+    assert doc["pricing"]["contract"] == "fixed"
+    assert doc["pricing"]["feedin_floor_mode"] == "per_interval"
+    assert doc["pricing"]["tlk_mode"] == "tiered"
+
+    back = from_dict(doc).pricing
+    for f in dataclasses.fields(PricingConfig):
+        assert getattr(back, f.name) == getattr(custom, f.name), f.name
+
+
+def test_the_stored_document_survives_a_json_round_trip():
+    """`save()` writes the document through `json.dumps`, so nothing in it may be unserialisable
+    and no enum may reach disk as a repr.
+    """
+    import json
+
+    from app.simconfig_store import from_dict, to_dict
+
+    custom = _non_default_pricing()
+    doc = json.loads(json.dumps(to_dict(SimulationConfig(pricing=custom, simulate_cost=True))))
+    assert from_dict(doc).pricing.contract is Contract.FIXED
+    assert from_dict(doc).pricing.tlk_mode is TlkMode.TIERED
+
+
+def test_a_document_without_a_pricing_block_loads_appendix_a_defaults():
+    """Backward compatibility: the app was already in use before the group existed, so documents
+    with no `pricing` key are on real disks. Missing keys take the default, per the module
+    comment's within-a-version rule — no migration.
+    """
+    from app.simconfig_store import from_dict, to_dict
+
+    doc = to_dict(SimulationConfig())
+    del doc["pricing"]
+    pricing = from_dict(doc).pricing
+    for f in dataclasses.fields(PricingConfig):
+        assert getattr(pricing, f.name) == getattr(PricingConfig(), f.name), f.name
+
+
+@pytest.mark.parametrize("garbage", [None, [], "pricing", 7, True])
+def test_a_pricing_block_that_is_not_a_mapping_falls_back_to_defaults(garbage):
+    """Each group is read independently and a non-mapping one is skipped whole — the same shape
+    `battery`, `grid`, `policy` and `topology` already have.
+    """
+    from app.simconfig_store import from_dict, to_dict
+
+    doc = to_dict(SimulationConfig())
+    doc["pricing"] = garbage
+    assert from_dict(doc).pricing.vat_rate == pytest.approx(0.21)
+    assert from_dict(doc).pricing.contract is Contract.DYNAMIC
+
+
+def test_out_of_vocabulary_pricing_enums_do_not_raise_and_take_the_default():
+    """A hand-edited file or an older build's spelling must not take the page down. The disk layer
+    defaults it rather than preserving it: unlike a form field, the user never typed this value
+    and cannot see it to fix it (`_number_or_default`'s comment).
+    """
+    from app.simconfig_store import from_dict, to_dict
+
+    doc = to_dict(SimulationConfig())
+    doc["pricing"]["contract"] = "tiered_flex"
+    doc["pricing"]["feedin_floor_mode"] = 3
+    doc["pricing"]["tlk_mode"] = None
+    pricing = from_dict(doc).pricing
+    assert pricing.contract is Contract.DYNAMIC
+    assert pricing.feedin_floor_mode is FeedinFloorMode.MONTHLY
+    assert pricing.tlk_mode is TlkMode.FLAT
+
+
+def test_malformed_pricing_numerics_do_not_raise_and_take_the_default():
+    """Same rule as the other groups' scalars, booleans included."""
+    from app.simconfig_store import from_dict, to_dict
+
+    doc = to_dict(SimulationConfig())
+    doc["pricing"]["vat_rate"] = "0.21"
+    doc["pricing"]["tlk_eur_per_kwh"] = None
+    doc["pricing"]["dal_start_hour"] = [23]
+    doc["pricing"]["supplier_markup"] = True   # a bool is not a number here
+    doc["pricing"]["rate_dal"] = {"eur": 0.1}
+    pricing = from_dict(doc).pricing
+    assert pricing.vat_rate == pytest.approx(0.21)
+    assert pricing.tlk_eur_per_kwh == pytest.approx(0.0400)
+    assert pricing.dal_start_hour == 23
+    assert pricing.supplier_markup == pytest.approx(0.0205)
+    assert pricing.rate_dal == pytest.approx(0.1180)
+
+
+def test_pricing_is_retained_on_disk_when_cost_simulation_is_off():
+    """The retention rule, at the layer that had it missing.
+
+    Appendix A: the cost parameters are "retained at their stored values so that enabling cost
+    simulation later restores the user's configuration rather than resetting it". A document that
+    only carried them when the box was ticked would satisfy the in-memory tests above and still
+    reset the user on the next restart.
+    """
+    from app.simconfig_store import from_dict, to_dict
+
+    custom = _non_default_pricing()
+    doc = to_dict(SimulationConfig(pricing=custom, simulate_cost=False))
+    reloaded = from_dict(doc)
+    assert reloaded.simulate_cost is False
+    for f in dataclasses.fields(PricingConfig):
+        assert getattr(reloaded.pricing, f.name) == getattr(custom, f.name), f.name
+
+    # ...and turning cost simulation on afterwards restores the user's configuration.
+    reloaded.simulate_cost = True
+    reloaded.validate()
+    assert reloaded.pricing.contract is Contract.FIXED
+    assert reloaded.pricing.tlk_mode is TlkMode.TIERED
+    assert reloaded.pricing.dal_start_hour == 21
+
+
+def test_pricing_survives_a_save_and_load_with_costs_off(tmp_path, monkeypatch):
+    """The same retention, through the real file rather than the document — the restart case."""
+    monkeypatch.setenv("BATTERY_SIM_DATA_DIR", str(tmp_path))
+    import importlib
+
+    import app.config as config
+    importlib.reload(config)
+    import app.db as db
+    importlib.reload(db)
+    import app.simconfig_store as store
+    importlib.reload(store)
+
+    custom = _non_default_pricing()
+    store.save(SimulationConfig(pricing=custom, simulate_cost=False))
+    loaded = store.load()
+    for f in dataclasses.fields(PricingConfig):
+        assert getattr(loaded.pricing, f.name) == getattr(custom, f.name), f.name

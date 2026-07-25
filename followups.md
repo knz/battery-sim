@@ -315,6 +315,84 @@ guessed. Neither number was in the repo, so nothing needed correcting; recorded 
 resurface.
 *Origin:* `20260725-phase6-review-defects.md`, `20260724-slot-first-data-sources.md`.
 
+## H. Deferred by the cost-simulation increment (2026-07-25)
+
+Items this increment deliberately left out of scope. Unlike A–G above, these were **not** inherited
+from earlier changelogs — they are decisions taken while building the cost path, recorded here at
+the moment of deferral rather than reconstructed afterwards.
+
+**H1. `tariff_zone` and the local-time axis are not built, and the DST trap is live for whoever
+builds FIXED/VARIABLE.** §6.4's dal mask is defined over `index_local` — "dal from 23:00 to 07:00
+plus weekends" is a wall-clock rule. The entire pipeline is UTC-naive by design (`SimulationFrame.index`
+is UTC; `reconcile.py:81` and `simframe.py:93` drop the tz deliberately, and `simframe.py` lists
+`tariff_zone` as explicitly out of scope). Nothing in the codebase has ever needed
+`Europe/Amsterdam`.
+
+Only FIXED and VARIABLE read `tariff_zone`; DYNAMIC prices off spot and never touches it. Since this
+increment builds DYNAMIC only, the whole question was deferred on the user's instruction.
+
+**The trap:** applying §6.4's hour mask directly to the UTC index shifts the dal window one hour in
+winter and two in summer, silently mispricing every fixed/variable run. There is no test that would
+catch it and no figure that would look wrong. Whoever builds FIXED must convert UTC →
+`Europe/Amsterdam` per interval (via `zoneinfo`) before applying the mask. §6.4 also specifies check
+8b (`tariff_zone_mismatch_pct`) to validate the configured window against the observed T1/T2
+registers — that needs register data this increment does not wire up.
+*Origin:* cost-simulation increment, Phase 2 scoping.
+
+**H2. Public holidays are not modelled in the dal mask.** On Dutch dubbeltarief meters the low
+tariff also applies on nationally recognised public holidays (≈ 8–10 days/year); §6.4's mask prices
+them as `NORMAAL` and the spec records this as a known watch item rather than a defect. Inherited by
+H1's implementer, not created by it.
+*Origin:* `specs/09-ingest-algorithms.md` §6.4, carried forward.
+
+**H3. Deferred cost-adjacent features, each unbuilt and each spec'd.** §6.16 price bracket
+(`price_bracket` stays null), §6.13's euro-basis resolution bias (`resolution_bias_pct_eur` stays
+null), tiered terugleverkosten (`TlkMode.TIERED` is in the vocabulary but only `FLAT` is built),
+§6.15 configuration epochs, and §4.6's per-interval CSV export including its cost columns. Scoped
+out at the user's direction; the enum values and null result fields exist so the shapes are right
+when they land.
+*Origin:* cost-simulation increment, Phase 0 scoping.
+
+**H4. FIXED and VARIABLE contracts ship as pending controls.** Only DYNAMIC is built. The two radios
+render disabled with `[?]` affordances and new feature keys; `Contract` carries all three values so
+the vocabulary does not change when they ship. VARIABLE additionally needs the repeating
+rate-schedule editor from §2.3's wireframe, which is a sizeable form in its own right.
+*Origin:* cost-simulation increment, Phase 0 scoping.
+
+**H5. The older enum-typed config fields are unvalidated.** `charge_policy`, `discharge_policy`,
+`coupling`, `pv_coupling` and `battery_phases` accept `None`, a bare string, or any object without
+`validate()` saying anything — so a mistyped value reaches the dispatch chain in §6.6–§6.8 and takes
+a silent branch. Phase 1 added a `not_a_choice` check for the three *pricing* enums (`contract`,
+`feedin_floor_mode`, `tlk_mode`) because §6.5 dispatches on them and a wrong branch there is a
+confident wrong euro figure. The same argument applies to the older five; they were left alone
+because widening the check is a behaviour change to already-shipped validation, not because they
+are safe. Extending it is mechanical — the pricing check at `app/domain/simconfig.py` is the
+template.
+*Origin:* cost-simulation increment, Phase 1 review (finding 11).
+
+**H6. A stored `contract = VARIABLE` is a config §6.5 cannot price, and nothing says so.** `FIXED`
+reads `rate_normaal`/`rate_dal`; `VARIABLE` reads a dated `rate_schedule` that does not exist on
+`PricingConfig` at all. Both are in the enum vocabulary but only DYNAMIC is built (H4), and
+`validate()` raises no issue for either. Once panel ② renders the two as pending controls the UI
+cannot produce the state, but a hand-edited or migrated document can. Whoever builds VARIABLE
+should decide whether validation should reject it in the interim.
+*Origin:* cost-simulation increment, Phase 1 review (finding 12).
+
+**H7. `to_dict` writes raw numerics, so a user-typed `nan` reaches `json.dumps` as bare `NaN`.**
+Valid for Python's own `json` on read-back, not valid JSON for any other reader. Pre-existing and
+identical across `battery`/`grid`/`policy` — pricing merely joins them — so this is a whole-store
+issue rather than a cost-path one. A non-JSON-serialisable object in a field would likewise make
+`save()` raise, same scope.
+*Origin:* cost-simulation increment, Phase 1b (persistence).
+
+**H8. `dal_start_hour` / `dal_end_hour` are `float` while the wireframe shows integer hours.**
+§2.3's control is `dal from [ 23:00 ] to [ 07:00 ]` and appendix A gives bare ints, but the fields
+are typed `float` and validated only to `[0, 24)`, so `23.5` is storable. Defensible as
+permissive-here-validate-later, and harmless until §6.4's zone assignment reads them — which is
+H1's work. Flagged so that implementer decides deliberately rather than discovering a half-hour
+boundary.
+*Origin:* cost-simulation increment, Phase 1 review (finding 14).
+
 ## Cross-cutting observations
 
 Three clusters account for most of the list, and each has a single root:
