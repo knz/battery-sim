@@ -79,9 +79,11 @@ nothing flags it on the page.
 The three `-k` keywords name the project's own extraction markers, none of which Babel knows by
 default; omitting one drops its msgids silently, and the run still reports success. `_N` is
 `app/sample_data.py`'s no-op tagger for view-model strings the templates translate. `_msg` and
-`_msg_n` are `app/results_view.py`'s message builders: a view-model that needs runtime figures in
-a sentence emits a `(msgid, params)` pair rather than a finished string, so the msgid stays a
-compile-time constant the extractor can see — see **Messages with runtime values** below.
+`_msg_n` are `app/i18n.py`'s message builders (`msg` / `msg_n`, imported under those private
+aliases by `app/results_view.py` and `app/data_view.py` — the aliases are what the keywords match,
+so a third view module must import them under the same two names): a view-model that needs runtime
+figures in a sentence emits a `(msgid, params)` pair rather than a finished string, so the msgid
+stays a compile-time constant the extractor can see — see **Messages with runtime values** below.
 
 **Messages with runtime values.** A display string built with an f-string has a msgid that exists
 only at runtime, so `pybabel extract` never records it and the template's `_()` around it matches
@@ -98,10 +100,24 @@ and templates render them with the `msg()` macro in `app/templates/_msg.html`, w
 the msgid first and substitutes afterwards. The order matters: substituting first rebuilds exactly
 the unextractable runtime string the split exists to avoid.
 
-**Literal percent signs** need no escaping. `_()` does not printf-format its result (the i18n
-extension is installed with `newstyle=False` — see `app/i18n.py`), so a bare ASCII `%` in a
-translatable string is safe. For genuine interpolation, build the string with `%(name)s`
-placeholders and substitute explicitly after translation via `app.i18n.interpolate()`.
+A parameter may itself be a message, and is then translated before being substituted. That is for
+an embedded WORD rather than a figure — a resolution label such as "hourly" or "15-min"
+(`app/data_view._res_msg`) appears inside a dozen sentences, and passing it as a bare string would
+leave one English word in each translated one, since interpolation runs after the lookup.
+
+**Literal percent signs need no escaping, in a msgid or in a translation.** Write `50%`, not
+`50%%` and not the fullwidth `％`. Two separate mechanisms make that true, and both are needed:
+`_()` does not printf-format its result (the i18n extension is installed with `newstyle=False`),
+and `app.i18n.interpolate()` — which *does* %-format, since that is how `%(name)s` gets
+substituted — doubles every `%` that is not part of a placeholder before it does so.
+
+There is no escape sequence to remember: `%%` is two literal percent characters, not one. Only
+`%(name)s` is special.
+
+This matters most for translations. A Dutch string reading "50% lager" is ordinary copy a
+translator has no reason to think twice about; before the escaping was added it rendered as
+"50{}ager" or raised, producing a 500 on a page that worked fine in English. `tests/test_i18n.py`
+pins the behaviour for msgids, translations, counted messages and nested ones.
 
 ## Self-testing (browser automation)
 

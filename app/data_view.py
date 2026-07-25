@@ -14,6 +14,15 @@ renders these blocks conditionally, so a real dataset simply omits the ones not 
 
 The role labels mirror the sample's, keyed by series name, so the same translation msgids apply.
 
+**Every sentence and label this module emits is a `(msgid, params)` pair, not a formatted string**
+(`app/i18n.msg` / `.msg_n`, aliased `_msg` / `_msg_n`; rendered by `templates/_msg.html`). They
+used to be f-strings, which made each msgid a runtime value `pybabel extract` could never see, so
+the whole data-quality box rendered in English on a Dutch page. Splitting the constant text from
+the runtime figures makes the msgid a compile-time literal again. Counted messages ("3 intervals")
+use `_msg_n`, so a count of one does not read "1 intervals". The resolution label `_fmt_res`
+returns is itself a msgid and travels as a NESTED message, since interpolation happens after
+translation and would otherwise substitute an untranslated English word into a Dutch sentence.
+
 Each mapping row now also carries per-slot source provenance (specs §2.2 slot-first sources):
 `source` (the descriptor key of the source that produced the series, or None) and `sources` (the
 sources the drawer may offer for that slot, as small {key,label,kind,blurb} dicts). Phase C's
@@ -22,6 +31,8 @@ stays a superset and nothing breaks between phases.
 
 Main items:
     ROLE_LABEL                 series name → human role label (translation msgid).
+    _fmt_res(seconds)          seconds → a resolution label; the label is a msgid.
+    _res_msg(seconds)          the same label as a nested `_msg` pair, for embedding in a sentence.
     panel_data_from(dataset)   the panel-① dict; shape-compatible with sample_data._panel_data.
 """
 
@@ -32,6 +43,8 @@ import numpy as np
 from app.dataset import LoadedDataset
 from app.domain import normalize
 from app.domain.frames import QualityFlags, SeriesFrame
+from app.i18n import msg as _msg, msg_n as _msg_n
+from app.sample_data import _N
 from app.sources import registry
 
 # Human role labels, keyed by internal series name (specs §4.1). These are the same English
@@ -52,12 +65,55 @@ ROLE_LABEL: dict[str, str] = {
 }
 
 
+# The fixed resolution labels, as msgids. `_N` is a no-op tagger whose only job is to be an
+# extraction keyword: a dict literal is not a call Babel recognises, so without it these five
+# words never reach the catalog and every sentence that embeds one leaks an English word into a
+# Dutch page. They are words, not figures, which is why they are translated rather than passed
+# through as data.
+_RES_LABELS: dict[int, str] = {
+    300: _N("5-min"),
+    900: _N("15-min"),
+    1800: _N("30-min"),
+    3600: _N("hourly"),
+    86400: _N("daily"),
+}
+_RES_IRREGULAR = _N("irregular")
+# The fallback for a resolution with no named label. A msgid with a hole rather than an f-string,
+# so "%(n)ss" can be reordered or spaced differently by a translator. `_N` for the same reason as
+# above: a module-level assignment is not a call `pybabel extract` recognises, and this msgid is
+# referenced from two places rather than written literally inside a `_msg(...)` call.
+_RES_SECONDS = _N("%(n)ss")
+
+
 def _fmt_res(seconds: int | None) -> str:
-    """Seconds → a human resolution label ("hourly", "15-min", "5-min", "daily", or "Ns")."""
+    """Seconds → a human resolution label in ENGLISH ("hourly", "15-min", "5-min", …).
+
+    Kept returning a plain string because `results_view` embeds it in the one deliberately
+    untranslated field it still emits (`results["period"]`, the unsplit fallback line). Everything
+    that reaches a reader goes through `_res_msg` instead, which wraps the same label as a message
+    so the template translates it. The two share `_RES_LABELS`, so the English wording cannot
+    drift between them.
+    """
     if seconds is None:
-        return "irregular"
-    table = {300: "5-min", 900: "15-min", 1800: "30-min", 3600: "hourly", 86400: "daily"}
-    return table.get(seconds, f"{seconds}s")
+        return _RES_IRREGULAR
+    label = _RES_LABELS.get(seconds)
+    return label if label is not None else _RES_SECONDS % {"n": seconds}
+
+
+def _res_msg(seconds: int | None) -> dict:
+    """The resolution label as a `_msg` pair, for embedding in a larger sentence.
+
+    Sentences interpolate this as a NESTED message (`templates/_msg.html`): a bare string param is
+    substituted after translation and so would stay English, whereas a nested message is
+    translated on its own first. The unnamed-resolution case carries its second count as a
+    parameter rather than being formatted into the msgid.
+    """
+    if seconds is None:
+        return _msg(_RES_IRREGULAR)
+    label = _RES_LABELS.get(seconds)
+    if label is not None:
+        return _msg(label)
+    return _msg(_RES_SECONDS, n=seconds)
 
 
 def _fmt_date(dt) -> str:
@@ -109,9 +165,17 @@ def panel_data_from(dataset: LoadedDataset) -> dict:
                 # Optional per-series explanation for the picker's ⓘ affordance (specs §4.1);
                 # None for slots that carry no blurb, so the template renders no icon.
                 "info": slot.info,
-                # Present: the "(res, N intervals)" coverage string. Absent: None (no data yet).
+                # Present: the "(res, N intervals)" coverage message. Absent: None (no data yet).
+                # Counted, so a one-interval slot does not read "1 intervals"; the resolution is a
+                # nested message so it is translated rather than substituted as an English word.
                 "entity": (
-                    f"({_fmt_res(f.resolution_s)}, {len(f.values)} intervals)"
+                    _msg_n(
+                        "(%(res)s, %(n)s interval)",
+                        "(%(res)s, %(n)s intervals)",
+                        len(f.values),
+                        res=_res_msg(f.resolution_s),
+                        n=len(f.values),
+                    )
                     if f is not None
                     else None
                 ),
@@ -134,26 +198,36 @@ def panel_data_from(dataset: LoadedDataset) -> dict:
 
     # Per-series granularity table (§2.2). "recorded" is the native resolution; "uses" is the
     # reconciliation onto the grid, with the lossy (averaged) case marked.
-    grid_label = _fmt_res(grid_s)
+    #
+    # Each cell is a message with the resolution label nested inside it, rather than a label with
+    # a suffix glued on. ", averaged" is not a suffix in every language — Dutch puts the qualifier
+    # elsewhere — so the whole cell has to be one msgid the translator can rearrange.
+    grid_msg = _res_msg(grid_s)
     by_name = {f.name: f for f in frames}
     series_rows = []
     for entry in report["series"]:
         recon = entry["reconciliation"]
         if recon == "averaged":
-            uses, warn = f"{grid_label}, averaged", True
+            uses, warn = _msg("%(res)s, averaged", res=grid_msg), True
         elif recon == "held":
-            uses, warn = f"{grid_label}, held", False
+            uses, warn = _msg("%(res)s, held", res=grid_msg), False
         elif recon == "undefined":
-            uses, warn = "undefined", False
+            uses, warn = _msg("undefined"), False
         else:
-            uses, warn = grid_label, False
+            uses, warn = grid_msg, False
         # "Recorded at" shows the native resolution, plus the finer copy over its sub-window when
         # one was fetched (specs §4.3, §2.2 — the two-line granularity cell).
-        recorded = [f"{_fmt_res(entry['native_resolution_s'])} (full)"]
+        recorded = [_msg("%(res)s (full)", res=_res_msg(entry["native_resolution_s"]))]
         f = by_name.get(entry["name"])
         if f is not None and f.fine_resolution_s and f.fine_coverage:
             fine_days = (f.fine_coverage[1] - f.fine_coverage[0]).days
-            recorded.append(f"{_fmt_res(f.fine_resolution_s)} (last {fine_days} days)")
+            recorded.append(_msg_n(
+                "%(res)s (last %(n)s day)",
+                "%(res)s (last %(n)s days)",
+                fine_days,
+                res=_res_msg(f.fine_resolution_s),
+                n=fine_days,
+            ))
         series_rows.append(
             {
                 "name": ROLE_LABEL.get(entry["name"], entry["name"]),
@@ -167,23 +241,60 @@ def panel_data_from(dataset: LoadedDataset) -> dict:
     resets = _count_flag(frames, QualityFlags.RESET_CORRECTED)
     days = (window[1] - window[0]).days
 
+    intervals = report["intervals"] or 0
     quality: dict = {
-        "coverage": f"{_fmt_date(window[0])} → {_fmt_date(window[1])}   ({days} days)",
-        "grid": f"{grid_label}  ·  {report['intervals'] or 0:,} intervals",
+        # The dates are pure data and stay literal; only the day count carries a word, so it is
+        # the part with a msgid. Counted — a one-day window read "(1 days)".
+        "coverage": _msg_n(
+            "%(dates)s   (%(n)s day)",
+            "%(dates)s   (%(n)s days)",
+            days,
+            dates=f"{_fmt_date(window[0])} → {_fmt_date(window[1])}",
+            n=days,
+        ),
+        "grid": _msg_n(
+            "%(res)s  ·  %(n)s interval",
+            "%(res)s  ·  %(n)s intervals",
+            intervals,
+            res=grid_msg,
+            n=f"{intervals:,}",
+        ),
         "series": series_rows,
-        "gaps": (f"{gaps} interval(s) flagged as gaps" if gaps else "none detected"),
-        "resets": (f"{resets} detected and corrected" if resets else "none detected"),
+        # "N interval(s)" was a written-out plural — legible but ungrammatical, and untranslatable
+        # into a language whose plural rule is not "add s". `_msg_n` picks the form from the same
+        # count the sentence prints, so the two cannot drift.
+        "gaps": (
+            _msg_n("%(n)s interval flagged as gaps",
+                   "%(n)s intervals flagged as gaps", gaps, n=gaps)
+            if gaps else _msg("none detected")
+        ),
+        # Not counted: the English carries no noun to pluralise. A translator whose language needs
+        # one can still say so — the msgid is a whole clause, so it is theirs to rephrase.
+        "resets": (
+            _msg("%(n)s detected and corrected", n=resets) if resets
+            else _msg("none detected")
+        ),
         "registers": _register_summary(present),
     }
     if report["price_granularity_lost"]["lost"]:
         native = report["price_granularity_lost"]["native_resolution_s"]
-        quality["price_warning"] = (
-            f"Your prices change every {_fmt_res(native)} but the run is {grid_label}, so the "
-            "run sees one averaged price per interval and cannot act on within-interval swings."
+        quality["price_warning"] = _msg(
+            "Your prices change every %(native)s but the run is %(res)s, so the "
+            "run sees one averaged price per interval and cannot act on within-interval swings.",
+            native=_res_msg(native),
+            res=grid_msg,
         )
 
     return {
-        "summary": f"Home Assistant · {len(frames)} series · simulated {grid_label}",
+        # Counted even though the two English forms are identical: "series" is invariant in
+        # English but not in Dutch ("1 serie" / "4 series"), and a count of one is reachable.
+        "summary": _msg_n(
+            "Home Assistant · %(n)s series · simulated %(res)s",
+            "Home Assistant · %(n)s series · simulated %(res)s",
+            len(frames),
+            n=len(frames),
+            res=grid_msg,
+        ),
         "days": days,
         "source": "Home Assistant",
         # Connection block: after a fetch the browser holds the token; the server only knows a
@@ -194,13 +305,22 @@ def panel_data_from(dataset: LoadedDataset) -> dict:
     }
 
 
-def _register_summary(present: dict[str, SeriesFrame]) -> str:
-    """T1/T2 mapping summary (specs §6.4 availability — the always-shown, contract-free fact)."""
-    def mark(name: str) -> str:
+def _register_summary(present: dict[str, SeriesFrame]) -> dict:
+    """T1/T2 mapping summary (specs §6.4 availability — the always-shown, contract-free fact).
+
+    Returns a `_msg` pair. The two per-register marks ("not mapped" / "mapped, active" /
+    "mapped, flat") are nested messages inside the sentence rather than strings pasted into it, so
+    each is translated on its own and the sentence around them stays one reorderable msgid.
+    """
+    def mark(name: str) -> dict:
         f = present.get(name)
         if f is None:
-            return "not mapped"
+            return _msg("not mapped")
         active = len(f.values) and float(np.nansum(f.values)) > 0
-        return "mapped, active" if active else "mapped, flat"
+        return _msg("mapped, active") if active else _msg("mapped, flat")
 
-    return f"import T1 {mark('grid_import_t1')} · T2 {mark('grid_import_t2')}"
+    return _msg(
+        "import T1 %(t1)s · T2 %(t2)s",
+        t1=mark("grid_import_t1"),
+        t2=mark("grid_import_t2"),
+    )

@@ -30,9 +30,17 @@
   cfg.has_pv, and the two Spot price (min/max) rows are offered only when cfg.simulate_cost.
   Those choices live in the band above panel ① (_setup_band.html), not here.
 
-  UI chrome is wrapped in _() for translation (English/Dutch); data values (entity IDs, numbers,
-  coverage strings) stay literal. Role labels and source labels/blurbs are English source strings
-  translated here via _(); their msgids come from sample_data.py's _N markers.
+  UI chrome is wrapped in _() for translation (English/Dutch); data values (entity IDs, numbers)
+  stay literal. Role labels and source labels/blurbs are English source strings translated here
+  via _(); their msgids come from sample_data.py's _N markers.
+
+  The data-quality box's VALUES — the panel summary, the coverage and grid lines, the per-series
+  granularity cells, the gap/reset/register lines and the price caveat — go through the `msg()`
+  macro (_msg.html), not through a bare `{{ … }}` or `_()`. They arrive from app/data_view.py as
+  (msgid, params) pairs so their msgid is a compile-time constant the extractor can see; rendering
+  one raw would print the dict, and wrapping one in `_()` would look up a runtime string that
+  matches no catalog entry — which is exactly the defect the pairs exist to fix. The macro also
+  accepts a bare string, which is what app/sample_data.py still supplies for the same fields.
 
   The `req` → marker mapping: required ●, conditional ◐ (PV-only), cost_optional ◒
   (cost-simulation-only), optional ○.
@@ -53,13 +61,14 @@
    the process and never change again (an English-first server shows an English band to
    Dutch users). Covered by test_data_glance_is_translated_in_both_copies. #}
 {% from "_data_glance.html" import data_glance with context %}
+{% from "_msg.html" import msg with context %}
 <section class="collapse collapse-arrow bg-base-100 border border-base-300 rounded-box">
   <input type="checkbox" aria-label="{{ _('Toggle Data panel') }}" />
   <div class="collapse-title flex flex-wrap items-center gap-x-3 gap-y-1">
     <span class="badge badge-neutral">①</span>
     <span class="font-semibold">{{ _('DATA') }}</span>
     <span class="text-success">✓ {{ data.days }} {{ _('days') }}</span>
-    <span class="text-base-content/60">{{ data.summary }}</span>
+    <span class="text-base-content/60">{{ msg(data.summary) }}</span>
   </div>
 
   <div class="collapse-content">
@@ -195,8 +204,8 @@
           <h3 class="text-sm font-semibold text-base-content/70">{{ _('Data quality') }}</h3>
 
           <div class="grid grid-cols-1 gap-1 sm:grid-cols-[auto_1fr] sm:gap-x-6">
-            <span class="text-base-content/60">{{ _('Coverage') }}</span><span>{{ data.quality.coverage }}</span>
-            <span class="text-base-content/60">{{ _('Simulation grid') }}</span><span>{{ data.quality.grid }}</span>
+            <span class="text-base-content/60">{{ _('Coverage') }}</span><span>{{ msg(data.quality.coverage) }}</span>
+            <span class="text-base-content/60">{{ _('Simulation grid') }}</span><span>{{ msg(data.quality.grid) }}</span>
           </div>
 
           {# Per-series granularity. Only the lossy (averaged) reconciliation is marked ⚠. #}
@@ -209,10 +218,10 @@
                 {% for s in data.quality.series %}
                 <tr>
                   <td>{{ _(s.name) }}</td>
-                  <td>{% for r in s.recorded %}<div class="text-xs">{{ r }}</div>{% endfor %}</td>
+                  <td>{% for r in s.recorded %}<div class="text-xs">{{ msg(r) }}</div>{% endfor %}</td>
                   <td>
-                    {% if s.warn %}<span class="text-warning">⚠ {{ s.uses }}</span>
-                    {% else %}{{ s.uses }}{% endif %}
+                    {% if s.warn %}<span class="text-warning">⚠ {{ msg(s.uses) }}</span>
+                    {% else %}{{ msg(s.uses) }}{% endif %}
                   </td>
                 </tr>
                 {% endfor %}
@@ -224,21 +233,21 @@
              (§6.2). Absent otherwise — the template does not fabricate an empty alert. #}
           {% if data.quality.price_warning %}
           <div role="alert" class="alert alert-warning py-2">
-            <span class="text-sm">⚠ {{ _(data.quality.price_warning) }}</span>
+            <span class="text-sm">⚠ {{ msg(data.quality.price_warning) }}</span>
           </div>
           {% endif %}
 
           <div class="grid grid-cols-1 gap-1 sm:grid-cols-[auto_1fr] sm:gap-x-6">
-            <span class="text-base-content/60">{{ _('Gaps') }}</span><span>{{ data.quality.gaps }}</span>
-            <span class="text-base-content/60">{{ _('Counter resets') }}</span><span>{{ data.quality.resets }}</span>
-            <span class="text-base-content/60">{{ _('Meter registers') }}</span><span>{{ data.quality.registers }}</span>
+            <span class="text-base-content/60">{{ _('Gaps') }}</span><span>{{ msg(data.quality.gaps) }}</span>
+            <span class="text-base-content/60">{{ _('Counter resets') }}</span><span>{{ msg(data.quality.resets) }}</span>
+            <span class="text-base-content/60">{{ _('Meter registers') }}</span><span>{{ msg(data.quality.registers) }}</span>
           </div>
 
           {# The reconstructed-load warning depends on load reconstruction (§6.3), a later
              increment. Shown only when that computation has produced one. #}
           {% if data.quality.load_warning %}
           <div role="alert" class="alert alert-warning py-2">
-            <span class="text-sm">⚠ {{ _(data.quality.load_warning) }}</span>
+            <span class="text-sm">⚠ {{ msg(data.quality.load_warning) }}</span>
           </div>
           {% endif %}
         </div>

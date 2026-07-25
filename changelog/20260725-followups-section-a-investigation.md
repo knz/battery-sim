@@ -566,3 +566,119 @@ Dutch string — it fails with the offending msgid named.
 Full suite: 486 passed, 2 skipped (leakage test still red, as designed — catalogs not yet
 regenerated).
 
+### Step 5b complete (A1 — `data_view.py`, the panel-① data-quality box)
+
+Same treatment as 5a, applied to the ten sites in `panel_data_from` / `_register_summary`: the slot
+coverage string, the granularity `uses`/`recorded` cells, `coverage`, `grid`, `gaps`, `resets`,
+`registers`, `price_warning` and the panel summary. `_panel_data.html` renders all of them through
+the `msg()` macro; `data.quality.price_warning` and `.load_warning` also lost their `_()` wrapper,
+which was looking up a runtime string and could never match.
+
+**`_msg` / `_msg_n` moved to `app/i18n.py`** (as `msg` / `msg_n`, imported under the private
+aliases). They were in `results_view.py`, but `results_view` already imports `_fmt_res` from
+`data_view`, so `data_view` importing them back would cycle. `i18n` is the module both already
+depend on and the one that owns the other half of the mechanism (`interpolate`). The keywords in
+`babel.cfg` match the name at the CALL SITE, so the aliases are load-bearing and both `babel.cfg`
+and the README now say so.
+
+**The `_fmt_res` seam.** The resolution label is a WORD embedded in a dozen sentences, and a bare
+string param survives translation untouched — interpolation runs after the catalog lookup, so it
+never sees a value's msgid. Three changes rather than one:
+
+1. The five fixed labels became `_N`-marked msgids (a dict literal is not a call Babel sees), plus
+   `irregular` and the `%(n)ss` fallback, which is now a msgid with a hole rather than an f-string.
+2. A new `_res_msg(seconds)` returns the same label as a `_msg` pair.
+3. `templates/_msg.html` now renders a param that is itself a message, recursively.
+
+`_fmt_res` keeps its old signature and English return value, because `results_view` still needs it
+for `results["period"]` — the deliberately-untranslated unsplit fallback line. Both read the same
+`_RES_LABELS` table, so the two cannot drift. `results_view`'s three reader-facing uses moved to
+`_res_msg`; that also closes the "translating that label is data_view's to do" note 5a left at
+`results_view.py:766`.
+
+**A double-escaping defect the new tests found.** The first nested-param implementation escaped a
+nested render twice ("a & b" → "a &amp;amp; b"), because `str.__mod__` drops Markup's safety and
+the outer `{{ }}` then escaped the result. Fixed by substituting into Markup (`| e | interpolate |
+safe`), which escapes each value exactly once and passes an already-escaped nested render through.
+`interpolate`'s docstring now states which of the two call shapes escapes where, so the two are not
+"simplified" into one later.
+
+**Pluralisation** (D6) folded in at four sites via `_msg_n`: the gap count ("N interval(s) flagged
+as gaps" — a written-out plural, untranslatable into a language whose rule is not "add s"), the
+coverage day count, the grid interval count, the fine-copy day count, and the slot coverage string.
+`resets` was deliberately left uncounted (its English carries no noun); `summary` IS counted despite
+identical English forms, because "series" is invariant in English but not in Dutch.
+
+**Verification.** English visible text captured before/after and diffed on two renders — the three
+routes as they stand, and a `GET /` backed by a synthetic ingested dataset built to hit every
+branch (fine 5-min copy, 15-min price averaged down, both T1/T2 registers). Both diffs are exactly
+two lines, and both are the intended plural fixes: `5-min (last 1 days)` → `(last 1 day)` and
+`8 interval(s) flagged as gaps` → `8 intervals flagged as gaps`. Nothing else moved.
+
+Extraction: 292 → 316 msgids, 24 added, 0 lost. Six of the new ones are the resolution labels; the
+rest are the box's sentences. Catalogs untouched — the single update/compile pass still runs after
+5c.
+
+**New tests** (9): 7 in `tests/test_data_summary.py` — the first tests anywhere to exercise
+`panel_data_from`, which had no direct coverage — asserting both the pair shape and the English it
+renders to (the wording is the msgid, so shape alone would let the English drift), plus the
+flat-vs-active register marks, the averaged-price branch, and the singular at n=1. 2 in
+`tests/test_i18n.py` for the nested-param contract, one of which is the double-escaping regression.
+
+Full suite: 496 passed, 2 skipped. The leakage test is still red on the same 6 of 7 and names the
+same fragments as before — expected and not a regression: 5b makes these strings extractable, and
+they stay English until the catalog pass translates them.
+
+### Step 5b complete (A1 — `data_view.py`), and a correction to A2
+
+Implemented and adversarially reviewed as before. Ten sites in panel ①'s quality box converted;
+`msg`/`msg_n` moved to `app/i18n.py` (defining them in either view module would be circular —
+`results_view` imports `_fmt_res` from `data_view`); resolution labels became `_N` msgids with a
+new `_res_msg`, and `_msg.html` now renders a param that is itself a message, recursively, so an
+embedded WORD gets translated rather than passed through as data.
+
+Verified independently: 495 tests pass; the English render changed by exactly one line, the
+intended `8 interval(s)` → `8 intervals`; extraction 292 → 316, 24 added and 0 lost; the static
+placeholder check is clean across both view modules.
+
+The implementing agent caught its own double-escaping defect en route (`"a & b"` → `"a &amp;amp; b"`,
+because `str.__mod__` drops Markup's safety and the outer `{{ }}` escapes again) and pinned it.
+
+**Correction: A2 was only half-closed, and this is my error, not the sub-agents'.** When step 2
+landed I recorded the percent trap as removed. That was true only for the `_()` path. The
+`(msgid, params)` mechanism introduced in 5a routes its strings through `interpolate`, which
+*does* %-format — so inside `msg()` the original trap was fully alive:
+
+| input | before | |
+|---|---|---|
+| `"50% saved"` | `"50{}aved"` | silent corruption |
+| `"a 50%z thing"` | `ValueError` | 500 |
+| `"50% of the %(v)s"` | `TypeError` | 500 |
+
+Worse, my README rewrite told translators that a literal `%` was safe — about exactly the strings
+5b was adding to the catalog. The hazard is in the **msgstr**, not just the msgid: a Dutch string
+reading "50% lager" is ordinary copy, and it would have 500'd a page that renders fine in English.
+The review caught this; I had not.
+
+**Fixed properly rather than documented around.** `interpolate` now doubles every `%` that does
+not begin a `%(name)s` placeholder, so a literal `%` is inert on every path. `%%` is deliberately
+*not* exempt: with escaping handled for the caller there is no escape sequence left to know about,
+and exempting it would preserve the one rule this was meant to delete for precisely the strings a
+non-programmer edits. The fullwidth-`％` workaround is now obsolete; the two occurrences in
+`_data_glance.html` were rendering a literal `％` to users and are now real percent signs
+(`sample_data.py`'s five follow in 5c).
+
+*A hole I introduced and caught while fixing it:* the first version applied `re.sub` to the
+template, which returns a plain `str` even for a `Markup` input — silently discarding the escaping
+5b depends on, so every substituted value would have reached the page unescaped. For panel ① those
+values include Home Assistant entity ids. Two existing tests failed immediately, which is why they
+were written; `interpolate` now rebuilds the original type, and two further tests pin the Markup
+contract and the XSS case directly.
+
+**New tests** (12): literal `%` inert across six msgid shapes, in a counted message, in a
+*translation*, and combined with placeholders; `interpolate` still substitutes and still raises on
+a missing key; Markup type preservation; and a value carrying `<img onerror=…>` cannot reach the
+page unescaped through `msg()`.
+
+Full suite: 506 passed, 2 skipped.
+

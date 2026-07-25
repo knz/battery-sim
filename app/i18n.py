@@ -22,6 +22,11 @@ Translation and interpolation are two separate steps (`newstyle=False` — see `
 literal "%" in a translatable string is inert. Strings with genuine placeholders use `%(name)s`
 and the `interpolate` filter.
 
+The view-models do not format sentences themselves; they emit `(msgid, params)` pairs built by
+`msg()` / `msg_n()` here, which `templates/_msg.html` renders (translate, then interpolate). Those
+two live in this module rather than in a view because several view modules build the pairs and
+importing between them would be circular — see `msg`'s docstring.
+
 Public API:
     SUPPORTED           the language codes the UI offers, in toggle order
     DEFAULT_LOCALE      the fallback code ('en')
@@ -31,11 +36,13 @@ Public API:
     env_for()           the ready-to-render Jinja environment for a locale (cached)
     interpolate()       substitute %(name)s into an already-translated string
     install_for()       install a code's catalog onto a Jinja environment
+    msg() / msg_n()     a view-model message as a (msgid, params) pair; msg_n adds the plural
 """
 
 from __future__ import annotations
 
 import gettext
+import re
 from pathlib import Path
 
 from babel import Locale, negotiate_locale
@@ -181,6 +188,14 @@ def interpolate(template: str, /, **values) -> str:
     Templates call it as `_('… %(kw)s …') | interpolate(kw=value)`; Python callers building a
     (msgid, params) pair hand both to the template and let it do the same.
 
+    `template` may be a `str` or a `Markup`, and which one it is decides the escaping. `_msg.html`
+    passes Markup (`… | e | interpolate(…) | safe`), because `Markup.__mod__` escapes each
+    substituted value exactly once — so a raw data value is escaped and an already-escaped nested
+    render is passed through. With a plain `str` the substitution does no escaping and the caller's
+    surrounding `{{ }}` escapes the whole result, which is right for a single flat substitution but
+    escapes a nested render twice. Nothing here needs to branch on it; `%` does the right thing for
+    each type, and this note exists so the two call shapes are not "cleaned up" into one.
+
     The two error cases are deliberately asymmetric, because they are different failures:
 
     * A **missing** key raises `KeyError`. The string carries `%(kw)s` and nobody supplied `kw`,
@@ -193,8 +208,72 @@ def interpolate(template: str, /, **values) -> str:
       while the same page works in English. Degrading is the better trade. The catalogs are the
       place to catch it — `tests/test_i18n.py` asserts placeholder parity across locales for the
       strings that carry them.
+
+    **A literal "%" is inert here, as it is everywhere else.** Only `%(name)s` is a placeholder;
+    every other "%" is doubled before substitution, so it survives as itself. Without that, this
+    function would re-open exactly the trap `install_for`'s `newstyle=False` was introduced to
+    close, but for the subset of strings that carry placeholders: "50% saved" would render as
+    "50{}aved" and "50%z" would raise. That matters most for the *translations* — a Dutch string
+    saying "50% lager" is ordinary copy a translator has no reason to think twice about, and the
+    failure would be a 500 on a page that renders fine in English.
     """
-    return template % values
+    # `re.sub` returns a plain str even for a Markup input, which would silently discard the
+    # escaping semantics the Markup call shape depends on (and with them, the escaping of every
+    # substituted value — an XSS hole, not a cosmetic regression). Rebuild the original type.
+    escaped = _PLACEHOLDER_SAFE_PERCENT.sub("%%", str(template))
+    return type(template)(escaped) % values
+
+
+# Matches a "%" that does NOT begin a "%(name)s" placeholder — i.e. every literal percent sign.
+# Doubling these before substitution is what makes a literal "%" safe in a msgid and, more
+# importantly, in a translator's msgstr.
+#
+# Note this deliberately does NOT exempt "%%". Since every literal "%" is now escaped for the
+# caller, there is no escape sequence left for a translator to know about: "50%" is fifty percent
+# and "50%%" is fifty percent-percent, which is what someone typing it would expect. Exempting
+# "%%" would mean the one rule this module exists to delete ("remember to double your percent
+# signs") survives for exactly the strings most likely to be edited by a non-programmer.
+_PLACEHOLDER_SAFE_PERCENT = re.compile(r"%(?!\((\w+)\)s)")
+
+
+def msg(msgid: str, /, **params) -> dict:
+    """A translatable message as a (msgid, params) pair: `{"msgid": ..., "params": {...}}`.
+
+    The shape every user-facing *sentence* a view-model emits now takes, and the reason it exists:
+    a display string built at runtime with an f-string is a msgid that no `pybabel extract` run can
+    see, so the template's `_()` around it matches no catalog entry and the string renders in
+    English on a Dutch page. Splitting the constant text from the runtime values makes the msgid a
+    compile-time literal again — extractable, translatable, and reorderable by the translator,
+    which fragment concatenation cannot express.
+
+    The template does the two steps in order: `_(m.msgid) | interpolate(**m.params)` — translate,
+    then substitute (see `interpolate` below, and `install_for`'s `newstyle=False`). `params` is
+    always present, `{}` when the msgid carries no placeholders, so the template needs no branch.
+    `templates/_msg.html`'s `msg()` macro is the renderer; it also accepts a bare string.
+
+    `plural`/`n` are set by `msg_n` for the counted case; see there.
+
+    It lives HERE rather than in a view module because more than one view-model builds these pairs
+    (`results_view`, `data_view`) and `results_view` already imports from `data_view`, so defining
+    it in either one would make the other's import circular. `i18n` is the module both already
+    depend on transitively and the module that owns the other half of the mechanism
+    (`interpolate`). Both views import it under the private aliases `_msg` / `_msg_n`, which are
+    the names `babel.cfg`'s `-k` keywords list.
+    """
+    return {"msgid": msgid, "params": params}
+
+
+def msg_n(singular: str, plural: str, n: int, /, **params) -> dict:
+    """A COUNTED translatable message: the ngettext counterpart of `msg`.
+
+    Carries both English forms and the count, so the template can call
+    `ngettext(m.msgid, m.plural, m.n) | interpolate(**m.params)`. Needed because a language picks
+    its plural form from the number, and "1 intervals" is wrong in every language that has one.
+
+    `n` is passed in `params` too under its own name by the caller when the sentence prints it, so
+    the count reaching gettext and the count reaching the text cannot drift apart.
+    """
+    return {"msgid": singular, "plural": plural, "n": n, "params": params}
 
 
 def language_name(code: str) -> str:

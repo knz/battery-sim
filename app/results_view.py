@@ -82,6 +82,11 @@ leaving the PV total unchanged. `_pv_coverage_mask` builds the mask once and han
 Numbers are formatted here (thousands-separated kWh, integer percent) so the template stays dumb,
 matching app/summary_view.py.
 
+Every user-facing SENTENCE, by contrast, is emitted as a `(msgid, params)` pair rather than as a
+formatted string — `_msg` / `_msg_n`, imported from `app/i18n.py` and rendered by
+`templates/_msg.html`. They used to be defined here; they moved to `i18n` when `data_view` needed
+them too, since this module already imports from `data_view` and the reverse import would cycle.
+
 `results_from` returns None when the reconcile helper returns None (no simulatable grid) — the caller
 falls back to the empty state, exactly like data_summary_from.
 
@@ -117,7 +122,8 @@ from app.domain.reconcile import (
 from app.domain.simconfig import SimulationConfig
 from app.domain.simframe import simulation_frame
 from app.domain.simulate import run_all
-from app.data_view import _fmt_res
+from app.data_view import _fmt_res, _res_msg
+from app.i18n import msg as _msg, msg_n as _msg_n
 from app.sample_data import _N
 from app.summary_view import data_summary_from
 
@@ -276,38 +282,6 @@ def _period_selected_for(dataset: LoadedDataset, window: tuple[datetime, datetim
     # Nearest preset by day count; ties resolve to the first (shortest) match.
     best_name = min(PERIOD_DAYS, key=lambda n: abs(PERIOD_DAYS[n] - span_days))
     return _PERIOD_SELECTED_BY_NAME.get(best_name, "1 year")
-
-
-def _msg(msgid: str, /, **params) -> dict:
-    """A translatable message as a (msgid, params) pair: `{"msgid": ..., "params": {...}}`.
-
-    The shape every user-facing *sentence* this module emits now takes, and the reason it exists:
-    a display string built at runtime with an f-string is a msgid that no `pybabel extract` run can
-    see, so the template's `_()` around it matches no catalog entry and the string renders in
-    English on a Dutch page. Splitting the constant text from the runtime values makes the msgid a
-    compile-time literal again — extractable, translatable, and reorderable by the translator,
-    which fragment concatenation cannot express.
-
-    The template does the two steps in order: `_(m.msgid) | interpolate(**m.params)` — translate,
-    then substitute (see `app/i18n.interpolate`, and `install_for`'s `newstyle=False`). `params` is
-    always present, `{}` when the msgid carries no placeholders, so the template needs no branch.
-
-    `plural`/`n` are set by `_msg_n` for the counted case; see there.
-    """
-    return {"msgid": msgid, "params": params}
-
-
-def _msg_n(singular: str, plural: str, n: int, /, **params) -> dict:
-    """A COUNTED translatable message: the ngettext counterpart of `_msg`.
-
-    Carries both English forms and the count, so the template can call
-    `ngettext(m.msgid, m.plural, m.n) | interpolate(**m.params)`. Needed because a language picks
-    its plural form from the number, and "1 intervals" is wrong in every language that has one.
-
-    `n` is passed in `params` too under its own name by the caller when the sentence prints it, so
-    the count reaching gettext and the count reaching the text cannot drift apart.
-    """
-    return {"msgid": singular, "plural": plural, "n": n, "params": params}
 
 
 def _g(value) -> str:
@@ -753,7 +727,8 @@ def results_from(
 
     eff = rec.window  # the effective window actually reconciled (may differ from the requested one)
     intervals = len(rec.imp)
-    res_label = _fmt_res(rec.grid_s)
+    res_label = _fmt_res(rec.grid_s)      # English, for the untranslated `period` fallback only
+    res_msg = _res_msg(rec.grid_s)        # the same label as a nested message, for the sentences
 
     # The picker's coverage line, split in two so the template can insert the day count between
     # them: "<dates> · N days · simulated hourly · 8,760 intervals". The day count is the
@@ -762,15 +737,15 @@ def results_from(
     # repeat this span; it no longer does, so the selected range's length is stated once per panel.
     #
     # `period_run` is a COUNTED message (`_msg_n`): the interval count drives its plural, so a
-    # one-interval window used to read "1 intervals". `res_label` is interpolated as a value; it is
-    # `data_view._fmt_res`'s English label ("hourly", "15-min") and translating that label is
-    # `data_view`'s to do — noted rather than fixed here, since this module must not reach into it.
+    # one-interval window used to read "1 intervals". The resolution rides as a NESTED message
+    # (`data_view._res_msg`) rather than as the bare English word `_fmt_res` returns: interpolation
+    # runs after translation, so a bare string would put "hourly" into a Dutch sentence.
     period_dates = f"{eff[0].date().isoformat()} → {eff[1].date().isoformat()}"
     period_run = _msg_n(
         "simulated %(res)s · %(n)s interval",
         "simulated %(res)s · %(n)s intervals",
         intervals,
-        res=res_label,
+        res=res_msg,
         n=f"{intervals:,}",
     )
     period_days = (eff[1] - eff[0]).days
@@ -988,16 +963,16 @@ def results_from(
                 meter=imp_str,
                 baseline=_fmt_kwh(metrics.baseline_import_kwh),
                 difference=_fmt_kwh(resolution_loss),
-                res=res_label,
+                res=res_msg,
             ))
     price_lost = normalize.price_granularity_lost(dataset.frames, rec.grid_s)
     if price_lost["lost"]:
-        native = _fmt_res(price_lost["native_resolution_s"])
+        native = _res_msg(price_lost["native_resolution_s"])
         caveats.append(_msg(
             "Spot prices are recorded every %(native)s but the run is %(res)s, so the battery "
             "acted on an averaged price and could not chase within-interval swings.",
             native=native,
-            res=res_label,
+            res=res_msg,
         ))
     if negative_saving and metrics is not None:
         # §7.2 items 9 and 10. Without PV the battery's value is in the price SPREAD — a euro

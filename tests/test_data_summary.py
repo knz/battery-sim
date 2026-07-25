@@ -1,6 +1,6 @@
 """Unit tests for the data summary (specs/02-ux-wireframes.md §2.3a).
 
-Two layers:
+Three layers:
 
   * The sample view-model: app/sample_data._data_summary()'s shape, and that sample_view() carries
     it. These are the shared shape CONTRACT the computed view-model must also satisfy.
@@ -8,9 +8,13 @@ Two layers:
     known totals — the real §6.3 load reconstruction + §6.11 battery-free metrics. Covers the base
     totals, the existing-battery net-of variant, omit-don't-zero for the optional groups, the
     negative-load clamp, and the no-grid → None guard.
+  * Panel ①'s data-quality box: app/data_view.panel_data_from()'s strings, which are (msgid,
+    params) MESSAGE PAIRS rather than formatted strings, so their msgid is a constant the
+    extractor can see. Asserted both on shape and on the English they render to, since the
+    wording IS the msgid.
 
-Neither layer launches a browser or seeds a real dataset (the smoke test covers empty-state
-absence); the computed cases build SeriesFrames in-process and wrap them in a LoadedDataset.
+No layer launches a browser or seeds a real dataset (the smoke test covers empty-state absence);
+the computed cases build SeriesFrames in-process and wrap them in a LoadedDataset.
 """
 
 from datetime import datetime, timezone
@@ -373,3 +377,100 @@ def test_computed_view_satisfies_sample_shape_contract():
     assert s["household"]["net_battery"] is True
     for key in ("solar", "battery", "price"):
         assert key in s
+
+
+# ── Panel ①'s quality box as MESSAGES (app/data_view.panel_data_from) ─────────────────────────
+#
+# Every user-facing string this view-model emits is a (msgid, params) pair, not a formatted
+# string, so its msgid is a compile-time constant `pybabel extract` can see. These pin both
+# halves of that: the SHAPE the template's `msg()` macro consumes, and the ENGLISH the pair
+# renders to — the wording is the msgid, so a test that only checked the shape would let the
+# English drift silently.
+
+def _render(m) -> str:
+    """Render a view-model message the way the template does, in English."""
+    from app import i18n
+    tpl = '{% from "_msg.html" import msg with context %}{{ msg(m) }}'
+    return i18n.env_for("en").from_string(tpl).render(m=m)
+
+
+def _panel(frames):
+    from app.data_view import panel_data_from
+    return panel_data_from(_dataset(frames))
+
+
+def test_panel_quality_strings_are_message_pairs_not_formatted_strings():
+    """The regression this whole shape exists for: a string assembled here has a msgid that only
+    exists at runtime, so it can never be translated and renders in English on a Dutch page."""
+    q = _panel([_energy("grid_import_t1", 2.0), _energy("grid_export_t1", 0.0)])["quality"]
+    for key in ("coverage", "grid", "gaps", "resets", "registers"):
+        assert isinstance(q[key], dict) and "msgid" in q[key], f"{key} is not a message pair"
+
+
+def test_panel_quality_renders_the_expected_english():
+    d = _panel([_energy("grid_import_t1", 2.0), _energy("grid_export_t1", 0.0)])
+    q = d["quality"]
+    assert _render(q["coverage"]) == "2026-01-01 → 2026-01-02   (1 day)"
+    assert _render(q["grid"]) == "hourly  ·  24 intervals"
+    assert _render(q["gaps"]) == "none detected"
+    assert _render(q["resets"]) == "none detected"
+    # T1 has data and is non-zero; T2 was never mapped.
+    assert _render(q["registers"]) == "import T1 mapped, active · T2 not mapped"
+    assert _render(d["summary"]) == "Home Assistant · 2 series · simulated hourly"
+
+
+def test_panel_register_marks_distinguish_flat_from_active():
+    """A mapped register that recorded nothing is "flat", not "active" — the §6.4 availability fact
+    is what the register was mapped to AND whether it moved."""
+    q = _panel([
+        _energy("grid_import_t1", 2.0),
+        _energy("grid_import_t2", 0.0),      # mapped but never advanced
+        _energy("grid_export_t1", 0.0),
+    ])["quality"]
+    assert _render(q["registers"]) == "import T1 mapped, active · T2 mapped, flat"
+
+
+def test_panel_resolution_label_is_a_nested_message_not_a_baked_word():
+    """The resolution word is translated on its own and substituted afterwards.
+
+    If it were interpolated as a bare string it would survive translation untouched, leaving
+    "hourly" inside an otherwise-Dutch sentence — interpolation runs after the catalog lookup and
+    never sees a value's msgid.
+    """
+    q = _panel([_energy("grid_import_t1", 2.0), _energy("grid_export_t1", 0.0)])["quality"]
+    res = q["grid"]["params"]["res"]
+    assert isinstance(res, dict) and res["msgid"] == "hourly"
+
+
+def test_panel_granularity_cells_are_messages():
+    q = _panel([_energy("grid_import_t1", 2.0), _energy("grid_export_t1", 0.0)])["quality"]
+    row = q["series"][0]
+    assert [_render(r) for r in row["recorded"]] == ["hourly (full)"]
+    assert _render(row["uses"]) == "hourly"
+
+
+def test_panel_price_warning_is_a_message_when_granularity_is_lost():
+    """A 15-min price on an hourly grid is averaged down (§6.2), which fires the caveat."""
+    n = HOURS * 4
+    idx = (np.arange(n).astype("timedelta64[s]") * 900
+           + np.datetime64("2026-01-01T00:00:00")).astype("datetime64[s]")
+    price = SeriesFrame("price_spot", "price", 900, idx,
+                        np.linspace(0.1, 0.4, n), np.zeros(n, dtype=QUALITY_DTYPE))
+    q = _panel([_energy("grid_import_t1", 2.0), _energy("grid_export_t1", 0.0), price])["quality"]
+    assert _render(q["price_warning"]) == (
+        "Your prices change every 15-min but the run is hourly, so the run sees one averaged "
+        "price per interval and cannot act on within-interval swings."
+    )
+    price_row = next(r for r in q["series"] if r["name"] == "Spot price")
+    assert price_row["warn"] is True
+    assert _render(price_row["uses"]) == "hourly, averaged"
+
+
+def test_panel_counted_messages_pick_the_singular_at_one():
+    """"1 intervals" was the shipped wording. `_msg_n` makes the count that drives the plural and
+    the count printed in the text the same value, so they cannot disagree."""
+    from app.data_view import _msg_n
+    m = _msg_n("%(n)s interval flagged as gaps", "%(n)s intervals flagged as gaps", 1, n=1)
+    assert _render(m) == "1 interval flagged as gaps"
+    m2 = _msg_n("%(n)s interval flagged as gaps", "%(n)s intervals flagged as gaps", 3, n=3)
+    assert _render(m2) == "3 intervals flagged as gaps"

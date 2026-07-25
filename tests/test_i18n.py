@@ -240,7 +240,8 @@ def test_all_msgids_in_the_block_are_extractable():
 # ── 5. The _msg.html macro and catalog placeholder parity ──────────────────────────────────────
 #
 # View-models that need runtime figures in a sentence emit a (msgid, params) pair rather than a
-# finished string (app/results_view.py's _msg/_msg_n), and `templates/_msg.html` renders it:
+# finished string (app/i18n.msg / .msg_n, aliased `_msg`/`_msg_n` in the view modules that build
+# them — app/results_view.py and app/data_view.py), and `templates/_msg.html` renders it:
 # translate the constant msgid, THEN substitute. These pin the macro's contract and the catalog
 # invariant `i18n.interpolate`'s docstring relies on.
 
@@ -282,6 +283,33 @@ def test_msg_uses_ngettext_for_counted_messages(n, expected):
         "params": {"res": "hourly", "n": n},
     }
     assert _msg_render("en", m) == f"simulated hourly · {expected}"
+
+
+def test_msg_translates_a_nested_message_param():
+    """A param that is itself a message is translated BEFORE it is substituted.
+
+    The case this exists for is an embedded label — a resolution word like "hourly", which appears
+    inside half a dozen larger sentences (app/data_view._res_msg). Passed as a bare string it would
+    survive translation untouched, because interpolation runs after `_()` and never sees the msgid
+    of a value. So the whole point is that the inner msgid gets its own lookup.
+    """
+    inner = {"msgid": "hourly", "params": {}}
+    m = {"msgid": "%(res)s (full)", "params": {"res": inner}}
+    assert _msg_render("en", m) == "hourly (full)"
+    # A bare-string param must still pass through as data, untranslated.
+    assert _msg_render("en", {"msgid": "%(res)s (full)", "params": {"res": "hourly"}}) \
+        == "hourly (full)"
+
+
+def test_msg_escapes_a_nested_message_only_once():
+    """A nested message renders to Markup, so `interpolate` must not escape it a second time.
+
+    Without that, a label containing a "&" (or the "·" a msgid may carry) would come out
+    double-escaped as "&amp;amp;". The inner value's own params are still escaped, once.
+    """
+    inner = {"msgid": "%(v)s", "params": {"v": "a & b"}}
+    out = _msg_render("en", {"msgid": "x: %(res)s", "params": {"res": inner}})
+    assert out == "x: a &amp; b", out
 
 
 def test_msg_escapes_interpolated_values():
@@ -328,3 +356,75 @@ def test_catalog_translations_keep_every_placeholder_their_msgid_has():
                 if got != want:
                     failures.append(f"{code}: {src[:60]!r} has {sorted(want)}, translation has {sorted(got)}")
     assert not failures, "translations dropped or renamed placeholders:\n" + "\n".join(failures)
+
+
+# ── 6. A literal "%" is inert on EVERY path ────────────────────────────────────────────────────
+#
+# The A2 fix (newstyle=False) made "%" safe under `_()`. The (msgid, params) mechanism added
+# afterwards re-opened the hazard for its own subset, because `interpolate` %-formats the
+# translated string: "50% saved" rendered as "50{}aved" and "50%z" raised, i.e. a 500. That
+# subset is the worst place for it — those msgids are full sentences a translator edits, and a
+# Dutch string reading "50% lager" is ordinary copy nobody would think twice about. The failure
+# would appear only in Dutch, on a page that renders fine in English.
+#
+# So: "%" is now doubled before substitution unless it begins a %(name)s placeholder. There is no
+# escape sequence to remember — "%%" is two literal characters, not one.
+
+
+@pytest.mark.parametrize(
+    "msgid,params,expected",
+    [
+        ("50% saved", {}, "50% saved"),
+        ("a 50%z thing", {}, "a 50%z thing"),          # would have raised ValueError
+        ("100%% sure", {}, "100%% sure"),              # no escape sequence: %% is literal
+        ("50% of the %(v)s", {"v": "x"}, "50% of the x"),   # literal AND placeholder together
+        ("%(v)s 50%", {"v": "x"}, "x 50%"),            # trailing % (would have raised)
+        ("up %(a)s%, down %(b)s%", {"a": "5", "b": "3"}, "up 5%, down 3%"),
+    ],
+)
+def test_literal_percent_is_inert_in_a_message_pair(msgid, params, expected):
+    assert _msg_render("en", {"msgid": msgid, "params": params}) == expected
+
+
+def test_literal_percent_is_inert_in_a_counted_message():
+    m = {"msgid": "%(n)s%% off", "plural": "%(n)s%% off", "n": 2, "params": {"n": 2}}
+    assert _msg_render("en", m) == "2%% off"
+
+
+def test_literal_percent_is_inert_in_a_translation():
+    """The case that actually matters: the hazard is in the msgSTR, not the msgid. A translator
+    writing an ordinary percentage must not be able to 500 the page."""
+    assert i18n.interpolate("50% lager dan %(x)s", x="normaal") == "50% lager dan normaal"
+
+
+def test_interpolate_still_substitutes_and_still_raises_on_missing():
+    """The percent-escaping must not have broken either half of the contract above it."""
+    assert i18n.interpolate("a %(x)s b", x=1) == "a 1 b"
+    with pytest.raises(KeyError):
+        i18n.interpolate("a %(x)s b")
+
+
+def test_interpolate_preserves_the_markup_type_of_its_template():
+    """Regression guard for a hole introduced (and caught) while adding the percent escaping.
+
+    `interpolate` rewrites the template to double literal "%" signs. `re.sub` returns a plain str
+    even for a Markup input, so the naive version handed back a str — and `str.__mod__` does not
+    escape its operands. Every value substituted into a message would then have reached the page
+    unescaped, which for panel ① means Home Assistant entity ids and other file-derived data.
+    Escaping is not a property of the call site here; it is carried by the template's TYPE.
+    """
+    from markupsafe import Markup
+
+    out = i18n.interpolate(Markup("v=%(v)s"), v="<script>x</script>")
+    assert isinstance(out, Markup)
+    assert "<script>" not in out and "&lt;script&gt;" in out
+
+    # A plain str template must stay plain (its caller's {{ }} does the escaping).
+    assert not isinstance(i18n.interpolate("v=%(v)s", v="x"), Markup)
+
+
+def test_a_value_with_markup_cannot_reach_the_page_unescaped_through_msg():
+    """The same guarantee at the level a view-model actually uses."""
+    out = _msg_render("en", {"msgid": "id: %(v)s", "params": {"v": "<img src=x onerror=1>"}})
+    assert "<img" not in out
+    assert "&lt;img" in out
