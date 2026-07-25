@@ -1015,3 +1015,77 @@ leading sign is the number's; the exponent's stays ASCII.
 
 Full suite: 550 passed, 2 skipped. Leakage test still red — catalogs next.
 
+### Catalog pass — the leakage test goes green
+
+Extracted once, after all six code steps, so the msgids were translated a single time rather than
+after each step. `pybabel extract` → `update --no-fuzzy-matching` (both locales) → hand-translate →
+`compile`.
+
+**318 entries, 0 untranslated, 0 fuzzy in both catalogs.** 56 Dutch strings were written for this
+pass, including 10 plural pairs (`msgid_plural` / `msgstr[0]` / `msgstr[1]`), every one preserving
+its `%(name)s` placeholders — the parity test added in step 5a asserts that, so a dropped
+placeholder would have failed rather than shipped.
+
+**`tests/test_no_english_leakage.py`: 6 of 7 failing → 7 of 7 passing.** That test was committed
+red on purpose before any of the restructuring, so the transition means the strings were translated
+rather than the scan being weakened. The English render is byte-identical to HEAD across all three
+routes, verified again after the catalog pass.
+
+What a Dutch reader now sees where English used to be:
+
+    Uw strategie benut 100 procent van de netafname die een perfect geïnformeerde batterij…
+    0,23 / dag · 830 kWh doorzet
+    ⚠ Uw meter registreerde 3.924 kWh afgenomen over deze periode; de basislijn zonder
+      batterij van de simulatie is 3.864 kWh…
+    ⚠ Berekend voor de batterij die in het parameterpaneel is ingesteld — 10 kWh bruikbaar,
+      10/10 kW, 0,95 retourrendement, laden P1 / ontladen D1.
+
+Both the sentences and the figures: `3.924` and `0,95`, not `3,924` and `0.95`.
+
+Full suite: 557 passed, 2 skipped, 0 failed.
+
+## Current status — section A complete
+
+All seven items are implemented, reviewed and committed:
+
+| | item | outcome |
+|---|---|---|
+| A1 | runtime f-strings unextractable | fixed — `(msgid, params)` pairs across `results_view`, `data_view`, `sample_data` |
+| A2 | `newstyle=True` percent trap | fixed twice — `newstyle=False`, then `interpolate` escaping after 5a re-opened it |
+| A3 | shared-Jinja-env locale race | fixed — one environment per locale, never mutated |
+| A4 | hardcoded English in `ha_fetch.js` | fixed — 17 strings (the collation said 5), 6 with placeholders |
+| A5 | undocumented `pybabel` flags | fixed — `--no-fuzzy-matching` documented in two places |
+| A6 | no locale-aware formatting | fixed — figures formatted at render time from `num()` pairs |
+| A7 | sample strings exempt from i18n | fixed — sample mirrors the real shapes and shares its msgids |
+
+Catalogs: 256 → 318 msgids. Test suite: 458 → 557.
+
+### What this pass got wrong, for the record
+
+Three of my own claims needed correcting, all found by review rather than by me:
+
+1. **A2 reported as closed when it was half-closed.** The fix covered `_()` but not `interpolate`,
+   and 5a then routed every new sentence through `interpolate`. My README rewrite told translators a
+   literal `%` was safe about exactly the strings being added to the catalog.
+2. **A false "not extracted" diagnosis** for the drawer strings, built on a `grep` whose quotes were
+   eaten by a heredoc. Babel had been extracting them all along.
+3. **An XSS hole introduced while fixing A2** — `re.sub` returns `str` for a `Markup` input, so
+   every interpolated value would have reached the page unescaped. Two existing tests caught it
+   immediately.
+
+Common thread: **grep against catalog files is unreliable** (`.pot` wraps long msgids across lines;
+heredoc quoting bites) and a passing test is not proof the page works — the `load_unreliable` dict
+leak passed its own assertion because the test rendered through `msg()` while the template did not.
+Parse the artefacts, and render the path the page actually takes.
+
+### Follow-ups this pass created or left
+
+- `mapping[*].entity` is dead code (produced by both view-models, read by nothing) and now costs
+  two translated msgids. Deleting it is not an i18n change.
+- `summary_view.clamped_kwh` is likewise produced and never read.
+- `results_view`'s six `ValueError` messages reach the user as HTTP 400 bodies, untranslated.
+  Pre-existing, out of scope, previously unrecorded.
+- `interpolate` only recognises `%(name)s`; a translator writing `%(n)d` renders the placeholder
+  literally. The parity test would flag it at the next catalog pass.
+- `Decimal` and `np.int64` params render unlocalised and without their unit. No live path found —
+  the domain layer sums to Python floats at the view boundary — but it fails silently.

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-25 12:23+0200\n"
+"POT-Creation-Date: 2026-07-25 14:39+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -16,6 +16,16 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.18.0\n"
+
+#, python-format
+msgid "%(before)s → %(after)s"
+msgstr ""
+
+#, python-format
+msgid "%(dates)s   (%(n)s day)"
+msgid_plural "%(dates)s   (%(n)s days)"
+msgstr[0] ""
+msgstr[1] ""
 
 #, python-format
 msgid ""
@@ -26,11 +36,75 @@ msgid ""
 "a battery is not mapped. Check your data sources."
 msgstr ""
 
-msgid "0.41％ of intervals had negative reconstructed load (clamped to 0)."
+#, python-format
+msgid "%(full)s / %(empty)s"
 msgstr ""
 
-msgid "0.66 / day"
+#, python-format
+msgid "%(kwh)s throughput"
 msgstr ""
+
+#, python-format
+msgid "%(n)s / day"
+msgstr ""
+
+#, python-format
+msgid "%(n)s detected and corrected"
+msgstr ""
+
+#, python-format
+msgid "%(n)s gap totalling %(hours)s h  (%(pct)s)"
+msgid_plural "%(n)s gaps totalling %(hours)s h  (%(pct)s)"
+msgstr[0] ""
+msgstr[1] ""
+
+#, python-format
+msgid "%(n)s interval flagged as gaps"
+msgid_plural "%(n)s intervals flagged as gaps"
+msgstr[0] ""
+msgstr[1] ""
+
+#, python-format
+msgid "%(n)ss"
+msgstr ""
+
+#, python-format
+msgid "%(pct)s of intervals had negative reconstructed load (clamped to 0)."
+msgstr ""
+
+#, python-format
+msgid "%(pp)s pp"
+msgstr ""
+
+#, python-format
+msgid "%(res)s  ·  %(n)s interval"
+msgid_plural "%(res)s  ·  %(n)s intervals"
+msgstr[0] ""
+msgstr[1] ""
+
+#, python-format
+msgid "%(res)s (full)"
+msgstr ""
+
+#, python-format
+msgid "%(res)s (last %(n)s day)"
+msgid_plural "%(res)s (last %(n)s days)"
+msgstr[0] ""
+msgstr[1] ""
+
+#, python-format
+msgid "%(res)s, averaged"
+msgstr ""
+
+#, python-format
+msgid "%(res)s, held"
+msgstr ""
+
+#, python-format
+msgid "(%(res)s, %(n)s interval)"
+msgid_plural "(%(res)s, %(n)s intervals)"
+msgstr[0] ""
+msgstr[1] ""
 
 msgid "1-phase"
 msgstr ""
@@ -38,7 +112,7 @@ msgstr ""
 msgid "1-phase battery"
 msgstr ""
 
-msgid "2,410 kWh throughput"
+msgid "15-min"
 msgstr ""
 
 msgid "3 × 1-phase batteries"
@@ -48,6 +122,12 @@ msgid "3-phase"
 msgstr ""
 
 msgid "3-phase inverter"
+msgstr ""
+
+msgid "30-min"
+msgstr ""
+
+msgid "5-min"
 msgstr ""
 
 msgid ""
@@ -71,6 +151,20 @@ msgstr ""
 
 msgid "Allow export to grid during D2/D3"
 msgstr ""
+
+#, python-format
+msgid ""
+"Annualised projection is disabled for ranges under %(n)s day. Battery "
+"savings are strongly seasonal; scaling a short window to a year can "
+"overstate annual savings by a factor of roughly 2–3. Select 6 months or 1"
+" year to see an annual figure."
+msgid_plural ""
+"Annualised projection is disabled for ranges under %(n)s days. Battery "
+"savings are strongly seasonal; scaling a short window to a year can "
+"overstate annual savings by a factor of roughly 2–3. Select 6 months or 1"
+" year to see an annual figure."
+msgstr[0] ""
+msgstr[1] ""
 
 msgid "Apply"
 msgstr ""
@@ -151,6 +245,14 @@ msgid "Choose source…"
 msgstr ""
 
 msgid "Close"
+msgstr ""
+
+#, python-format
+msgid ""
+"Computed for the battery configured in the parameters panel — "
+"%(capacity)s kWh usable, %(charge_kw)s/%(discharge_kw)s kW, "
+"%(efficiency)s round-trip efficiency, charge %(charge_policy)s / "
+"discharge %(discharge_policy)s."
 msgstr ""
 
 msgid "Configure the Home Assistant connection first."
@@ -354,6 +456,12 @@ msgstr ""
 msgid "Home Assistant rejected the token."
 msgstr ""
 
+#, python-format
+msgid "Home Assistant · %(n)s series · simulated %(res)s"
+msgid_plural "Home Assistant · %(n)s series · simulated %(res)s"
+msgstr[0] ""
+msgstr[1] ""
+
 msgid "Home Battery Simulator"
 msgstr ""
 
@@ -480,6 +588,11 @@ msgid ""
 "would have drifted."
 msgstr ""
 
+msgid ""
+"Over this period even a perfectly-informed battery could not have avoided"
+" any grid import, so there is no capture ratio to report."
+msgstr ""
+
 msgid "PARAMETERS"
 msgstr ""
 
@@ -513,10 +626,20 @@ msgstr ""
 msgid "RESULTS"
 msgstr ""
 
+#, python-format
 msgid ""
-"Reconstructed load is negative in 41 intervals (0.41％). Usually means the"
-" solar sensor does not cover the whole house, or a clock offset between "
-"sensors."
+"Reconstructed household load was negative in a large share of intervals "
+"and clamped to zero (%(discarded)s discarded against %(exported)s "
+"exported). This usually means solar export the PV sensor did not report, "
+"or an unmapped battery — so the load and self-sufficiency figures here "
+"are unreliable."
+msgstr ""
+
+#, python-format
+msgid ""
+"Reconstructed load is negative in %(n)s intervals (%(pct)s). Usually "
+"means the solar sensor does not cover the whole house, or a clock offset "
+"between sensors."
 msgstr ""
 
 msgid "Recorded at"
@@ -549,6 +672,14 @@ msgstr ""
 msgid "Self-sufficiency"
 msgstr ""
 
+msgid ""
+"Self-sufficiency came out below zero and is shown as zero. Grid import "
+"exceeded the reconstructed household load over this period — the battery "
+"ended more charged than it started, or round-trip losses consumed "
+"imported energy. It evens out over full charge/discharge cycles; select a"
+" longer period to see it."
+msgstr ""
+
 msgid "Series"
 msgstr ""
 
@@ -573,11 +704,12 @@ msgstr ""
 msgid "Simulate cost savings?"
 msgstr ""
 
+#, python-format
 msgid ""
-"Simulated at hourly resolution. A 5-minute re-run over the last 9 days "
-"gives 8.4％ lower savings — hourly buckets hide within-hour import/export "
-"overlap and flatter the battery. Treat the headline figure as an upper "
-"bound."
+"Simulated at %(res)s resolution. A 5-minute re-run over the last %(n)s "
+"days gives %(delta)s lower savings — hourly buckets hide within-hour "
+"import/export overlap and flatter the battery. Treat the headline figure "
+"as an upper bound."
 msgstr ""
 
 msgid "Simulation grid"
@@ -613,9 +745,17 @@ msgstr ""
 msgid "Spot price over this period"
 msgstr ""
 
+#, python-format
 msgid ""
-"Spot prices are quarter-hourly but the run is hourly, so the battery "
+"Spot prices are quarter-hourly but the run is %(res)s, so the battery "
 "acted on an averaged price and could not chase within-hour swings."
+msgstr ""
+
+#, python-format
+msgid ""
+"Spot prices are recorded every %(native)s but the run is %(res)s, so the "
+"battery acted on an averaged price and could not chase within-interval "
+"swings."
 msgstr ""
 
 msgid "Standby consumption"
@@ -632,15 +772,51 @@ msgid ""
 "this app."
 msgstr ""
 
+msgid "T1 ✓ mapped    T2 ✓ mapped, active"
+msgstr ""
+
 msgid "Test connection"
 msgstr ""
 
 msgid "Thanks. We have recorded that you want this."
 msgstr ""
 
+#, python-format
+msgid ""
+"The battery ended the period %(drift)s less charged than it started. That"
+" residual energy is not part of the saving above and is large relative to"
+" it, so the headline figure would move if the period ended at a different"
+" state of charge."
+msgstr ""
+
+#, python-format
+msgid ""
+"The battery ended the period %(drift)s more charged than it started. That"
+" residual energy is not part of the saving above and is large relative to"
+" it, so the headline figure would move if the period ended at a different"
+" state of charge."
+msgstr ""
+
+#, python-format
+msgid ""
+"The best possible dispatch over this period could not have avoided any "
+"grid import, yet your policy shows %(policy)s avoided. That figure is not"
+" something a perfectly-informed battery could reproduce: the benchmark "
+"must return the battery to the state of charge it started from, and your "
+"policy did not. There is no capture ratio to report for this period."
+msgstr ""
+
 msgid ""
 "The charge band and the discharge band overlap; charge and discharge "
 "requests will be netted against each other."
+msgstr ""
+
+msgid ""
+"The comparison against a perfectly-informed battery did not come out "
+"usable over this period: your policy appears to have avoided more grid "
+"import than the best possible dispatch, which cannot happen and means the"
+" two figures are not comparable here. No capture ratio is shown. "
+"Selecting a longer period usually resolves it."
 msgstr ""
 
 msgid "The connection must be 1-phase or 3-phase."
@@ -667,7 +843,7 @@ msgstr ""
 
 msgid ""
 "The share of your household consumption met without drawing from the "
-"grid: self-sufficiency = 1 − grid import ÷ consumption. 0％ means every "
+"grid: self-sufficiency = 1 − grid import ÷ consumption. 0% means every "
 "kWh came from the grid; higher means more was covered by your own solar "
 "(and existing battery). It uses the reconstructed consumption above."
 msgstr ""
@@ -675,7 +851,7 @@ msgstr ""
 msgid ""
 "The share of your solar production you used yourself rather than "
 "exporting: self-consumption = 1 − grid export ÷ solar produced, measured "
-"over the period your solar data covers. 100％ means none of your "
+"over the period your solar data covers. 100% means none of your "
 "production was exported; lower means more went back to the grid."
 msgstr ""
 
@@ -691,6 +867,16 @@ msgid ""
 msgstr ""
 
 msgid "These two answers decide what the app asks you for below."
+msgstr ""
+
+#, python-format
+msgid ""
+"This battery imported %(extra)s MORE from the grid than the same "
+"household without one. That is a real result, not an error: round-trip "
+"losses and standby cost energy, and the value of charging cheaply and "
+"discharging when prices are high is a price spread — a euro quantity this"
+" energy-only run does not compute. An energy-only run cannot tell you "
+"whether the battery is worth buying."
 msgstr ""
 
 msgid "This control"
@@ -739,6 +925,28 @@ msgstr ""
 msgid "Yes"
 msgstr ""
 
+#, python-format
+msgid ""
+"Your battery ended this period %(residual)s less charged than it started,"
+" so part of the grid import it avoided was paid for out of the charge it "
+"began with rather than earned by its dispatch. The benchmark is not "
+"allowed to do that — it must finish at the state of charge it started "
+"from — so the two are only comparable once that residual is accounted "
+"for. On that basis your policy captures %(pct)s percent of the grid "
+"import a perfectly-informed battery could have avoided. Perfect foresight"
+" knows every future price exactly and no real controller reaches it, so "
+"treat this as a floor on what a better policy could achieve, not as a "
+"target."
+msgstr ""
+
+msgid ""
+"Your battery is wired across the phases in a way version 1 does not "
+"model, so this run uses the 3-phase approximation you accepted. Because a"
+" smart meter nets across phases the energy result should be close; what "
+"is not modelled is the per-phase power limit, which a 1-phase battery "
+"cannot exceed however the load is distributed."
+msgstr ""
+
 msgid "Your data at a glance"
 msgstr ""
 
@@ -748,19 +956,58 @@ msgstr ""
 msgid "Your existing battery"
 msgstr ""
 
+#, python-format
+msgid ""
+"Your meter recorded %(meter)s imported over this period; the simulation's"
+" no-battery baseline is %(baseline)s. The difference of %(difference)s is"
+" energy that flowed both into and out of your house within a single "
+"%(res)s interval, which data at this resolution cannot see. Everything "
+"under Energy savings is computed from the simulated baseline, so that the"
+" battery and no-battery cases are built from the same information; the "
+"figures above it are as your meter recorded them. That is why the two "
+"sets of numbers do not match exactly."
+msgstr ""
+
 msgid "Your policy"
 msgstr ""
 
+#, python-format
 msgid ""
-"Your policy captures 71％ of the grid import a perfectly-informed battery "
-"could have avoided. Allowed to export, that ceiling rises to 2,311 kWh (a"
-" 61％ capture) — the extra is arbitrage your export setting currently "
-"forbids."
+"Your policy captures %(pct)s of the grid import a perfectly-informed "
+"battery could have avoided. Allowed to export, that ceiling rises to "
+"%(ceiling)s (a %(unc_pct)s capture) — the extra is arbitrage your export "
+"setting currently forbids."
 msgstr ""
 
+#, python-format
 msgid ""
-"Your prices change every 15 minutes but your meter records hourly, so the"
-" run sees one averaged price per hour and cannot act on within-hour "
+"Your policy captures %(pct)s percent of the grid import a perfectly-"
+"informed battery could have avoided. Perfect foresight knows every future"
+" price exactly and no real controller reaches it, so treat this as a "
+"floor on what a better policy could achieve, not as a target."
+msgstr ""
+
+#, python-format
+msgid ""
+"Your policy captures %(pct)s percent of the grid import a perfectly-"
+"informed battery could have avoided. Perfect foresight knows every future"
+" price exactly and no real controller reaches it, so treat this as a "
+"floor on what a better policy could achieve, not as a target. Allowed to "
+"export, that ceiling rises to %(ceiling)s (a %(unc_pct)s percent capture)"
+" — the extra is arbitrage your export setting currently forbids."
+msgstr ""
+
+#, python-format
+msgid ""
+"Your prices change every %(native)s but the run is %(res)s, so the run "
+"sees one averaged price per interval and cannot act on within-interval "
+"swings."
+msgstr ""
+
+#, python-format
+msgid ""
+"Your prices change every 15 minutes but your meter records %(res)s, so "
+"the run sees one averaged price per hour and cannot act on within-hour "
 "swings."
 msgstr ""
 
@@ -808,6 +1055,9 @@ msgstr ""
 msgid "connection closed"
 msgstr ""
 
+msgid "daily"
+msgstr ""
+
 msgid "day"
 msgid_plural "days"
 msgstr[0] ""
@@ -820,6 +1070,16 @@ msgid "export CSV"
 msgstr ""
 
 msgid "high"
+msgstr ""
+
+msgid "hourly"
+msgstr ""
+
+#, python-format
+msgid "import T1 %(t1)s · T2 %(t2)s"
+msgstr ""
+
+msgid "irregular"
 msgstr ""
 
 msgid ""
@@ -857,13 +1117,25 @@ msgstr ""
 msgid "low"
 msgstr ""
 
+msgid "mapped, active"
+msgstr ""
+
+msgid "mapped, flat"
+msgstr ""
+
 msgid "needs attention"
 msgstr ""
 
 msgid "net of your existing battery"
 msgstr ""
 
+msgid "none detected"
+msgstr ""
+
 msgid "not in v1"
+msgstr ""
+
+msgid "not mapped"
 msgstr ""
 
 msgid "not nameplate"
@@ -890,10 +1162,19 @@ msgstr ""
 msgid "set by the topology selector below"
 msgstr ""
 
+#, python-format
+msgid "simulated %(res)s · %(n)s interval"
+msgid_plural "simulated %(res)s · %(n)s intervals"
+msgstr[0] ""
+msgstr[1] ""
+
 msgid "since"
 msgstr ""
 
 msgid "supported"
+msgstr ""
+
+msgid "undefined"
 msgstr ""
 
 msgid "valid"

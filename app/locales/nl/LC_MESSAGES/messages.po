@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-25 12:20+0200\n"
+"POT-Creation-Date: 2026-07-25 14:39+0200\n"
 "PO-Revision-Date: 2026-07-23 20:30+0200\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: nl\n"
@@ -17,6 +17,16 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.18.0\n"
+
+#, python-format
+msgid "%(before)s → %(after)s"
+msgstr "%(before)s → %(after)s"
+
+#, python-format
+msgid "%(dates)s   (%(n)s day)"
+msgid_plural "%(dates)s   (%(n)s days)"
+msgstr[0] "%(dates)s   (%(n)s dag)"
+msgstr[1] "%(dates)s   (%(n)s dagen)"
 
 #, python-format
 msgid ""
@@ -33,13 +43,75 @@ msgstr ""
 "doorgeeft, of dat een batterij niet is toegewezen. Controleer uw "
 "gegevensbronnen."
 
-msgid "0.41％ of intervals had negative reconstructed load (clamped to 0)."
-msgstr ""
-"0,41％ van de intervallen had een negatief gereconstrueerd verbruik "
-"(afgekapt op 0)."
+#, python-format
+msgid "%(full)s / %(empty)s"
+msgstr "%(full)s / %(empty)s"
 
-msgid "0.66 / day"
-msgstr "0,66 / dag"
+#, python-format
+msgid "%(kwh)s throughput"
+msgstr "%(kwh)s doorzet"
+
+#, python-format
+msgid "%(n)s / day"
+msgstr "%(n)s / dag"
+
+#, python-format
+msgid "%(n)s detected and corrected"
+msgstr "%(n)s gevonden en gecorrigeerd"
+
+#, python-format
+msgid "%(n)s gap totalling %(hours)s h  (%(pct)s)"
+msgid_plural "%(n)s gaps totalling %(hours)s h  (%(pct)s)"
+msgstr[0] "%(n)s gat van in totaal %(hours)s u  (%(pct)s)"
+msgstr[1] "%(n)s gaten van in totaal %(hours)s u  (%(pct)s)"
+
+#, python-format
+msgid "%(n)s interval flagged as gaps"
+msgid_plural "%(n)s intervals flagged as gaps"
+msgstr[0] "%(n)s interval gemarkeerd als gat"
+msgstr[1] "%(n)s intervallen gemarkeerd als gaten"
+
+#, python-format
+msgid "%(n)ss"
+msgstr "%(n)ss"
+
+#, python-format
+msgid "%(pct)s of intervals had negative reconstructed load (clamped to 0)."
+msgstr "%(pct)s van de intervallen had een negatieve gereconstrueerde belasting (afgekapt op 0)."
+
+#, python-format
+msgid "%(pp)s pp"
+msgstr "%(pp)s pp"
+
+#, python-format
+msgid "%(res)s  ·  %(n)s interval"
+msgid_plural "%(res)s  ·  %(n)s intervals"
+msgstr[0] "%(res)s  ·  %(n)s interval"
+msgstr[1] "%(res)s  ·  %(n)s intervallen"
+
+#, python-format
+msgid "%(res)s (full)"
+msgstr "%(res)s (volledig)"
+
+#, python-format
+msgid "%(res)s (last %(n)s day)"
+msgid_plural "%(res)s (last %(n)s days)"
+msgstr[0] "%(res)s (laatste %(n)s dag)"
+msgstr[1] "%(res)s (laatste %(n)s dagen)"
+
+#, python-format
+msgid "%(res)s, averaged"
+msgstr "%(res)s, gemiddeld"
+
+#, python-format
+msgid "%(res)s, held"
+msgstr "%(res)s, vastgehouden"
+
+#, python-format
+msgid "(%(res)s, %(n)s interval)"
+msgid_plural "(%(res)s, %(n)s intervals)"
+msgstr[0] "(%(res)s, %(n)s interval)"
+msgstr[1] "(%(res)s, %(n)s intervallen)"
 
 msgid "1-phase"
 msgstr "1-fase"
@@ -47,8 +119,8 @@ msgstr "1-fase"
 msgid "1-phase battery"
 msgstr "1-fase batterij"
 
-msgid "2,410 kWh throughput"
-msgstr "2.410 kWh doorzet"
+msgid "15-min"
+msgstr "15-min"
 
 msgid "3 × 1-phase batteries"
 msgstr "3 × 1-fase batterijen"
@@ -58,6 +130,12 @@ msgstr "3-fase"
 
 msgid "3-phase inverter"
 msgstr "3-fase omvormer"
+
+msgid "30-min"
+msgstr "30-min"
+
+msgid "5-min"
+msgstr "5-min"
 
 msgid ""
 "A solar sensor is mapped but reported almost no production over this "
@@ -83,6 +161,20 @@ msgstr "Over"
 
 msgid "Allow export to grid during D2/D3"
 msgstr "Teruglevering aan net toestaan tijdens D2/D3"
+
+#, python-format
+msgid ""
+"Annualised projection is disabled for ranges under %(n)s day. Battery "
+"savings are strongly seasonal; scaling a short window to a year can "
+"overstate annual savings by a factor of roughly 2–3. Select 6 months or 1"
+" year to see an annual figure."
+msgid_plural ""
+"Annualised projection is disabled for ranges under %(n)s days. Battery "
+"savings are strongly seasonal; scaling a short window to a year can "
+"overstate annual savings by a factor of roughly 2–3. Select 6 months or 1"
+" year to see an annual figure."
+msgstr[0] "De jaarprojectie is uitgeschakeld voor periodes korter dan %(n)s dag. Batterijbesparingen zijn sterk seizoensgebonden; een korte periode naar een jaar opschalen kan de jaarbesparing met ongeveer een factor 2–3 overschatten. Kies 6 maanden of 1 jaar voor een jaarcijfer."
+msgstr[1] "De jaarprojectie is uitgeschakeld voor periodes korter dan %(n)s dagen. Batterijbesparingen zijn sterk seizoensgebonden; een korte periode naar een jaar opschalen kan de jaarbesparing met ongeveer een factor 2–3 overschatten. Kies 6 maanden of 1 jaar voor een jaarcijfer."
 
 msgid "Apply"
 msgstr "Toepassen"
@@ -165,6 +257,14 @@ msgstr "Kies bron…"
 msgid "Close"
 msgstr "Sluiten"
 
+#, python-format
+msgid ""
+"Computed for the battery configured in the parameters panel — "
+"%(capacity)s kWh usable, %(charge_kw)s/%(discharge_kw)s kW, "
+"%(efficiency)s round-trip efficiency, charge %(charge_policy)s / "
+"discharge %(discharge_policy)s."
+msgstr "Berekend voor de batterij die in het parameterpaneel is ingesteld — %(capacity)s kWh bruikbaar, %(charge_kw)s/%(discharge_kw)s kW, %(efficiency)s retourrendement, laden %(charge_policy)s / ontladen %(discharge_policy)s."
+
 msgid "Configure the Home Assistant connection first."
 msgstr "Stel eerst de Home Assistant-verbinding in."
 
@@ -184,7 +284,9 @@ msgstr "Verbinden…"
 msgid ""
 "Connection failed. Check the URL, and that your browser trusts the "
 "certificate (open %(url)s once to accept it)."
-msgstr "Verbinding mislukt. Controleer de URL en of uw browser het certificaat vertrouwt (open %(url)s één keer om het te accepteren)."
+msgstr ""
+"Verbinding mislukt. Controleer de URL en of uw browser het certificaat "
+"vertrouwt (open %(url)s één keer om het te accepteren)."
 
 msgid "Consumption"
 msgstr "Verbruik"
@@ -374,6 +476,12 @@ msgstr "Home Assistant-verbinding"
 msgid "Home Assistant rejected the token."
 msgstr "Home Assistant heeft het token geweigerd."
 
+#, python-format
+msgid "Home Assistant · %(n)s series · simulated %(res)s"
+msgid_plural "Home Assistant · %(n)s series · simulated %(res)s"
+msgstr[0] "Home Assistant · %(n)s reeks · gesimuleerd %(res)s"
+msgstr[1] "Home Assistant · %(n)s reeksen · gesimuleerd %(res)s"
+
 msgid "Home Battery Simulator"
 msgstr "Thuisbatterij-simulator"
 
@@ -513,6 +621,11 @@ msgstr ""
 "huisverbruiksensor heeft, gebruikt de app die echte waarde en toont ze "
 "hoever de reconstructie zou zijn afgeweken."
 
+msgid ""
+"Over this period even a perfectly-informed battery could not have avoided"
+" any grid import, so there is no capture ratio to report."
+msgstr "Over deze periode had zelfs een perfect geïnformeerde batterij geen netafname kunnen vermijden, dus er is geen benuttingsgraad te melden."
+
 msgid "PARAMETERS"
 msgstr "PARAMETERS"
 
@@ -552,14 +665,21 @@ msgstr "Opgewekt"
 msgid "RESULTS"
 msgstr "RESULTATEN"
 
+#, python-format
 msgid ""
-"Reconstructed load is negative in 41 intervals (0.41％). Usually means the"
-" solar sensor does not cover the whole house, or a clock offset between "
-"sensors."
-msgstr ""
-"Het gereconstrueerde verbruik is negatief in 41 intervallen (0,41％). "
-"Meestal betekent dit dat de zonnesensor niet het hele huis dekt, of dat "
-"er een klokverschil tussen sensoren is."
+"Reconstructed household load was negative in a large share of intervals "
+"and clamped to zero (%(discarded)s discarded against %(exported)s "
+"exported). This usually means solar export the PV sensor did not report, "
+"or an unmapped battery — so the load and self-sufficiency figures here "
+"are unreliable."
+msgstr "De gereconstrueerde huishoudbelasting was in een groot deel van de intervallen negatief en is op nul afgekapt (%(discarded)s verworpen tegen %(exported)s teruggeleverd). Dit betekent meestal teruglevering van zon die de PV-sensor niet heeft gemeld, of een niet-toegewezen batterij — de belasting- en zelfvoorzieningscijfers hier zijn daarom onbetrouwbaar."
+
+#, python-format
+msgid ""
+"Reconstructed load is negative in %(n)s intervals (%(pct)s). Usually "
+"means the solar sensor does not cover the whole house, or a clock offset "
+"between sensors."
+msgstr "De gereconstrueerde belasting is negatief in %(n)s intervallen (%(pct)s). Meestal dekt de zonnesensor niet het hele huis, of is er een klokverschil tussen sensoren."
 
 msgid "Recorded at"
 msgstr "Vastgelegd op"
@@ -591,6 +711,14 @@ msgstr "Zelfconsumptieratio"
 msgid "Self-sufficiency"
 msgstr "Zelfvoorziening"
 
+msgid ""
+"Self-sufficiency came out below zero and is shown as zero. Grid import "
+"exceeded the reconstructed household load over this period — the battery "
+"ended more charged than it started, or round-trip losses consumed "
+"imported energy. It evens out over full charge/discharge cycles; select a"
+" longer period to see it."
+msgstr "De zelfvoorziening kwam onder nul uit en wordt als nul weergegeven. De netafname was over deze periode groter dan de gereconstrueerde huishoudbelasting — de batterij eindigde voller dan hij begon, of retourverliezen hebben afgenomen energie verbruikt. Over volledige laad-/ontlaadcycli vlakt dit uit; kies een langere periode om dat te zien."
+
 msgid "Series"
 msgstr "Reeks"
 
@@ -615,16 +743,13 @@ msgstr "Kostenbesparing simuleren"
 msgid "Simulate cost savings?"
 msgstr "Kostenbesparing simuleren?"
 
+#, python-format
 msgid ""
-"Simulated at hourly resolution. A 5-minute re-run over the last 9 days "
-"gives 8.4％ lower savings — hourly buckets hide within-hour import/export "
-"overlap and flatter the battery. Treat the headline figure as an upper "
-"bound."
-msgstr ""
-"Gesimuleerd op uurresolutie. Een herberekening op 5-minutenresolutie over"
-" de laatste 9 dagen geeft 8,4％ lagere besparing — uurblokken verbergen "
-"afname/invoeding-overlap binnen het uur en vleien de batterij. Beschouw "
-"het hoofdcijfer als bovengrens."
+"Simulated at %(res)s resolution. A 5-minute re-run over the last %(n)s "
+"days gives %(delta)s lower savings — hourly buckets hide within-hour "
+"import/export overlap and flatter the battery. Treat the headline figure "
+"as an upper bound."
+msgstr "Gesimuleerd op %(res)s resolutie. Een herberekening op 5 minuten over de laatste %(n)s dagen geeft %(delta)s lagere besparing — uurblokken verbergen overlap van afname en teruglevering binnen het uur en flatteren de batterij. Beschouw het hoofdcijfer als een bovengrens."
 
 msgid "Simulation grid"
 msgstr "Simulatieraster"
@@ -659,13 +784,18 @@ msgstr "Spotprijs (min)"
 msgid "Spot price over this period"
 msgstr "Spotprijs over deze periode"
 
+#, python-format
 msgid ""
-"Spot prices are quarter-hourly but the run is hourly, so the battery "
+"Spot prices are quarter-hourly but the run is %(res)s, so the battery "
 "acted on an averaged price and could not chase within-hour swings."
-msgstr ""
-"Spotprijzen zijn per kwartier, maar de berekening is per uur, dus de "
-"batterij werkte op een gemiddelde prijs en kon schommelingen binnen het "
-"uur niet volgen."
+msgstr "Spotprijzen zijn per kwartier maar de run is %(res)s, dus de batterij handelde op een gemiddelde prijs en kon schommelingen binnen het uur niet volgen."
+
+#, python-format
+msgid ""
+"Spot prices are recorded every %(native)s but the run is %(res)s, so the "
+"battery acted on an averaged price and could not chase within-interval "
+"swings."
+msgstr "Spotprijzen worden elke %(native)s vastgelegd maar de run is %(res)s, dus de batterij handelde op een gemiddelde prijs en kon schommelingen binnen het interval niet volgen."
 
 msgid "Standby consumption"
 msgstr "Sluipverbruik"
@@ -683,11 +813,39 @@ msgstr ""
 "Blijft in je browser. Wordt alleen naar je Home Assistant gestuurd, nooit"
 " naar deze app."
 
+msgid "T1 ✓ mapped    T2 ✓ mapped, active"
+msgstr "T1 ✓ toegewezen    T2 ✓ toegewezen, actief"
+
 msgid "Test connection"
 msgstr "Verbinding testen"
 
 msgid "Thanks. We have recorded that you want this."
 msgstr "Bedankt. We hebben genoteerd dat u dit wilt."
+
+#, python-format
+msgid ""
+"The battery ended the period %(drift)s less charged than it started. That"
+" residual energy is not part of the saving above and is large relative to"
+" it, so the headline figure would move if the period ended at a different"
+" state of charge."
+msgstr "De batterij eindigde de periode %(drift)s minder geladen dan hij begon. Die restenergie maakt geen deel uit van de besparing hierboven en is daar groot ten opzichte van, dus het hoofdcijfer zou veranderen als de periode bij een andere laadtoestand eindigde."
+
+#, python-format
+msgid ""
+"The battery ended the period %(drift)s more charged than it started. That"
+" residual energy is not part of the saving above and is large relative to"
+" it, so the headline figure would move if the period ended at a different"
+" state of charge."
+msgstr "De batterij eindigde de periode %(drift)s meer geladen dan hij begon. Die restenergie maakt geen deel uit van de besparing hierboven en is daar groot ten opzichte van, dus het hoofdcijfer zou veranderen als de periode bij een andere laadtoestand eindigde."
+
+#, python-format
+msgid ""
+"The best possible dispatch over this period could not have avoided any "
+"grid import, yet your policy shows %(policy)s avoided. That figure is not"
+" something a perfectly-informed battery could reproduce: the benchmark "
+"must return the battery to the state of charge it started from, and your "
+"policy did not. There is no capture ratio to report for this period."
+msgstr "De best mogelijke inzet over deze periode had geen netafname kunnen vermijden, terwijl uw strategie %(policy)s vermeden laat zien. Dat cijfer kan een perfect geïnformeerde batterij niet reproduceren: de benchmark moet de batterij terugbrengen naar de laadtoestand waarmee hij begon, en uw strategie deed dat niet. Er is voor deze periode geen benuttingsgraad te melden."
 
 msgid ""
 "The charge band and the discharge band overlap; charge and discharge "
@@ -695,6 +853,14 @@ msgid ""
 msgstr ""
 "Het laadband en het ontlaadband overlappen; laad- en ontlaadverzoeken "
 "worden tegen elkaar weggestreept."
+
+msgid ""
+"The comparison against a perfectly-informed battery did not come out "
+"usable over this period: your policy appears to have avoided more grid "
+"import than the best possible dispatch, which cannot happen and means the"
+" two figures are not comparable here. No capture ratio is shown. "
+"Selecting a longer period usually resolves it."
+msgstr "De vergelijking met een perfect geïnformeerde batterij kwam over deze periode niet bruikbaar uit: uw strategie lijkt meer netafname te hebben vermeden dan de best mogelijke inzet, wat niet kan en betekent dat de twee cijfers hier niet vergelijkbaar zijn. Er wordt geen benuttingsgraad weergegeven. Een langere periode kiezen lost dit meestal op."
 
 msgid "The connection must be 1-phase or 3-phase."
 msgstr "De aansluiting moet 1-fase of 3-fase zijn."
@@ -728,27 +894,17 @@ msgstr "De berekening gebruikt"
 
 msgid ""
 "The share of your household consumption met without drawing from the "
-"grid: self-sufficiency = 1 − grid import ÷ consumption. 0％ means every "
+"grid: self-sufficiency = 1 − grid import ÷ consumption. 0% means every "
 "kWh came from the grid; higher means more was covered by your own solar "
 "(and existing battery). It uses the reconstructed consumption above."
-msgstr ""
-"Het deel van uw huishoudelijk verbruik dat werd gedekt zonder afname van "
-"het net: zelfvoorziening = 1 − netafname ÷ verbruik. 0％ betekent dat elke"
-" kWh van het net kwam; hoger betekent dat meer werd gedekt door uw eigen "
-"zon (en bestaande batterij). Dit gebruikt het gereconstrueerde verbruik "
-"hierboven."
+msgstr "Het deel van uw huishoudverbruik dat is gedekt zonder van het net af te nemen: zelfvoorziening = 1 − netafname ÷ verbruik. 0% betekent dat elke kWh van het net kwam; hoger betekent dat meer is gedekt door uw eigen zon (en bestaande batterij). Het gebruikt het gereconstrueerde verbruik hierboven."
 
 msgid ""
 "The share of your solar production you used yourself rather than "
 "exporting: self-consumption = 1 − grid export ÷ solar produced, measured "
-"over the period your solar data covers. 100％ means none of your "
+"over the period your solar data covers. 100% means none of your "
 "production was exported; lower means more went back to the grid."
-msgstr ""
-"Het deel van uw zonne-opwekking dat u zelf gebruikte in plaats van terug "
-"te leveren: zelfconsumptie = 1 − teruglevering ÷ opgewekte zonne-energie,"
-" gemeten over de periode die uw zonnegegevens dekken. 100％ betekent dat "
-"niets van uw opwekking is teruggeleverd; lager betekent dat er meer naar "
-"het net ging."
+msgstr "Het deel van uw zonneopbrengst dat u zelf hebt gebruikt in plaats van teruggeleverd: zelfconsumptie = 1 − teruglevering ÷ opgewekte zon, gemeten over de periode die uw zonnedata dekt. 100% betekent dat niets van uw opbrengst is teruggeleverd; lager betekent dat er meer naar het net terugging."
 
 msgid ""
 "These come from the battery you already own. The consumption and self-"
@@ -768,6 +924,16 @@ msgstr ""
 
 msgid "These two answers decide what the app asks you for below."
 msgstr "Deze twee antwoorden bepalen wat de app hieronder van je vraagt."
+
+#, python-format
+msgid ""
+"This battery imported %(extra)s MORE from the grid than the same "
+"household without one. That is a real result, not an error: round-trip "
+"losses and standby cost energy, and the value of charging cheaply and "
+"discharging when prices are high is a price spread — a euro quantity this"
+" energy-only run does not compute. An energy-only run cannot tell you "
+"whether the battery is worth buying."
+msgstr "Deze batterij nam %(extra)s MEER van het net af dan hetzelfde huishouden zonder batterij. Dat is een echt resultaat, geen fout: retourverliezen en sluipverbruik kosten energie, en de waarde van goedkoop laden en ontladen bij hoge prijzen is een prijsverschil — een eurobedrag dat deze run op energiebasis niet berekent. Een run op alleen energie kan u niet vertellen of de batterij de aanschaf waard is."
 
 msgid "This control"
 msgstr "Dit onderdeel"
@@ -820,6 +986,28 @@ msgstr ""
 msgid "Yes"
 msgstr "Ja"
 
+#, python-format
+msgid ""
+"Your battery ended this period %(residual)s less charged than it started,"
+" so part of the grid import it avoided was paid for out of the charge it "
+"began with rather than earned by its dispatch. The benchmark is not "
+"allowed to do that — it must finish at the state of charge it started "
+"from — so the two are only comparable once that residual is accounted "
+"for. On that basis your policy captures %(pct)s percent of the grid "
+"import a perfectly-informed battery could have avoided. Perfect foresight"
+" knows every future price exactly and no real controller reaches it, so "
+"treat this as a floor on what a better policy could achieve, not as a "
+"target."
+msgstr "Uw batterij eindigde deze periode %(residual)s minder geladen dan hij begon, dus een deel van de vermeden netafname is betaald uit de lading waarmee hij begon in plaats van verdiend met zijn inzet. De benchmark mag dat niet — die moet eindigen op de laadtoestand waarmee hij begon — dus de twee zijn pas vergelijkbaar als die restlading is meegerekend. Op die basis benut uw strategie %(pct)s procent van de netafname die een perfect geïnformeerde batterij had kunnen vermijden. Perfecte vooruitblik kent elke toekomstige prijs exact en geen echte regelaar haalt dat, dus beschouw dit als een ondergrens voor wat een betere strategie kan bereiken, niet als doel."
+
+msgid ""
+"Your battery is wired across the phases in a way version 1 does not "
+"model, so this run uses the 3-phase approximation you accepted. Because a"
+" smart meter nets across phases the energy result should be close; what "
+"is not modelled is the per-phase power limit, which a 1-phase battery "
+"cannot exceed however the load is distributed."
+msgstr "Uw batterij is over de fasen aangesloten op een manier die versie 1 niet modelleert, dus deze run gebruikt de 3-fasenbenadering die u hebt geaccepteerd. Omdat een slimme meter over de fasen saldeert zal het energieresultaat dichtbij liggen; wat niet is gemodelleerd is de vermogensgrens per fase, die een 1-fasebatterij niet kan overschrijden hoe de belasting ook is verdeeld."
+
 msgid "Your data at a glance"
 msgstr "Uw gegevens in één oogopslag"
 
@@ -829,28 +1017,60 @@ msgstr "Uw energieverbruik in de geselecteerde periode"
 msgid "Your existing battery"
 msgstr "Uw bestaande batterij"
 
+#, python-format
+msgid ""
+"Your meter recorded %(meter)s imported over this period; the simulation's"
+" no-battery baseline is %(baseline)s. The difference of %(difference)s is"
+" energy that flowed both into and out of your house within a single "
+"%(res)s interval, which data at this resolution cannot see. Everything "
+"under Energy savings is computed from the simulated baseline, so that the"
+" battery and no-battery cases are built from the same information; the "
+"figures above it are as your meter recorded them. That is why the two "
+"sets of numbers do not match exactly."
+msgstr "Uw meter registreerde %(meter)s afgenomen over deze periode; de basislijn zonder batterij van de simulatie is %(baseline)s. Het verschil van %(difference)s is energie die binnen één %(res)s interval zowel het huis in als uit stroomde, wat data op deze resolutie niet kan zien. Alles onder Energiebesparing is berekend vanuit de gesimuleerde basislijn, zodat de gevallen met en zonder batterij op dezelfde informatie zijn gebouwd; de cijfers erboven zijn zoals uw meter ze registreerde. Daarom komen de twee reeksen getallen niet exact overeen."
+
 msgid "Your policy"
 msgstr "Jouw strategie"
 
+#, python-format
 msgid ""
-"Your policy captures 71％ of the grid import a perfectly-informed battery "
-"could have avoided. Allowed to export, that ceiling rises to 2,311 kWh (a"
-" 61％ capture) — the extra is arbitrage your export setting currently "
-"forbids."
-msgstr ""
-"Jouw strategie benut 71％ van de netafname die een perfect geïnformeerde "
-"batterij had kunnen vermijden. Met teruglevering toegestaan stijgt dat "
-"plafond naar 2.311 kWh (61％ benut) — het extra is arbitrage die je "
-"invoedingsinstelling nu verbiedt."
+"Your policy captures %(pct)s of the grid import a perfectly-informed "
+"battery could have avoided. Allowed to export, that ceiling rises to "
+"%(ceiling)s (a %(unc_pct)s capture) — the extra is arbitrage your export "
+"setting currently forbids."
+msgstr "Uw strategie benut %(pct)s van de netafname die een perfect geïnformeerde batterij had kunnen vermijden. Met teruglevering toegestaan stijgt dat plafond naar %(ceiling)s (een benutting van %(unc_pct)s) — het verschil is arbitrage die uw teruglever-instelling nu verbiedt."
 
+#, python-format
 msgid ""
-"Your prices change every 15 minutes but your meter records hourly, so the"
-" run sees one averaged price per hour and cannot act on within-hour "
+"Your policy captures %(pct)s percent of the grid import a perfectly-"
+"informed battery could have avoided. Perfect foresight knows every future"
+" price exactly and no real controller reaches it, so treat this as a "
+"floor on what a better policy could achieve, not as a target."
+msgstr "Uw strategie benut %(pct)s procent van de netafname die een perfect geïnformeerde batterij had kunnen vermijden. Perfecte vooruitblik kent elke toekomstige prijs exact en geen echte regelaar haalt dat, dus beschouw dit als een ondergrens voor wat een betere strategie kan bereiken, niet als doel."
+
+#, python-format
+msgid ""
+"Your policy captures %(pct)s percent of the grid import a perfectly-"
+"informed battery could have avoided. Perfect foresight knows every future"
+" price exactly and no real controller reaches it, so treat this as a "
+"floor on what a better policy could achieve, not as a target. Allowed to "
+"export, that ceiling rises to %(ceiling)s (a %(unc_pct)s percent capture)"
+" — the extra is arbitrage your export setting currently forbids."
+msgstr "Uw strategie benut %(pct)s procent van de netafname die een perfect geïnformeerde batterij had kunnen vermijden. Perfecte vooruitblik kent elke toekomstige prijs exact en geen echte regelaar haalt dat, dus beschouw dit als een ondergrens voor wat een betere strategie kan bereiken, niet als doel. Met teruglevering toegestaan stijgt dat plafond naar %(ceiling)s (een benutting van %(unc_pct)s procent) — het verschil is arbitrage die uw teruglever-instelling nu verbiedt."
+
+#, python-format
+msgid ""
+"Your prices change every %(native)s but the run is %(res)s, so the run "
+"sees one averaged price per interval and cannot act on within-interval "
 "swings."
-msgstr ""
-"Je prijzen wijzigen elke 15 minuten, maar je meter registreert per uur. "
-"De berekening ziet dus één gemiddelde prijs per uur en kan niet inspelen "
-"op schommelingen binnen het uur."
+msgstr "Uw prijzen wijzigen elke %(native)s maar de run is %(res)s, dus de run ziet één gemiddelde prijs per interval en kan niet reageren op schommelingen binnen het interval."
+
+#, python-format
+msgid ""
+"Your prices change every 15 minutes but your meter records %(res)s, so "
+"the run sees one averaged price per hour and cannot act on within-hour "
+"swings."
+msgstr "Uw prijzen wijzigen elke 15 minuten maar uw meter registreert %(res)s, dus de run ziet één gemiddelde prijs per uur en kan niet reageren op schommelingen binnen het uur."
 
 msgid "Your setup — battery on the AC side, no solar"
 msgstr "Uw opstelling — batterij aan de AC-zijde, geen zon"
@@ -912,6 +1132,9 @@ msgstr "de perfecte-vooruitzichtbenchmark berekenen…"
 msgid "connection closed"
 msgstr "verbinding gesloten"
 
+msgid "daily"
+msgstr "dagelijks"
+
 msgid "day"
 msgid_plural "days"
 msgstr[0] "dag"
@@ -925,6 +1148,16 @@ msgstr "CSV exporteren"
 
 msgid "high"
 msgstr "hoog"
+
+msgid "hourly"
+msgstr "uurlijks"
+
+#, python-format
+msgid "import T1 %(t1)s · T2 %(t2)s"
+msgstr "afname T1 %(t1)s · T2 %(t2)s"
+
+msgid "irregular"
+msgstr "onregelmatig"
 
 msgid ""
 "is part of the plan for this simulator, but it is not built yet. The app "
@@ -964,14 +1197,26 @@ msgstr "long-lived access token (langlevend toegangstoken)"
 msgid "low"
 msgstr "laag"
 
+msgid "mapped, active"
+msgstr "toegewezen, actief"
+
+msgid "mapped, flat"
+msgstr "toegewezen, vlak"
+
 msgid "needs attention"
 msgstr "vereist aandacht"
 
 msgid "net of your existing battery"
 msgstr "na aftrek van uw bestaande batterij"
 
+msgid "none detected"
+msgstr "geen gevonden"
+
 msgid "not in v1"
 msgstr "niet in v1"
+
+msgid "not mapped"
+msgstr "niet toegewezen"
 
 msgid "not nameplate"
 msgstr "niet de nominale waarde"
@@ -997,11 +1242,20 @@ msgstr "opslaan…"
 msgid "set by the topology selector below"
 msgstr "ingesteld door de topologiekeuze hieronder"
 
+#, python-format
+msgid "simulated %(res)s · %(n)s interval"
+msgid_plural "simulated %(res)s · %(n)s intervals"
+msgstr[0] "gesimuleerd %(res)s · %(n)s interval"
+msgstr[1] "gesimuleerd %(res)s · %(n)s intervallen"
+
 msgid "since"
 msgstr "sinds"
 
 msgid "supported"
 msgstr "ondersteund"
+
+msgid "undefined"
+msgstr "niet gedefinieerd"
 
 msgid "valid"
 msgstr "geldig"
@@ -1061,4 +1315,130 @@ msgstr "✗ %(reason)s"
 
 msgid "👍 I want this"
 msgstr "👍 Ik wil dit"
+
+#~ msgid "0.41％ of intervals had negative reconstructed load (clamped to 0)."
+#~ msgstr ""
+#~ "0,41％ van de intervallen had een "
+#~ "negatief gereconstrueerd verbruik (afgekapt op"
+#~ " 0)."
+
+#~ msgid "0.66 / day"
+#~ msgstr "0,66 / dag"
+
+#~ msgid "2,410 kWh throughput"
+#~ msgstr "2.410 kWh doorzet"
+
+#~ msgid ""
+#~ "Reconstructed load is negative in 41 "
+#~ "intervals (0.41％). Usually means the "
+#~ "solar sensor does not cover the "
+#~ "whole house, or a clock offset "
+#~ "between sensors."
+#~ msgstr ""
+#~ "Het gereconstrueerde verbruik is negatief "
+#~ "in 41 intervallen (0,41％). Meestal "
+#~ "betekent dit dat de zonnesensor niet "
+#~ "het hele huis dekt, of dat er "
+#~ "een klokverschil tussen sensoren is."
+
+#~ msgid ""
+#~ "Simulated at hourly resolution. A "
+#~ "5-minute re-run over the last 9"
+#~ " days gives 8.4％ lower savings — "
+#~ "hourly buckets hide within-hour "
+#~ "import/export overlap and flatter the "
+#~ "battery. Treat the headline figure as"
+#~ " an upper bound."
+#~ msgstr ""
+#~ "Gesimuleerd op uurresolutie. Een herberekening"
+#~ " op 5-minutenresolutie over de laatste "
+#~ "9 dagen geeft 8,4％ lagere besparing "
+#~ "— uurblokken verbergen afname/invoeding-"
+#~ "overlap binnen het uur en vleien "
+#~ "de batterij. Beschouw het hoofdcijfer "
+#~ "als bovengrens."
+
+#~ msgid ""
+#~ "Spot prices are quarter-hourly but "
+#~ "the run is hourly, so the battery"
+#~ " acted on an averaged price and "
+#~ "could not chase within-hour swings."
+#~ msgstr ""
+#~ "Spotprijzen zijn per kwartier, maar de"
+#~ " berekening is per uur, dus de "
+#~ "batterij werkte op een gemiddelde prijs"
+#~ " en kon schommelingen binnen het uur"
+#~ " niet volgen."
+
+#~ msgid ""
+#~ "The share of your household consumption"
+#~ " met without drawing from the grid:"
+#~ " self-sufficiency = 1 − grid "
+#~ "import ÷ consumption. 0％ means every "
+#~ "kWh came from the grid; higher "
+#~ "means more was covered by your own"
+#~ " solar (and existing battery). It "
+#~ "uses the reconstructed consumption above."
+#~ msgstr ""
+#~ "Het deel van uw huishoudelijk verbruik"
+#~ " dat werd gedekt zonder afname van"
+#~ " het net: zelfvoorziening = 1 − "
+#~ "netafname ÷ verbruik. 0％ betekent dat"
+#~ " elke kWh van het net kwam; "
+#~ "hoger betekent dat meer werd gedekt "
+#~ "door uw eigen zon (en bestaande "
+#~ "batterij). Dit gebruikt het gereconstrueerde"
+#~ " verbruik hierboven."
+
+#~ msgid ""
+#~ "The share of your solar production "
+#~ "you used yourself rather than exporting:"
+#~ " self-consumption = 1 − grid "
+#~ "export ÷ solar produced, measured over"
+#~ " the period your solar data covers."
+#~ " 100％ means none of your production"
+#~ " was exported; lower means more went"
+#~ " back to the grid."
+#~ msgstr ""
+#~ "Het deel van uw zonne-opwekking "
+#~ "dat u zelf gebruikte in plaats van"
+#~ " terug te leveren: zelfconsumptie = 1"
+#~ " − teruglevering ÷ opgewekte zonne-"
+#~ "energie, gemeten over de periode die "
+#~ "uw zonnegegevens dekken. 100％ betekent "
+#~ "dat niets van uw opwekking is "
+#~ "teruggeleverd; lager betekent dat er "
+#~ "meer naar het net ging."
+
+#~ msgid ""
+#~ "Your policy captures 71％ of the "
+#~ "grid import a perfectly-informed battery"
+#~ " could have avoided. Allowed to "
+#~ "export, that ceiling rises to 2,311 "
+#~ "kWh (a 61％ capture) — the extra"
+#~ " is arbitrage your export setting "
+#~ "currently forbids."
+#~ msgstr ""
+#~ "Jouw strategie benut 71％ van de "
+#~ "netafname die een perfect geïnformeerde "
+#~ "batterij had kunnen vermijden. Met "
+#~ "teruglevering toegestaan stijgt dat plafond"
+#~ " naar 2.311 kWh (61％ benut) — "
+#~ "het extra is arbitrage die je "
+#~ "invoedingsinstelling nu verbiedt."
+
+#~ msgid ""
+#~ "Your prices change every 15 minutes "
+#~ "but your meter records hourly, so "
+#~ "the run sees one averaged price "
+#~ "per hour and cannot act on "
+#~ "within-hour swings."
+#~ msgstr ""
+#~ "Je prijzen wijzigen elke 15 minuten, "
+#~ "maar je meter registreert per uur. "
+#~ "De berekening ziet dus één gemiddelde"
+#~ " prijs per uur en kan niet "
+#~ "inspelen op schommelingen binnen het "
+#~ "uur."
+
 
