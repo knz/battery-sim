@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-25 11:40+0200\n"
+"POT-Creation-Date: 2026-07-25 12:20+0200\n"
 "PO-Revision-Date: 2026-07-23 20:40+0200\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: en\n"
@@ -155,11 +155,17 @@ msgstr "Charges from the grid, discharges to the house. One conversion each way.
 msgid "Choose a source"
 msgstr "Choose a source"
 
+msgid "Choose a source for at least one slot first."
+msgstr "Choose a source for at least one slot first."
+
 msgid "Choose source…"
 msgstr "Choose source…"
 
 msgid "Close"
 msgstr "Close"
+
+msgid "Configure the Home Assistant connection first."
+msgstr "Configure the Home Assistant connection first."
 
 msgid "Configure the connection first"
 msgstr "Configure the connection first"
@@ -169,6 +175,17 @@ msgstr "Configure…"
 
 msgid "Confirm"
 msgstr "Confirm"
+
+msgid "Connecting…"
+msgstr "Connecting…"
+
+#, python-format
+msgid ""
+"Connection failed. Check the URL, and that your browser trusts the "
+"certificate (open %(url)s once to accept it)."
+msgstr ""
+"Connection failed. Check the URL, and that your browser trusts the "
+"certificate (open %(url)s once to accept it)."
 
 msgid "Consumption"
 msgstr "Consumption"
@@ -181,6 +198,13 @@ msgstr "Conversion losses"
 
 msgid "Could not load. Please try again."
 msgstr "Could not load. Please try again."
+
+#, python-format
+msgid "Could not open a WebSocket to %(url)s."
+msgstr "Could not open a WebSocket to %(url)s."
+
+msgid "Could not reach the app's ingest endpoint."
+msgstr "Could not reach the app's ingest endpoint."
 
 msgid "Counter resets"
 msgstr "Counter resets"
@@ -243,6 +267,9 @@ msgstr "Energy flows chart"
 msgid "Energy savings"
 msgstr "Energy savings"
 
+msgid "Enter a base URL and token first."
+msgstr "Enter a base URL and token first."
+
 msgid "Enter a number."
 msgstr "Enter a number."
 
@@ -270,6 +297,10 @@ msgid ""
 msgstr ""
 "Fetched from your Home Assistant in your browser; the token never reaches"
 " this app."
+
+#, python-format
+msgid "Fetching %(slot)s (%(n)s/%(total)s)…"
+msgstr "Fetching %(slot)s (%(n)s/%(total)s)…"
 
 msgid "From"
 msgstr "From"
@@ -331,11 +362,17 @@ msgstr "Grid power"
 msgid "Grid-coupled battery"
 msgstr "Grid-coupled battery"
 
+msgid "HA error"
+msgstr "HA error"
+
 msgid "Home Assistant"
 msgstr "Home Assistant"
 
 msgid "Home Assistant connection"
 msgstr "Home Assistant connection"
+
+msgid "Home Assistant rejected the token."
+msgstr "Home Assistant rejected the token."
 
 msgid "Home Battery Simulator"
 msgstr "Home Battery Simulator"
@@ -365,6 +402,13 @@ msgstr "Import limit override"
 msgid "Imported"
 msgstr "Imported"
 
+msgid "Ingest connection closed early."
+msgstr "Ingest connection closed early."
+
+#, python-format
+msgid "Ingest rejected: %(reason)s"
+msgstr "Ingest rejected: %(reason)s"
+
 msgid "Initial SoC"
 msgstr "Initial SoC"
 
@@ -379,6 +423,10 @@ msgstr "Language"
 
 msgid "Loaded. Reloading…"
 msgstr "Loaded. Reloading…"
+
+#, python-format
+msgid "Loading %(slot)s…"
+msgstr "Loading %(slot)s…"
 
 msgid "Loading…"
 msgstr "Loading…"
@@ -851,6 +899,9 @@ msgstr "close"
 msgid "computing the perfect-foresight benchmark…"
 msgstr "computing the perfect-foresight benchmark…"
 
+msgid "connection closed"
+msgstr "connection closed"
+
 msgid "day"
 msgid_plural "days"
 msgstr[0] "day"
@@ -981,10 +1032,21 @@ msgstr "⚠ This topology is not fully supported in version 1."
 msgid "✓ Connected"
 msgstr "✓ Connected"
 
+#, python-format
+msgid "✓ Connected · %(energy)s energy + %(price)s measurement statistics"
+msgstr "✓ Connected · %(energy)s energy + %(price)s measurement statistics"
+
+#, python-format
+msgid "✓ Imported %(count)s series. Reloading…"
+msgstr "✓ Imported %(count)s series. Reloading…"
+
 msgid "✓ Noted"
 msgstr "✓ Noted"
 
+#, python-format
+msgid "✗ %(reason)s"
+msgstr "✗ %(reason)s"
+
 msgid "👍 I want this"
 msgstr "👍 I want this"
-
 

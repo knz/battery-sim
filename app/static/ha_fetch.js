@@ -156,6 +156,17 @@
   } catch (e) { I18N = {}; }
   function t(key, fallback) { return I18N[key] || fallback; }
 
+  // Interpolating counterpart to t(), mirroring the server-side `_('… %(x)s …') | interpolate(…)`
+  // pattern (app/i18n.py). Status strings that carry runtime values — a slot name, a progress
+  // count — must not be built by concatenating translated fragments: word order differs between
+  // languages, and a fragment on its own is not translatable. One msgid with named placeholders
+  // keeps the whole sentence in the catalog and lets the translator move the values.
+  function ti(key, fallback, values) {
+    return t(key, fallback).replace(/%\((\w+)\)s/g, function (m, name) {
+      return Object.prototype.hasOwnProperty.call(values, name) ? values[name] : m;
+    });
+  }
+
   // Restore the last URL/token from localStorage (browser-local; never server-side, §7.5).
   urlInput.value = localStorage.getItem(LS_URL) || urlInput.value || "";
   tokenInput.value = localStorage.getItem(LS_TOKEN) || "";
@@ -273,17 +284,19 @@
       try {
         ws = new WebSocket(self.url);
       } catch (e) {
-        reject(new Error("Could not open a WebSocket to " + self.url));
+        reject(new Error(ti("ws_open_failed", "Could not open a WebSocket to %(url)s.", { url: self.url })));
         return;
       }
       self.ws = ws;
       ws.onerror = function () {
-        reject(new Error("Connection failed. Check the URL, and that your browser trusts the "
-          + "certificate (open " + self.url.replace(/^ws/, "http") + " once to accept it)."));
+        reject(new Error(ti("ws_connect_failed",
+          "Connection failed. Check the URL, and that your browser trusts the certificate "
+          + "(open %(url)s once to accept it).",
+          { url: self.url.replace(/^ws/, "http") })));
       };
       ws.onclose = function () {
         Object.keys(self.pending).forEach(function (k) {
-          self.pending[k].reject(new Error("connection closed"));
+          self.pending[k].reject(new Error(t("ws_closed", "connection closed")));
         });
         self.pending = {};
       };
@@ -294,13 +307,13 @@
         } else if (msg.type === "auth_ok") {
           resolve();
         } else if (msg.type === "auth_invalid") {
-          reject(new Error("Home Assistant rejected the token."));
+          reject(new Error(t("ha_token_rejected", "Home Assistant rejected the token.")));
         } else if (msg.type === "result") {
           var p = self.pending[msg.id];
           if (p) {
             delete self.pending[msg.id];
             if (msg.success) p.resolve(msg.result);
-            else p.reject(new Error((msg.error && msg.error.message) || "HA error"));
+            else p.reject(new Error((msg.error && msg.error.message) || t("ha_error", "HA error")));
           }
         }
       };
@@ -337,12 +350,12 @@
     var base = urlInput.value.trim();
     var token = tokenInput.value.trim();
     if (!base || !token) {
-      setStatus(statusEl, "Enter a base URL and token first.", "text-warning");
+      setStatus(statusEl, t("need_url_token", "Enter a base URL and token first."), "text-warning");
       return;
     }
     localStorage.setItem(LS_URL, base);
     localStorage.setItem(LS_TOKEN, token);
-    setStatus(statusEl, "Connecting…", "text-base-content/60");
+    setStatus(statusEl, t("connecting", "Connecting…"), "text-base-content/60");
     testBtn.disabled = true;
 
     var client = new HaClient(base, token);
@@ -362,13 +375,14 @@
       }
       updateHaConfigButton();
       updateConfirmEnabled();
-      setStatus(statusEl, "✓ Connected · " + statIds.energy.length + " energy + "
-        + statIds.price.length + " measurement statistics", "text-success");
+      setStatus(statusEl, ti("connected_counts",
+        "✓ Connected · %(energy)s energy + %(price)s measurement statistics",
+        { energy: statIds.energy.length, price: statIds.price.length }), "text-success");
       // Fetch enablement follows what is STAGED, not the connection alone (a backend-only config
       // is fetchable without a connection; a tested connection with nothing staged is not).
       updateFetchEnabled();
     } catch (e) {
-      setStatus(statusEl, "✗ " + e.message, "text-error");
+      setStatus(statusEl, ti("failed_reason", "✗ %(reason)s", { reason: e.message }), "text-error");
       updateFetchEnabled();
     } finally {
       client.close();
@@ -523,12 +537,12 @@
     var slots = mappedSlots();
     var backends = stagedBackendSlots();
     if (!slots.length && !backends.length) {
-      setStatus(fetchStatus, "Choose a source for at least one slot first.", "text-warning");
+      setStatus(fetchStatus, t("need_source", "Choose a source for at least one slot first."), "text-warning");
       return;
     }
     // HA slots require a tested connection (the token lives only in the browser, §7.5).
     if (slots.length && (!base || !token)) {
-      setStatus(fetchStatus, "Configure the Home Assistant connection first.", "text-warning");
+      setStatus(fetchStatus, t("need_ha_connection", "Configure the Home Assistant connection first."), "text-warning");
       return;
     }
 
@@ -552,8 +566,8 @@
       var total = slots.length, done = 0;
       for (var i = 0; i < slots.length; i++) {
         var slot = slots[i];
-        setStatus(fetchStatus, "Fetching " + slot.name + " (" + (i + 1) + "/" + total + ")…",
-          "text-base-content/60");
+        setStatus(fetchStatus, ti("fetching_slot", "Fetching %(slot)s (%(n)s/%(total)s)…",
+          { slot: slot.name, n: i + 1, total: total }), "text-base-content/60");
         // Carry the chosen HA statistic id so the backend can persist it (series_meta) and render
         // the slot's entity from the dataset after a reload. Not secret — only the token is (§7.5).
         backend.send(JSON.stringify({
@@ -576,19 +590,19 @@
       // Backend arm: declare each staged backend-load slot. The backend loads them server-side on
       // `done` (all-or-nothing) and folds them into the same dataset.
       for (var b = 0; b < backends.length; b++) {
-        setStatus(fetchStatus, "Loading " + backends[b].name + "…", "text-base-content/60");
+        setStatus(fetchStatus, ti("loading_slot", "Loading %(slot)s…", { slot: backends[b].name }), "text-base-content/60");
         backend.send(JSON.stringify({
           type: "backend_load", name: backends[b].name, source: backends[b].source, window: win
         }));
       }
 
       var result = await finishBackend(backend);
-      setStatus(fetchStatus, "✓ Imported " + result.series + " series. Reloading…", "text-success");
+      setStatus(fetchStatus, ti("imported_series", "✓ Imported %(count)s series. Reloading…", { count: result.series }), "text-success");
       // The server now has ONE dataset with every staged slot — HA (source + statistic id) and
       // backend-load — so panel ① re-renders all of them after the reload (§3.5, §2.2).
       setTimeout(function () { window.location.reload(); }, 600);
     } catch (e) {
-      setStatus(fetchStatus, "✗ " + e.message, "text-error");
+      setStatus(fetchStatus, ti("failed_reason", "✗ %(reason)s", { reason: e.message }), "text-error");
       fetchInFlight = false;
       updateFetchEnabled();
     } finally {
@@ -638,7 +652,7 @@
     return new Promise(function (resolve, reject) {
       var ws = new WebSocket(backendWsUrl());
       ws.onopen = function () { resolve(ws); };
-      ws.onerror = function () { reject(new Error("Could not reach the app's ingest endpoint.")); };
+      ws.onerror = function () { reject(new Error(t("ingest_unreachable", "Could not reach the app's ingest endpoint."))); };
     });
   }
 
@@ -649,10 +663,10 @@
       ws.onmessage = function (ev) {
         var msg = JSON.parse(ev.data);
         if (msg.type === "result") resolve(msg);
-        else if (msg.type === "error") reject(new Error("Ingest rejected: " + msg.message));
+        else if (msg.type === "error") reject(new Error(ti("ingest_rejected", "Ingest rejected: %(reason)s", { reason: msg.message })));
         // "progress" frames are ignored — the client tracks its own per-series progress.
       };
-      ws.onclose = function () { reject(new Error("Ingest connection closed early.")); };
+      ws.onclose = function () { reject(new Error(t("ingest_closed_early", "Ingest connection closed early."))); };
       ws.send(JSON.stringify({ type: "done" }));
     });
   }

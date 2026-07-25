@@ -453,3 +453,41 @@ caching; and the concurrent mixed-locale render test.
 
 Full suite: 471 passed, 2 skipped.
 
+### Step 4 complete (A4 — JS strings)
+
+Converted every user-facing literal in `ha_fetch.js` to a catalog lookup. The collation named
+five sites; a sweep found **17** — connection status, fetch/load progress, and the WebSocket and
+ingest error paths.
+
+Six of them carry runtime values (a slot name, a progress count, an error reason) and were built
+by concatenating fragments. Those became single msgids with `%(name)s` placeholders, substituted
+by a new `ti()` helper in the script — the same translate-then-interpolate split as the server's
+`| interpolate` filter, and for the same reason: concatenation fixes English word order into
+every language. It is not hypothetical here. The Dutch for "Fetching %(slot)s (%(n)s/%(total)s)…"
+is "%(slot)s ophalen (%(n)s/%(total)s)…", value first — which fragment concatenation could not
+express.
+
+These msgids contain literal `%`, which only became safe when A2 landed.
+
+Catalogs: 256 → 273 msgids (17 added, none removed). English filled from source; Dutch written
+against the catalog's existing formal-neutral register. Both compile at 0 untranslated, 0 fuzzy.
+
+**Correction to the step-4 investigation.** While working this step I reported that 7 of the 8
+pre-existing `#drawer-i18n` strings were never extracted, and that Babel does not descend into a
+`{{ {...} | tojson }}` dict literal. **Both claims were wrong.** The check behind them used
+`grep -cF "msgid \"$s\""` inside a double-quoted heredoc, so the escaped quotes never reached
+grep and the pattern could not match; Babel extracts the inline dict form fine, verified in
+isolation. The strings were in `messages.pot` and translated in `nl.po` at HEAD~1 all along, and
+the drawer was rendering Dutch correctly before this step. Nothing was broken and nothing needed
+repairing there; the only genuinely-missing msgids were the 17 this step adds. The `{% set %}`
+rewrite of the block was kept — it reads better than a long inline literal — but it is a
+readability change, not a fix, and the code comment and test docstring that stated otherwise have
+been corrected.
+
+**New tests** (5, in `tests/test_i18n.py`): every `t()`/`ti()` key in the JS is present in the
+rendered block; drawer strings differ between EN and NL (bar an allowlist); placeholder names
+survive translation in both locales; no bare literal reaches `setStatus`; every rendered string
+is a known msgid in `messages.pot`.
+
+Full suite: 476 passed, 2 skipped.
+

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-25 11:40+0200\n"
+"POT-Creation-Date: 2026-07-25 12:23+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -144,10 +144,16 @@ msgstr ""
 msgid "Choose a source"
 msgstr ""
 
+msgid "Choose a source for at least one slot first."
+msgstr ""
+
 msgid "Choose source…"
 msgstr ""
 
 msgid "Close"
+msgstr ""
+
+msgid "Configure the Home Assistant connection first."
 msgstr ""
 
 msgid "Configure the connection first"
@@ -157,6 +163,15 @@ msgid "Configure…"
 msgstr ""
 
 msgid "Confirm"
+msgstr ""
+
+msgid "Connecting…"
+msgstr ""
+
+#, python-format
+msgid ""
+"Connection failed. Check the URL, and that your browser trusts the "
+"certificate (open %(url)s once to accept it)."
 msgstr ""
 
 msgid "Consumption"
@@ -169,6 +184,13 @@ msgid "Conversion losses"
 msgstr ""
 
 msgid "Could not load. Please try again."
+msgstr ""
+
+#, python-format
+msgid "Could not open a WebSocket to %(url)s."
+msgstr ""
+
+msgid "Could not reach the app's ingest endpoint."
 msgstr ""
 
 msgid "Counter resets"
@@ -230,6 +252,9 @@ msgstr ""
 msgid "Energy savings"
 msgstr ""
 
+msgid "Enter a base URL and token first."
+msgstr ""
+
 msgid "Enter a number."
 msgstr ""
 
@@ -254,6 +279,10 @@ msgstr ""
 msgid ""
 "Fetched from your Home Assistant in your browser; the token never reaches"
 " this app."
+msgstr ""
+
+#, python-format
+msgid "Fetching %(slot)s (%(n)s/%(total)s)…"
 msgstr ""
 
 msgid "From"
@@ -313,10 +342,16 @@ msgstr ""
 msgid "Grid-coupled battery"
 msgstr ""
 
+msgid "HA error"
+msgstr ""
+
 msgid "Home Assistant"
 msgstr ""
 
 msgid "Home Assistant connection"
+msgstr ""
+
+msgid "Home Assistant rejected the token."
 msgstr ""
 
 msgid "Home Battery Simulator"
@@ -345,6 +380,13 @@ msgstr ""
 msgid "Imported"
 msgstr ""
 
+msgid "Ingest connection closed early."
+msgstr ""
+
+#, python-format
+msgid "Ingest rejected: %(reason)s"
+msgstr ""
+
 msgid "Initial SoC"
 msgstr ""
 
@@ -358,6 +400,10 @@ msgid "Language"
 msgstr ""
 
 msgid "Loaded. Reloading…"
+msgstr ""
+
+#, python-format
+msgid "Loading %(slot)s…"
 msgstr ""
 
 msgid "Loading…"
@@ -759,6 +805,9 @@ msgstr ""
 msgid "computing the perfect-foresight benchmark…"
 msgstr ""
 
+msgid "connection closed"
+msgstr ""
+
 msgid "day"
 msgid_plural "days"
 msgstr[0] ""
@@ -881,7 +930,19 @@ msgstr ""
 msgid "✓ Connected"
 msgstr ""
 
+#, python-format
+msgid "✓ Connected · %(energy)s energy + %(price)s measurement statistics"
+msgstr ""
+
+#, python-format
+msgid "✓ Imported %(count)s series. Reloading…"
+msgstr ""
+
 msgid "✓ Noted"
+msgstr ""
+
+#, python-format
+msgid "✗ %(reason)s"
 msgstr ""
 
 msgid "👍 I want this"

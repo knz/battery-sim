@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-25 11:40+0200\n"
+"POT-Creation-Date: 2026-07-25 12:20+0200\n"
 "PO-Revision-Date: 2026-07-23 20:30+0200\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: nl\n"
@@ -156,11 +156,17 @@ msgstr "Laadt vanaf het net, ontlaadt naar de woning. Eén conversie per richtin
 msgid "Choose a source"
 msgstr "Kies een bron"
 
+msgid "Choose a source for at least one slot first."
+msgstr "Kies eerst voor minstens één reeks een bron."
+
 msgid "Choose source…"
 msgstr "Kies bron…"
 
 msgid "Close"
 msgstr "Sluiten"
+
+msgid "Configure the Home Assistant connection first."
+msgstr "Stel eerst de Home Assistant-verbinding in."
 
 msgid "Configure the connection first"
 msgstr "Configureer eerst de verbinding"
@@ -170,6 +176,15 @@ msgstr "Configureren…"
 
 msgid "Confirm"
 msgstr "Bevestigen"
+
+msgid "Connecting…"
+msgstr "Verbinden…"
+
+#, python-format
+msgid ""
+"Connection failed. Check the URL, and that your browser trusts the "
+"certificate (open %(url)s once to accept it)."
+msgstr "Verbinding mislukt. Controleer de URL en of uw browser het certificaat vertrouwt (open %(url)s één keer om het te accepteren)."
 
 msgid "Consumption"
 msgstr "Verbruik"
@@ -182,6 +197,13 @@ msgstr "Omzettingsverliezen"
 
 msgid "Could not load. Please try again."
 msgstr "Laden mislukt. Probeer het opnieuw."
+
+#, python-format
+msgid "Could not open a WebSocket to %(url)s."
+msgstr "Kon geen WebSocket openen naar %(url)s."
+
+msgid "Could not reach the app's ingest endpoint."
+msgstr "Kon het invoerpunt van de app niet bereiken."
 
 msgid "Counter resets"
 msgstr "Tellerresets"
@@ -245,6 +267,9 @@ msgstr "Grafiek energiestromen"
 msgid "Energy savings"
 msgstr "Energiebesparing"
 
+msgid "Enter a base URL and token first."
+msgstr "Voer eerst een basis-URL en token in."
+
 msgid "Enter a number."
 msgstr "Voer een getal in."
 
@@ -272,6 +297,10 @@ msgid ""
 msgstr ""
 "Opgehaald uit je Home Assistant in je browser; het token bereikt deze app"
 " nooit."
+
+#, python-format
+msgid "Fetching %(slot)s (%(n)s/%(total)s)…"
+msgstr "%(slot)s ophalen (%(n)s/%(total)s)…"
 
 msgid "From"
 msgstr "Van"
@@ -333,11 +362,17 @@ msgstr "Netvermogen"
 msgid "Grid-coupled battery"
 msgstr "Netgekoppelde batterij"
 
+msgid "HA error"
+msgstr "HA-fout"
+
 msgid "Home Assistant"
 msgstr "Home Assistant"
 
 msgid "Home Assistant connection"
 msgstr "Home Assistant-verbinding"
+
+msgid "Home Assistant rejected the token."
+msgstr "Home Assistant heeft het token geweigerd."
 
 msgid "Home Battery Simulator"
 msgstr "Thuisbatterij-simulator"
@@ -367,6 +402,13 @@ msgstr "Afwijkende afnamelimiet"
 msgid "Imported"
 msgstr "Afgenomen"
 
+msgid "Ingest connection closed early."
+msgstr "Invoerverbinding is voortijdig gesloten."
+
+#, python-format
+msgid "Ingest rejected: %(reason)s"
+msgstr "Invoer geweigerd: %(reason)s"
+
 msgid "Initial SoC"
 msgstr "Begin-laadtoestand"
 
@@ -381,6 +423,10 @@ msgstr "Taal"
 
 msgid "Loaded. Reloading…"
 msgstr "Geladen. Opnieuw laden…"
+
+#, python-format
+msgid "Loading %(slot)s…"
+msgstr "%(slot)s laden…"
 
 msgid "Loading…"
 msgstr "Laden…"
@@ -863,6 +909,9 @@ msgstr "sluiten"
 msgid "computing the perfect-foresight benchmark…"
 msgstr "de perfecte-vooruitzichtbenchmark berekenen…"
 
+msgid "connection closed"
+msgstr "verbinding gesloten"
+
 msgid "day"
 msgid_plural "days"
 msgstr[0] "dag"
@@ -995,10 +1044,21 @@ msgstr "⚠ Deze topologie wordt in versie 1 niet volledig ondersteund."
 msgid "✓ Connected"
 msgstr "✓ Verbonden"
 
+#, python-format
+msgid "✓ Connected · %(energy)s energy + %(price)s measurement statistics"
+msgstr "✓ Verbonden · %(energy)s energie- + %(price)s meetstatistieken"
+
+#, python-format
+msgid "✓ Imported %(count)s series. Reloading…"
+msgstr "✓ %(count)s reeksen geïmporteerd. Opnieuw laden…"
+
 msgid "✓ Noted"
 msgstr "✓ Genoteerd"
 
+#, python-format
+msgid "✗ %(reason)s"
+msgstr "✗ %(reason)s"
+
 msgid "👍 I want this"
 msgstr "👍 Ik wil dit"
-
 

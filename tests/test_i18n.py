@@ -131,3 +131,107 @@ def test_concurrent_mixed_locale_renders_do_not_cross_contaminate():
 
     mismatches = [(c, got) for c, got in results if got != expected[c]]
     assert not mismatches, f"{len(mismatches)} renders got the wrong locale's catalog"
+
+
+# ── 4. The drawer/fetcher JS string block ──────────────────────────────────────────────────────
+#
+# ha_fetch.js reads its user-facing strings from the #drawer-i18n JSON block rendered by
+# index.html. The block is easy to break silently in two ways, and neither shows up on the page:
+#
+#   * a key used by the JS but absent from the block falls back to the English literal baked into
+#     the t()/ti() call site, so the UI stays in English with nothing flagged;
+#   * a string carrying a runtime value is useless if its placeholders are lost in translation,
+#     and the Dutch strings deliberately REORDER them ("%(slot)s ophalen"), which is exactly why
+#     the values are not concatenated in JS.
+
+import json
+import re
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+JS_PATH = REPO_ROOT / "app" / "static" / "ha_fetch.js"
+
+
+def _drawer_i18n(code: str) -> dict:
+    """The #drawer-i18n payload as the browser would parse it, for one locale.
+
+    Goes through the real route rather than rendering index.html with a hand-built context: the
+    template's context is app/main.py's business, and duplicating it here would make this test
+    fail whenever that context grows.
+    """
+    from starlette.testclient import TestClient
+
+    from app.main import app
+
+    html = TestClient(app).get("/", headers={"Cookie": f"lang={code}"}).text
+    block = re.search(
+        r'<script id="drawer-i18n" type="application/json">(.*?)</script>', html, re.S
+    )
+    assert block, "#drawer-i18n block missing from index.html"
+    return json.loads(block.group(1))
+
+
+def test_every_js_string_key_is_rendered():
+    """Every key ha_fetch.js looks up must exist in the block, or the UI silently falls back to
+    the English literal baked into the call site."""
+    js = JS_PATH.read_text(encoding="utf-8")
+    used = set(re.findall(r'\bti?\(\s*"([a-z0-9_]+)"', js))
+    rendered = set(_drawer_i18n("en"))
+    assert used, "found no t()/ti() call sites — the scraping regex is probably wrong"
+    assert used <= rendered, f"keys used in JS but not rendered: {sorted(used - rendered)}"
+
+
+def test_drawer_strings_are_actually_translated_in_dutch():
+    """Every drawer string should differ between EN and NL, bar a few that legitimately match.
+
+    A string that is identical in both is usually one that never made it into the catalogs: the
+    Dutch render then falls back to the English source and nothing on the page says so. Comparing
+    the two locales is the cheapest way to notice.
+    """
+    en, nl = _drawer_i18n("en"), _drawer_i18n("nl")
+    same = [k for k in en if en[k] == nl[k]]
+    # A few are legitimately identical across locales (proper nouns, symbols, "Token"-likes).
+    allowed = {"ha_source", "failed_reason", "ha_error"}
+    unexpected = sorted(set(same) - allowed)
+    assert not unexpected, f"identical in EN and NL — probably not extracted: {unexpected}"
+
+
+def test_placeholder_carrying_strings_keep_their_placeholders_in_both_locales():
+    """A translation that drops or renames a placeholder renders a literal '%(slot)s' to the user.
+    The Dutch strings deliberately reorder them (e.g. '%(slot)s ophalen'), which is the whole
+    reason the value is not concatenated in JS — so the names must survive, not the positions."""
+    for code in i18n.SUPPORTED:
+        block = _drawer_i18n(code)
+        for key, names in {
+            "fetching_slot": {"slot", "n", "total"},
+            "loading_slot": {"slot"},
+            "imported_series": {"count"},
+            "connected_counts": {"energy", "price"},
+            "ingest_rejected": {"reason"},
+            "ws_open_failed": {"url"},
+            "ws_connect_failed": {"url"},
+        }.items():
+            found = set(re.findall(r"%\((\w+)\)s", block[key]))
+            assert found == names, f"{code}/{key}: expected {sorted(names)}, got {sorted(found)}"
+
+
+def test_no_user_facing_literal_left_in_the_status_calls():
+    """setStatus() renders straight into the page, so a bare string literal there is untranslated
+    text on a Dutch page. Every call must route through t()/ti() or a variable."""
+    js = JS_PATH.read_text(encoding="utf-8")
+    offenders = [
+        m.group(0)
+        for m in re.finditer(r'setStatus\([^,]+,\s*"([^"]+)"', js)
+        if m.group(1).strip()
+    ]
+    assert not offenders, f"untranslated literals passed to setStatus: {offenders}"
+
+
+def test_all_msgids_in_the_block_are_extractable():
+    """Guards the extractor gap directly: re-extract and assert every string the block renders is
+    a known msgid. Catches a future rewrite that puts them back somewhere Babel cannot see."""
+    pot = REPO_ROOT / "app" / "locales" / "messages.pot"
+    known = set(re.findall(r'^msgid ((?:"[^"]*"\s*)+)', pot.read_text(encoding="utf-8"), re.M))
+    known = {"".join(re.findall(r'"([^"]*)"', k)) for k in known}
+    missing = [v for v in _drawer_i18n("en").values() if v and v not in known]
+    assert not missing, f"rendered but absent from messages.pot: {missing}"

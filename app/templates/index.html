@@ -225,9 +225,20 @@
      only by a persisted HA fetch; 0 before the first one. #}
   <script id="source-generation" type="application/json">{{ source_generation | default(0) | tojson }}</script>
 
-  {# i18n strings the drawer's JS needs at runtime (rendered here so gettext extracts them). #}
-  <script id="drawer-i18n" type="application/json">
-    {{ {
+  {# i18n strings the drawer's and fetcher's JS need at runtime (app/static/ha_fetch.js),
+     rendered here so gettext extracts the msgids and the browser reads them already translated.
+
+     Bound via {% raw %}{% set %}{% endraw %} rather than written inline in the tojson call purely for readability —
+     the list is long enough that an inline dict literal buries the <script> tag. Babel extracts
+     either form.
+
+     Strings carrying runtime values keep the whole sentence in one msgid with %(name)s
+     placeholders; ha_fetch.js's ti() substitutes them, mirroring the server-side
+     `_('…') | interpolate(…)` split. Concatenating translated fragments instead would fix English
+     word order into every language — the Dutch "%(slot)s ophalen" puts the value first, which
+     fragment concatenation could not express. A literal % is safe here: app/i18n.py installs
+     gettext with newstyle=False, so nothing printf-formats a translated result. #}
+{%- set drawer_i18n = {
       "loading": _("Loading…"),
       "load_failed": _("Could not load. Please try again."),
       "loaded_ok": _("Loaded. Reloading…"),
@@ -239,9 +250,26 @@
       "choose_source": _("Choose source…"),
       "none": _("— none —"),
       "configure": _("Configure…"),
-      "ha_connected": _("✓ Connected")
-    } | tojson }}
-  </script>
+      "ha_connected": _("✓ Connected"),
+      "connecting": _("Connecting…"),
+      "need_url_token": _("Enter a base URL and token first."),
+      "connected_counts": _("✓ Connected · %(energy)s energy + %(price)s measurement statistics"),
+      "failed_reason": _("✗ %(reason)s"),
+      "ws_open_failed": _("Could not open a WebSocket to %(url)s."),
+      "ws_connect_failed": _("Connection failed. Check the URL, and that your browser trusts the certificate (open %(url)s once to accept it)."),
+      "ws_closed": _("connection closed"),
+      "ha_token_rejected": _("Home Assistant rejected the token."),
+      "ha_error": _("HA error"),
+      "need_source": _("Choose a source for at least one slot first."),
+      "need_ha_connection": _("Configure the Home Assistant connection first."),
+      "fetching_slot": _("Fetching %(slot)s (%(n)s/%(total)s)…"),
+      "loading_slot": _("Loading %(slot)s…"),
+      "imported_series": _("✓ Imported %(count)s series. Reloading…"),
+      "ingest_unreachable": _("Could not reach the app's ingest endpoint."),
+      "ingest_rejected": _("Ingest rejected: %(reason)s"),
+      "ingest_closed_early": _("Ingest connection closed early.")
+  } -%}
+  <script id="drawer-i18n" type="application/json">{{ drawer_i18n | tojson }}</script>
 
   <script>
     // The pending affordance (§2.1, §5.1). A [?] button opens the shared dialog for its
