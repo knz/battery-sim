@@ -551,6 +551,37 @@
           });
       });
 
+      // The setup band's radios (§2.1) carry form="params-form", so they are part of panel ②'s
+      // submission — but a radio does not submit its form by being clicked. This asks the form to
+      // submit whenever one changes, which runs the delegated handler above: POST /params, swap
+      // the panel, and (on a valid submission) refresh panel ③.
+      //
+      // `requestSubmit`, NOT `submit()`: the latter bypasses the submit event entirely, so the
+      // handler above would never see it and the browser would navigate away from the page.
+      // Delegated from document like everything else here, because the band is not swapped but
+      // the form it targets is — binding to the form directly would break on the first swap.
+      document.addEventListener('change', function (ev) {
+        var el = ev.target;
+        if (!el || !el.name || el.name.indexOf('setup.') !== 0) return;
+        var form = document.getElementById('params-form');
+        if (form && form.requestSubmit) form.requestSubmit();
+      });
+
+      // Feed-in (α, β) presets (§6.5, §2.3's Pricing box). The select is a way of TYPING the two
+      // fields, never a stored setting: picking a row writes α and β into their inputs and the
+      // form posts those two numbers, exactly as if they had been typed. Nothing else changes,
+      // and a user who then edits either field simply has a pair matching no preset.
+      document.addEventListener('change', function (ev) {
+        var el = ev.target;
+        if (!el || el.id !== 'feedin-preset') return;
+        var opt = el.options[el.selectedIndex];
+        if (!opt || !opt.getAttribute('data-alpha')) return;
+        var a = document.querySelector('[name="pricing.feedin_alpha"]');
+        var b = document.querySelector('[name="pricing.feedin_beta"]');
+        if (a) a.value = opt.getAttribute('data-alpha');
+        if (b) b.value = opt.getAttribute('data-beta');
+      });
+
       // Initial draw once the page (and Plotly) are ready, plus the first benchmark fetch.
       function initPanelResults() { drawMonthlyChart(); loadBenchmark(); }
       if (document.readyState === 'loading') {

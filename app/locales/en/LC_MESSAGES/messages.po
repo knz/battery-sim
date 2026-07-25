@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-25 15:48+0200\n"
+"POT-Creation-Date: 2026-07-25 18:07+0200\n"
 "PO-Revision-Date: 2026-07-23 20:40+0200\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: en\n"
@@ -128,6 +128,9 @@ msgid_plural "(%(res)s, %(n)s intervals)"
 msgstr[0] "(%(res)s, %(n)s interval)"
 msgstr[1] "(%(res)s, %(n)s intervals)"
 
+msgid "+ weekends"
+msgstr "+ weekends"
+
 msgid "1-phase"
 msgstr "1-phase"
 
@@ -136,6 +139,9 @@ msgstr "1-phase battery"
 
 msgid "15-min"
 msgstr "15-min"
+
+msgid "2027 tariffs are not yet published. These values are estimates."
+msgstr "2027 tariffs are not yet published. These values are estimates."
 
 msgid "3 × 1-phase batteries"
 msgstr "3 × 1-phase batteries"
@@ -173,6 +179,12 @@ msgstr "AC-to-AC at the meter"
 
 msgid "About"
 msgstr "About"
+
+msgid "About the contract types"
+msgstr "About the contract types"
+
+msgid "Advanced"
+msgstr "Advanced"
 
 msgid "Allow export to grid during D2/D3"
 msgstr "Allow export to grid during D2/D3"
@@ -338,6 +350,12 @@ msgstr "Consumption"
 msgid "Continue with a 3-phase approximation"
 msgstr "Continue with a 3-phase approximation"
 
+msgid "Contract"
+msgstr "Contract"
+
+msgid "Contract types"
+msgstr "Contract types"
+
 msgid "Conversion losses"
 msgstr "Conversion losses"
 
@@ -359,6 +377,9 @@ msgstr "Coupling"
 
 msgid "Coverage"
 msgstr "Coverage"
+
+msgid "Custom"
+msgstr "Custom"
 
 msgid "D"
 msgstr "D"
@@ -382,6 +403,12 @@ msgstr ""
 msgid "Data quality"
 msgstr "Data quality"
 
+msgid "Day/night window"
+msgstr "Day/night window"
+
+msgid "Degradation cost"
+msgstr "Degradation cost"
+
 msgid "Discharge battery to cover house load"
 msgstr "Discharge battery to cover house load"
 
@@ -400,6 +427,17 @@ msgstr "Do you already have a battery?"
 msgid "Do you have solar PV?"
 msgstr "Do you have solar PV?"
 
+msgid "Dynamic"
+msgstr "Dynamic"
+
+msgid ""
+"Dynamic — the price follows the EPEX day-ahead market and changes every "
+"hour. Fixed — one normaal and one dal rate, agreed for the term of the "
+"contract. Variable — the supplier sets the rate and revises it "
+"periodically, typically every six months; between revisions it behaves "
+"exactly like a fixed contract."
+msgstr "Dynamic — the price follows the EPEX day-ahead market and changes every hour. Fixed — one normaal and one dal rate, agreed for the term of the contract. Variable — the supplier sets the rate and revises it periodically, typically every six months; between revisions it behaves exactly like a fixed contract."
+
 msgid "EQUIVALENT FULL CYCLES"
 msgstr "EQUIVALENT FULL CYCLES"
 
@@ -417,6 +455,9 @@ msgstr "Energy flows chart"
 
 msgid "Energy savings"
 msgstr "Energy savings"
+
+msgid "Energy tax"
+msgstr "Energy tax"
 
 msgid "Enter a base URL and token first."
 msgstr "Enter a base URL and token first."
@@ -439,6 +480,9 @@ msgstr "Exported"
 msgid "Extra grid import"
 msgstr "Extra grid import"
 
+msgid "Feed-in"
+msgstr "Feed-in"
+
 msgid "Fetch history"
 msgstr "Fetch history"
 
@@ -452,6 +496,17 @@ msgstr ""
 #, python-format
 msgid "Fetching %(slot)s (%(n)s/%(total)s)…"
 msgstr "Fetching %(slot)s (%(n)s/%(total)s)…"
+
+msgid "Fixed"
+msgstr "Fixed"
+
+msgid ""
+"Fixed costs (vastrecht, systeembeheer, vermindering) do not change with a"
+" battery and are excluded from savings."
+msgstr "Fixed costs (vastrecht, systeembeheer, vermindering) do not change with a battery and are excluded from savings."
+
+msgid "Flat rate"
+msgstr "Flat rate"
 
 msgid "From"
 msgstr "From"
@@ -577,6 +632,9 @@ msgstr "Intervals battery was full / empty"
 
 msgid "Language"
 msgstr "Language"
+
+msgid "Legal minimum — 50 percent of the bare price"
+msgstr "Legal minimum — 50 percent of the bare price"
 
 msgid "Loaded. Reloading…"
 msgstr "Loaded. Reloading…"
@@ -707,8 +765,14 @@ msgstr ""
 "whether you have per-phase sensors. It directly determines whether this "
 "lands in version 2."
 
+msgid "Preset"
+msgstr "Preset"
+
 msgid "Preset historical (Energy-Charts NL)"
 msgstr "Preset historical (Energy-Charts NL)"
+
+msgid "Pricing"
+msgstr "Pricing"
 
 msgid "Produced"
 msgstr "Produced"
@@ -798,9 +862,6 @@ msgstr "Settings"
 msgid "Shared across all slots that use Home Assistant"
 msgstr "Shared across all slots that use Home Assistant"
 
-msgid "Simulate cost savings"
-msgstr "Simulate cost savings"
-
 msgid "Simulate cost savings?"
 msgstr "Simulate cost savings?"
 
@@ -836,6 +897,12 @@ msgstr "Solar surplus only (net zero at the grid)"
 
 msgid "Source"
 msgstr "Source"
+
+msgid "Spot"
+msgstr "Spot"
+
+msgid "Spot minus fee"
+msgstr "Spot minus fee"
 
 msgid "Spot price"
 msgstr "Spot price"
@@ -883,8 +950,14 @@ msgstr ""
 "Stays in your browser. It is sent only to your Home Assistant, never to "
 "this app."
 
+msgid "Supplier markup"
+msgstr "Supplier markup"
+
 msgid "T1 ✓ mapped    T2 ✓ mapped, active"
 msgstr "T1 ✓ mapped    T2 ✓ mapped, active"
+
+msgid "Terugleverkosten"
+msgstr "Terugleverkosten"
 
 msgid "Test connection"
 msgstr "Test connection"
@@ -1074,6 +1147,9 @@ msgstr "Toggle Data panel"
 msgid "Toggle Parameters panel"
 msgstr "Toggle Parameters panel"
 
+msgid "Toggle advanced pricing settings"
+msgstr "Toggle advanced pricing settings"
+
 msgid "Token"
 msgstr "Token"
 
@@ -1095,6 +1171,12 @@ msgid ""
 msgstr ""
 "Uses the shared Home Assistant connection — configure it once (the button"
 " above), then fetch history for all Home Assistant slots together."
+
+msgid "VAT"
+msgstr "VAT"
+
+msgid "Variable"
+msgstr "Variable"
 
 msgid "Want to know what this is worth in euros?"
 msgstr "Want to know what this is worth in euros?"
@@ -1312,6 +1394,9 @@ msgstr "choose entity…"
 msgid "close"
 msgstr "close"
 
+msgid "compensation = max(0, α × bare + β)"
+msgstr "compensation = max(0, α × bare + β)"
+
 msgid "computing the perfect-foresight benchmark…"
 msgstr "computing the perfect-foresight benchmark…"
 
@@ -1321,6 +1406,9 @@ msgstr "connection closed"
 msgid "daily"
 msgstr "daily"
 
+msgid "dal from"
+msgstr "dal from"
+
 msgid "day"
 msgid_plural "days"
 msgstr[0] "day"
@@ -1329,8 +1417,20 @@ msgstr[1] "days"
 msgid "days"
 msgstr "days"
 
+msgid "excl. VAT"
+msgstr "excl. VAT"
+
+msgid "excl. VAT — 2026 value"
+msgstr "excl. VAT — 2026 value"
+
 msgid "export CSV"
 msgstr "export CSV"
+
+msgid "flat, per fed-in kWh"
+msgstr "flat, per fed-in kWh"
+
+msgid "h"
+msgstr "h"
 
 msgid "high"
 msgstr "high"
@@ -1412,6 +1512,9 @@ msgstr "offered if you simulate costs"
 msgid "optional"
 msgstr "optional"
 
+msgid "per kWh throughput; 0 disables it"
+msgstr "per kWh throughput; 0 disables it"
+
 msgid "recalculating…"
 msgstr "recalculating…"
 
@@ -1439,6 +1542,12 @@ msgstr "since"
 msgid "supported"
 msgstr "supported"
 
+msgid "tiered by annual volume"
+msgstr "tiered by annual volume"
+
+msgid "to"
+msgstr "to"
+
 msgid "undefined"
 msgstr "undefined"
 
@@ -1447,6 +1556,12 @@ msgstr "valid"
 
 msgid "workspace: local"
 msgstr "workspace: local"
+
+msgid "α"
+msgstr "α"
+
+msgid "β"
+msgstr "β"
 
 msgid "— none —"
 msgstr "— none —"
@@ -1700,4 +1815,7 @@ msgstr "👍 I want this"
 #~ " the charge and discharge bands, so"
 #~ " it is required whether or not "
 #~ "you simulate costs."
+
+#~ msgid "Simulate cost savings"
+#~ msgstr "Simulate cost savings"
 

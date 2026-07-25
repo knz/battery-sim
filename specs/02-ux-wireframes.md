@@ -822,7 +822,6 @@ offering to restrict the window is future work.
 │  │  Contract ⓘ  ( • ) Dynamic     (   ) Fixed     (   ) Variable          │  │
 │  │                                                                        │  │
 │  │  ┌ Dynamic ──────────────────────────────────────────────────────────┐ │  │
-│  │  │  Spot source        ( • ) from mapped sensor  (  ) upload CSV     │ │  │
 │  │  │  Supplier markup    [ 0.0205 ] €/kWh   excl. VAT                  │ │  │
 │  │  └───────────────────────────────────────────────────────────────────┘ │  │
 │  │                                                                        │  │
@@ -903,6 +902,18 @@ that a change to the definitions is made in one place.
 
 The affordance is part of the Pricing box and is therefore absent when cost simulation is
 off, along with everything else in that box.
+
+### The spot source is asked in panel ①, not here
+
+An earlier draft of the Dynamic sub-panel carried a **Spot source** row — *from mapped sensor* /
+*upload CSV*. It is gone, and deliberately: panel ① already asks where every series comes from,
+slot by slot, and the spot price is one of those slots. A second control over the same setting
+gives the user two answers to one question and no way to tell which one the run used.
+
+This is the same reasoning that keeps `has_pv` in panel ① rather than in the setup band
+([§2.1](#the-setup-band)) — each answer is the single source of truth for what it controls and
+appears exactly once as a control. The Pricing box asks how the spot price is *turned into a
+bill*; it does not ask where the price came from.
 
 ### Without PV
 

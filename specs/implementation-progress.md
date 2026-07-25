@@ -36,8 +36,12 @@ against the household's own persisted data and reports what it would have saved,
 | Panel ② form, validation, persistence | built (`app/params_view.py`, `app/simconfig_store.py`) |
 | Panel ③ results, benchmark box | built (`app/results_view.py`) |
 
-**Not built** — the whole cost path (§6.5, §6.10, run E, `benchmarks.cost`, the waterfall, the
-COST SAVINGS section) since `simulate_cost` defaults off and remains a pending control; the §6.15
+`simulate_cost` is no longer a pending control: the setup band's radios POST, and panel ② draws
+§2.3's Pricing box behind the answer. Within that box the two unbuilt contract types (FIXED,
+VARIABLE) and tiered terugleverkosten are themselves pending — only DYNAMIC and FLAT have a rate
+source behind them (§6.5).
+
+**Not built** — the §6.15
 configuration epochs; §6.16's price bracket; §6.13's resolution-bias diagnostic; §6.17's
 timestamp-misalignment detection; §4.6's per-interval CSV export; and CSV ingestion. §6.14 fixtures
 1, 2, 3, 5, 6, 7, 12, 16, 17 and 21 are implemented; the rest belong to those unbuilt areas.
@@ -60,7 +64,9 @@ authoritative list is `app/features.py` (`FEATURE_KEYS`); the templates carry th
 | Key | Control | Template | Blocked on |
 |---|---|---|---|
 | `data_source_csv` | "Upload CSV" data source | `_panel_data.html` | CSV ingestion |
-| `simulate_cost` | "Simulate cost savings?" choice in the setup band | `_setup_band.html` | cost/pricing model |
+| `pricing_contract_fixed` | "Fixed" contract radio in the Pricing box | `_panel_params.html` | §6.4's `tariff_zone` axis and the FIXED rate source |
+| `pricing_contract_variable` | "Variable" contract radio in the Pricing box | `_panel_params.html` | a dated `rate_schedule` on `PricingConfig`, plus its editor |
+| `pricing_tlk_tiered` | "tiered by annual volume" terugleverkosten | `_panel_params.html` | a tier table, annualisation, `min_tlk_tiering_days` |
 | `export_csv` | "Export CSV" of results | `_panel_results.html` | results export |
 | `chart_soc_price` | "SoC + price" chart tab | `_panel_results.html` | that chart's series |
 | `chart_energy_flows` | "Energy flows" chart tab | `_panel_results.html` | that chart's series |
@@ -70,6 +76,7 @@ authoritative list is `app/features.py` (`FEATURE_KEYS`); the templates carry th
 | Key | Control | Shipped in |
 |---|---|---|
 | `discharge_allow_export` | "Allow export to grid during D2/D3" | panel ② wiring — now a real checkbox bound to `policy.allow_grid_export` |
+| `simulate_cost` | "Simulate cost savings?" choice in the setup band | the cost-simulation increment — the band's radios now POST to `/params` and panel ② draws the whole Pricing box behind the answer |
 
 ## How to add a pending control
 

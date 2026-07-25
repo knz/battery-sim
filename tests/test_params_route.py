@@ -109,6 +109,32 @@ def _form(**overrides) -> dict:
     return base
 
 
+# The same submission with cost simulation ON: the setup band's radio, the `setup` and `pricing`
+# section markers, and every field §2.3's Pricing box draws. This is what the rendered form
+# actually posts once the user answers "Yes" in the band, so it is what the round-trip and the
+# retention tests have to drive.
+def _cost_form(**overrides) -> dict:
+    base = _form()
+    base["sections"] = "setup battery grid charge discharge topology pricing"
+    base["setup.simulate_cost"] = "yes"
+    base.update({
+        "pricing.contract": "dynamic",
+        "pricing.supplier_markup": "0.0205",
+        "pricing.energy_tax_excl_vat": "0.09161",
+        "pricing.vat_rate": "21",
+        "pricing.feedin_alpha": "0.50",
+        "pricing.feedin_beta": "0.0000",
+        "pricing.tlk_mode": "flat",
+        "pricing.tlk_eur_per_kwh": "0.0400",
+        "pricing.dal_start_hour": "23",
+        "pricing.dal_end_hour": "7",
+        "pricing.dal_weekends": "1",
+        "pricing.degradation_eur_per_kwh": "0.0000",
+    })
+    base.update(overrides)
+    return base
+
+
 def _saved_kwh(client, **body) -> float:
     """The `GRID IMPORT SAVED` figure panel ③ currently renders, as a number.
 
@@ -199,14 +225,20 @@ def test_an_empty_submission_does_not_500(client):
 
 
 def test_every_numeric_field_survives_a_very_long_value(client):
-    """The defect was in the shared funnel, so it reached EVERY numeric input, including the two
+    """The defect was in the shared funnel, so it reached EVERY numeric input, including the three
     percent-typed ones (which scale by 100 and so hit `float()` a second time on the way in and a
     third on the way out). Submitted one at a time so a field that 500s is named by the failure.
+
+    Cost simulation is turned ON for the whole sweep, because the Pricing box's numerics are only
+    VALIDATED in cost mode (`validate()` gates them on `simulate_cost`, §2.3: a blocking error on
+    a field the user was never shown has no input to attach itself to). With it off those fields
+    would still have to survive the funnel — they just would not be reported, so the sweep could
+    not tell a survivor from a silently-accepted 400-digit number.
     """
     from app import params_view
 
     for name, _path, _fn in params_view.FIELDS:
-        r = client.post("/params", data=_form(**{name: "9" * 400}))
+        r = client.post("/params", data=_cost_form(**{name: "9" * 400}))
         assert r.status_code == 200, f"{name} produced {r.status_code}"
         assert r.headers["X-Params-Valid"] == "0", name
 
@@ -454,3 +486,198 @@ def test_index_renders_panel_3_under_the_stored_config(client):
     )
     assert rendered, "GET / did not render the GRID IMPORT SAVED tile"
     assert float(rendered.group(1).replace(",", "").replace("−", "-")) == fragment_saving
+
+
+# ── §2.3's Pricing box, end to end ───────────────────────────────────────────────────────────
+
+
+def test_the_pricing_box_renders_only_with_cost_simulation_on(client):
+    """§2.3 "Without cost simulation": the whole box is ABSENT, not greyed.
+
+    Asserted against the rendered HTML rather than against the view-model, because the box's
+    existence is decided in the template — a view-model assertion would pass against a template
+    that drew it unconditionally, which is the defect worth catching. The `economic_guard`
+    checkbox goes with it (§2.3 names it separately).
+    """
+    off = client.post("/params", data=_form())
+    assert off.headers["X-Params-Valid"] == "1"
+    for absent in ('name="pricing.vat_rate"', 'name="pricing.contract"',
+                   'name="pricing.supplier_markup"', 'name="policy.economic_guard"',
+                   'name="pricing.dal_start_hour"'):
+        assert absent not in off.text, absent
+
+    on = client.post("/params", data=_cost_form())
+    assert on.headers["X-Params-Valid"] == "1"
+    for present in ('name="pricing.vat_rate"', 'name="pricing.contract"',
+                    'name="pricing.supplier_markup"', 'name="policy.economic_guard"',
+                    'name="pricing.dal_start_hour"', 'name="pricing.feedin_alpha"',
+                    'name="pricing.tlk_mode"', 'name="pricing.degradation_eur_per_kwh"'):
+        assert present in on.text, present
+
+
+def test_the_setup_band_radio_changes_simulate_cost_and_re_renders_the_panel(client):
+    """Followup B2: the band POSTs with panel ②'s form and the answer takes effect immediately.
+
+    Both directions, because the interesting failure is asymmetric — a band that could only ever
+    turn the box ON would look correct on a first click and trap the user afterwards.
+    """
+    from app import simconfig_store
+
+    on = client.post("/params", data=_cost_form())
+    assert simconfig_store.load().simulate_cost is True
+    assert 'name="pricing.vat_rate"' in on.text
+
+    off = client.post(
+        "/params",
+        data=_form(sections="setup battery grid charge discharge topology",
+                   **{"setup.simulate_cost": "no"}),
+    )
+    assert simconfig_store.load().simulate_cost is False
+    assert 'name="pricing.vat_rate"' not in off.text
+
+
+def test_every_pricing_field_persists_and_vat_converts_both_ways(client):
+    """One submission of the whole box, read back off disk and out of the next render.
+
+    VAT is checked on both sides of the conversion in the same test: 9 submitted, 0.09 stored,
+    `value="9"` rendered. A one-sided assertion passes against an implementation that scales
+    consistently in the wrong direction.
+    """
+    from app import simconfig_store
+
+    r = client.post("/params", data=_cost_form(**{
+        "pricing.supplier_markup": "0.0300",
+        "pricing.energy_tax_excl_vat": "0.10000",
+        "pricing.vat_rate": "9",
+        "pricing.feedin_alpha": "1.00",
+        "pricing.feedin_beta": "-0.0200",
+        "pricing.tlk_eur_per_kwh": "0.0500",
+        "pricing.dal_start_hour": "22",
+        "pricing.dal_end_hour": "6",
+        "pricing.degradation_eur_per_kwh": "0.0150",
+    }))
+    assert r.headers["X-Params-Valid"] == "1"
+
+    pr = simconfig_store.load().pricing
+    assert pr.supplier_markup == 0.03
+    assert pr.energy_tax_excl_vat == 0.1
+    assert pr.vat_rate == pytest.approx(0.09)
+    assert pr.feedin_alpha == 1.0
+    assert pr.feedin_beta == -0.02
+    assert pr.tlk_eur_per_kwh == 0.05
+    assert pr.dal_start_hour == 22
+    assert pr.dal_end_hour == 6
+    assert pr.degradation_eur_per_kwh == 0.015
+
+    assert 'value="9"' in r.text            # 0.09 back out as 9 percent
+    assert 'value="0.0300"' in r.text
+    assert 'value="-0.0200"' in r.text
+
+
+def test_an_out_of_range_pricing_value_blocks_and_binds_to_its_input(client):
+    """§6.5's ranges (`validate()`): a VAT rate above 1 is a confident wrong euro figure."""
+    from app import simconfig_store
+
+    client.post("/params", data=_cost_form())
+    r = client.post("/params", data=_cost_form(**{"pricing.vat_rate": "300"}))
+    assert r.status_code == 200
+    assert r.headers["X-Params-Valid"] == "0"
+    assert 'data-field-error="pricing.vat_rate"' in r.text
+    assert 'value="300"' in r.text                                   # what they typed
+    assert simconfig_store.load().pricing.vat_rate == pytest.approx(0.21)   # unchanged on disk
+
+
+def test_the_pending_contract_radios_render_disabled_with_their_keys(client):
+    """§2.3 lists all three types; only DYNAMIC is built, so the other two are pending controls.
+
+    Keys are read out of `app.features` rather than written as literals, so a rename in one place
+    and not the other fails here rather than shipping a `[?]` the interest route 404s.
+    """
+    from app import features
+
+    r = client.post("/params", data=_cost_form())
+    for key in ("pricing_contract_fixed", "pricing_contract_variable", "pricing_tlk_tiered"):
+        assert key in features.FEATURE_KEYS
+        assert f'data-feature-key="{key}"' in r.text
+    # And the radios they belong to really are disabled.
+    assert re.search(r'name="pricing\.contract" value="fixed"[^>]*disabled', r.text)
+    assert re.search(r'name="pricing\.contract" value="variable"[^>]*disabled', r.text)
+    assert re.search(r'name="pricing\.tlk_mode" value="tiered"[^>]*disabled', r.text)
+    # DYNAMIC and FLAT are the built ones and must NOT be.
+    assert not re.search(r'name="pricing\.contract" value="dynamic"[^>]*disabled', r.text)
+    assert not re.search(r'name="pricing\.tlk_mode" value="flat"[^>]*disabled', r.text)
+
+
+def test_the_interest_route_accepts_the_new_pricing_keys(client):
+    """The other half: a key rendered into the page must be one the counter route takes."""
+    for key in ("pricing_contract_fixed", "pricing_contract_variable", "pricing_tlk_tiered"):
+        assert client.post(f"/feature-interest/{key}").status_code == 204
+    # And the retired one is no longer accepted — retired keys keep their counter row but are not
+    # in the pending vocabulary.
+    assert client.post("/feature-interest/simulate_cost").status_code == 404
+
+
+def test_the_contract_help_affordance_uses_the_shared_dialog(client):
+    """§2.3's contract-type ⓘ: the three one-line definitions, carried by the existing mechanism.
+
+    `.slot-info-btn` + `data-info-title`/`data-info-body` is the same delegated handler the slot
+    roster and the disabled charge policies already use, so this adds no JS. Asserted so that a
+    future refactor of the dialog cannot quietly orphan this one caller.
+    """
+    r = client.post("/params", data=_cost_form())
+    assert 'data-info-title="Contract types"' in r.text
+    body = re.search(r'data-info-body="([^"]*)"[^>]*>ⓘ</button>\s*\n?\s*<label class="label gap-1',
+                     r.text)
+    assert body, "the contract ⓘ is not the button preceding the contract radios"
+    for phrase in ("EPEX day-ahead", "normaal and one dal rate", "revises it periodically"):
+        assert phrase in body.group(1)
+
+
+def test_the_summary_line_names_the_contract_or_energy_only(client):
+    """§2.1's final clause, through the route so the rendered line is what is asserted."""
+    on = client.post("/params", data=_cost_form())
+    assert "· dynamic</span>" in on.text or "· dynamic" in on.text
+
+    off = client.post(
+        "/params",
+        data=_form(sections="setup battery grid charge discharge topology",
+                   **{"setup.simulate_cost": "no"}),
+    )
+    assert "· energy only" in off.text
+    assert "· dynamic" not in off.text
+
+
+def test_pricing_values_survive_turning_cost_simulation_off_and_on(client):
+    """Appendix A's retention rule over the wire: the panel stops drawing the box, and the values
+    are still there when it draws it again.
+
+    This is the reason `parse_form` inherits absent fields and `to_dict` writes the pricing group
+    unconditionally. Driven through the route rather than the store so the whole chain — form,
+    coercion, save, load, re-render — is under test.
+    """
+    from app import simconfig_store
+
+    client.post("/params", data=_cost_form(**{
+        "pricing.supplier_markup": "0.0777",
+        "pricing.vat_rate": "9",
+        "pricing.degradation_eur_per_kwh": "0.0250",
+        "policy.economic_guard": "1",
+    }))
+    assert simconfig_store.load().economic_guard is True
+
+    energy_only = _form(sections="setup battery grid charge discharge topology",
+                        **{"setup.simulate_cost": "no"})
+    client.post("/params", data=energy_only)
+    parked = simconfig_store.load()
+    assert parked.simulate_cost is False
+    assert parked.pricing.supplier_markup == 0.0777     # inert, but retained
+    assert parked.pricing.vat_rate == pytest.approx(0.09)
+    assert parked.economic_guard is False               # forced off in effect
+
+    r = client.post("/params", data=dict(energy_only, **{"setup.simulate_cost": "yes"}))
+    restored = simconfig_store.load()
+    assert restored.simulate_cost is True
+    assert restored.pricing.supplier_markup == 0.0777
+    assert restored.pricing.degradation_eur_per_kwh == 0.025
+    assert restored.economic_guard is True              # the `retained` slot, end to end
+    assert 'name="policy.economic_guard"' in r.text and "checked" in r.text

@@ -420,11 +420,89 @@ converted on the way in is converted on the way out), and `_panel_params.html` a
 disabled-with-a-reason radios for the PV-gated charge policies — the same shape FIXED and VARIABLE
 need as pending controls.
 
+## Phase 5 — the panel ② Pricing box *(complete)*
+
+Scope: the Pricing box per §2.3 (contract radios with FIXED/VARIABLE pending, the Dynamic
+sub-panel, tax and VAT, the Feed-in box, the Advanced box, the contract-type ⓘ), `economic_guard`
+as a real control, retiring the `simulate_cost` pending key, and — necessarily — **wiring the setup
+band's radio to actually POST**.
+
+That last item is followup B2, and it is not optional here: `simulate_cost` is currently read from
+the persisted config but not editable through the UI, so without it the whole Pricing box would be
+unreachable in the running app. B2 was already recorded as blocking B3.
+
+Every mechanism the box needs already exists and is being reused rather than invented: `FIELDS`
+drives numeric coercion in both directions from one table, `_enum_or_keep` handles radios,
+`parse_form`'s inherit-if-absent rule is what preserves the retained cost parameters, and the
+template already renders disabled-with-a-reason radios for the PV-gated charge policies.
+
+### Decisions
+
+- **The "Spot source" row is not rendered**, though §2.3's wireframe drew it. Panel ① already asks
+  where every series comes from, slot by slot, and spot price is one of those slots; a second
+  control gives the user two answers to one question. §2.3 is **corrected** to record this and its
+  reasoning, the same treatment the P1/P3 greying reversal got — the code deviating silently from a
+  spec that still specifies the control would leave the next reader to find it in a docstring.
+- **Three of §6.5's four (α, β) presets are offered.** The fourth ("Fixed amount") has β = *user* in
+  the spec table; inventing a figure would put a made-up tariff in front of the user with a
+  preset's authority. That case types α = 0 and its own β, and lands on "Custom".
+- **`TlkMode.TIERED` renders pending, not absent** — §2.3's own argument for the greyed P1/P3
+  radios: a vanished option tells the user nothing, while a greyed one with a reason names what to
+  change.
+- **`has_pv` is parsed but not re-added to the band.** It moved to panel ①'s scope questions in an
+  earlier commit; two controls for one answer is what §2.1 forbids. The parse path is ready if
+  panel ① is ever pointed at it.
+- **The setup band's radios use `form="params-form"`** (explicit HTML form association) rather than
+  a form of their own, so one POST does one validation and one panel swap. A separate form would
+  post without panel ②'s fields, which `parse_form` would read as "inherit everything" — correct,
+  but it would silently discard whatever the user had typed and not yet submitted.
+
+### Translations brought forward from Phase 8
+
+The implementer finished with two red tests in `test_no_english_leakage.py` — the sanctioned
+Phase-8 gap. Rather than commit a red suite, the 37 new strings were extracted, translated into
+Dutch and compiled here. Market terms stay Dutch where the existing catalog keeps them
+(*terugleverkosten*, *dal*, *vastrecht*, *staffel op jaarvolume*); contract names use the Dutch
+market words (*dynamisch* / *vast* / *variabel*) that §2.3 points at E3.1 for.
+
+### Review
+
+No blocking findings, and everything load-bearing was verified by direct probe rather than by
+reading the tests: the percent conversion (VAT converts, α does not — they are two rows apart and
+both bounded [0,1]), the retention rule driven end-to-end through the real route with a throwaway
+data dir, absence-not-greying asserted against rendered HTML, the section-marker mechanism across
+three partial-POST shapes, and an XSS probe through the error path.
+
+Four findings fixed:
+
+- **Four sites documented gettext as `newstyle=True` when `app/i18n.py` sets it False.** The rule
+  they impose (no literal `%` in a translated string) is still worth keeping, but as a *convention*
+  — rewording a msgid to add a `%` would invalidate its translation for no gain — not as the crash
+  guard they described. `results_view.py` already had the right framing; the four now match it.
+  Filed the wider sweep as H14, since A2 in the register still describes the old behaviour as
+  current.
+- **A comment claimed `not_a_choice` guards a hand-crafted POST storing VARIABLE.** It does not:
+  that check rejects values *outside* the enum, and VARIABLE is inside it. What actually keeps the
+  case honest is that the box reports the stored value as selected rather than silently showing
+  `dynamic`.
+- The changelog's status line and the §2.3 deviation, both above.
+
+### Known scope limit
+
+Panel ② configures the cost model; panel ③ still shows no euro figure. `benchmarks.cost` and the
+waterfall reach the screen in Phase 6 — recorded as H12 so "the cost path is built" is not read as
+"the user can see a euro figure".
+
+### Status
+
+**Complete.** 732 passed, 2 skipped.
+
 ## Current status
 
-Phases 1, 1b, 2, 3 and 4 complete and committed (709 passed, 2 skipped). The whole domain layer
-of the cost path is built; nothing of it is on screen yet. Phase 5 (the panel ② Pricing box) is
-next, and is where `simulate_cost` stops being a pending control.
+Phases 1–5 complete and committed (732 passed, 2 skipped). The domain layer is built and panel ②
+configures it; no euro figure is on screen yet. Phase 6 (the panel ③ COST SAVINGS section) is next,
+followed by the accent colour (7) and the remaining catalog/docs work (8, much of it pulled
+forward into Phase 5).
 
 Working agreement from this point: phases run to completion without check-in; only genuine open
 decisions are brought back to the user.

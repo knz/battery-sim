@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-25 15:48+0200\n"
+"POT-Creation-Date: 2026-07-25 18:07+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -116,6 +116,9 @@ msgid_plural "(%(res)s, %(n)s intervals)"
 msgstr[0] ""
 msgstr[1] ""
 
+msgid "+ weekends"
+msgstr ""
+
 msgid "1-phase"
 msgstr ""
 
@@ -123,6 +126,9 @@ msgid "1-phase battery"
 msgstr ""
 
 msgid "15-min"
+msgstr ""
+
+msgid "2027 tariffs are not yet published. These values are estimates."
 msgstr ""
 
 msgid "3 × 1-phase batteries"
@@ -157,6 +163,12 @@ msgid "AC-to-AC at the meter"
 msgstr ""
 
 msgid "About"
+msgstr ""
+
+msgid "About the contract types"
+msgstr ""
+
+msgid "Advanced"
 msgstr ""
 
 msgid "Allow export to grid during D2/D3"
@@ -301,6 +313,12 @@ msgstr ""
 msgid "Continue with a 3-phase approximation"
 msgstr ""
 
+msgid "Contract"
+msgstr ""
+
+msgid "Contract types"
+msgstr ""
+
 msgid "Conversion losses"
 msgstr ""
 
@@ -323,6 +341,9 @@ msgstr ""
 msgid "Coverage"
 msgstr ""
 
+msgid "Custom"
+msgstr ""
+
 msgid "D"
 msgstr ""
 
@@ -343,6 +364,12 @@ msgstr ""
 msgid "Data quality"
 msgstr ""
 
+msgid "Day/night window"
+msgstr ""
+
+msgid "Degradation cost"
+msgstr ""
+
 msgid "Discharge battery to cover house load"
 msgstr ""
 
@@ -361,6 +388,17 @@ msgstr ""
 msgid "Do you have solar PV?"
 msgstr ""
 
+msgid "Dynamic"
+msgstr ""
+
+msgid ""
+"Dynamic — the price follows the EPEX day-ahead market and changes every "
+"hour. Fixed — one normaal and one dal rate, agreed for the term of the "
+"contract. Variable — the supplier sets the rate and revises it "
+"periodically, typically every six months; between revisions it behaves "
+"exactly like a fixed contract."
+msgstr ""
+
 msgid "EQUIVALENT FULL CYCLES"
 msgstr ""
 
@@ -377,6 +415,9 @@ msgid "Energy flows chart"
 msgstr ""
 
 msgid "Energy savings"
+msgstr ""
+
+msgid "Energy tax"
 msgstr ""
 
 msgid "Enter a base URL and token first."
@@ -400,6 +441,9 @@ msgstr ""
 msgid "Extra grid import"
 msgstr ""
 
+msgid "Feed-in"
+msgstr ""
+
 msgid "Fetch history"
 msgstr ""
 
@@ -410,6 +454,17 @@ msgstr ""
 
 #, python-format
 msgid "Fetching %(slot)s (%(n)s/%(total)s)…"
+msgstr ""
+
+msgid "Fixed"
+msgstr ""
+
+msgid ""
+"Fixed costs (vastrecht, systeembeheer, vermindering) do not change with a"
+" battery and are excluded from savings."
+msgstr ""
+
+msgid "Flat rate"
 msgstr ""
 
 msgid "From"
@@ -532,6 +587,9 @@ msgstr ""
 msgid "Language"
 msgstr ""
 
+msgid "Legal minimum — 50 percent of the bare price"
+msgstr ""
+
 msgid "Loaded. Reloading…"
 msgstr ""
 
@@ -642,7 +700,13 @@ msgid ""
 "lands in version 2."
 msgstr ""
 
+msgid "Preset"
+msgstr ""
+
 msgid "Preset historical (Energy-Charts NL)"
+msgstr ""
+
+msgid "Pricing"
 msgstr ""
 
 msgid "Produced"
@@ -720,9 +784,6 @@ msgstr ""
 msgid "Shared across all slots that use Home Assistant"
 msgstr ""
 
-msgid "Simulate cost savings"
-msgstr ""
-
 msgid "Simulate cost savings?"
 msgstr ""
 
@@ -753,6 +814,12 @@ msgid "Solar surplus only (net zero at the grid)"
 msgstr ""
 
 msgid "Source"
+msgstr ""
+
+msgid "Spot"
+msgstr ""
+
+msgid "Spot minus fee"
 msgstr ""
 
 msgid "Spot price"
@@ -794,7 +861,13 @@ msgid ""
 "this app."
 msgstr ""
 
+msgid "Supplier markup"
+msgstr ""
+
 msgid "T1 ✓ mapped    T2 ✓ mapped, active"
+msgstr ""
+
+msgid "Terugleverkosten"
 msgstr ""
 
 msgid "Test connection"
@@ -932,6 +1005,9 @@ msgstr ""
 msgid "Toggle Parameters panel"
 msgstr ""
 
+msgid "Toggle advanced pricing settings"
+msgstr ""
+
 msgid "Token"
 msgstr ""
 
@@ -950,6 +1026,12 @@ msgstr ""
 msgid ""
 "Uses the shared Home Assistant connection — configure it once (the button"
 " above), then fetch history for all Home Assistant slots together."
+msgstr ""
+
+msgid "VAT"
+msgstr ""
+
+msgid "Variable"
 msgstr ""
 
 msgid "Want to know what this is worth in euros?"
@@ -1101,6 +1183,9 @@ msgstr ""
 msgid "close"
 msgstr ""
 
+msgid "compensation = max(0, α × bare + β)"
+msgstr ""
+
 msgid "computing the perfect-foresight benchmark…"
 msgstr ""
 
@@ -1108,6 +1193,9 @@ msgid "connection closed"
 msgstr ""
 
 msgid "daily"
+msgstr ""
+
+msgid "dal from"
 msgstr ""
 
 msgid "day"
@@ -1118,7 +1206,19 @@ msgstr[1] ""
 msgid "days"
 msgstr ""
 
+msgid "excl. VAT"
+msgstr ""
+
+msgid "excl. VAT — 2026 value"
+msgstr ""
+
 msgid "export CSV"
+msgstr ""
+
+msgid "flat, per fed-in kWh"
+msgstr ""
+
+msgid "h"
 msgstr ""
 
 msgid "high"
@@ -1199,6 +1299,9 @@ msgstr ""
 msgid "optional"
 msgstr ""
 
+msgid "per kWh throughput; 0 disables it"
+msgstr ""
+
 msgid "recalculating…"
 msgstr ""
 
@@ -1226,6 +1329,12 @@ msgstr ""
 msgid "supported"
 msgstr ""
 
+msgid "tiered by annual volume"
+msgstr ""
+
+msgid "to"
+msgstr ""
+
 msgid "undefined"
 msgstr ""
 
@@ -1233,6 +1342,12 @@ msgid "valid"
 msgstr ""
 
 msgid "workspace: local"
+msgstr ""
+
+msgid "α"
+msgstr ""
+
+msgid "β"
 msgstr ""
 
 msgid "— none —"

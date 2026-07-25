@@ -3,8 +3,25 @@
 
   Holds `simulate_cost` — *simulate cost savings?* — the one scope choice that shapes MORE than
   the data step: it decides which boxes panel ② shows (§2.3) and which sections panel ③ renders
-  (§2.4), so it does not belong to any single panel. It is pending: the "Yes" answer renders
-  disabled with a [?] affordance until the cost machinery lands (see app/features.py).
+  (§2.4), so it does not belong to any single panel.
+
+  It is a REAL control now, no longer pending: the cost path is built, so the radios POST and the
+  answer takes effect. `simulate_cost` is retired in app/features.py rather than deleted, so its
+  interest counter keeps its meaning.
+
+  **How it posts, and why it has no form of its own.** The two radios carry
+  `form="params-form"` — HTML's explicit form association — so they submit with panel ②'s form
+  even though they sit above it in the document. That is deliberate: the answer changes which
+  boxes panel ② draws, so the response has to be the re-rendered panel, and one form means one
+  POST, one validation and one swap. A separate form here would either need its own fetch/swap
+  path or would post WITHOUT panel ②'s fields, which `parse_form` would treat as "inherit
+  everything" — correct, but it would silently discard whatever the user had typed into the panel
+  and not yet submitted.
+
+  index.html's delegated `change` handler on `#setup-band` requests the submit; the panel's
+  existing submit listener does the rest. `sections` (rendered by _panel_params.html) carries the
+  `setup` marker that tells `parse_form` this submission really drew the band — a radio group's
+  absence is otherwise indistinguishable from a partial POST.
 
   The two DATA-shaping answers that used to live here — `has_pv` and `has_battery` — now sit at
   the top of panel ① (_panel_data.html, "Scope questions"). Both exist to decide which SLOTS that
@@ -22,16 +39,17 @@
     <h2 class="text-sm font-semibold text-base-content/70">{{ _('Before you start') }}</h2>
 
     <div class="flex flex-col gap-2">
-      {# ── Simulate cost savings? — the "Yes" answer is pending (§2.1). ───── #}
+      {# ── Simulate cost savings? — posts with panel ②'s form (see the header comment). ───── #}
       <div class="flex flex-wrap items-center gap-3">
         <span class="w-56 label-text">{{ _('Simulate cost savings?') }}</span>
-        <label class="label gap-1">
-          <input type="radio" name="setup_cost" class="radio radio-sm" disabled {% if cfg.simulate_cost %}checked{% endif %} />
-          <span class="label-text text-base-content/50">{{ _('Yes') }}</span>
-          <button type="button" class="btn btn-ghost btn-xs" data-pending-name="{{ _('Simulate cost savings') }}" data-feature-key="simulate_cost">[?]</button>
+        <label class="label cursor-pointer gap-1">
+          <input type="radio" name="setup.simulate_cost" value="yes" form="params-form"
+                 class="radio radio-sm" {% if cfg.simulate_cost %}checked{% endif %} />
+          <span class="label-text">{{ _('Yes') }}</span>
         </label>
         <label class="label cursor-pointer gap-1">
-          <input type="radio" name="setup_cost" class="radio radio-sm" {% if not cfg.simulate_cost %}checked{% endif %} />
+          <input type="radio" name="setup.simulate_cost" value="no" form="params-form"
+                 class="radio radio-sm" {% if not cfg.simulate_cost %}checked{% endif %} />
           <span class="label-text">{{ _('No') }}</span>
         </label>
       </div>

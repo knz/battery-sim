@@ -26,11 +26,13 @@ from app.domain.simconfig import (
     BatteryConfig,
     BatteryPhases,
     ChargePolicy,
+    Contract,
     Coupling,
     DischargePolicy,
     PolicyConfig,
     PvCoupling,
     SimulationConfig,
+    TlkMode,
 )
 
 
@@ -249,10 +251,16 @@ def test_the_non_overlapping_case_reports_no_overlap():
 
 
 def test_issue_messages_carry_no_literal_percent_sign():
-    """`app/i18n.py` installs gettext with newstyle=True, so a literal `%` in a translated string
-    is eaten before a letter and RAISES before a non-ASCII character. These strings all go through
-    `_()` in the template, so none may contain one. (`%(name)s` in a STATIC msgid is fine — that is
-    what newstyle exists for — but none of these needs one.)"""
+    """A CONVENTION check, not a crash guard — the crash it once guarded against is gone.
+
+    `app/i18n.py` used to install gettext with `newstyle=True`, which %-formatted the result of
+    `_()`: a literal `%` was eaten before a letter and RAISED before a non-ASCII character. It now
+    installs with `newstyle=False`, so a literal `%` is inert.
+
+    The rule is still worth pinning: these strings all go through `_()` in the template, their
+    English text is the msgid, and rewording one to add a `%` sign would invalidate its translation
+    for no gain. (`%(name)s` in a static msgid is fine — `app/i18n.interpolate` substitutes it after
+    translation — but none of these needs one.)"""
     for code, msg in params_view.ISSUE_MESSAGES.items():
         assert "%" not in msg, f"{code} carries a literal percent sign"
 
@@ -649,3 +657,288 @@ def test_with_pv_the_stored_charge_policy_is_reported_unchanged():
         cfg = SimulationConfig(has_pv=True, policy=PolicyConfig(charge_policy=stored))
         assert cfg.effective_charge_policy is stored
         assert f"charge {stored.value}" in params_view.summary_line(cfg)
+
+
+# ── §2.3's Pricing box ───────────────────────────────────────────────────────────────────────
+
+
+# The energy-only `_form` plus everything §2.3's Pricing box draws, as the rendered form posts it
+# once the setup band's answer is "Yes". Both section markers matter: `setup` is what lets
+# `parse_form` read the band's radio, `pricing` is what lets it read the box's two checkboxes.
+def _cost_form(**overrides) -> dict:
+    base = _form()
+    base["sections"] = "setup battery grid charge discharge topology pricing"
+    base["setup.simulate_cost"] = "yes"
+    base.update({
+        "pricing.contract": "dynamic",
+        "pricing.supplier_markup": "0.0205",
+        "pricing.energy_tax_excl_vat": "0.09161",
+        "pricing.vat_rate": "21",
+        "pricing.feedin_alpha": "0.50",
+        "pricing.feedin_beta": "0.0000",
+        "pricing.tlk_mode": "flat",
+        "pricing.tlk_eur_per_kwh": "0.0400",
+        "pricing.dal_start_hour": "23",
+        "pricing.dal_end_hour": "7",
+        "pricing.dal_weekends": "1",
+        "pricing.degradation_eur_per_kwh": "0.0000",
+    })
+    base.update(overrides)
+    return base
+
+
+def test_every_pricing_field_coerces_and_round_trips():
+    """One submission carrying the whole box, checked field by field against what it should store.
+
+    Asserted as one test rather than parametrised because the failure mode being guarded against
+    is a field missing from `FIELDS` altogether — a per-field test would simply not exist for the
+    field that was forgotten, and would pass.
+    """
+    cfg = params_view.parse_form(_cost_form(**{
+        "pricing.supplier_markup": "0.0300",
+        "pricing.energy_tax_excl_vat": "0.1000",
+        "pricing.feedin_alpha": "1.00",
+        "pricing.feedin_beta": "-0.0200",
+        "pricing.tlk_eur_per_kwh": "0.0500",
+        "pricing.dal_start_hour": "22",
+        "pricing.dal_end_hour": "6",
+        "pricing.degradation_eur_per_kwh": "0.0150",
+    }))
+    pr = cfg.pricing
+    assert cfg.simulate_cost is True
+    assert pr.contract is Contract.DYNAMIC
+    assert pr.supplier_markup == 0.03
+    assert pr.energy_tax_excl_vat == 0.1
+    assert pr.feedin_alpha == 1.0
+    assert pr.feedin_beta == -0.02          # signed on purpose (§6.5's "Spot minus fee" preset)
+    assert pr.tlk_mode is TlkMode.FLAT
+    assert pr.tlk_eur_per_kwh == 0.05
+    assert pr.dal_start_hour == 22
+    assert pr.dal_end_hour == 6
+    assert pr.dal_weekends is True
+    assert pr.degradation_eur_per_kwh == 0.015
+    assert not cfg.validate().blocking
+
+
+def test_vat_is_entered_as_a_percentage_and_stored_as_a_fraction():
+    """21 in the form, 0.21 on the config, 21 back in the input.
+
+    The same trap as `roundtrip_efficiency`, and worse here: `import_price` multiplies by
+    `1 + vat_rate`, so storing 21 instead of 0.21 would price every imported kWh at 22× its cost
+    without raising anything. Both directions are asserted together so they cannot drift apart.
+    """
+    cfg = params_view.parse_form(_cost_form(**{"pricing.vat_rate": "21"}))
+    assert cfg.pricing.vat_rate == pytest.approx(0.21)
+    view = params_view.params_view(cfg)
+    assert view["pricing"]["vat"]["value"] == "21"
+
+    # And a non-default value, so the test cannot pass on the appendix-A default alone.
+    other = params_view.parse_form(_cost_form(**{"pricing.vat_rate": "9"}))
+    assert other.pricing.vat_rate == pytest.approx(0.09)
+    assert params_view.params_view(other)["pricing"]["vat"]["value"] == "9"
+
+
+def test_feedin_alpha_is_not_percent_typed():
+    """α is a FRACTION in the form as well as on the config — §2.3's wireframe shows `α [ 0.50 ]`.
+
+    Worth pinning next to the VAT test: α and VAT sit two rows apart in the same box and are both
+    bounded to [0, 1], so treating α as percent-typed is the natural mistake. It would store 0.005
+    for a typed 0.50 and halve nothing while looking plausible.
+    """
+    cfg = params_view.parse_form(_cost_form(**{"pricing.feedin_alpha": "0.50"}))
+    assert cfg.pricing.feedin_alpha == 0.50
+    assert params_view.params_view(cfg)["pricing"]["feedin_alpha"]["value"] == "0.50"
+
+
+def test_a_bad_pricing_value_survives_into_the_re_render_with_its_error():
+    """The error contract, applied to the new box: the raw string is kept and keyed to its input."""
+    cfg = params_view.parse_form(_cost_form(**{"pricing.vat_rate": "abc"}))
+    assert cfg.pricing.vat_rate == "abc"          # unscaled — `_pct_to_frac` does not divide a str
+    result = cfg.validate()
+    assert "pricing.vat_rate" in result.fields_with_errors()
+    view = params_view.params_view(cfg, result)
+    assert view["pricing"]["vat"]["value"] == "abc"
+    assert view["pricing"]["vat"]["invalid"] is True
+
+
+def test_a_bad_pricing_value_does_not_block_an_energy_only_run():
+    """§2.3 / `validate()`: the pricing checks are gated on `simulate_cost`.
+
+    A field the panel does not draw must not refuse a run — the user has no input to fix it in.
+    The value is still STORED (appendix A's retention), so turning cost simulation on surfaces the
+    issue that was always latent in it.
+    """
+    cfg = params_view.parse_form(_cost_form(**{"pricing.vat_rate": "abc"}))
+    cfg.simulate_cost = False
+    assert not cfg.validate().blocking
+    cfg.simulate_cost = True
+    assert cfg.validate().blocking
+
+
+def test_the_pricing_box_is_absent_from_the_sections_without_cost_simulation():
+    """`sections` is the machine-readable half of "the whole box is absent" (§2.3)."""
+    assert "pricing" not in params_view.params_view(SimulationConfig(simulate_cost=False))[
+        "sections"
+    ].split()
+    assert "pricing" in params_view.params_view(SimulationConfig(simulate_cost=True))[
+        "sections"
+    ].split()
+
+
+def test_fixed_and_variable_are_pending_and_dynamic_is_not():
+    """§2.3 lists all three contract types; only DYNAMIC has a rate source behind it (§6.5).
+
+    The pending pair is DISABLED, not dropped, and each carries the feature key the interest route
+    accepts — asserted against `app.features` rather than against a literal, so a key renamed in
+    one place and not the other fails here.
+    """
+    from app import features
+
+    view = params_view.params_view(SimulationConfig(simulate_cost=True))
+    by_key = {c["key"]: c for c in view["pricing"]["contracts"]}
+    assert set(by_key) == {"dynamic", "fixed", "variable"}
+    assert by_key["dynamic"]["pending"] is False
+    assert by_key["dynamic"]["feature_key"] is None
+    for key in ("fixed", "variable"):
+        assert by_key[key]["pending"] is True
+        assert features.is_known(by_key[key]["feature_key"])
+
+
+def test_tiered_terugleverkosten_is_pending_and_flat_is_not():
+    """Same treatment for `TlkMode`: §2.3 draws both rows, §6.5 builds only FLAT."""
+    from app import features
+
+    view = params_view.params_view(SimulationConfig(simulate_cost=True))
+    by_key = {m["key"]: m for m in view["pricing"]["tlk_modes"]}
+    assert by_key["flat"]["pending"] is False
+    assert by_key["tiered"]["pending"] is True
+    assert features.is_known(by_key["tiered"]["feature_key"])
+
+
+def test_a_stored_pending_contract_is_still_reported_as_selected():
+    """A hand-edited document can hold `variable`, which no UI path can produce (followup H6).
+
+    Showing `dynamic` selected instead would misreport what is about to run. The box reports the
+    stored answer and leaves the radio disabled, which is honest in both directions.
+    """
+    cfg = SimulationConfig(simulate_cost=True)
+    cfg.pricing.contract = Contract.VARIABLE
+    view = params_view.params_view(cfg)
+    selected = [c for c in view["pricing"]["contracts"] if c["selected"]]
+    assert [c["key"] for c in selected] == ["variable"]
+    assert selected[0]["pending"] is True
+
+
+def test_the_feedin_presets_are_offered_and_match_the_stored_pair():
+    """§6.5's preset table, offered as a way of TYPING α and β rather than as a stored setting.
+
+    Appendix A's default pair IS the "Legal minimum" row, so a fresh config marks exactly that one;
+    a pair matching no row marks none, which the template renders as "Custom".
+    """
+    view = params_view.params_view(SimulationConfig(simulate_cost=True))
+    presets = view["pricing"]["feedin_presets"]
+    assert [p["selected"] for p in presets].count(True) == 1
+    assert presets[0]["selected"] is True
+    assert (presets[0]["alpha"], presets[0]["beta"]) == ("0.50", "0.0000")
+
+    cfg = SimulationConfig(simulate_cost=True)
+    cfg.pricing.feedin_alpha, cfg.pricing.feedin_beta = 0.73, 0.0031
+    assert not any(p["selected"] for p in params_view.params_view(cfg)["pricing"]["feedin_presets"])
+
+
+def test_economic_guard_round_trips_under_cost_simulation():
+    """It is a real control now: submitted → stored, unticked → cleared, forced off without cost."""
+    on = params_view.parse_form(_cost_form(**{"policy.economic_guard": "1"}))
+    assert on.policy.economic_guard is True
+    assert on.economic_guard is True                  # the read path agrees, cost being on
+
+    off = params_view.parse_form(_cost_form())        # the box was drawn and left unticked
+    assert off.policy.economic_guard is False
+
+    # Energy-only: the control is absent, so the read path forces it off whatever is stored. Note
+    # the `setup` marker without a `pricing` one — that IS the form the panel renders once the
+    # band's answer is "no", and the shape the retention rule has to survive.
+    energy_only = params_view.parse_form(
+        _form(sections="setup battery grid charge discharge topology",
+              **{"setup.simulate_cost": "no"}),
+        on,
+    )
+    assert energy_only.simulate_cost is False
+    assert energy_only.economic_guard is False
+
+
+def test_the_summary_line_names_the_contract_with_cost_on():
+    """§2.1: the final clause is `energy only`, or the contract name when cost simulation is on."""
+    assert params_view.summary_line(SimulationConfig(simulate_cost=False)).endswith("energy only")
+    assert params_view.summary_line(SimulationConfig(simulate_cost=True)).endswith("dynamic")
+
+    cfg = SimulationConfig(simulate_cost=True)
+    cfg.pricing.contract = Contract.FIXED
+    assert params_view.summary_line(cfg).endswith("fixed")
+
+
+def test_the_setup_band_radio_toggles_simulate_cost():
+    """Followup B2: the band is editable now, which is what makes the Pricing box reachable.
+
+    Read only when the submission declares the `setup` section, so a partial POST that does not
+    carry the band cannot silently answer "no" for the user.
+    """
+    on = params_view.parse_form(_cost_form())
+    assert on.simulate_cost is True
+
+    off = params_view.parse_form(_cost_form(**{"setup.simulate_cost": "no"}), on)
+    assert off.simulate_cost is False
+
+    # No `setup` marker: the band was not part of this submission, so the answer is inherited.
+    inherited = params_view.parse_form({"sections": "battery"}, on)
+    assert inherited.simulate_cost is True
+
+
+def test_the_pricing_values_survive_an_energy_only_submission(store):
+    """Appendix A's retention rule, end to end and through disk.
+
+    The whole box is absent with cost simulation off, so an energy-only POST carries none of these
+    fields — they can only survive by `parse_form` inheriting them from the stored config and by
+    `to_dict` writing them unconditionally. This is the reason both of those rules exist.
+    """
+    configured = params_view.parse_form(_cost_form(**{
+        "pricing.supplier_markup": "0.0777",
+        "pricing.vat_rate": "9",
+        "pricing.feedin_beta": "-0.0200",
+        "pricing.dal_start_hour": "21",
+        "pricing.degradation_eur_per_kwh": "0.0250",
+        "policy.economic_guard": "1",
+    }))
+    store.save(configured, guard_submitted=True)
+
+    # Turn cost simulation off through the band, submitting the form the panel then renders:
+    # no `pricing` section, and none of the pricing fields.
+    off = params_view.parse_form(
+        _form(sections="setup battery grid charge discharge topology",
+              **{"setup.simulate_cost": "no"}),
+        store.load(),
+    )
+    assert off.simulate_cost is False
+    store.save(off, guard_submitted=params_view.guard_was_submitted(
+        {"sections": "setup battery grid charge discharge topology"}, configured
+    ))
+
+    back = store.load()
+    assert back.pricing.supplier_markup == 0.0777
+    assert back.pricing.vat_rate == pytest.approx(0.09)
+    assert back.pricing.feedin_beta == -0.02
+    assert back.pricing.dal_start_hour == 21
+    assert back.pricing.degradation_eur_per_kwh == 0.025
+    assert back.economic_guard is False        # forced off, but only in effect
+
+    # Turning it back on restores every one of them, the guard included.
+    on_again = params_view.parse_form(
+        _form(sections="setup battery grid charge discharge topology",
+              **{"setup.simulate_cost": "yes"}),
+        back,
+    )
+    store.save(on_again)
+    restored = store.load()
+    assert restored.simulate_cost is True
+    assert restored.pricing.supplier_markup == 0.0777
+    assert restored.economic_guard is True     # the `retained` slot did its job

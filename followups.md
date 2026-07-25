@@ -89,15 +89,19 @@ in two files, and it is the one item both call out explicitly as unresolved.
 *Origin:* `20260725-phase6-remaining-translations.md`, `20260724-panel3-battery-simulation.md`
 (Phase 6 follow-ups).
 
-**B2. The setup band's radios do not POST anywhere.** `has_pv` / `simulate_cost` are read from the
-persisted config but are not editable through the UI. Out of scope for panel ② (the band is §2.1),
-but named as "the only thing standing between the config and a fully editable parameter set".
-Blocks B3 and B4 in practice.
+**B2. The setup band's radios do not POST anywhere.** — **DONE** (cost-simulation increment,
+Phase 5). `simulate_cost`'s radios now carry `form="params-form"` (explicit HTML form association)
+so they submit with panel ②'s form: one POST, one validation, one panel swap. `parse_form` reads
+them behind a `setup` section marker, so a partial POST cannot silently answer "no". `has_pv` is
+parsed but deliberately NOT re-added to the band — it moved to panel ①'s scope questions in an
+earlier commit, and two controls for one answer is the thing §2.1 forbids; the parse path is ready
+if panel ① is ever pointed at it.
 *Origin:* `20260725-panel2-parameters-phase6.md`.
 
 **B3. `simulate_cost` pending ⇒ the Pricing box, the `economic_guard` control and run E are all
-unreachable by design.** The summary line's cost-on clause renders `cost` rather than a contract
-name, because §6.5's contract model does not exist yet.
+unreachable by design.** — **DONE** (cost-simulation increment, Phases 2–5). §6.5's contract model
+exists, the Pricing box renders behind the answer, `economic_guard` is a real control, and run E is
+built (though not yet on screen — see H12). The summary line now ends in the contract name.
 *Origin:* `20260725-panel2-parameters-phase6.md`.
 
 **B4. The `retained` slot is deliberately single-purpose, and worth a second reading.** It holds
@@ -437,6 +441,33 @@ principle beat the full-bill bound by stumbling into a larger top-up than the DP
 large such a violation could get has not been measured**. §6.12 does not discuss the interaction at
 all.
 *Origin:* cost-simulation increment, Phase 4.
+
+**H12. `benchmarks.cost` and the euro figures are computed but not yet rendered.** As of Phase 5 the
+whole cost domain layer is built and tested — price curves, the bill, the waterfall, run E — and
+panel ② configures it, but nothing reaches panel ③. `cost_benchmark` has no production caller.
+Closed by Phase 6 of this same increment; recorded so that "the cost path is built" is not read as
+"the user can see a euro figure".
+*Origin:* cost-simulation increment, Phase 4.
+
+**H13. `test_no_english_leakage.py` scans whatever the developer's `data/` directory happens to
+hold, so its coverage varies per machine.** Which panels and boxes the Dutch page renders — and
+therefore which strings the test can catch — depends on the stored dataset and the stored config.
+On a machine with `simulate_cost = true` it scans the Pricing box; on one with it false, it does
+not. Pointing it at a temp data dir makes it *worse*, not better: with no dataset the page falls
+back to the sample view-model, which carries its own untranslated strings (A7), producing six
+failures. A real fix needs the fixture to seed both a known dataset and a known config, which is
+test-infrastructure work rather than part of any feature increment. Until then, a green leakage
+suite on one machine does not prove the catalogs are complete.
+*Origin:* cost-simulation increment, Phase 5.
+
+**H14. Four places still document gettext as `newstyle=True` when `app/i18n.py` sets it False.**
+`params_view.py`'s module docstring, `tests/test_params_view.py`, and two comments state that a
+literal `%` in a translated string is a live trap that eats the character or raises `ValueError`.
+That was true and is not any more. The rule they impose (avoid literal `%`, use the word "percent"
+or a `%(name)s` placeholder) is harmless to keep following and was followed in Phase 5, but the
+stated *reason* is stale, and A2 in this same register describes the old behaviour as current. Worth
+one sweep so the two do not contradict each other.
+*Origin:* cost-simulation increment, Phase 5.
 
 ## Cross-cutting observations
 

@@ -5,7 +5,7 @@ simulate_cost=False) are present or absent as the wireframes require. This is de
 about structure, not exact numbers — the numbers are static sample data and will be replaced
 when the domain layer lands.
 
-It also covers the pending affordance (specs/02-ux-wireframes.md §2.1): the four pending
+It also covers the pending affordance (specs/02-ux-wireframes.md §2.1): the pending
 controls open the "Not built yet" dialog, the thumbs-up acknowledges in place, and the
 counter route (specs/08-architecture.md §5.1) upserts once per key and 404s an unknown key.
 The server runs against a throwaway data directory so the counter DB and the generated
@@ -214,26 +214,32 @@ def test_pending_dialog_opens(page):
 
 
 def test_new_pending_controls_marked(page):
-    # The two controls marked pending in this increment render disabled with a [?] affordance.
-    # "Upload CSV" is a pending source radio that now lives inside the source-picker drawer
+    # "Upload CSV" is a pending source radio that lives inside the source-picker drawer
     # (moved there when panel ① went slot-first, 0594e34); open a slot's drawer to reveal it.
     # ha_fetch.js renders it as name="drawer-source", disabled, with feature key data_source_csv.
     page.locator(".slot-source-btn").first.click()
     assert page.locator("input[name=drawer-source][disabled]").count() >= 1  # Upload CSV radio
     page.keyboard.press("Escape")  # Escape discards and closes the drawer (leaves no committed state)
-    # "Simulate cost savings?" — the "Yes" answer is disabled with a [?] pending marker
-    # (cost machinery not built yet; lives in the setup band since c8f3254).
-    assert page.locator("input[name=setup_cost][disabled]").count() >= 1
-    assert page.locator("[data-feature-key=simulate_cost]").count() >= 1
+    # The setup band's "Simulate cost savings?" is NO LONGER pending — the cost path is built, the
+    # radios POST, and the key is retired in app/features.py. Both answers are live controls.
+    assert page.locator("input[name='setup.simulate_cost'][disabled]").count() == 0
+    assert page.locator("[data-feature-key=simulate_cost]").count() == 0
+    # Panel ③'s two unbuilt chart tabs are still pending, and are on the page unconditionally.
+    assert page.locator("[data-feature-key=chart_soc_price]").count() >= 1
+    assert page.locator("[data-feature-key=chart_energy_flows]").count() >= 1
 
 
 def test_thumbsup_acknowledges_in_place(page):
     # Clicking the thumbs-up flips the button to "✓ Noted" and shows the thanks line, without
-    # reporting any failure. Uses the setup band's "Simulate cost savings" control: it is in a
-    # region no other test mutates, and the cost machinery genuinely is still unbuilt. (This test
-    # used the Allow-export checkbox until panel ② was wired — that control is a real dispatch
-    # setting now, so it no longer carries a pending affordance.)
-    page.locator("[data-feature-key=simulate_cost]").click()
+    # reporting any failure. Uses panel ③'s "Export CSV" button: it is present unconditionally
+    # (unlike the Pricing box's pending contract radios, which only exist once cost simulation is
+    # on) and results export genuinely is still unbuilt. This test used the setup band's
+    # "Simulate cost savings" control until the cost path was wired, and the Allow-export checkbox
+    # before that; both are real settings now and carry no pending affordance.
+    # Scoped to `button[...]`: #pending-dialog itself carries data-feature-key (the script parks
+    # the clicked control's key there), so a bare attribute selector matches two elements once any
+    # earlier test has opened the dialog.
+    page.locator("button[data-feature-key=export_csv]").click()
     dialog = page.locator("#pending-dialog")
     assert dialog.get_by_role("heading", name="Not built yet").is_visible()
     dialog.get_by_role("button", name="I want this").click()

@@ -24,10 +24,17 @@ The route POST /feature-interest/{feature_key} rejects any key not in FEATURE_KE
 FEATURE_KEYS: frozenset[str] = frozenset(
     {
         "export_csv",            # Export CSV button (panel ③ results)
-        "simulate_cost",         # Also simulate cost savings toggle (panel ②)
         "data_source_csv",       # Upload CSV source radio (panel ①)
         "chart_soc_price",       # SoC + price chart tab (panel ③ charts)
         "chart_energy_flows",    # Energy flows chart tab (panel ③ charts)
+        # The Pricing box's three unbuilt options (§2.3, §6.5). `Contract` and `TlkMode` carry
+        # every value so the stored parameter set and the radio labels name the same things, but
+        # only DYNAMIC and FLAT have a rate source behind them: FIXED reads a `tariff_zone` axis
+        # that does not exist yet, VARIABLE needs a dated `rate_schedule` that `PricingConfig`
+        # does not model, and TIERED needs a tier table plus an annualisation.
+        "pricing_contract_fixed",     # "Fixed" contract radio (panel ②, Pricing)
+        "pricing_contract_variable",  # "Variable" contract radio (panel ②, Pricing)
+        "pricing_tlk_tiered",         # "tiered by annual volume" terugleverkosten radio
     }
 )
 
@@ -38,6 +45,9 @@ RETIRED_KEYS: frozenset[str] = frozenset(
         # Shipped in Phase 6 as a real checkbox (_panel_params.html, `policy.allow_grid_export`),
         # so it is no longer pending. Retired rather than deleted, per the rule above.
         "discharge_allow_export",
+        # Shipped in the cost-simulation increment: the setup band's "Simulate cost savings?"
+        # radios now POST to /params, and panel ② draws the whole Pricing box behind the answer.
+        "simulate_cost",
     }
 )
 

@@ -28,11 +28,14 @@ input rather than as the word "None".
 ## Percent-typed fields
 
 Three fields are stored as fractions and shown as percentages: `roundtrip_efficiency` (90 in the
-form, 0.90 stored) and `roundtrip_dc_bonus` (4 in the form, 0.04 stored). The SoC percentages are
-NOT among them — `min_soc_pct`/`max_soc_pct`/`initial_soc_pct` are stored as percentages already
-(their names say so), so they pass through untouched. Getting this backwards silently scales the
-whole simulation by 100, so the conversion lives in ONE place per direction (`_pct_to_frac` /
-`_frac_to_pct`) and the field table below names which fields use it.
+form, 0.90 stored), `roundtrip_dc_bonus` (4 in the form, 0.04 stored) and — from the Pricing box —
+`pricing.vat_rate` (21 in the form, 0.21 stored). The SoC percentages are NOT among them —
+`min_soc_pct`/`max_soc_pct`/`initial_soc_pct` are stored as percentages already (their names say
+so), so they pass through untouched. Nor is `pricing.feedin_alpha`, which §2.3's wireframe shows
+as the fraction it is (0.50, not 50). Getting this backwards silently scales the whole simulation
+by 100, so the conversion lives in ONE place per direction (`_pct_to_frac` / `_frac_to_pct`), the
+field table below names which fields use it, and `_PCT_FIELDS` derives the render direction FROM
+that table so the two cannot drift.
 
 ## Validation surfacing (§7.3)
 
@@ -46,15 +49,22 @@ new check surfaces something readable rather than nothing.
     check 12 → warnings → rendered inline, the config IS persisted (§6.7 nets the requests).
     check 18 → soft     → `topology.approximated`; see `phase_topology_notice`.
 
-**No `_()`-wrapped string here may contain a literal `%`.** `app/i18n.py` installs gettext with
-`newstyle=True`, which %-formats the result of `_()`: a bare `%` is eaten before a letter and
-raises `ValueError` before a non-ASCII character. Messages that need a percentage use the word
-"percent" or a `%(name)s` placeholder in a STATIC msgid (which is exactly what newstyle is for).
+**No `_()`-wrapped string here contains a literal `%` — as a CONVENTION, not a live constraint.**
+This began as a workaround: `app/i18n.py` used to install gettext with `newstyle=True`, which
+%-formats the result of `_()`, so a bare `%` was eaten before a letter and raised `ValueError`
+before a non-ASCII character. It now installs with `newstyle=False` (see `install_for`'s docstring
+for why), so a literal `%` is inert and the trap is gone.
+
+The wording convention is kept anyway — messages that need a percentage use the word "percent" or a
+`%(name)s` placeholder in a static msgid — because changing it would change the English text and
+invalidate the translated msgids for no gain. Note the placeholders are substituted by
+`app/i18n.interpolate` (the template's `| interpolate(...)` filter), NOT by gettext.
 
 Main items:
     FIELDS                       the form-name → dotted-path → coercion table.
     parse_form(form, base)       coerce a submitted form into a candidate config.
     params_view(cfg, result)     the panel-② view-model, including the collapsed summary line.
+    _pricing_view(cfg, field)    §2.3's Pricing box — contract radios, rates, feed-in, Advanced.
     summary_line(cfg)            §2.3's collapsed one-liner, computed from the config.
     field_messages(result)       dotted path → translated messages, for inline binding.
 """
@@ -66,10 +76,13 @@ import re
 from app.domain.simconfig import (
     BatteryPhases,
     ChargePolicy,
+    Contract,
     Coupling,
     DischargePolicy,
+    FeedinFloorMode,
     PvCoupling,
     SimulationConfig,
+    TlkMode,
     ValidationResult,
 )
 from app.sample_data import _N
@@ -187,6 +200,17 @@ def _enum_or_keep(enum_cls, raw, current):
         return current
 
 
+def _yes(raw: object) -> bool:
+    """A yes/no radio's submitted value → bool. Anything but the literal `"yes"` is False.
+
+    Deliberately not `bool(raw)`: the two values the band posts are the strings `"yes"` and
+    `"no"`, and `bool("no")` is True. Reading an unrecognised value as False rather than keeping
+    the current one is the safe direction for these two — both flags ADD capability (a cost model,
+    a PV array), so a garbled submission that lands on "no" hides a box rather than inventing one.
+    """
+    return str(raw) == "yes"
+
+
 def _checkbox(form, name: str) -> bool:
     """An HTML checkbox: present in the form body means checked, absent means unchecked.
 
@@ -221,6 +245,21 @@ FIELDS: tuple[tuple[str, str, object], ...] = (
     ("policy.band_b", "policy.band_b", coerce_number),
     ("policy.band_c", "policy.band_c", coerce_number),
     ("policy.band_d", "policy.band_d", coerce_number),
+    # ── The Pricing box (§2.3, §6.5). Drawn only when `simulate_cost` is on, which is why every
+    # one of these depends on `parse_form`'s inherit-if-absent rule to survive an energy-only
+    # submission — appendix A's retention requirement (see `PricingConfig`'s docstring).
+    ("pricing.supplier_markup", "pricing.supplier_markup", coerce_number),
+    ("pricing.energy_tax_excl_vat", "pricing.energy_tax_excl_vat", coerce_number),
+    # Shown as a percentage (21), stored as a fraction (0.21) — `import_price` multiplies by
+    # `1 + vat_rate`. The ONE percent-typed field in this box; α is a fraction the wireframe also
+    # shows as a fraction (0.50), so it is NOT converted.
+    ("pricing.vat_rate", "pricing.vat_rate", _pct_to_frac),
+    ("pricing.feedin_alpha", "pricing.feedin_alpha", coerce_number),
+    ("pricing.feedin_beta", "pricing.feedin_beta", coerce_number),
+    ("pricing.tlk_eur_per_kwh", "pricing.tlk_eur_per_kwh", coerce_number),
+    ("pricing.dal_start_hour", "pricing.dal_start_hour", coerce_number),
+    ("pricing.dal_end_hour", "pricing.dal_end_hour", coerce_number),
+    ("pricing.degradation_eur_per_kwh", "pricing.degradation_eur_per_kwh", coerce_number),
 )
 
 # The percent-typed fields, for the RENDER direction. Derived from FIELDS so the two directions
@@ -299,6 +338,38 @@ def parse_form(form, base: SimulationConfig | None = None) -> SimulationConfig:
         cfg.topology.battery_phases = _enum_or_keep(
             BatteryPhases, form.get("topology.battery_phases"), cfg.topology.battery_phases
         )
+    # The Pricing box's three selectors. FIXED, VARIABLE and TIERED are rendered DISABLED (pending
+    # controls, see app/features.py), so a well-behaved browser never submits them — but
+    # `_enum_or_keep` accepts any member of the vocabulary, and a hand-crafted POST could store a
+    # contract §6.5 cannot price. Note `not_a_choice` does NOT cover this: it rejects values
+    # OUTSIDE the enum, and VARIABLE is inside it — the config is well-formed, just unpriceable.
+    # What keeps it honest is that the box reports the stored value as selected rather than
+    # silently showing `dynamic` (pinned by a test), and that a stored VARIABLE is followup H6's open
+    # question, deliberately not decided here.
+    if "pricing.contract" in form:
+        cfg.pricing.contract = _enum_or_keep(
+            Contract, form.get("pricing.contract"), cfg.pricing.contract
+        )
+    if "pricing.feedin_floor_mode" in form:
+        cfg.pricing.feedin_floor_mode = _enum_or_keep(
+            FeedinFloorMode, form.get("pricing.feedin_floor_mode"), cfg.pricing.feedin_floor_mode
+        )
+    if "pricing.tlk_mode" in form:
+        cfg.pricing.tlk_mode = _enum_or_keep(
+            TlkMode, form.get("pricing.tlk_mode"), cfg.pricing.tlk_mode
+        )
+
+    # ── The setup band (§2.1). Two run-wide scope answers that live ABOVE panel ② but post with
+    # it, because they decide which of panel ②'s boxes exist at all — `simulate_cost` draws or
+    # removes the whole Pricing box and the economic guard, `has_pv` gates the charge policies and
+    # the topology selector. Read through the same `sections` marker as the checkboxes: they are
+    # radio groups, so an absent value means the band was not part of this submission (a partial
+    # POST, or a test's minimal form) rather than "the user answered no".
+    if _section(form, "setup"):
+        if "setup.simulate_cost" in form:
+            cfg.simulate_cost = _yes(form.get("setup.simulate_cost"))
+        if "setup.has_pv" in form:
+            cfg.has_pv = _yes(form.get("setup.has_pv"))
 
     # Checkboxes. `policy.allow_grid_export` is a physical permission and exists in both modes;
     # `policy.economic_guard` only exists with a cost model, so it is read only when the form says
@@ -308,6 +379,9 @@ def parse_form(form, base: SimulationConfig | None = None) -> SimulationConfig:
         cfg.policy.allow_grid_export = _checkbox(form, "policy.allow_grid_export")
     if _section(form, "pricing"):
         cfg.policy.economic_guard = _checkbox(form, "policy.economic_guard")
+        # `dal_weekends` is inside the Pricing box's Advanced sub-box, so it lives and dies with
+        # the same section marker for the same reason.
+        cfg.pricing.dal_weekends = _checkbox(form, "pricing.dal_weekends")
 
     # §2.5(b) check 18: the soft block. `approximated` is the record of a DELIBERATE user choice
     # (the "Continue with a 3-phase approximation" button), never derived — see `TopologyConfig`.
@@ -381,8 +455,10 @@ def phase_topology_unsupported(cfg: SimulationConfig) -> bool:
 # `message`: the message is developer-facing and free to be reworded (`ConfigIssue`'s docstring
 # says so), while these are catalog entries whose text must stay stable to stay translated.
 #
-# `%(name)s` placeholders are safe here — they are static msgids, which is what gettext's newstyle
-# formatting exists for. A LITERAL `%` would not be; see the module comment.
+# `%(name)s` placeholders are safe here — they are static msgids, substituted by
+# `app/i18n.interpolate` (the template's `| interpolate(...)` filter) AFTER translation, not by
+# gettext. A literal `%` is inert too since newstyle was turned off, but is avoided by convention;
+# see the module comment.
 ISSUE_MESSAGES: dict[str, str] = {
     "not_a_number": _N("Enter a number."),
     "soc_window_empty": _N("Minimum state of charge must be below the maximum."),
@@ -494,13 +570,17 @@ def summary_line(cfg: SimulationConfig) -> str:
     Shape, from the wireframe:
     `10.0 kWh · 5.0/5.0 kW · 90% · charge P3 · discharge P1 · energy only`
 
-    The final clause is §2.2's cost mode: `energy only` when `simulate_cost` is off, and the
-    contract name when it is on — the contract model does not exist yet (out of scope here), so
-    cost-on renders `cost` until §6.5 lands rather than naming a contract that is not stored.
+    The final clause is §2.1's cost mode: `energy only` when `simulate_cost` is off, and the
+    CONTRACT NAME (`dynamic` / `fixed` / `variable`) when it is on. §6.5 fixes those three words as
+    "the vocabulary everywhere in this package, radio labels and result fields included: the
+    user-facing name of a contract type is the enum value lower-cased", so the line prints the
+    enum's own value rather than a second spelling of it.
 
-    **Not translated, and not passed through `_()`.** It is built at runtime from user numbers and
-    contains a literal `%`, which `newstyle=True` gettext would eat or raise on (see the module
-    comment). The parts that ARE words ("charge", "discharge", "energy only") are short, and
+    **Not translated, and not passed through `_()`.** It is built at runtime from user numbers, so
+    it has no fixed msgid to translate — that is the reason, and it stands whatever gettext is
+    configured to do. (It also carries a literal `%`, which the old `newstyle=True` install would
+    have eaten or raised on; that hazard is gone, but the msgid objection is not.) The parts that
+    ARE words ("charge", "discharge", "energy only") are short, and
     translating them would mean assembling a msgid at runtime — exactly the trap. Left as a
     compact technical readout, consistent with the panel-① summary line beside it.
 
@@ -521,7 +601,10 @@ def summary_line(cfg: SimulationConfig) -> str:
     rte = _fmt(rte_pct, 0)
     charge = _policy_key(cfg.effective_charge_policy)
     discharge = _policy_key(cfg.policy.discharge_policy)
-    mode = "energy only" if not cfg.simulate_cost else "cost"
+    # `_policy_key` reads `.value` off an enum and falls back to `str()` — which is what keeps this
+    # line renderable for a config carrying a hand-edited or out-of-vocabulary contract, the same
+    # error-path guarantee every other clause here has.
+    mode = "energy only" if not cfg.simulate_cost else _policy_key(cfg.pricing.contract)
     return (
         f"{cap} kWh · {chg}/{dis} kW · {rte}% · "
         f"charge {charge} · discharge {discharge} · {mode}"
@@ -575,6 +658,55 @@ _DISCHARGE_LABELS: dict[DischargePolicy, str] = {
     DischargePolicy.D3: _N("Both"),
 }
 _D1_LABEL_NO_PV = _N("Discharge battery to cover house load")
+
+# ── The Pricing box (§2.3, §6.5) ─────────────────────────────────────────────────────────────
+
+# The three contract types, named by §6.5's rule: "the user-facing name of a contract type is the
+# enum value lower-cased, with no country qualifier". Capitalised here only because they head a
+# radio; the enum value is what the summary line and the result fields print.
+_CONTRACT_LABELS: dict[Contract, str] = {
+    Contract.DYNAMIC: _N("Dynamic"),
+    Contract.FIXED: _N("Fixed"),
+    Contract.VARIABLE: _N("Variable"),
+}
+
+# Only DYNAMIC has a rate source behind it (§6.5; followups H4). The other two render as PENDING
+# controls — disabled, with a `[?]` opening the shared "Not built yet" dialog — rather than being
+# dropped, for the same reason P1/P3 are greyed rather than removed without PV: a vanished option
+# leaves the user unable to tell whether the app has the feature at all. The keys are allocated in
+# `app/features.py` and must match the `data-feature-key` the template renders.
+_CONTRACT_FEATURE_KEYS: dict[Contract, str] = {
+    Contract.FIXED: "pricing_contract_fixed",
+    Contract.VARIABLE: "pricing_contract_variable",
+}
+
+# §6.5's (α, β) presets, offered as a select that FILLS the two fields rather than replacing them.
+# Both halves matter: the presets are what §6.5 tabulates and what a user recognises, and the raw
+# fields are what appendix A stores and what a user with a non-standard contract needs. The select
+# is client-side only (a tiny inline handler in index.html writes the two inputs), so there is no
+# fifth stored value and nothing to keep in sync on the server — the config carries α and β,
+# exactly as `PricingConfig` declares them, and a preset is only ever a way of typing them.
+#
+# The α/β numbers are §6.5's table verbatim. **Only THREE of its four rows are here.** The fourth,
+# "Fixed amount" (α = 0.00, β = *user*), has no β to offer: the table writes it as user-supplied
+# because a flat feed-in rate is whatever the contract says, and inventing a figure for it would
+# put a made-up tariff in front of the user with a preset's authority. A user who wants it types
+# α = 0 and their own β, which is exactly what the two fields are for, and lands on "Custom".
+_FEEDIN_PRESETS: tuple[tuple[str, float, float], ...] = (
+    (_N("Legal minimum — 50 percent of the bare price"), 0.50, 0.0000),
+    (_N("Spot minus fee"), 1.00, -0.0200),
+    (_N("Spot"), 1.00, 0.0000),
+)
+
+_TLK_LABELS: dict[TlkMode, str] = {
+    TlkMode.FLAT: _N("flat, per fed-in kWh"),
+    TlkMode.TIERED: _N("tiered by annual volume"),
+}
+
+# TIERED is vocabulary, not implementation (§6.5: it needs a tier table, an annualisation and the
+# `min_tlk_tiering_days` fallback). §2.3's wireframe draws the row, so it is drawn — pending,
+# like FIXED and VARIABLE, rather than silently absent.
+_TLK_FEATURE_KEYS: dict[TlkMode, str] = {TlkMode.TIERED: "pricing_tlk_tiered"}
 
 _PHASE_LABELS: dict[BatteryPhases, str] = {
     BatteryPhases.ONE_PHASE: _N("1-phase battery"),
@@ -712,6 +844,10 @@ def params_view(
         # The FORCED value, not the stored one: without a cost model the guard is off whatever is
         # stored, and the control is absent anyway (§2.3). The stored choice survives on disk.
         "economic_guard": cfg.economic_guard,
+        # §2.3's Pricing box. Built unconditionally — the template's `cfg.simulate_cost` gate is
+        # what makes it ABSENT, and computing the values either way keeps this function free of a
+        # second copy of that rule. Nothing here is expensive and nothing here mutates.
+        "pricing": _pricing_view(cfg, field),
         # §7.3 check 12 — the wireframe's alert, now reflecting reality rather than a literal.
         # `overlap` drives which of the two sentences the template shows.
         "bands_overlap": cfg.bands_overlap(),
@@ -742,9 +878,87 @@ def params_view(
     }
 
 
+def _pricing_view(cfg: SimulationConfig, field) -> dict:
+    """The Pricing box's half of the view-model (§2.3, §6.5).
+
+    `field` is `params_view`'s own per-input closure, passed in rather than rebuilt, so a pricing
+    input gets exactly the same value/messages/invalid treatment as a battery one — including the
+    percent conversion, which `field` applies from `_PCT_FIELDS` and which is where `vat_rate`'s
+    0.21 becomes the 21 the box shows.
+
+    The three selectors are emitted with a `pending` flag and a feature key rather than being
+    filtered: §2.3 lists all three contract types and both terugleverkosten modes, and only
+    DYNAMIC / FLAT are built. `selected` reports the STORED value even when it names a pending
+    option — a hand-edited document can hold one, and a box that silently showed `dynamic` for a
+    stored `variable` would misreport what is about to run.
+
+    **The wireframe's "Spot source" row is deliberately not here.** §2.3 draws it inside the
+    Dynamic sub-panel, but choosing where the spot price comes from is data-source configuration:
+    panel ① already owns it, slot-first, per-slot, with its own persistence and its own drawer.
+    Drawing a second control over the same setting would give the user two answers to one
+    question and this layer no way to say which won.
+    """
+    contracts = [
+        {
+            "key": c.value,
+            "label": _CONTRACT_LABELS[c],
+            "selected": cfg.pricing.contract == c,
+            "pending": c in _CONTRACT_FEATURE_KEYS,
+            "feature_key": _CONTRACT_FEATURE_KEYS.get(c),
+        }
+        for c in Contract
+    ]
+    tlk_modes = [
+        {
+            "key": m.value,
+            "label": _TLK_LABELS[m],
+            "selected": cfg.pricing.tlk_mode == m,
+            "pending": m in _TLK_FEATURE_KEYS,
+            "feature_key": _TLK_FEATURE_KEYS.get(m),
+        }
+        for m in TlkMode
+    ]
+    # The preset select is a way of TYPING α and β, not a stored setting — see `_FEEDIN_PRESETS`.
+    # `selected` marks the row whose pair the config currently holds, so a user who picked a preset
+    # and saved sees it again; a pair matching no row leaves every option unselected, which the
+    # template renders as the "Custom" placeholder.
+    alpha, beta = cfg.pricing.feedin_alpha, cfg.pricing.feedin_beta
+    presets = [
+        {
+            "label": label,
+            "alpha": _fmt(a, 2),
+            "beta": _fmt(b, 4),
+            "selected": alpha == a and beta == b,
+        }
+        for label, a, b in _FEEDIN_PRESETS
+    ]
+    return {
+        "contracts": contracts,
+        "supplier_markup": field("pricing.supplier_markup", 4),
+        "energy_tax": field("pricing.energy_tax_excl_vat", 5),
+        # Rendered as a percentage (21) because `field` converts it; stored as 0.21.
+        "vat": field("pricing.vat_rate", 0),
+        "feedin_presets": presets,
+        "feedin_alpha": field("pricing.feedin_alpha", 2),
+        "feedin_beta": field("pricing.feedin_beta", 4),
+        "tlk_modes": tlk_modes,
+        "tlk_rate": field("pricing.tlk_eur_per_kwh", 4),
+        "degradation": field("pricing.degradation_eur_per_kwh", 4),
+        "dal_start": field("pricing.dal_start_hour", 0),
+        "dal_end": field("pricing.dal_end_hour", 0),
+        "dal_weekends": bool(cfg.pricing.dal_weekends),
+    }
+
+
 def _sections_for(cfg: SimulationConfig) -> list[str]:
-    """The boxes this config causes the panel to render (§2.3 "Without PV"/"Without cost")."""
-    out = ["battery", "grid", "charge", "discharge"]
+    """The boxes this config causes the panel to render (§2.3 "Without PV"/"Without cost").
+
+    `setup` is the §2.1 band above the panel. It is not one of panel ②'s boxes, but it POSTs with
+    this form (its radios have no form of their own), so it declares itself here for the same
+    reason the checkboxes do — `parse_form` must be able to tell "the band was submitted and the
+    user answered no" from "this submission did not carry the band at all".
+    """
+    out = ["setup", "battery", "grid", "charge", "discharge"]
     if cfg.has_pv or cfg.battery_phases_offered:
         out.append("topology")
     if cfg.simulate_cost:
