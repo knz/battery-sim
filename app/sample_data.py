@@ -27,11 +27,30 @@ and `results` — panel ② renders from app/params_view.py in every code path.
 
 Translatable chrome vs. data. Some values here are UI chrome that must translate (role
 labels, series names, warning sentences, policy descriptions); others are data that must not
-(entity IDs, numbers, coverage strings, band values). Chrome strings are wrapped in `_N(...)`
-below — a no-op marker whose only job is to make `pybabel extract` discover the English
-source string as a msgid. The actual translation happens in the template, which calls
-`_(value)` on the (still-English) string at render time. Data values are left bare.
+(entity IDs, ISO dates, numbers, band values). Two markers, for two different shapes:
+
+  * `_N(...)` — a no-op extraction tagger for a CONSTANT string with no runtime values in it.
+    The template translates it via `_(value)` at render time.
+  * `_msg(...)` / `_msg_n(...)` (app/i18n.msg / .msg_n) — a `(msgid, params)` PAIR for a
+    sentence that has figures in it. `templates/_msg.html` renders it: translate the constant
+    msgid, then substitute. `_msg_n` is the counted form, so "1 day" and "9 days" both read
+    right.
+
+The pair shape is not optional here. The REAL view-models (app/data_view.panel_data_from and
+app/results_view.results_from) emit pairs for exactly these fields, and this module's whole job
+is to be shape-compatible with them — the sample is what a first-time user sees before any
+dataset exists, and it renders through the same templates. A string with its figures baked in
+would be a msgid `pybabel extract` cannot see, so the sample would render in English on a Dutch
+page while the live page rendered in Dutch. Where a field's illustrative wording matches the
+real one, this module deliberately reuses the REAL msgid rather than minting a parallel copy,
+so the two cannot drift apart in the catalog.
+
+Data values are left bare: entity IDs, statistic IDs, ISO dates, formatted numbers, and the
+band figures in `_data_summary()` (which the computed path, app/summary_view.py, also emits as
+plain formatted strings).
 """
+
+from app.i18n import msg as _msg, msg_n as _msg_n
 
 
 def _N(s: str) -> str:
@@ -85,10 +104,61 @@ _SOURCE_STRINGS = [
        "to the end of your selected range."),
 ]
 
+def _res(label: str) -> dict:
+    """A resolution label ("hourly", "15-min", …) as a nested message — data_view's `_res_msg`.
+
+    A resolution is a WORD embedded in half a dozen sentences, not a figure, so it has to be
+    translated on its own: interpolation runs AFTER the catalog lookup, so a bare string param
+    would put "hourly" into an otherwise-Dutch sentence. `templates/_msg.html` renders a param
+    that is itself a message recursively, which is what makes that work.
+
+    The label is a runtime value here, so `pybabel extract` does not see it from this module —
+    it does not need to. These are the same five msgids `app/data_view._RES_LABELS` carries and
+    `_N`-marks, which is deliberate: one catalog entry per resolution, shared by both paths.
+    Passing a label this table does not contain would render it untranslated.
+    """
+    return _msg(label)
+
+
+def _recorded_full(label: str) -> dict:
+    """A "recorded at" cell for a series' native resolution — data_view's `%(res)s (full)`."""
+    return _msg("%(res)s (full)", res=_res(label))
+
+
+def _recorded_fine(label: str, days: int) -> dict:
+    """A "recorded at" cell for the finer copy fetched over a sub-window (specs §4.3).
+
+    Counted: the sample's own figure is 9 days, but the singular exists on the real path and the
+    two share this msgid, so the plural must come from the count rather than from the English.
+    """
+    return _msg_n(
+        "%(res)s (last %(n)s day)",
+        "%(res)s (last %(n)s days)",
+        days,
+        res=_res(label),
+        n=days,
+    )
+
+
 def _panel_data():
-    """Panel ① — data input summary + expanded body (§2.2)."""
+    """Panel ① — data input summary + expanded body (§2.2).
+
+    Every sentence here is a `_msg` / `_msg_n` pair with the same msgid the real view-model
+    (app/data_view.panel_data_from) emits for the same field, so the sample and the live page
+    render in the same language. Only the four fields whose illustrative wording has no
+    counterpart in the real path (gaps, registers, price_warning, load_warning — the real path
+    words them differently or does not compute them yet) carry their own msgids.
+    """
     return {
-        "summary": "Home Assistant · 5 series · simulated hourly",
+        # Counted for the same reason as the real path: "series" is invariant in English but not
+        # in Dutch, so the plural form has to come from the count rather than from the English.
+        "summary": _msg_n(
+            "Home Assistant · %(n)s series · simulated %(res)s",
+            "Home Assistant · %(n)s series · simulated %(res)s",
+            5,
+            n=5,
+            res=_res("hourly"),
+        ),
         "days": 412,
         "source": "Home Assistant",
         "ha": {
@@ -126,32 +196,76 @@ def _panel_data():
             {"name": "house_load", "role": _N("House load"), "req": "optional", "entity": None, "stat_id": None, "source": None, "sources": _sources_for("house_load"), "info": _info_for("house_load")},
         ],
         "quality": {
-            "coverage": "2025-06-01 → 2026-07-21   (416 days)",
-            "grid": "hourly  ·  8,760 intervals",
+            # The dates are pure data; only the day count carries a word, so only that part is a
+            # msgid. Same shape and same msgid as data_view's, so one catalog entry serves both.
+            "coverage": _msg_n(
+                "%(dates)s   (%(n)s day)",
+                "%(dates)s   (%(n)s days)",
+                416,
+                dates="2025-06-01 → 2026-07-21",
+                n=416,
+            ),
+            "grid": _msg_n(
+                "%(res)s  ·  %(n)s interval",
+                "%(res)s  ·  %(n)s intervals",
+                8760,
+                res=_res("hourly"),
+                n="8,760",
+            ),
             # Per-series granularity (§2.2 "Granularity, per series").
             # `warn` marks the one lossy reconciliation (a price averaged down).
+            #
+            # Each cell is one message with the resolution nested inside it rather than a label
+            # with a suffix glued on: ", averaged" is not a suffix in every language, and the
+            # fine-copy cell's day count needs a plural rule the English "s" cannot express.
             "series": [
-                {"name": _N("Grid import T1"), "recorded": ["hourly (full)", "5-min (last 9 days)"], "uses": "hourly"},
-                {"name": _N("Grid import T2"), "recorded": ["hourly (full)", "5-min (last 9 days)"], "uses": "hourly"},
-                {"name": _N("Grid export T1"), "recorded": ["hourly (full)", "5-min (last 9 days)"], "uses": "hourly"},
-                {"name": _N("Grid export T2"), "recorded": ["hourly (full)", "5-min (last 9 days)"], "uses": "hourly"},
-                {"name": _N("Solar production"), "recorded": ["hourly (full)"], "uses": "hourly"},
-                {"name": _N("Spot price"), "recorded": ["15-min (full)"], "uses": "hourly, averaged", "warn": True},
+                {"name": _N("Grid import T1"), "recorded": [_recorded_full("hourly"), _recorded_fine("5-min", 9)], "uses": _res("hourly")},
+                {"name": _N("Grid import T2"), "recorded": [_recorded_full("hourly"), _recorded_fine("5-min", 9)], "uses": _res("hourly")},
+                {"name": _N("Grid export T1"), "recorded": [_recorded_full("hourly"), _recorded_fine("5-min", 9)], "uses": _res("hourly")},
+                {"name": _N("Grid export T2"), "recorded": [_recorded_full("hourly"), _recorded_fine("5-min", 9)], "uses": _res("hourly")},
+                {"name": _N("Solar production"), "recorded": [_recorded_full("hourly")], "uses": _res("hourly")},
+                {"name": _N("Spot price"), "recorded": [_recorded_full("15-min")],
+                 "uses": _msg("%(res)s, averaged", res=_res("hourly")), "warn": True},
             ],
-            "price_warning": _N(
-                "Your prices change every 15 minutes but your meter records hourly, so the "
-                "run sees one averaged price per hour and cannot act on within-hour swings."
+            # Worded from the household's point of view ("your meter records hourly") rather than
+            # the run's, which is how the real path words it, and it spells the native resolution
+            # out ("every 15 minutes") where the real path nests the "15-min" LABEL. Its own msgid
+            # for both reasons; kept as-is so the sample's English does not change. Only the
+            # meter's own resolution is held out as a param, since that is the one word the real
+            # path also treats as a translatable label.
+            "price_warning": _msg(
+                "Your prices change every 15 minutes but your meter records %(res)s, so the "
+                "run sees one averaged price per hour and cannot act on within-hour swings.",
+                res=_res("hourly"),
             ),
-            "gaps": "3 gaps totalling 4.2 h  (0.04%)",
-            "resets": "2 detected and corrected",
-            # Note: literal percent signs in translatable strings use U+FF05 (fullwidth ％),
-            # not ASCII %, so Babel's printf-format checker does not treat them as format
-            # placeholders. See app/i18n.py and the README i18n note.
-            "load_warning": _N(
-                "Reconstructed load is negative in 41 intervals (0.41％). Usually means the "
-                "solar sensor does not cover the whole house, or a clock offset between sensors."
+            # The real path counts flagged INTERVALS ("3 intervals flagged as gaps"); this sample
+            # predates that computation and shows a duration/share instead, so it has its own
+            # msgid. Counted on the gap count, which is the number the sentence leads with.
+            "gaps": _msg_n(
+                "%(n)s gap totalling %(hours)s h  (%(pct)s)",
+                "%(n)s gaps totalling %(hours)s h  (%(pct)s)",
+                3,
+                n=3, hours="4.2", pct="0.04%",
             ),
-            "registers": "T1 ✓ mapped    T2 ✓ mapped, active",
+            # Same msgid as data_view's uncounted reset line (its English carries no noun to
+            # pluralise, so a translator whose language needs one rephrases the whole clause).
+            "resets": _msg("%(n)s detected and corrected", n=2),
+            # A literal "%" is inert everywhere now — app/i18n.interpolate doubles every percent
+            # sign that does not begin a "%(name)s" placeholder, and _() no longer %-formats at
+            # all (i18n.install_for, newstyle=False). The fullwidth "％" this string used to carry
+            # was a workaround for that trap and was rendering a literal ％ to the user.
+            "load_warning": _msg(
+                "Reconstructed load is negative in %(n)s intervals (%(pct)s). Usually means the "
+                "solar sensor does not cover the whole house, or a clock offset between sensors.",
+                n=41, pct="0.41%",
+            ),
+            # The real path words this "import T1 <mark> · T2 <mark>" with the per-register marks
+            # as nested messages, because there it picks one of three marks per register at
+            # runtime. Here both marks are fixed, so the whole line is ONE constant msgid — there
+            # is no runtime value to hold out, and a single reorderable sentence translates better
+            # than one assembled from parts. `_N` rather than `_msg`: with no params it is a plain
+            # string, which the template's `msg()` macro also accepts.
+            "registers": _N("T1 ✓ mapped    T2 ✓ mapped, active"),
         },
     }
 
@@ -216,7 +330,16 @@ def _panel_results():
         "period": "2025-07-22 → 2026-07-21 · simulated hourly · 8,760 intervals",
         "period_dates": "2025-07-22 → 2026-07-21",
         "period_days": 365,
-        "period_run": "simulated hourly · 8,760 intervals",
+        # Same msgid and same counted shape as results_view's, with the resolution nested so it is
+        # translated rather than substituted as an English word. `period` above stays a plain
+        # unsplit string, matching the real path's deliberately-untranslated fallback field.
+        "period_run": _msg_n(
+            "simulated %(res)s · %(n)s interval",
+            "simulated %(res)s · %(n)s intervals",
+            8760,
+            res=_res("hourly"),
+            n="8,760",
+        ),
         # No `periods` list: the template hardcodes its five preset buttons (token, label, key)
         # and only reads `period_selected` to decide which is active. The computed path dropped
         # its parallel `periods` key for the same reason.
@@ -229,10 +352,16 @@ def _panel_results():
             # sign used to be "−" here, which — beside a positive 1,412 kWh saved — read as the
             # opposite of the truth on the fresh-install path, where this fixture is what a user
             # actually sees.
+            #
+            # The first two tiles' `value` and `delta` are formatted FIGURES with no words in them
+            # ("+34.2 %", "+21 pp"), so they stay plain strings — as they do on the computed path,
+            # which has no msgid to offer for a number. The third tile's `delta`/`extra` carry
+            # words ("/ day", "throughput") and so are `_msg` pairs with the real path's msgids.
             {"title": _N("GRID IMPORT SAVED"), "value": "1,412", "unit": "kWh", "delta": "+34.2 %"},
             {"title": _N("SELF-SUFFICIENCY"), "value": "31% → 52%", "delta": "+21 pp"},
             {"title": _N("EQUIVALENT FULL CYCLES"), "value": "241",
-             "delta": _N("0.66 / day"), "extra": _N("2,410 kWh throughput")},
+             "delta": _msg("%(n)s / day", n="0.66"),
+             "extra": _msg("%(kwh)s throughput", kwh="2,410 kWh")},
         ],
         # "Where the energy comes from" breakdown.
         "energy_breakdown": [
@@ -252,10 +381,20 @@ def _panel_results():
                 {"label": _N("Perfect foresight"), "value": "1,988 kWh", "frac": 0.86, "dot": True},
                 {"label": _N("…if export allowed"), "value": "2,311 kWh", "frac": 1.0, "dot": True},
             ],
-            "gloss": _N(
-                "Your policy captures 71％ of the grid import a perfectly-informed battery "
-                "could have avoided. Allowed to export, that ceiling rises to 2,311 kWh "
-                "(a 61％ capture) — the extra is arbitrage your export setting currently forbids."
+            # The wireframe's gloss, which is shorter than the computed path's (results_view's
+            # shape-1 variants also state what perfect foresight knows) and states the ratios with
+            # a "%" sign rather than the word. Its own msgid for that reason; the figures ride as
+            # params so the constant text is what reaches the catalog. The two "%" signs were
+            # fullwidth "％" — a workaround for the old newstyle %-formatting that was showing a
+            # literal ％ to the reader; a literal "%" is inert now (app/i18n.interpolate).
+            "gloss": _msg(
+                "Your policy captures %(pct)s of the grid import a perfectly-informed battery "
+                "could have avoided. Allowed to export, that ceiling rises to %(ceiling)s "
+                "(a %(unc_pct)s capture) — the extra is arbitrage your export setting "
+                "currently forbids.",
+                pct="71%",
+                ceiling="2,311 kWh",
+                unc_pct="61%",
             ),
         },
         # The third row is KEPT even though results_from() does not emit it. §2.4's wireframe
@@ -275,13 +414,24 @@ def _panel_results():
             "months": ["Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul"],
             "values": [64, 88, 112, 150, 176, 188, 172, 150, 120, 96, 78, 60],
         },
+        # Caveats, as `_msg` pairs — the same shape results_view.results_from emits, so the
+        # template's `msg(c)` renders either. The wireframe's wording differs from the computed
+        # path's (this one names the §6.13 resolution-bias diagnostic, which the real path does not
+        # compute yet), so these keep their own msgids; only the figures were pulled out into
+        # params. Their fullwidth "％" signs are now real "%" — see the gloss note above.
         "caveats": [
-            _N("Simulated at hourly resolution. A 5-minute re-run over the last 9 days gives "
-               "8.4％ lower savings — hourly buckets hide within-hour import/export overlap and "
-               "flatter the battery. Treat the headline figure as an upper bound."),
-            _N("Spot prices are quarter-hourly but the run is hourly, so the battery acted on an "
-               "averaged price and could not chase within-hour swings."),
-            _N("0.41％ of intervals had negative reconstructed load (clamped to 0)."),
+            # "5-minute" stays IN the msgid rather than riding as a param: it is a word, not a
+            # figure, and it is not one of data_view's resolution labels (those are "5-min"), so
+            # as a param it would be substituted after translation and stay English in Dutch.
+            _msg("Simulated at %(res)s resolution. A 5-minute re-run over the last %(n)s days "
+                 "gives %(delta)s lower savings — hourly buckets hide within-hour import/export "
+                 "overlap and flatter the battery. Treat the headline figure as an upper bound.",
+                 res=_res("hourly"), n=9, delta="8.4%"),
+            _msg("Spot prices are quarter-hourly but the run is %(res)s, so the battery acted on "
+                 "an averaged price and could not chase within-hour swings.",
+                 res=_res("hourly")),
+            _msg("%(pct)s of intervals had negative reconstructed load (clamped to 0).",
+                 pct="0.41%"),
         ],
     }
 

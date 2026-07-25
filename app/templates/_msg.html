@@ -20,10 +20,11 @@
       right (and so a language with three plural forms can have them);
     * a BARE STRING — translated through `_()` alone.
 
-  The bare-string branch is not legacy tolerance for its own sake: the sample view-model
-  (app/sample_data.py) still emits pre-formatted `_N`-marked strings, and panel ①'s view-model is
-  converted separately, so both shapes are live at once. It also means a caller with nothing to
-  interpolate need not wrap a plain literal in a dict.
+  The bare-string branch is not legacy tolerance for its own sake. A view-model field that is a
+  CONSTANT sentence — no figures to hold out — has nothing to interpolate, so wrapping it in a
+  dict would add a shape without adding meaning; `_N`-marked literals (app/sample_data.py's
+  role labels, KPI titles, breakdown labels and its one fixed register line) go through this
+  branch. The pair branch is for the fields that carry runtime values.
 
   `params` may be absent or empty; `template % {}` is a no-op, so no branch is needed for it.
 

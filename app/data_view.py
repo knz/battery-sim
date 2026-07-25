@@ -131,8 +131,21 @@ def _count_flag(frames: list[SeriesFrame], flag: QualityFlags) -> int:
 def panel_data_from(dataset: LoadedDataset) -> dict:
     """Build the panel-① view-model from a persisted dataset (specs §2.2).
 
-    Shape-compatible with sample_data._panel_data() so the template renders either. Fields the
-    real pipeline does not yet compute are omitted; the template guards on their presence.
+    Shape-compatible with sample_data._panel_data() so the template renders either — including
+    the message shape: for every field the template RENDERS, the sample emits the same
+    `(msgid, params)` pair shape this does, and reuses THESE msgids wherever the two word a field
+    identically (`tests/test_data_summary.py` asserts that, so the pair cannot silently become two
+    catalog entries). The four the sample words differently (gaps, registers, price_warning,
+    load_warning — its wireframe copy predates what the real pipeline computes) carry their own
+    msgids, and `registers` is a plain string on the sample side rather than a pair, which the
+    `msg()` macro's bare-string branch handles.
+
+    One field is deliberately outside that guarantee: `mapping[*].entity` is a pair here and a
+    plain id string in the sample. No template reads it (the picker renders `stat_id`), so the
+    divergence is inert — but it is why this says "every field the template renders" rather than
+    "every field".
+
+    Fields the real pipeline does not yet compute are omitted; the template guards on presence.
     """
     frames = dataset.frames
     report = normalize.grid_report(frames, dataset.window)

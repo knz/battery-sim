@@ -682,3 +682,130 @@ page unescaped through `msg()`.
 
 Full suite: 506 passed, 2 skipped.
 
+
+### Step 5c complete (A7 — `app/sample_data.py`)
+
+The sample view-model now emits the same `(msgid, params)` pairs the real view-models do, so the
+fresh-install page and the live page cannot disagree about which language they are in. The
+exemption recorded in A7 ("these will arrive pre-formatted from the domain layer") is retired: that
+did come true, and it is what broke the exemption.
+
+**Converted** — panel ①: the summary line, `coverage`, `grid`, both granularity columns
+(`recorded` / `uses`), `gaps`, `resets`, `price_warning`, `load_warning`. Panel ③: `period_run`,
+the EFC tile's `delta` and `extra`, the benchmark gloss, and all three caveats.
+
+**Left as data, deliberately** — entity/statistic ids, ISO dates, `period` (the real path's
+unsplit fallback field is untranslated too), the whole `_data_summary()` band (the computed path
+in `summary_view.py` also emits plain formatted strings there), the chart month abbreviations, and
+the first two KPI tiles' `value`/`delta` (`"+34.2 %"`, `"+21 pp"` are figures with no word in them,
+and the computed path has no msgid to offer for them either). `registers` stayed a plain `_N`
+string rather than becoming a pair: with both marks fixed there is no runtime value to hold out,
+and the macro renders a bare string.
+
+**Msgid sharing over msgid copying.** Where the sample's wording matches the real path's, it now
+uses the REAL msgid rather than a parallel copy — `summary`, `coverage`, `grid`, `resets`,
+`%(res)s (full)`, `%(res)s (last %(n)s days)`, `%(res)s, averaged`, `period_run`, `%(n)s / day`,
+`%(kwh)s throughput`. That is what makes "shape-compatible" mean something in the catalog rather
+than only in the template: two copies would be two entries that can be translated differently.
+Pinned by `test_sample_shares_the_computed_paths_msgids_where_the_wording_matches`.
+
+**Four fields keep their own msgids** because their English genuinely differs: `gaps` (the
+wireframe states a duration and a share; the real path counts flagged intervals), `registers`,
+`price_warning` (worded from the meter's point of view, and spelling "15 minutes" out where the
+real path nests the "15-min" label), and the panel ③ gloss and caveats (the wireframe's copy is
+shorter and names the §6.13 diagnostic the real path does not compute). Preserving those was
+required — the brief forbids English changes — but it is also the honest outcome: they are
+different sentences, not the same sentence written twice.
+
+**Shape mismatch found, and which side is wrong.** None that is a defect. `data_view.py:134`'s
+"shape-compatible" claim now holds in the stronger sense above, and the docstring says so
+explicitly rather than asserting it in passing. The two remaining divergences are documented on
+both sides already: panel ③'s third `secondary` row (the sample keeps §2.4's wireframe row the
+computed path does not emit) and `results["period"]`.
+
+**The five fullwidth `％` are gone**, replaced by real `%`. They were rendering a literal `％` to
+the reader — a visible defect, not a latent one — and the workaround they came from stopped being
+necessary when `interpolate` started doubling non-placeholder percent signs (the A2 correction
+above). No fullwidth `％` remains in any `app/` source outside the catalogs; the three left in
+comments explain the retired convention.
+
+**One thing the brief got wrong, worth recording:** it asked for pluralisation "wherever a count
+drives singular/plural", implying visible plural fixes. There are none here. Every count in the
+sample is greater than one (416 days, 8,760 intervals, 5 series, 9 days, 3 gaps), so `_msg_n`
+selects the plural form and the English is unchanged. The counted shape is still correct and still
+needed — the msgid is shared with the real path, which does reach n=1 — but unlike 5b it produced
+no diff.
+
+**Verification.** The English render was captured before and after and diffed twice, because
+`GET /` on this machine has a persisted dataset and therefore renders the COMPUTED view-models,
+not the sample — a diff of `GET /` alone would have proved nothing about this step. So: (1) the
+sample view-model rendered through `index.html` directly, which is the fresh-install path — diff
+is exactly the four `％`→`%` lines and nothing else; (2) `GET /` as it stands — byte-identical,
+confirming nothing leaked sideways into the real path. Extraction: 316 → 316 msgids, 8 removed and
+8 added, each removal a deliberate replacement (the `％` fixes, the parameterisations, and the two
+KPI strings that now reuse the real path's existing msgids). Nothing lost.
+
+**New tests** (8 in `tests/test_data_summary.py`, which previously covered the sample's
+`_data_summary()` band only and never `_panel_data()` or `_panel_results()`): the pair shape and
+the rendered English for panel ①'s box and panel ③'s messages; the nested-resolution contract; that
+no `％` survives; the msgid-sharing invariant above; and a walk over every nested label in the
+sample asserting it is one `data_view._RES_LABELS` `_N`-marks — `_res` passes its label as a
+runtime value, so an unknown label would render English on a Dutch page with nothing else failing.
+
+The module docstring, `data_view.panel_data_from`'s docstring and `templates/_msg.html`'s header
+were all updated: each stated the old exemption as current fact.
+
+Full suite: 515 passed, 2 skipped, 6 failed — all six in `tests/test_no_english_leakage.py`, the
+same 6 of 7 as after 5b, still red for the same reason (the catalogs have not been regenerated;
+that pass runs once now that 5a/5b/5c are all in).
+### Step 5c complete (A7 — `sample_data.py`), and A1's restructuring is done
+
+The sample view-model now emits the same `(msgid, params)` shapes as the real ones, so the
+fresh-install render and the live render cannot disagree about which language they are in.
+
+**Better than the brief asked for: the sample REUSES the real path's msgids** where the wording
+matches (`summary`, `coverage`, `grid`, `resets`, the three granularity cells, `period_run`,
+`%(n)s / day`, `%(kwh)s throughput`) rather than carrying parallel copies. A translator writes
+each sentence once and the two paths cannot drift apart in the catalog. Four msgids stay separate
+because the sample's wireframe copy genuinely says something different from what the pipeline
+computes; the review verified each of those four rather than taking the claim.
+
+The four fullwidth `％` in this file became real percent signs, completing the cleanup A2's fix
+made possible.
+
+**Verified independently:** 514 tests pass; the sample render diffed against HEAD in a worktree is
+**exactly the four `％`→`%` lines**; extraction 316 → 316 with 10 msgids replaced by parameterised
+equivalents and none lost. My first `GET /` diff showed more, which I traced to the persisted
+config and simulation figures differing between trees, not to this change.
+
+**The agent caught its own instance of the very defect this work is about:** it initially
+parameterised `"15 minutes"` and `"5-minute"` as if they were data. Interpolation runs *after*
+translation, so a word passed as a param stays English inside a translated sentence. Both are back
+inside their msgids. The review swept every `%(name)s` in both panels and confirmed no other param
+is a word — the only words riding as params are resolution labels, all nested messages.
+
+**Review process incident, disclosed by the reviewing agent:** while mutation-testing it ran
+`git checkout app/sample_data.py` and destroyed the uncommitted work, then reconstructed it from a
+diff it had captured beforehand. I did not take that on trust — verified three ways: `git diff
+--stat` matches my pre-review figures (226 lines on the file, 437 total), the rendered sample
+output is **byte-identical** to the capture I took before the review, and re-extraction gives the
+same 316 msgids with zero symmetric difference. The reconstruction is faithful.
+
+**Docstring corrected** (`data_view.panel_data_from`): it claimed shape-compatibility for "the
+same fields", which overstated by one. `mapping[*].entity` is a pair here and a plain string in
+the sample. No template reads it, so the divergence is inert; the docstring now says "every field
+the template renders" and names the exception.
+
+*Follow-up worth filing, not fixed here:* `mapping[*].entity` is dead — produced by both
+view-models, read by no template, JS or test — and now costs two translated msgids. Deleting it is
+a separate change from an i18n pass, so it is recorded rather than done.
+
+**New tests** (8, in `tests/test_data_summary.py`, which previously never covered `_panel_data()`
+or `_panel_results()`): pair shape and rendered English for both panels; the nested-resolution
+contract; no `％` survives; the msgid-sharing invariant; and a walk over every nested label
+asserting it is one `data_view._RES_LABELS` marks — an unknown label would otherwise render
+English on a Dutch page with nothing else failing. The reviewer mutation-tested five of these and
+each failed as intended.
+
+Full suite: 514 passed, 2 skipped.
+

@@ -8,10 +8,13 @@ Three layers:
     known totals — the real §6.3 load reconstruction + §6.11 battery-free metrics. Covers the base
     totals, the existing-battery net-of variant, omit-don't-zero for the optional groups, the
     negative-load clamp, and the no-grid → None guard.
-  * Panel ①'s data-quality box: app/data_view.panel_data_from()'s strings, which are (msgid,
-    params) MESSAGE PAIRS rather than formatted strings, so their msgid is a constant the
-    extractor can see. Asserted both on shape and on the English they render to, since the
-    wording IS the msgid.
+  * Panel ①'s data-quality box, on BOTH paths: app/data_view.panel_data_from() (computed) and
+    app/sample_data._panel_data() (the static sample the fresh-install page renders). Their
+    strings are (msgid, params) MESSAGE PAIRS rather than formatted strings, so their msgid is a
+    constant the extractor can see. Asserted both on shape and on the English they render to,
+    since the wording IS the msgid — and asserted on the sample too, because the sample is what
+    a first-time user sees and a formatted string there would render English on a Dutch page
+    while the live page rendered Dutch.
 
 No layer launches a browser or seeds a real dataset (the smoke test covers empty-state absence);
 the computed cases build SeriesFrames in-process and wrap them in a LoadedDataset.
@@ -22,8 +25,8 @@ from datetime import datetime, timezone
 import numpy as np
 
 from app.dataset import LoadedDataset
-from app.domain.frames import QUALITY_DTYPE, SeriesFrame
-from app.sample_data import _data_summary, sample_view
+from app.domain.frames import QUALITY_DTYPE, QualityFlags, SeriesFrame
+from app.sample_data import _data_summary, _panel_data, _panel_results, sample_view
 from app.summary_view import data_summary_from
 
 
@@ -474,3 +477,155 @@ def test_panel_counted_messages_pick_the_singular_at_one():
     assert _render(m) == "1 interval flagged as gaps"
     m2 = _msg_n("%(n)s interval flagged as gaps", "%(n)s intervals flagged as gaps", 3, n=3)
     assert _render(m2) == "3 intervals flagged as gaps"
+
+
+# ── The SAMPLE view-model's messages (app/sample_data) ────────────────────────────────────────
+#
+# The sample is the fresh-install page: it renders through the same templates as the computed
+# view-models, so it has to emit the same (msgid, params) shape. A pre-formatted string here
+# would be a msgid `pybabel extract` never sees, and the sample would render English on a Dutch
+# page while the live page rendered Dutch — the exact defect the pair shape exists to remove.
+#
+# Asserted on the rendered ENGLISH as well as the shape, because the wording IS the msgid, and
+# because the sample's English is the wireframe's (specs §2.2/§2.4) and must not drift.
+
+
+def test_sample_panel_quality_strings_are_message_pairs():
+    q = _panel_data()["quality"]
+    for key in ("coverage", "grid", "gaps", "resets", "price_warning", "load_warning"):
+        assert isinstance(q[key], dict) and "msgid" in q[key], f"{key} is not a message pair"
+    # `registers` is a plain marked string: it carries no runtime value, so there is nothing to
+    # hold out and the whole line is one constant msgid the macro translates directly.
+    assert isinstance(q["registers"], str)
+
+
+def test_sample_panel_quality_renders_the_wireframe_english():
+    d = _panel_data()
+    q = d["quality"]
+    assert _render(d["summary"]) == "Home Assistant · 5 series · simulated hourly"
+    assert _render(q["coverage"]) == "2025-06-01 → 2026-07-21   (416 days)"
+    assert _render(q["grid"]) == "hourly  ·  8,760 intervals"
+    assert _render(q["gaps"]) == "3 gaps totalling 4.2 h  (0.04%)"
+    assert _render(q["resets"]) == "2 detected and corrected"
+    assert _render(q["registers"]) == "T1 ✓ mapped    T2 ✓ mapped, active"
+
+
+def test_sample_granularity_cells_are_messages_with_a_nested_resolution():
+    """The resolution is a WORD, so it travels as a nested message and is translated on its own.
+
+    Passed as a bare string it would survive translation untouched — interpolation runs after the
+    catalog lookup — and put "hourly" inside an otherwise-Dutch cell.
+    """
+    rows = _panel_data()["quality"]["series"]
+    first = rows[0]
+    assert [_render(r) for r in first["recorded"]] == ["hourly (full)", "5-min (last 9 days)"]
+    assert _render(first["uses"]) == "hourly"
+    assert first["recorded"][0]["params"]["res"]["msgid"] == "hourly"
+    # The one lossy reconciliation: the whole cell is one reorderable msgid, not a glued suffix.
+    price = next(r for r in rows if r["name"] == "Spot price")
+    assert price["warn"] is True
+    assert price["uses"]["msgid"] == "%(res)s, averaged"
+    assert _render(price["uses"]) == "hourly, averaged"
+
+
+def test_sample_shares_the_computed_paths_msgids_where_the_wording_matches():
+    """Where sample and computed word a field identically they must use ONE msgid, not two copies.
+
+    Two copies would be two catalog entries that can be translated differently, which is the
+    drift this module's shape-compatibility claim is supposed to rule out.
+    """
+    from app.data_view import panel_data_from
+
+    sample = _panel_data()
+    computed = panel_data_from(_dataset([_energy("grid_import_t1", 2.0),
+                                         _energy("grid_export_t1", 0.0)]))
+    for key in ("coverage", "grid"):
+        assert sample["quality"][key]["msgid"] == computed["quality"][key]["msgid"], key
+    assert sample["summary"]["msgid"] == computed["summary"]["msgid"]
+    # `resets` cannot be compared against this fixture — it has no corrected resets, so the
+    # computed path returns the "none detected" branch. Compare against the branch the sample
+    # is in: a dataset WITH resets, which data_view words the same way the sample does.
+    reset_frame = _energy("grid_import_t1", 2.0)
+    reset_frame.quality[3] = int(QualityFlags.RESET_CORRECTED)
+    with_resets = panel_data_from(_dataset([reset_frame, _energy("grid_export_t1", 0.0)]))
+    assert (sample["quality"]["resets"]["msgid"]
+            == with_resets["quality"]["resets"]["msgid"] == "%(n)s detected and corrected")
+    # The granularity cells too — same msgid, different figures.
+    assert (sample["quality"]["series"][0]["recorded"][0]["msgid"]
+            == computed["quality"]["series"][0]["recorded"][0]["msgid"])
+
+
+def test_sample_panel_results_messages_render_the_wireframe_english():
+    r = _panel_results()
+    assert _render(r["period_run"]) == "simulated hourly · 8,760 intervals"
+    efc = r["kpis"][2]
+    assert _render(efc["delta"]) == "0.66 / day"
+    assert _render(efc["extra"]) == "2,410 kWh throughput"
+    # The first two tiles carry only figures, so they stay plain strings on both paths.
+    assert r["kpis"][0]["delta"] == "+34.2 %"
+    assert r["kpis"][1]["delta"] == "+21 pp"
+
+
+def test_sample_panel_results_percent_signs_are_real_not_fullwidth():
+    """The fullwidth "％" was a workaround for the old newstyle %-formatting (app/i18n) and was
+    rendering a literal ％ to the reader. A literal "%" is inert now, so these are real ones."""
+    r = _panel_results()
+    rendered = [_render(c) for c in r["caveats"]] + [_render(r["benchmark"]["gloss"])]
+    for text in rendered:
+        assert "％" not in text
+    assert _render(r["caveats"][2]) == (
+        "0.41% of intervals had negative reconstructed load (clamped to 0)."
+    )
+    assert _render(r["benchmark"]["gloss"]) == (
+        "Your policy captures 71% of the grid import a perfectly-informed battery could have "
+        "avoided. Allowed to export, that ceiling rises to 2,311 kWh (a 61% capture) — the "
+        "extra is arbitrage your export setting currently forbids."
+    )
+
+
+def test_sample_caveats_are_message_pairs_like_the_computed_path():
+    """`results_view.results_from` emits caveats as pairs; the template renders both through the
+    same `msg()` macro, so the sample must not hand it a pre-formatted sentence."""
+    for c in _panel_results()["caveats"]:
+        assert isinstance(c, dict) and "msgid" in c
+
+
+def test_sample_resolution_labels_are_msgids_data_view_owns():
+    """`_res` passes its label as a runtime value, so extraction never sees it from sample_data.
+
+    That is fine only because every label it is called with is one app/data_view._RES_LABELS
+    `_N`-marks. A label outside that table would have no catalog entry and would render in
+    English on a Dutch page — silently, since nothing else would fail.
+    """
+    from app.data_view import _RES_LABELS
+
+    known = set(_RES_LABELS.values())
+
+    def labels(m):
+        """Every nested-message msgid reachable from a view-model message."""
+        if not isinstance(m, dict):
+            return
+        for v in (m.get("params") or {}).values():
+            if isinstance(v, dict) and "msgid" in v:
+                yield v["msgid"]
+                yield from labels(v)
+
+    seen = set()
+    for m in _walk_messages(_panel_data()) + _walk_messages(_panel_results()):
+        seen.update(labels(m))
+    assert seen, "no nested labels found — the walk is not reaching the messages"
+    assert seen <= known, f"nested labels with no data_view msgid: {sorted(seen - known)}"
+
+
+def _walk_messages(obj) -> list:
+    """Every (msgid, params) pair anywhere in a view-model, at any nesting depth."""
+    out = []
+    if isinstance(obj, dict):
+        if "msgid" in obj:
+            out.append(obj)
+        for v in obj.values():
+            out.extend(_walk_messages(v))
+    elif isinstance(obj, list):
+        for v in obj:
+            out.extend(_walk_messages(v))
+    return out
