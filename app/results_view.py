@@ -148,7 +148,8 @@ benchmark_divergence_display_threshold = 0.02
 
 # Preset periods, anchored to the END of data coverage (§7.4 — NOT now()). Span in days each preset
 # reaches back from the coverage end. The names are the request tokens; the wireframe's human labels
-# ("1 week", …) are separate (see _PERIOD_LABELS).
+# ("1 week", …) are hardcoded in _panel_results.html beside the tokens, so the view-model emits
+# only `period_selected` (which of them to highlight).
 PERIOD_DAYS: dict[str, int] = {
     "last_1_week": 7,
     "last_30_days": 30,
@@ -162,9 +163,6 @@ PERIOD_DAYS: dict[str, int] = {
 # surprise — a caller wanting full coverage passes an explicit range instead.
 DEFAULT_PERIOD = "last_1_year"
 
-# Human labels for the period selector, in wireframe order (sample_data._panel_results.periods).
-# English source strings; the template wraps them in _() so the existing catalog covers them.
-_PERIOD_LABELS = ["1 week", "1 month", "3 months", "6 months", "1 year"]
 # The label the selector highlights, keyed off the preset the window was resolved from. Kept as the
 # wireframe default ("1 year") for the full-coverage / explicit-range case.
 _PERIOD_SELECTED_BY_NAME: dict[str, str] = {
@@ -991,7 +989,6 @@ def results_from(
         "period_dates": period_dates,
         "period_days": period_days,
         "period_run": period_run,
-        "periods": list(_PERIOD_LABELS),
         "period_selected": _period_selected_for(dataset, eff),
         "data_summary": data_summary,
         "kpis": kpis,

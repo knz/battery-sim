@@ -20,8 +20,10 @@ template itself guards on `data_summary` being present.
 
 Current variant: the app default — has_pv=True, simulate_cost=False (energy only). These two
 choices are the setup band (specs/02-ux-wireframes.md §2.1); they drive which series/slots
-panel ① asks for, which boxes panel ② shows, and which sections panel ③ renders. They live in
-CONFIG below and are rendered by templates/_setup_band.html, not by either panel.
+panel ① asks for, which boxes panel ② shows, and which sections panel ③ renders. They are NOT
+sample data any more: main.py reads them off the persisted SimulationConfig and renders them
+through templates/_setup_band.html. This module therefore supplies only `data`, `data_summary`
+and `results` — panel ② renders from app/params_view.py in every code path.
 
 Translatable chrome vs. data. Some values here are UI chrome that must translate (role
 labels, series names, warning sentences, policy descriptions); others are data that must not
@@ -82,16 +84,6 @@ _SOURCE_STRINGS = [
     _N("NL day-ahead spot prices from 2023 to today: committed on disk and bridged live "
        "to the end of your selected range."),
 ]
-
-# --- Session-level configuration this sample represents -------------------------------
-# Mirrors cfg fields from the spec. Drives which rows/boxes the templates show.
-CONFIG = {
-    "has_pv": True,
-    "simulate_cost": False,   # spec default; hides the Pricing box and COST SAVINGS section
-    "phases": 1,              # 1-phase → battery-phase selector is absent (§2.5)
-    "coupling": "dc",         # DC-coupled / hybrid
-}
-
 
 def _panel_data():
     """Panel ① — data input summary + expanded body (§2.2)."""
@@ -216,35 +208,6 @@ def _data_summary():
     }
 
 
-def _panel_params():
-    """Panel ② — parameters summary + expanded body (§2.3, §2.5)."""
-    return {
-        # Summary line ends with the cost mode; energy only when simulate_cost is off (§2.1).
-        "summary": "10.0 kWh · 5.0/5.0 kW · 90% · charge P3 · discharge P1 · energy only",
-        "battery": {
-            "capacity": "10.0", "min_soc": "10", "max_soc": "100",
-            "max_charge": "5.0", "max_discharge": "5.0", "rte": "90",
-            "standby": "30", "coupling": "AC-coupled", "initial_soc": "50",
-        },
-        "grid": {"phases": "1-phase", "fuse": "25", "max_import": "5.75", "export_limit": "same as import"},
-        # Charge/discharge policy radio groups. `selected` marks the preselected option.
-        # P1/P3 carry a [PV only] marker (shown because has_pv).
-        "charge_policies": [
-            {"key": "P1", "label": _N("Solar surplus only (net zero at the grid)"), "pv_only": True},
-            {"key": "P2", "label": _N("Grid charge when spot price is in band")},
-            {"key": "P3", "label": _N("Both"), "pv_only": True, "selected": True},
-        ],
-        "charge_band": {"a": "-0.050", "b": "0.040"},
-        "discharge_policies": [
-            {"key": "D1", "label": _N("Serve house load when consumption exceeds solar"), "selected": True},
-            {"key": "D2", "label": _N("Maximise discharge when spot price is in band")},
-            {"key": "D3", "label": _N("Both")},
-        ],
-        "discharge_band": {"c": "0.180", "d": "9.999"},
-        "band_overlap_ok": True,
-    }
-
-
 def _panel_results():
     """Panel ③ — results, ENERGY SAVINGS section (§2.4). Cost section omitted (cost off)."""
     return {
@@ -254,11 +217,19 @@ def _panel_results():
         "period_dates": "2025-07-22 → 2026-07-21",
         "period_days": 365,
         "period_run": "simulated hourly · 8,760 intervals",
-        "periods": [_N("1 week"), _N("1 month"), _N("3 months"), _N("6 months"), _N("1 year")],
+        # No `periods` list: the template hardcodes its five preset buttons (token, label, key)
+        # and only reads `period_selected` to decide which is active. The computed path dropped
+        # its parallel `periods` key for the same reason.
         "period_selected": "1 year",
         # Three KPI tiles. `unit` is rendered smaller and inline beside the big value.
         "kpis": [
-            {"title": _N("GRID IMPORT SAVED"), "value": "1,412", "unit": "kWh", "delta": "−34.2 %"},
+            # The delta is the saving as a fraction of the no-battery import (4,129 kWh), so
+            # 1,412/4,129 = +34.2 %. It is SIGNED with the same convention the computed path uses
+            # (results_view._fmt_signed_pct): "+" for a saving, U+2212 "−" for a negative one. The
+            # sign used to be "−" here, which — beside a positive 1,412 kWh saved — read as the
+            # opposite of the truth on the fresh-install path, where this fixture is what a user
+            # actually sees.
+            {"title": _N("GRID IMPORT SAVED"), "value": "1,412", "unit": "kWh", "delta": "+34.2 %"},
             {"title": _N("SELF-SUFFICIENCY"), "value": "31% → 52%", "delta": "+21 pp"},
             {"title": _N("EQUIVALENT FULL CYCLES"), "value": "241",
              "delta": _N("0.66 / day"), "extra": _N("2,410 kWh throughput")},
@@ -287,12 +258,19 @@ def _panel_results():
                 "(a 61％ capture) — the extra is arbitrage your export setting currently forbids."
             ),
         },
+        # The third row is KEPT even though results_from() does not emit it. §2.4's wireframe
+        # lists it, and this module's job is the wireframe shape, not the current view-model's —
+        # results_view.results_from's own docstring names this row as the one deliberate shape
+        # difference, so the divergence is documented on both sides rather than silent. Drop it
+        # here only when §2.4 drops it, or when the computed path starts emitting it.
         "secondary": [
             {"label": _N("Self-consumption ratio"), "value": "58% → 81%"},
             {"label": _N("Grid export"), "value": "3,180 → 1,742 kWh"},
             {"label": _N("Intervals battery was full / empty"), "value": "1,204 / 2,988"},
         ],
-        # Monthly-savings bar chart (Plotly). Values are illustrative.
+        # Monthly grid-import bar chart (Plotly). Values are illustrative. The computed path
+        # (results_view._monthly_import) plots measured monthly import here, and the tab is
+        # labelled for that; a per-month SAVINGS series is not built.
         "chart": {
             "months": ["Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul"],
             "values": [64, 88, 112, 150, 176, 188, 172, 150, 120, 96, 78, 60],
@@ -309,11 +287,17 @@ def _panel_results():
 
 
 def sample_view():
-    """The full view-model consumed by templates/index.html."""
+    """The full view-model consumed by templates/index.html.
+
+    `cfg` and `params` are NOT provided here. Both used to be sample literals (a `CONFIG` dict
+    and a `_panel_params()` fixture), but main.py's index() replaces both unconditionally from
+    the PERSISTED `SimulationConfig` — panel ② and the setup band have had a real backing store
+    since Phase 6, so the sample copies could never render and were only a second, drifting
+    statement of the appendix-A defaults. Their translatable policy labels live in
+    app/params_view.py, which is where `pybabel extract` now finds them.
+    """
     return {
-        "cfg": CONFIG,
         "data": _panel_data(),
         "data_summary": _data_summary(),
-        "params": _panel_params(),
         "results": _panel_results(),
     }

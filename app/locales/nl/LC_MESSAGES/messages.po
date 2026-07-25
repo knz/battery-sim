@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-25 01:07+0200\n"
+"POT-Creation-Date: 2026-07-25 11:40+0200\n"
 "PO-Revision-Date: 2026-07-23 20:30+0200\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: nl\n"
@@ -41,15 +41,6 @@ msgstr ""
 msgid "0.66 / day"
 msgstr "0,66 / dag"
 
-msgid "1 month"
-msgstr "1 maand"
-
-msgid "1 week"
-msgstr "1 week"
-
-msgid "1 year"
-msgstr "1 jaar"
-
 msgid "1-phase"
 msgstr "1-fase"
 
@@ -59,9 +50,6 @@ msgstr "1-fase batterij"
 msgid "2,410 kWh throughput"
 msgstr "2.410 kWh doorzet"
 
-msgid "3 months"
-msgstr "3 maanden"
-
 msgid "3 × 1-phase batteries"
 msgstr "3 × 1-fase batterijen"
 
@@ -70,9 +58,6 @@ msgstr "3-fase"
 
 msgid "3-phase inverter"
 msgstr "3-fase omvormer"
-
-msgid "6 months"
-msgstr "6 maanden"
 
 msgid ""
 "A solar sensor is mapped but reported almost no production over this "
@@ -254,6 +239,9 @@ msgstr "Kostensimulatie inschakelen"
 msgid "Energy flows"
 msgstr "Energiestromen"
 
+msgid "Energy flows chart"
+msgstr "Grafiek energiestromen"
+
 msgid "Energy savings"
 msgstr "Energiebesparing"
 
@@ -418,8 +406,8 @@ msgstr "Min. laadtoestand"
 msgid "Minimum state of charge must be below the maximum."
 msgstr "De minimale laadtoestand moet onder de maximale liggen."
 
-msgid "Monthly savings"
-msgstr "Maandelijkse besparing"
+msgid "Monthly grid import"
+msgstr "Netafname per maand"
 
 msgid "Must be a whole number of at least 2."
 msgstr "Moet een geheel getal van minstens 2 zijn."
@@ -598,6 +586,9 @@ msgstr "Simulatieraster"
 msgid "SoC + price"
 msgstr "Laadtoestand + prijs"
 
+msgid "SoC + price chart"
+msgstr "Grafiek laadtoestand + prijs"
+
 msgid "Solar"
 msgstr "Zon"
 
@@ -666,8 +657,8 @@ msgid ""
 "The initial state of charge is outside the operating window and will be "
 "clamped at the first interval."
 msgstr ""
-"De begin-laadtoestand ligt buiten het werkbereik en wordt bij het eerste"
-" interval afgekapt."
+"De begin-laadtoestand ligt buiten het werkbereik en wordt bij het eerste "
+"interval afgekapt."
 
 msgid "The lower bound is above the upper bound, so this band never fires."
 msgstr ""
@@ -777,8 +768,8 @@ msgid ""
 "Without solar there is no surplus to capture, so grid charging is the "
 "only way to fill the battery."
 msgstr ""
-"Zonder zon is er geen overschot om op te vangen, dus laden vanaf het net"
-" is de enige manier om de batterij te vullen."
+"Zonder zon is er geen overschot om op te vangen, dus laden vanaf het net "
+"is de enige manier om de batterij te vullen."
 
 msgid "Yes"
 msgstr "Ja"
@@ -824,11 +815,11 @@ msgid ""
 " the per-phase power limit — a 1-phase battery cannot exceed one phase’s "
 "fuse rating no matter how the load is distributed."
 msgstr ""
-"Uw slimme meter saldeert over de fasen heen, dus het financiële "
-"resultaat ligt dicht bij dat van het 3-fase geval. Wat we zonder "
-"gegevens per fase niet kunnen modelleren, is de vermogensgrens per fase "
-"— een 1-fase batterij kan de zekeringwaarde van één fase niet "
-"overschrijden, hoe de belasting ook verdeeld is."
+"Uw slimme meter saldeert over de fasen heen, dus het financiële resultaat"
+" ligt dicht bij dat van het 3-fase geval. Wat we zonder gegevens per fase"
+" niet kunnen modelleren, is de vermogensgrens per fase — een 1-fase "
+"batterij kan de zekeringwaarde van één fase niet overschrijden, hoe de "
+"belasting ook verdeeld is."
 
 msgid ""
 "Your smart meter only sees energy crossing the grid connection, so "
@@ -1009,4 +1000,5 @@ msgstr "✓ Genoteerd"
 
 msgid "👍 I want this"
 msgstr "👍 Ik wil dit"
+
 

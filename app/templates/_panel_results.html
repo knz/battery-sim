@@ -218,10 +218,24 @@
     <div class="card bg-base-200 border border-base-300">
       <div class="card-body gap-3 p-4">
         <div class="flex flex-wrap items-center justify-between gap-2">
+          {# The first tab is the only chart that exists. It plots `results.chart`, which is
+             _monthly_import() — the MEASURED monthly grid import over the window, not a saving,
+             so it is labelled for what it draws. §2.4's wireframe asks for a monthly-savings
+             chart; that series is not built (see changelog/20260724-panel3-battery-simulation.md),
+             and labelling this one "Monthly savings" made the bars read as ~11× the actual
+             saving (3,923 kWh of import beside a 341 kWh saving on the 1-year window).
+             The two sibling tabs draw nothing at all, so they carry the §2.1 pending affordance
+             (disabled + [?] + a feature key) rather than looking like working buttons beside a
+             working one. #}
+          {# The pending tabs carry their [?] INLINE and stay enabled, matching the "⤓ export CSV
+             [?]" button beside them: a `disabled` button swallows its own clicks, so the dialog
+             opener has to remain clickable. `btn-disabled` alone is the DaisyUI look-disabled
+             class without the attribute, which is exactly the pending idiom — the control does
+             nothing but says why when asked. #}
           <div class="join">
-            <button class="btn btn-xs join-item btn-active">{{ _('Monthly savings') }}</button>
-            <button class="btn btn-xs join-item">{{ _('SoC + price') }}</button>
-            <button class="btn btn-xs join-item">{{ _('Energy flows') }}</button>
+            <button class="btn btn-xs join-item btn-active">{{ _('Monthly grid import') }}</button>
+            <button type="button" class="btn btn-xs join-item opacity-60" data-pending-name="{{ _('SoC + price chart') }}" data-feature-key="chart_soc_price">{{ _('SoC + price') }} [?]</button>
+            <button type="button" class="btn btn-xs join-item opacity-60" data-pending-name="{{ _('Energy flows chart') }}" data-feature-key="chart_energy_flows">{{ _('Energy flows') }} [?]</button>
           </div>
           <button class="btn btn-ghost btn-xs" data-pending-name="{{ _('Export CSV') }}" data-feature-key="export_csv">⤓ {{ _('export CSV') }} [?]</button>
         </div>
@@ -246,7 +260,7 @@
     </div>
   </div>
 
-  {# The monthly-chart data, embedded fresh on every (re)render so the swapped-in fragment carries
+  {# The monthly grid-import data, embedded fresh on every (re)render so the swapped-in fragment carries
      the new window's series. window.drawMonthlyChart() (index.html) reads THIS node and draws into
      #monthly-chart above. The axis title is translated server-side. This node lives INSIDE
      #panel-results so it is replaced together with the panel on a swap. #}

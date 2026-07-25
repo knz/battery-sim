@@ -24,15 +24,22 @@ The route POST /feature-interest/{feature_key} rejects any key not in FEATURE_KE
 FEATURE_KEYS: frozenset[str] = frozenset(
     {
         "export_csv",            # Export CSV button (panel ③ results)
-        "discharge_allow_export",  # Allow export to grid checkbox (panel ② discharge policy)
         "simulate_cost",         # Also simulate cost savings toggle (panel ②)
         "data_source_csv",       # Upload CSV source radio (panel ①)
+        "chart_soc_price",       # SoC + price chart tab (panel ③ charts)
+        "chart_energy_flows",    # Energy flows chart tab (panel ③ charts)
     }
 )
 
 # Retired keys — features that have shipped. Their counter rows are kept; the keys are never
-# reused. (None yet.)
-RETIRED_KEYS: frozenset[str] = frozenset()
+# reused.
+RETIRED_KEYS: frozenset[str] = frozenset(
+    {
+        # Shipped in Phase 6 as a real checkbox (_panel_params.html, `policy.allow_grid_export`),
+        # so it is no longer pending. Retired rather than deleted, per the rule above.
+        "discharge_allow_export",
+    }
+)
 
 
 def is_known(feature_key: str) -> bool:

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-25 11:03+0200\n"
+"POT-Creation-Date: 2026-07-25 11:40+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -32,15 +32,6 @@ msgstr ""
 msgid "0.66 / day"
 msgstr ""
 
-msgid "1 month"
-msgstr ""
-
-msgid "1 week"
-msgstr ""
-
-msgid "1 year"
-msgstr ""
-
 msgid "1-phase"
 msgstr ""
 
@@ -50,9 +41,6 @@ msgstr ""
 msgid "2,410 kWh throughput"
 msgstr ""
 
-msgid "3 months"
-msgstr ""
-
 msgid "3 × 1-phase batteries"
 msgstr ""
 
@@ -60,9 +48,6 @@ msgid "3-phase"
 msgstr ""
 
 msgid "3-phase inverter"
-msgstr ""
-
-msgid "6 months"
 msgstr ""
 
 msgid ""
@@ -239,6 +224,9 @@ msgstr ""
 msgid "Energy flows"
 msgstr ""
 
+msgid "Energy flows chart"
+msgstr ""
+
 msgid "Energy savings"
 msgstr ""
 
@@ -396,7 +384,7 @@ msgstr ""
 msgid "Minimum state of charge must be below the maximum."
 msgstr ""
 
-msgid "Monthly savings"
+msgid "Monthly grid import"
 msgstr ""
 
 msgid "Must be a whole number of at least 2."
@@ -550,6 +538,9 @@ msgid "Simulation grid"
 msgstr ""
 
 msgid "SoC + price"
+msgstr ""
+
+msgid "SoC + price chart"
 msgstr ""
 
 msgid "Solar"

@@ -680,7 +680,12 @@ and **nothing written to disk**.
 **Correction to the orchestrator's own record.** An earlier note cited "20 kWh/8 kW → 1,582 kWh
 saved". That was wrong — misread off an HTML fragment. The correct figure is 317 kWh: the saving
 DECREASES with a bigger battery, because grid-charge round-trip loss plus standby outgrow the gain.
-The reviewer caught the error. This also confirms why
+The reviewer caught the error. **Where 1,582 came from:** it is the same 20 kWh run's THROUGHPUT
+figure (the EQUIVALENT FULL CYCLES tile's `extra` line, "1,582 kWh throughput"), which sits a few
+hundred bytes from the 317 kWh saving in the rendered fragment. Reading a KPI off raw HTML puts two
+unrelated kWh figures side by side with no tile boundary visible, and the larger one was taken for
+the headline. Worth recording because the same failure mode is available to anyone verifying a
+number by grepping a fragment rather than looking at the page. This also confirms why
 `test_a_parameter_change_moves_panel_3s_figures` asserts movement rather than direction — tuning the
 fixture until the sign looked agreeable would have tested the fixture.
 
@@ -736,7 +741,7 @@ fix pass the orchestrator re-checked and found **five still untranslated** (band
 initial-SoC warning, no-PV hint, phase-approximation soft block, pending prompt) — the "all 31
 translated" claim was overstated. A follow-up completed them plus a sixth.
 
-Both catalogs verified by the orchestrator: **260 msgids, 0 untranslated, 0 fuzzy** in EN and NL. The
+Both catalogs verified by the orchestrator: **0 untranslated, 0 fuzzy** in EN and NL. The
 five entries that disappeared relative to the committed catalog were confirmed to be the OLD panel-②
 markup Phase 6 replaced (`pybabel extract` correctly dropping msgids no longer in source), not
 regressions — their successors are present and translated.
@@ -757,6 +762,117 @@ Suite: **458 passed, 2 skipped**.
 - `coerce_number` previously accepted `"1_000"` → 1000 and Arabic-Indic digits; now shape-checked
   against a narrow ASCII numeric pattern so they fall through to the raw-string error path.
 
+## Phase 7 — whole-feature audit, presentation fixes, i18n accounting
+
+A whole-feature audit over the six commits found **no blocking defects** and three SHOULD-FIX
+presentation issues. Two are fixed here; the third is documented and deferred.
+
+### Fixed: the chart tab described a series it does not plot
+
+`_panel_results.html`'s first chart tab read "Monthly savings". The series behind it is
+`results_view._monthly_import()`, which sums **measured grid import** per calendar month — its own
+docstring says so, and `tests/test_results_view.py` asserts import values, so code and test already
+agreed with each other. Only the label was wrong, and it was wrong by a large factor: on the 1-year
+window the bars sum to **3,923 kWh** beside a KPI tile reading **GRID IMPORT SAVED 341 kWh**. Every
+window reproduced it (1 week: 31 vs 17; 30 days: 184 vs 112).
+
+The tab is now labelled **"Monthly grid import"** (NL "Netafname per maand"). The test is renamed
+`test_results_period_line_and_monthly_import_chart_are_real` and its comment states what the series
+is and is not.
+
+**A real per-month SAVINGS series remains unbuilt.** §2.4's wireframe shows a monthly-savings chart;
+producing it means running the A/B/C simulation and bucketing `saved_kwh` per month, which is a
+different piece of work from a labelling sweep and was deliberately not attempted here. What ships is
+an honest label over the series that exists, not the chart the wireframe asks for.
+
+**The two sibling tabs were inert.** "SoC + price" and "Energy flows" were plain enabled buttons that
+did nothing — acceptable while their neighbour was equally decorative, misleading once it plots real
+data. They now carry the §2.1 pending affordance (`data-pending-name` / `data-feature-key`, dimmed,
+inline `[?]`), matching the "⤓ export CSV [?]" button beside them. Two keys allocated in
+`app/features.py`: `chart_soc_price`, `chart_energy_flows`. They stay clickable on purpose — a
+`disabled` button swallows its own clicks, so the dialog opener could not be the button itself.
+
+### Fixed: the fresh-install sample tile contradicted itself
+
+`sample_data._panel_results()` carried `GRID IMPORT SAVED · 1,412 kWh · −34.2 %` — a positive saving
+under a negative percentage. `results_view._fmt_signed_pct`'s own docstring explains why that matters
+("would read as the opposite of the truth"). Reachable on the fresh-install path: an empty data dir
+renders exactly this tile. The magnitude was right (1,412 / 4,129 = 34.2 %); only the sign was wrong.
+Now `+34.2 %`, matching the computed path's convention (explicit `+`, U+2212 for negatives).
+
+**The "Intervals battery was full / empty" secondary row is KEPT**, though `results_from` does not
+emit it. This module's contract is §2.4's wireframe shape, and §2.4 lists the row;
+`results_from`'s docstring already names it as the one deliberate shape difference, so the divergence
+is stated on both sides rather than silent. Dropping it would have made the sample agree with today's
+view-model at the cost of no longer showing what the wireframe asks for. A comment records the choice.
+
+### Documented, not fixed: English leaking into the Dutch page
+
+The audit found untranslated runtime text in **two categories**, not one. The earlier note in this
+file (Phase 2's cross-phase follow-up) mentions only "dynamic caveat strings", which understates it:
+
+1. **Introduced by this feature**, all in `app/results_view.py`: the benchmark gloss (`:551-627`), the
+   annualisation notice (`:1025-1030`), the range label's "simulated hourly · N intervals" (`:698`),
+   and the KPI deltas "0.38 / day" / "1,311 kWh throughput" (`:811-813`).
+2. **Pre-existing and NOT this feature**, in `app/data_view.py`: the whole panel-① data-quality box.
+   `git log 9f639d2^..HEAD -- app/data_view.py` is empty — the file was untouched across all six
+   commits, so this predates the phase work and is not a regression it introduced.
+
+Same root cause throughout: an f-string assembled at runtime has no fixed msgid to look up, so
+`_()` finds nothing regardless of how complete the catalog is. The fix is the `%(name)s`-placeholder
+restructuring already recorded as a deferred follow-up, and it is deliberately NOT attempted here —
+it touches every such call site and both catalogs, which is its own task.
+
+### Small cleanups (audit-identified dead code)
+
+- **Removed `sample_data.CONFIG` and `sample_data._panel_params()`.** `main.py:115-117` replaces both
+  `ctx["cfg"]` and `ctx["params"]` unconditionally from the persisted `SimulationConfig`, so neither
+  could render in any code path since Phase 6. No msgid was lost: the policy labels they carried are
+  also in `app/params_view.py`, which is where `pybabel extract` finds them now.
+- **`discharge_allow_export` moved to `RETIRED_KEYS`.** That control shipped as a real checkbox in
+  Phase 6 (`_panel_params.html:338`), and `features.py`'s own rule says a shipped key is retired, not
+  deleted. Its counter row is kept; the interest route now 404s it, which is correct — it is no longer
+  a pending control.
+- **Removed the `"periods"` key** from the results view-model, and the `_PERIOD_LABELS` constant
+  behind it. The template hardcodes its five (token, label) preset pairs and reads only
+  `period_selected` to decide which is active, so the list was built and discarded on every render.
+  Dropped from the sample view-model too, for the same reason.
+- **NOT removed** (checked, still load-bearing): `sample_data._panel_results()` and `_panel_data()`
+  (the fresh-install fallbacks), `_SOURCE_STRINGS` (a `pybabel extract` anchor for strings that live
+  in `app/sources/`), and the `*_display` helpers (`params_view.py:655` renders
+  `max_import_kw_display`).
+
+### Catalog accounting, corrected
+
+The Phase 6 note recorded "260 msgids". That conflated two different counts. Before this phase the
+figure was **258 msgids in each `.po`** (0 untranslated, 0 fuzzy) and **260 entries in each compiled
+`.mo`** — the extra two being the `day`/`days` plural pair, which contributes two catalog keys for
+one msgid, plus the metadata header entry.
+
+After this phase: **255 msgids per `.po`, 0 untranslated, 0 fuzzy; 257 entries per `.mo`** in both
+locales, by the same arithmetic. The net −3 is 6 removed (the five sample period labels "1 week" …
+"1 year", which the template never used, plus "Monthly savings") against 3 added ("Monthly grid
+import", "SoC + price chart", "Energy flows chart"). Obsolete `#~` entries that `pybabel update`
+appended were stripped, since the committed catalogs carry none.
+
+Workflow used (the `--no-location` flag belongs on `extract`, not on `update` — `pybabel update`
+rejects it):
+
+    uv run pybabel extract -F babel.cfg -k _N -o app/locales/messages.pot --sort-output --no-location .
+    uv run pybabel update -i app/locales/messages.pot -d app/locales -l nl --no-fuzzy-matching
+    uv run pybabel update -i app/locales/messages.pot -d app/locales -l en --no-fuzzy-matching
+    uv run pybabel compile -d app/locales
+
+### Verification
+
+Suite: **458 passed, 2 skipped** — unchanged, as intended for a presentation sweep. Verified live in
+both locales: the tab reads "Monthly grid import" / "Netafname per maand" over a chart summing
+3,923 kWh, with the saving tile beside it reading its own (much smaller) figure; the two pending tabs
+carry their keys and the interest route accepts them. The fresh-install path (temp
+`BATTERY_SIM_DATA_DIR`) renders `1,412 kWh · +34.2 %` with panel ② still populated from
+`params_view`. No `simconfig.json` was written to the real `data/` — every write-path check ran
+against a throwaway data directory.
+
 ## Status
 
 **Phase 1 complete** — implemented, adversarially reviewed, fixes applied and verified, committed
@@ -770,5 +886,33 @@ all defects fixed and verified, committed (`18d5f7a`).
 **Phase 5 complete** — implemented, adversarially reviewed (DEFECT FOUND: drift-funded capture ratio),
 fixed, benchmark box lazy-loaded on the user's decision, verified live, committed (`db9a4d4`).
 **Phase 6 complete** — implemented, adversarially reviewed (DEFECT FOUND: three, two returning 500),
-all fixed and verified, Phase 6's own missing i18n completed, committed.
-Next: Phase 7 (i18n sweep + full-suite pass + changelog finalisation).
+all fixed and verified, Phase 6's own missing i18n completed, committed (`b9e5036`).
+**Phase 7 complete** — whole-feature audit found no blocking defects; the mislabelled chart tab and
+the self-contradicting sample KPI tile are fixed, three pieces of dead code removed, catalogs
+regenerated and recompiled, suite unchanged at 458 passed / 2 skipped. The runtime-f-string i18n gap
+is documented above and deferred to the `%(name)s`-restructuring task.
+
+**All seven phases complete.** Suite: **458 passed, 2 skipped**, from a 133-passed baseline — +325
+tests, including ten of the specs' own §6.14 fixtures (1, 2, 3, 5, 6, 7, 12, 16, 17, 21).
+
+### Why the cross-seam audit was worth running
+
+Six phases were each adversarially reviewed in isolation and four returned DEFECT FOUND, so the
+per-module bar was not low. The audit still found something all six missed — the chart labelled
+"Monthly savings" plotting measured grid import, wrong by more than 11× against the KPI tile beside
+it. It survived precisely because **the code and its test agreed with each other**: the function's
+docstring said "measured grid import", the test asserted import values, and nothing inside that module
+was wrong. Only reading the chart NEXT TO the tile exposed it. Worth remembering for future work of
+this shape: a per-module review cannot catch a defect whose two halves are each internally consistent.
+
+### Defects found and fixed, by phase
+
+| Phase | Verdict | The substantive finding |
+|---|---|---|
+| 1 Simulation frame | MINOR | An unbounded forward-fill reported a year of stale prices as fully covered |
+| 2 Battery config | DEFECT (5) | Cached derived values went stale on mutation — a 20 kWh battery would simulate as 10 |
+| 3 Simulation core | CLEAN | (Two defects in the SPEC's own §6.8 pseudocode found and corrected) |
+| 4 Metrics + panel ③ | DEFECT (4) | Observed meter import compared against simulated battery import, flattering by 2–4 pp |
+| 5 Perfect-foresight DP | DEFECT (1) | A drift-funded capture ratio rendering as "−493 percent" |
+| 6 Panel ② wired | DEFECT (3) | Concurrent saves colliding (44% HTTP 500s); a long number overflowing to 500 |
+| 7 Whole-feature audit | NO BLOCKING | A chart labelled "savings" plotting import |

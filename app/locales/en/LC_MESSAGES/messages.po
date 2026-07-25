@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-25 01:07+0200\n"
+"POT-Creation-Date: 2026-07-25 11:40+0200\n"
 "PO-Revision-Date: 2026-07-23 20:40+0200\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: en\n"
@@ -38,15 +38,6 @@ msgstr "0.41％ of intervals had negative reconstructed load (clamped to 0)."
 msgid "0.66 / day"
 msgstr "0.66 / day"
 
-msgid "1 month"
-msgstr "1 month"
-
-msgid "1 week"
-msgstr "1 week"
-
-msgid "1 year"
-msgstr "1 year"
-
 msgid "1-phase"
 msgstr "1-phase"
 
@@ -56,9 +47,6 @@ msgstr "1-phase battery"
 msgid "2,410 kWh throughput"
 msgstr "2,410 kWh throughput"
 
-msgid "3 months"
-msgstr "3 months"
-
 msgid "3 × 1-phase batteries"
 msgstr "3 × 1-phase batteries"
 
@@ -67,9 +55,6 @@ msgstr "3-phase"
 
 msgid "3-phase inverter"
 msgstr "3-phase inverter"
-
-msgid "6 months"
-msgstr "6 months"
 
 msgid ""
 "A solar sensor is mapped but reported almost no production over this "
@@ -252,6 +237,9 @@ msgstr "Enable cost simulation"
 msgid "Energy flows"
 msgstr "Energy flows"
 
+msgid "Energy flows chart"
+msgstr "Energy flows chart"
+
 msgid "Energy savings"
 msgstr "Energy savings"
 
@@ -416,8 +404,8 @@ msgstr "Min state of charge"
 msgid "Minimum state of charge must be below the maximum."
 msgstr "Minimum state of charge must be below the maximum."
 
-msgid "Monthly savings"
-msgstr "Monthly savings"
+msgid "Monthly grid import"
+msgstr "Monthly grid import"
 
 msgid "Must be a whole number of at least 2."
 msgstr "Must be a whole number of at least 2."
@@ -596,6 +584,9 @@ msgstr "Simulation grid"
 msgid "SoC + price"
 msgstr "SoC + price"
 
+msgid "SoC + price chart"
+msgstr "SoC + price chart"
+
 msgid "Solar"
 msgstr "Solar"
 
@@ -676,8 +667,8 @@ msgid ""
 "The round-trip efficiency plus the DC bonus exceeds 100, so the DC charge"
 " path would create energy."
 msgstr ""
-"The round-trip efficiency plus the DC bonus exceeds 100, so the DC "
-"charge path would create energy."
+"The round-trip efficiency plus the DC bonus exceeds 100, so the DC charge"
+" path would create energy."
 
 msgid "The run uses"
 msgstr "The run uses"
@@ -815,9 +806,9 @@ msgid ""
 "fuse rating no matter how the load is distributed."
 msgstr ""
 "Your smart meter nets across phases, so the financial result would be "
-"close to the 3-phase case. What we cannot model without per-phase data "
-"is the per-phase power limit — a 1-phase battery cannot exceed one "
-"phase’s fuse rating no matter how the load is distributed."
+"close to the 3-phase case. What we cannot model without per-phase data is"
+" the per-phase power limit — a 1-phase battery cannot exceed one phase’s "
+"fuse rating no matter how the load is distributed."
 
 msgid ""
 "Your smart meter only sees energy crossing the grid connection, so "
@@ -995,4 +986,5 @@ msgstr "✓ Noted"
 
 msgid "👍 I want this"
 msgstr "👍 I want this"
+
 

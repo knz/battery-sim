@@ -602,9 +602,11 @@ def test_self_sufficiency_display_clamp_fires_with_its_caveat():
     assert m.self_sufficiency_battery == pytest.approx(-0.108, abs=1e-3)
 
 
-def test_results_period_line_and_chart_are_real():
+def test_results_period_line_and_monthly_import_chart_are_real():
     # The coverage line reflects the effective window, hourly grid, and interval count; the chart is
-    # a real monthly import series (one bucket here — a single January).
+    # a real monthly MEASURED-IMPORT series (one bucket here — a single January), which is what the
+    # tab is labelled as. It is deliberately NOT a per-month saving: that series is not built, and
+    # the old "Monthly savings" tab label over these values overstated the saving by ~11×.
     ds = _dataset([_energy("grid_import_t1", 2.0), _energy("grid_export_t1", 0.0)])
     r = results_from(ds, (_WIN_START, _WIN_END))
     assert r["period"] == "2026-01-01 → 2026-01-02 · simulated hourly · 24 intervals"
