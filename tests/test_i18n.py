@@ -20,11 +20,13 @@ i18n pass (see changelog/20260725-followups-section-a-investigation.md):
 """
 
 import concurrent.futures
+from datetime import datetime, timezone
 
 import pytest
+from starlette.testclient import TestClient
 
 from app import i18n
-from tests.conftest import w
+from tests.conftest import seed_workspace, w
 
 
 # ── 1. The percent trap ────────────────────────────────────────────────────────────────────────
@@ -566,26 +568,75 @@ def test_the_number_filters_are_bound_to_their_own_locale_on_every_environment()
         assert env.filters["monthname"](3) == ("Mar" if code == "en" else "mrt")
 
 
-def test_the_rendered_dutch_pages_use_dutch_number_conventions():
+@pytest.fixture()
+def seeded_client(tmp_path, monkeypatch):
+    """A TestClient over a synthetic dataset, for the tests that need REAL rendered figures.
+
+    Seeded rather than read from the developer's `./data`, for the reason `followups.md` H13
+    gives: a test driven from whatever data happens to be on the machine covers something
+    different on every machine, and covers nothing at all in a fresh checkout or in CI, where
+    `POST /results` has no dataset and answers 409.
+
+    The numbers are chosen so the assertions below have something to assert ON: 1.5 kWh/h over
+    40 days is ~1,440 kWh, which is four digits and therefore GROUPED, and a spot price series
+    puts a €/kWh figure on the page with three decimals. A dataset that produced only
+    three-digit figures would pass the "must not use the wrong separator" half of each pair
+    while silently testing nothing in the "must use the right one" half.
+    """
+    monkeypatch.setenv("BATTERY_SIM_DATA_DIR", str(tmp_path))
+
+    import numpy as np
+
+    from app.domain.frames import QUALITY_DTYPE, SeriesFrame
+
+    n = 40 * 24
+    idx = (
+        np.arange(n).astype("timedelta64[s]") * 3600
+        + np.datetime64("2026-01-01T00:00:00")
+    ).astype("datetime64[s]")
+
+    def frame(name, kind, values):
+        vals = np.full(n, float(values)) if np.isscalar(values) else np.asarray(values, float)
+        return SeriesFrame(name, kind, 3600, idx, vals, np.zeros(n, dtype=QUALITY_DTYPE))
+
+    # The results route resolves a workspace from its path, and `TestClient(app)` outside a
+    # `with` block never runs the lifespan that would create the default one.
+    seed_workspace()
+
+    from app import dataset
+
+    dataset.save_dataset(
+        [
+            frame("grid_import_t1", "energy", 1.5),   # ≈1,440 kWh — four digits, so grouped
+            frame("grid_export_t1", "energy", 0.2),
+            frame("price_spot", "price", np.where((np.arange(n) % 24) < 12, 0.042, 0.287)),
+        ],
+        (datetime(2026, 1, 1, tzinfo=timezone.utc), datetime(2026, 2, 10, tzinfo=timezone.utc)),
+        "test", [], None,
+    )
+
+    from app import main
+
+    return TestClient(main.app)
+
+
+def test_the_rendered_dutch_pages_use_dutch_number_conventions(seeded_client):
     """End-to-end, on the real routes: the defect A6 was filed for, and its fix.
 
     The unit tests above pin the formatter and the macro; this pins the WIRING through the whole
     stack — view-model, template, route. It asserts on the SEPARATORS rather than on any particular
-    figure, because the persisted dataset's numbers change between runs while the convention does
-    not: a grouped figure on a Dutch page must use "." and a decimal must use ",", and the reverse
-    on an English one. `\\d{1,3},\\d{3}` on a Dutch page is the exact shape of the bug.
+    figure: a grouped figure on a Dutch page must use "." and a decimal must use ",", and the
+    reverse on an English one. `\\d{1,3},\\d{3}` on a Dutch page is the exact shape of the bug.
+
+    Runs against the seeded dataset rather than the developer's own (H13): the figures need to be
+    large enough to be GROUPED for the assertions to mean anything, and that is a property of the
+    data, not something the previous version of this test could guarantee.
     """
     import re
 
-    from starlette.testclient import TestClient
-
-    from app.main import app
-
-    client = TestClient(app)
-
     def visible(lang: str) -> str:
-        r = client.post(w("/results"), json={"period": "last_1_year"},
-                        headers={"Cookie": f"lang={lang}"})
+        r = seeded_client.post(w("/results"), json={"period": "last_1_year"},
+                               headers={"Cookie": f"lang={lang}"})
         assert r.status_code == 200
         html = re.sub(r"<(script|style).*?</\1>", " ", r.text, flags=re.S)
         return re.sub(r"<[^>]+>", " ", html)

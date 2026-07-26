@@ -21,18 +21,62 @@ moved under `/w/{workspace_id}/…` (specs/08-architecture.md §5.1, changelog p
 Both are plain module-level functions rather than fixtures because most call sites are inside
 `_form(...)`-style helpers and parametrize lists, where a fixture argument does not reach.
 
+Finally, this module points `BATTERY_SIM_DATA_DIR` at a throwaway directory for the whole
+session, so that running the suite never writes into the developer's real `./data`. See
+`_isolate_data_dir` below for why that has to happen here, at import time.
+
 Main items:
     W                the `/w/local` prefix.
     w(suffix)        `W + suffix`; the workspace-scoped URL for the default workspace.
     seed_workspace() create the workspace row (idempotent), under the CURRENT data dir.
 """
 
+import atexit
+import os
+import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
+
+
+def _isolate_data_dir() -> None:
+    """Point the data dir at a temp directory for the whole session, unless one is already set.
+
+    Without this, running the suite WRITES to the developer's real `./data`: `app/main.py` does
+    `CONFIG = config.load()` at import time, and `config.load()` generates and persists an
+    `installation_id` into `data/config.toml` on first run — so merely importing `app.main`
+    creates the directory and puts a pseudonymous identity in it. The first request through any
+    unredirected client then adds `feature_interest.db` and the `local/` workspace.
+
+    That was never intentional. `app/main.py`'s lifespan carries a comment explaining that its
+    workspace creation lives there rather than at import time precisely so it does not "create
+    rows in whatever directory happens to be resolved at import time" — but `CONFIG` itself is
+    resolved at import time and does exactly that.
+
+    It has to run HERE, at conftest import, rather than in a fixture: pytest imports every test
+    module before the first fixture runs, and several of them do `from app.main import app` at
+    module level. By the time a session-scoped autouse fixture executed, the write would already
+    have happened.
+
+    `setdefault`, not an unconditional set: a developer or CI job that deliberately points
+    `BATTERY_SIM_DATA_DIR` somewhere keeps that choice. Individual tests still redirect to their
+    own `tmp_path` as before; this only catches the ones that never redirect at all, which would
+    otherwise share one directory for the session.
+    """
+    if os.environ.get("BATTERY_SIM_DATA_DIR"):
+        return
+    d = tempfile.mkdtemp(prefix="battery-sim-tests-")
+    os.environ["BATTERY_SIM_DATA_DIR"] = d
+    # Registered rather than left to the OS so a long-lived dev machine does not accumulate one
+    # of these per test run. `ignore_errors` because a test may have already removed it.
+    atexit.register(shutil.rmtree, d, ignore_errors=True)
+
+
+_isolate_data_dir()
 
 WORKSPACE_ID = "local"
 W = f"/w/{WORKSPACE_ID}"
