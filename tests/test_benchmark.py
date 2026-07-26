@@ -144,6 +144,31 @@ def _fixture_6_configs():
                         yield frame, cfg
 
 
+_FIXTURE_6_BENCHED = None
+
+
+def _fixture_6_benched():
+    """The fixture-6 sweep with its benchmark already run — computed once, reused by every test.
+
+    The sweep itself is cheap (~0.01s to build 162 frame/config pairs); the expense is the DP
+    inside `_bench`, at ~52 ms per configuration, or ~8.5s for one full pass. Three tests below
+    assert three different properties over this same sweep, so recomputing it per test cost ~17s
+    of the suite's runtime to arrive at identical numbers three times.
+
+    Sharing the results between tests is safe here rather than merely convenient: `run_all` and
+    `energy_benchmark` are pure over the frame and config (neither is mutated by a run, and a
+    re-run returns an equal block), and `EnergyBenchmark` is a frozen dataclass, so a consumer
+    cannot mutate what the next test will read. The float drift alongside it is immutable too.
+    The tests keep one property each — the reason this is a cache and not a merged test.
+    """
+    global _FIXTURE_6_BENCHED
+    if _FIXTURE_6_BENCHED is None:
+        _FIXTURE_6_BENCHED = [
+            (frame, cfg, *_bench(frame, cfg)) for frame, cfg in _fixture_6_configs()
+        ]
+    return _FIXTURE_6_BENCHED
+
+
 def test_fixture_6_perfect_foresight_bounds_every_policy():
     """§6.14 fixture 6, over 162 configurations, in the ENERGY block's own units.
 
@@ -153,8 +178,7 @@ def test_fixture_6_perfect_foresight_bounds_every_policy():
     other is denied.
     """
     checked = 0
-    for frame, cfg in _fixture_6_configs():
-        bench, policy_drift = _bench(frame, cfg)
+    for _frame_, cfg, bench, policy_drift in _fixture_6_benched():
         policy = _saving_drift_corrected(bench.policy_saved_kwh, policy_drift, cfg)
         bound = _saving_drift_corrected(
             bench.perfect_foresight_saved_kwh, bench.soc_end_kwh - bench.soc_start_kwh, cfg
@@ -217,8 +241,7 @@ def test_capture_ratio_is_never_above_one_across_the_sweep():
         is a real edge the panel can reach, and it is recorded here rather than hidden by a clamp.
     """
     checked = 0
-    for frame, cfg in _fixture_6_configs():
-        bench, policy_drift = _bench(frame, cfg)
+    for _frame_, cfg, bench, policy_drift in _fixture_6_benched():
         if policy_drift < -SOC_COMPARE_EPS_KWH or bench.capture_ratio is None:
             continue
         if bench.perfect_foresight_saved_kwh <= 0.0:
@@ -241,8 +264,7 @@ def test_unconstrained_bound_is_at_least_the_inheriting_one():
     benchmark. Asserted across the sweep so a future change that makes the unconstrained DP somehow
     do WORSE — the only way this can fail — is caught.
     """
-    for frame, cfg in _fixture_6_configs():
-        bench, _ = _bench(frame, cfg)
+    for _frame_, cfg, bench, _drift_ in _fixture_6_benched():
         assert bench.perfect_foresight_saved_kwh_unconstrained is not None
         assert (
             bench.perfect_foresight_saved_kwh_unconstrained
@@ -1099,6 +1121,25 @@ def _fixture_6_cost_configs():
                             yield frame, cfg, curves
 
 
+_FIXTURE_6_COST_BENCHED = None
+
+
+def _fixture_6_cost_benched():
+    """The euro sweep with its benchmark already run — the cost-side twin of `_fixture_6_benched`.
+
+    Same reasoning, and the same purity and frozen-dataclass guarantees (`CostBenchmark`); see
+    that function. The saving is smaller here only because the sweep is smaller and already runs
+    at `_FAST_DP`: ~3.8s per pass across two consumers rather than ~8.5s across three.
+    """
+    global _FIXTURE_6_COST_BENCHED
+    if _FIXTURE_6_COST_BENCHED is None:
+        _FIXTURE_6_COST_BENCHED = [
+            (frame, cfg, _cost_bench(frame, cfg, curves))
+            for frame, cfg, curves in _fixture_6_cost_configs()
+        ]
+    return _FIXTURE_6_COST_BENCHED
+
+
 def test_fixture_6_cost_bound_holds_when_the_policy_does_not_liquidate():
     """§6.14 fixture 6 IN EUROS: `perfect_foresight_eur ≥ policy_eur`, over 72 configurations.
 
@@ -1116,8 +1157,7 @@ def test_fixture_6_cost_bound_holds_when_the_policy_does_not_liquidate():
     divergence rather than asserting it away.
     """
     checked = 0
-    for frame, cfg, curves in _fixture_6_cost_configs():
-        bench = _cost_bench(frame, cfg, curves)
+    for _frame_, cfg, bench in _fixture_6_cost_benched():
         if bench.policy_soc_delta_kwh < -SOC_COMPARE_EPS_KWH:
             continue  # a liquidating policy — see the test below for why it is excluded
         assert bench.perfect_foresight_eur >= bench.policy_eur - _DP_SLACK_EUR, (
@@ -1355,8 +1395,7 @@ def test_cost_unconstrained_bound_is_at_least_the_inheriting_one():
     across the fixture-6 sweep rather than on one fixture, because the only way it can fail is a
     change that makes the unconstrained pass somehow WORSE, which is not fixture-specific.
     """
-    for frame, cfg, curves in _fixture_6_cost_configs():
-        bench = _cost_bench(frame, cfg, curves)
+    for _frame_, cfg, bench in _fixture_6_cost_benched():
         assert bench.perfect_foresight_eur_unconstrained is not None
         assert bench.bound_eur_unconstrained is not None
         assert (
