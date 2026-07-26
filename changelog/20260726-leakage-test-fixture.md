@@ -160,11 +160,29 @@ It rendered on the developer's machine solely through the sample-view fallback, 
 live data means it is no longer scanned. It is dead in the real path, so this is judged correct
 rather than a regression — but it is a string that was covered before and is not now.
 
-### Not addressed
+### Follow-up: the last failing test — DONE
 
-`test_i18n.py` renders pages the same way and has the same live-data dependency; its one failing
-test is the visible symptom. Applying this treatment there is the obvious follow-up and was not
-in scope.
+`test_i18n.py::test_the_rendered_dutch_pages_use_dutch_number_conventions` was the same H13
+pattern, confirmed by measurement rather than assumed: it PASSED on the developer's checkout and
+FAILED in a bare worktree, with `POST /results` answering 409 for want of a dataset. It predates
+this work (last touched in `de6f3ab`), and its own docstring recorded the dependency — "the
+persisted dataset's numbers change between runs".
+
+Fixed the same way: a `seeded_client` fixture over a synthetic dataset. It is the only test in
+that file hitting `POST /results`; the others use `GET /`, which renders the sample fallback and
+does not 409.
+
+The seeded figures are chosen, not arbitrary. The assertions come in pairs — "Dutch must group
+with a point" AND "Dutch must not group with a comma" — and the second half passes trivially on a
+page with no grouped figure at all. So the dataset is sized to put a FOUR-DIGIT figure on the
+page (1.5 kWh/h over 40 days ≈ 1,440 kWh) and a price series to produce a three-decimal €/kWh
+line. Verified by rendering: `1,440 kWh` / `1.440 kWh` and `0.164` / `0,164 €/kWh`.
+
+Mutation-checked both ways: shrinking the import to 0.05 kWh/h — figures too small to group —
+makes the test FAIL rather than pass vacuously, and breaking `i18n.num` fails it too.
+
+Full suite in a bare worktree: **878 passed, 2 skipped, 0 failed**, 33.0s. `test_i18n.py` and
+`test_no_english_leakage.py` give identical results with and without the developer's `data/`.
 
 ## Phase 2, as originally specified
 
