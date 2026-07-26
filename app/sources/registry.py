@@ -19,13 +19,18 @@ from __future__ import annotations
 from app.domain.series_vocab import SlotSpec
 from app.sources.base import DataSource, SourceDescriptor
 from app.sources.energy_charts import EnergyChartsSource
+from app.sources.entsoe import EntsoeSource
 from app.sources.home_assistant import HomeAssistantSource
 
 # The instantiated sources, in registration order. HA is first so it leads every slot's list (it
-# is the primary origin, available for every slot); the preset spot-price source follows.
+# is the primary origin, available for every slot); the two preset spot-price sources follow.
+# Energy-Charts precedes ENTSO-E because it bridges live to `now` while ENTSO-E stops at the last
+# extracted dump, making it the better default for a window reaching the present; ENTSO-E offers
+# earlier coverage (mid-2022) and its own native resolutions.
 ALL_SOURCES: list[DataSource] = [
     HomeAssistantSource(),
     EnergyChartsSource(),
+    EntsoeSource(),
 ]
 
 # Descriptor-key → source lookup, built once from ALL_SOURCES. Keys are the stable ids persisted

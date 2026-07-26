@@ -374,9 +374,12 @@ Which slots offer which sources:
 - **Energy slots** (grid import/export, solar, battery charge/discharge) offer **Home
   Assistant**, and — pending — **Upload CSV**. These are the user's own records, so there is no
   preset dataset to offer.
-- **The Spot price slot** additionally offers the **preset Energy-Charts NL** historical
-  source. It is the one slot the app can fill from shipped data rather than the user's own,
-  because a day-ahead spot price is a public market series, not a household measurement.
+- **The Spot price slot** additionally offers two **preset NL historical** sources —
+  **Energy-Charts** and **ENTSO-E**. It is the one slot the app can fill from shipped data
+  rather than the user's own, because a day-ahead spot price is a public market series, not a
+  household measurement. The two are independent origins for the same quantity, so a run can be
+  repeated against either; they are listed Energy-Charts first because it bridges live to the
+  present, while ENTSO-E stops at the last extracted dump but reaches back further (mid-2022).
 - The **Spot price (min)** and **Spot price (max)** bracket slots offer Home Assistant only:
   they carry an HA measurement statistic's own intra-interval min/max, which the price API does
   not provide.

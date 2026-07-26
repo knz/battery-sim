@@ -36,21 +36,22 @@ It performs no HA I/O. This keeps the numerics in the pure domain layer and the 
 client-side computation" rule intact ([§5.1](08-architecture.md#51-diagram)): the browser is
 a fetch-and-forward pipe, not a place where deltas or diagnostics are computed.
 
-## The spot-price slot has a second source, loaded by the backend
+## The spot-price slot has preset sources, loaded by the backend
 
 Home Assistant is not the only source the spot-price slot can be filled from. The slot also
-offers a **preset historical dataset — NL day-ahead spot prices from Energy-Charts** — and,
-unlike everything else in this file, that source is fetched by the **backend**, not the
-browser. It is the one deliberate exception to "the fetch runs in the browser", and the
+offers **preset historical datasets — NL day-ahead spot prices from Energy-Charts and from
+ENTSO-E** — and, unlike everything else in this file, those sources are loaded by the
+**backend**, not the browser. This is the one deliberate exception to "the fetch runs in the
+browser", and the
 exception is justified by the same reasoning that put the HA fetch in the browser in the first
 place: the Energy-Charts price API is a **public cloud endpoint** the backend can reach
 directly, whereas a user's Home Assistant is LAN-only and can be reached only from the browser.
 There is no LAN, no user token, and no self-signed certificate in the way, so nothing forces
 this fetch into the browser and the backend can serve it more simply. The source abstraction
 that carries this distinction is [§5.1](08-architecture.md#51-diagram): Home Assistant is a
-`browser_fetch` source, the Energy-Charts source is a `backend_load` source.
+`browser_fetch` source, the two preset price sources are `backend_load` sources.
 
-How the backend serves it:
+How the backend serves the Energy-Charts source:
 
 - **Committed on disk, bridged live.** The repository ships NL day-ahead prices from 2023 up to
   a recent tail as committed CSVs (`app/data/spot_prices/NL-YYYY.csv`,
@@ -75,11 +76,35 @@ How the backend serves it:
   inference, and price kind — matches the HA path. This source decides only *where the points
   come from*, not how a price frame is built.
 
-The one outbound request this makes is a bidding zone (`NL`) and a date range, with no user or
-energy data attached, and it fires only at **fetch time** — when a fetch reifies a configuration
-in which this source is staged for the spot-price slot ([§2.2](02-ux-wireframes.md), §3.5), and
-only then if the requested window extends past the committed tail. Selecting the source in the
-drawer stages it but loads nothing; no request fires on selection. That egress is described in
+### The ENTSO-E source: the same series from an independent origin
+
+The second preset source carries the same quantity — NL day-ahead spot prices — from the
+**ENTSO-E transparency platform** rather than Energy-Charts. Having two independent origins for
+one series means a run can be repeated against either, and the two compared; on the overlapping
+years they have been checked to agree on every interval.
+
+- **Purely on-disk, no bridge.** It is backed by raw monthly ENTSO-E exports, a static corpus
+  with no live endpoint behind it, so — unlike Energy-Charts — nothing bridges to `now`. A
+  window past the last extracted interval simply yields the rows that exist. Extending coverage
+  means adding raw dumps and re-running `scripts/extract_entsoe_prices.py`. Consequently this
+  source makes **no outbound request at all** at fetch time.
+- **Earlier coverage.** The extract starts mid-2022, where the Energy-Charts dataset starts in
+  2023. That is why both are offered rather than one replacing the other.
+- **Per-interval resolution recorded.** The committed extract
+  (`app/data/spot_prices_entsoe/NL-YYYY.csv`) carries a third column giving each interval's own
+  native length in seconds (3600 or 900), because the hourly and quarter-hourly regimes coexist
+  within the 2025 file. Nothing is resampled on the way in. Note that the frame built from these
+  rows still carries a single inferred `resolution_s`, so the per-interval truth is currently
+  preserved *at rest* rather than propagated into the frame; consuming it properly is the grid
+  selector's job ([§6.2](09-ingest-algorithms.md#62-simulation-grid-selection-and-resampling)).
+
+The one outbound request either preset source makes — and only the Energy-Charts one makes it,
+the ENTSO-E source being purely on-disk — carries a bidding zone (`NL`) and a date range, with
+no user or energy data attached. It fires only at **fetch time** — when a fetch reifies a
+configuration in which that source is staged for the spot-price slot
+([§2.2](02-ux-wireframes.md), §3.5), and only then if the requested window extends past the
+committed tail. Selecting either source in the drawer stages it but loads nothing; no request
+fires on selection. That egress is described in
 [§7.5](15-data-quality-and-limits.md#75-operational-notes) alongside the HA requests and the
 feature-interest POST.
 

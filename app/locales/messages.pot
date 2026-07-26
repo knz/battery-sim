@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-25 20:26+0200\n"
+"POT-Creation-Date: 2026-07-26 11:44+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -672,6 +672,12 @@ msgid ""
 "bridged live to the end of your selected range."
 msgstr ""
 
+msgid ""
+"NL day-ahead spot prices from mid-2022, extracted from the ENTSO-E "
+"transparency platform at their native hourly then quarter-hourly "
+"resolution."
+msgstr ""
+
 msgid "Net saving"
 msgstr ""
 
@@ -752,6 +758,9 @@ msgid ""
 msgstr ""
 
 msgid "Preset"
+msgstr ""
+
+msgid "Preset historical (ENTSO-E NL)"
 msgstr ""
 
 msgid "Preset historical (Energy-Charts NL)"

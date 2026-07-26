@@ -100,6 +100,14 @@ which sources may fill it. It has two implementations:
   fetches directly. The committed dataset lives at `app/data/spot_prices/` — **shipped content
   versioned with the app, not per-workspace runtime data** — so it sits beside the code rather
   than under `<data_dir>/<workspace_id>/`.
+- **`EntsoeSource`** — kind `backend_load`, also available only for the `price_spot` slot: the
+  same NL day-ahead series from an independent origin, the ENTSO-E transparency platform
+  ([§4.3](06-home-assistant-ingestion.md)). Its `load` is purely on-disk with no bridge, so it
+  makes no request. Its committed dataset sits alongside the other at
+  `app/data/spot_prices_entsoe/`, in a format carrying one extra column: each interval's own
+  native resolution, since the hourly and quarter-hourly regimes coexist within a single year.
+  It is produced from the raw monthly ENTSO-E dumps by `scripts/extract_entsoe_prices.py`; the
+  raw corpus itself is hundreds of megabytes and is **not** committed.
 
 Backend-load slots are reified as part of a fetch: the browser declares each staged
 `backend_load` slot over the ingest WS (a `backend_load` message), and the route loads it
@@ -219,9 +227,10 @@ packager or a user who wants the reports to reach someone sets it deliberately. 
 run, written back to `config.toml`, and clearing the line generates a fresh one on the next
 start.
 
-The Energy-Charts spot-price source needs **no configuration**: the endpoint is a fixed public
-URL, the NL bidding zone is hardcoded for now, and there is **no API key** — the API is open.
-Nothing about this source appears in `config.toml`.
+Neither preset spot-price source needs **any configuration**. For Energy-Charts the endpoint is
+a fixed public URL, the NL bidding zone is hardcoded for now, and there is **no API key** — the
+API is open. The ENTSO-E source reads only committed on-disk files and makes no request at all.
+Nothing about either source appears in `config.toml`.
 
 Default parameter values shipped in `config.toml` are listed in
 [appendix-a-defaults.md](appendix-a-defaults.md).

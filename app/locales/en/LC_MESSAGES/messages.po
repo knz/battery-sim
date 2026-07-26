@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-25 18:07+0200\n"
+"POT-Creation-Date: 2026-07-26 11:44+0200\n"
 "PO-Revision-Date: 2026-07-23 20:40+0200\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: en\n"
@@ -17,6 +17,10 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.18.0\n"
+
+#, python-format
+msgid "%(baseline)s without a battery → %(battery)s with one"
+msgstr ""
 
 #, python-format
 msgid "%(before)s → %(after)s"
@@ -232,6 +236,12 @@ msgstr "Apply"
 msgid "Average"
 msgstr "Average"
 
+msgid "Avoided grid import"
+msgstr ""
+
+msgid "Avoided terugleverkosten"
+msgstr ""
+
 msgid "B"
 msgstr "B"
 
@@ -258,6 +268,9 @@ msgstr "Before you start"
 
 msgid "Benchmark: grid import avoided"
 msgstr "Benchmark: grid import avoided"
+
+msgid "Benchmark: money saved"
+msgstr ""
 
 msgid "Both"
 msgstr "Both"
@@ -359,6 +372,9 @@ msgstr "Contract types"
 msgid "Conversion losses"
 msgstr "Conversion losses"
 
+msgid "Cost savings"
+msgstr ""
+
 msgid "Could not load. Please try again."
 msgstr "Could not load. Please try again."
 
@@ -436,7 +452,12 @@ msgid ""
 "contract. Variable — the supplier sets the rate and revises it "
 "periodically, typically every six months; between revisions it behaves "
 "exactly like a fixed contract."
-msgstr "Dynamic — the price follows the EPEX day-ahead market and changes every hour. Fixed — one normaal and one dal rate, agreed for the term of the contract. Variable — the supplier sets the rate and revises it periodically, typically every six months; between revisions it behaves exactly like a fixed contract."
+msgstr ""
+"Dynamic — the price follows the EPEX day-ahead market and changes every "
+"hour. Fixed — one normaal and one dal rate, agreed for the term of the "
+"contract. Variable — the supplier sets the rate and revises it "
+"periodically, typically every six months; between revisions it behaves "
+"exactly like a fixed contract."
 
 msgid "EQUIVALENT FULL CYCLES"
 msgstr "EQUIVALENT FULL CYCLES"
@@ -483,6 +504,9 @@ msgstr "Extra grid import"
 msgid "Feed-in"
 msgstr "Feed-in"
 
+msgid "Feed-in floor top-up"
+msgstr ""
+
 msgid "Fetch history"
 msgstr "Fetch history"
 
@@ -503,7 +527,9 @@ msgstr "Fixed"
 msgid ""
 "Fixed costs (vastrecht, systeembeheer, vermindering) do not change with a"
 " battery and are excluded from savings."
-msgstr "Fixed costs (vastrecht, systeembeheer, vermindering) do not change with a battery and are excluded from savings."
+msgstr ""
+"Fixed costs (vastrecht, systeembeheer, vermindering) do not change with a"
+" battery and are excluded from savings."
 
 msgid "Flat rate"
 msgstr "Flat rate"
@@ -522,6 +548,9 @@ msgstr "Gaps"
 
 msgid "Grid"
 msgstr "Grid"
+
+msgid "Grid arbitrage export revenue"
+msgstr ""
 
 msgid "Grid charge when spot price is in band"
 msgstr "Grid charge when spot price is in band"
@@ -555,6 +584,9 @@ msgstr ""
 "Grid import exceeded household load over this window — your existing "
 "battery ended it more charged than it started. This evens out over full "
 "charge/discharge cycles."
+
+msgid "Grid import for charging"
+msgstr ""
 
 msgid "Grid import, no battery"
 msgstr "Grid import, no battery"
@@ -646,6 +678,12 @@ msgstr "Loading %(slot)s…"
 msgid "Loading…"
 msgstr "Loading…"
 
+msgid "Lost feed-in compensation"
+msgstr ""
+
+msgid "MONEY SAVED"
+msgstr ""
+
 msgid "Max charge power"
 msgstr "Max charge power"
 
@@ -670,6 +708,9 @@ msgstr "Minimum state of charge must be below the maximum."
 msgid "Monthly grid import"
 msgstr "Monthly grid import"
 
+msgid "Monthly savings (€)"
+msgstr ""
+
 msgid "Must be a whole number of at least 2."
 msgstr "Must be a whole number of at least 2."
 
@@ -685,6 +726,18 @@ msgid ""
 msgstr ""
 "NL day-ahead spot prices from 2023 to today: committed on disk and "
 "bridged live to the end of your selected range."
+
+msgid ""
+"NL day-ahead spot prices from mid-2022, extracted from the ENTSO-E "
+"transparency platform at their native hourly then quarter-hourly "
+"resolution."
+msgstr ""
+"NL day-ahead spot prices from mid-2022, extracted from the ENTSO-E "
+"transparency platform at their native hourly then quarter-hourly "
+"resolution."
+
+msgid "Net saving"
+msgstr ""
 
 msgid "Next: parameters →"
 msgstr "Next: parameters →"
@@ -735,6 +788,20 @@ msgstr ""
 "Over this period even a perfectly-informed battery could not have avoided"
 " any grid import, so there is no capture ratio to report."
 
+msgid ""
+"Over this period even a perfectly-informed battery could not have saved "
+"any money, so there is no capture ratio to report."
+msgstr ""
+
+msgid ""
+"Over this period the statutory feed-in floor paid out, and the benchmark "
+"cannot see it: the floor is assessed over a whole billing period while "
+"the benchmark optimises each interval on its own. The ceiling above is "
+"therefore approximate for this period, and it is a floor on the ceiling "
+"rather than a hard one — a policy could in principle earn a larger top-up"
+" than the benchmark's dispatch does."
+msgstr ""
+
 msgid "PARAMETERS"
 msgstr "PARAMETERS"
 
@@ -768,8 +835,16 @@ msgstr ""
 msgid "Preset"
 msgstr "Preset"
 
+msgid "Preset historical (ENTSO-E NL)"
+msgstr "Preset historical (ENTSO-E NL)"
+
 msgid "Preset historical (Energy-Charts NL)"
 msgstr "Preset historical (Energy-Charts NL)"
+
+msgid ""
+"Priced under the 2027 regime from the contract you entered. See the "
+"caveats below."
+msgstr ""
 
 msgid "Pricing"
 msgstr "Pricing"
@@ -895,6 +970,13 @@ msgstr "Solar production"
 msgid "Solar surplus only (net zero at the grid)"
 msgstr "Solar surplus only (net zero at the grid)"
 
+msgid ""
+"Some of the export this battery avoided would have earned a NEGATIVE net "
+"amount — the terugleverkosten on it exceeded the compensation — so not "
+"exporting is counted as a gain rather than as a loss. That is how the "
+"2027 regime works and not an error in the arithmetic."
+msgstr ""
+
 msgid "Source"
 msgstr "Source"
 
@@ -1003,6 +1085,15 @@ msgstr ""
 "must return the battery to the state of charge it started from, and your "
 "policy did not. There is no capture ratio to report for this period."
 
+#, python-format
+msgid ""
+"The best possible dispatch over this period could not have saved any "
+"money, yet your policy shows %(policy)s saved. That figure is not "
+"something a perfectly-informed battery could reproduce: the benchmark "
+"must return the battery to the state of charge it started from, and your "
+"policy did not. There is no capture ratio to report for this period."
+msgstr ""
+
 msgid ""
 "The charge band and the discharge band overlap; charge and discharge "
 "requests will be netted against each other."
@@ -1025,6 +1116,15 @@ msgstr ""
 
 msgid "The connection must be 1-phase or 3-phase."
 msgstr "The connection must be 1-phase or 3-phase."
+
+msgid ""
+"The euro figures count only the part of your bill that responds to what "
+"you do with your electricity. Standing charges — vastrecht, "
+"netbeheerkosten and the vermindering energiebelasting — are left out, "
+"because they do not change when a battery is installed and would cancel "
+"out of the comparison anyway. So these are not two invoice totals; they "
+"are the two halves of your bill a battery can move."
+msgstr ""
 
 msgid ""
 "The initial state of charge is outside the operating window and will be "
@@ -1072,6 +1172,14 @@ msgstr ""
 "production was exported; lower means more went back to the grid."
 
 msgid ""
+"The statutory feed-in floor paid out over this period. It is assessed "
+"over a whole billing period rather than hour by hour, so it appears as "
+"its own line in the money breakdown and is left out of the monthly "
+"savings chart, whose bars therefore add up to slightly less than the "
+"headline figure."
+msgstr ""
+
+msgid ""
 "These answers decide which series are asked for below. They are saved "
 "when you fetch your data."
 msgstr ""
@@ -1113,8 +1221,26 @@ msgstr ""
 " energy-only run does not compute. An energy-only run cannot tell you "
 "whether the battery is worth buying."
 
+#, python-format
+msgid ""
+"This battery imported %(extra)s MORE from the grid than the same "
+"household without one. That is a real result, not an error: round-trip "
+"losses and standby cost energy. The battery's value is in the price "
+"spread — charging cheaply and discharging when prices are high — which is"
+" a euro quantity, so read the cost savings below rather than this figure "
+"to judge whether it is worth buying."
+msgstr ""
+
 msgid "This control"
 msgstr "This control"
+
+msgid ""
+"This is priced under the post-2027 regime, in which net metering no "
+"longer exists. Several of those tariffs are not yet published — the "
+"terugleverkosten rate in particular is a placeholder — so the euro "
+"figures move with the contract you entered in the parameters panel and "
+"should be read as a scenario rather than as a quotation."
+msgstr ""
 
 msgid ""
 "This option needs solar panels: it charges the battery only from solar "
@@ -1184,6 +1310,9 @@ msgstr "Want to know what this is worth in euros?"
 msgid "Where the energy comes from"
 msgstr "Where the energy comes from"
 
+msgid "Where the money comes from"
+msgstr ""
+
 msgid "Yes"
 msgstr "Yes"
 
@@ -1210,6 +1339,19 @@ msgstr ""
 " knows every future price exactly and no real controller reaches it, so "
 "treat this as a floor on what a better policy could achieve, not as a "
 "target."
+
+#, python-format
+msgid ""
+"Your battery ended this period %(residual)s less charged than it started,"
+" so part of the money it saved was paid for out of the charge it began "
+"with rather than earned by its dispatch. The benchmark is not allowed to "
+"do that — it must finish at the state of charge it started from. In "
+"kilowatt-hours the two can be put back on a comparable footing; in euros "
+"they cannot, because what that leftover charge was worth depends on when "
+"it was used, and the two dispatches use it at different times. So no "
+"capture ratio is shown for this period. Selecting a period that starts "
+"and ends at a similar state of charge gives a comparison in euros."
+msgstr ""
 
 msgid ""
 "Your battery is wired across the phases in a way version 1 does not "
@@ -1324,6 +1466,24 @@ msgstr ""
 
 #, python-format
 msgid ""
+"Your policy captures %(pct)s percent of the money a perfectly-informed "
+"battery could have saved. A different ceiling from the energy benchmark, "
+"and a different dispatch behind it: buying cheaply is not the same as "
+"importing little."
+msgstr ""
+
+#, python-format
+msgid ""
+"Your policy captures %(pct)s percent of the money a perfectly-informed "
+"battery could have saved. A different ceiling from the energy benchmark, "
+"and a different dispatch behind it: buying cheaply is not the same as "
+"importing little. Allowed to export, that ceiling rises to %(ceiling)s (a"
+" %(unc_pct)s percent capture) — the extra is arbitrage your export "
+"setting currently forbids."
+msgstr ""
+
+#, python-format
+msgid ""
 "Your prices change every %(native)s but the run is %(res)s, so the run "
 "sees one averaged price per interval and cannot act on within-interval "
 "swings."
@@ -1400,6 +1560,9 @@ msgstr "compensation = max(0, α × bare + β)"
 msgid "computing the perfect-foresight benchmark…"
 msgstr "computing the perfect-foresight benchmark…"
 
+msgid "computing…"
+msgstr ""
+
 msgid "connection closed"
 msgstr "connection closed"
 
@@ -1416,6 +1579,9 @@ msgstr[1] "days"
 
 msgid "days"
 msgstr "days"
+
+msgid "disabled"
+msgstr ""
 
 msgid "excl. VAT"
 msgstr "excl. VAT"
@@ -1568,6 +1734,9 @@ msgstr "— none —"
 
 msgid "…if export allowed"
 msgstr "…if export allowed"
+
+msgid "€"
+msgstr ""
 
 msgid "≈260 kWh/yr"
 msgstr "≈260 kWh/yr"
