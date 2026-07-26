@@ -705,3 +705,47 @@ translated, so this is a coverage gap rather than a leak — but it is the kind 
 later edit to those paths ship English unnoticed. Worth folding into phase 6, which already owns
 extending that scan.
 *Origin:* `20260726-workspaces-phase3.md` (review, finding 6).
+
+**K1. No config-writing route checks `is_document_readable`, so an unreadable document is
+silently replaced by appendix-A defaults.**
+`simconfig_store.is_document_readable` exists for exactly this and its docstring states the rule:
+"`load()` never raises… That makes it the right function for RENDERING a page and the wrong basis
+for a REWRITE, because the defaults it invents would then replace the values it could not read.
+Anything that saves back a config it did not obtain from the user needs this distinction." No write
+path calls it. `workspaces.migrate_local` is the only guarded caller anywhere.
+
+Reproduced against a document with `version` bumped to 2 (a future build, or a hand edit), and
+again with a JSON syntax error. Both `POST /w/{id}/data` and `POST /w/{id}/edit` return 303 while a
+17.5 kWh battery and a 63 A fuse become 10.0 and 25.0 and the version is silently downgraded to 1:
+
+    POST /data   status=303 cap=10.0 fuse=25.0 version=1
+    POST /edit   status=303 cap=10.0 fuse=25.0 version=1
+
+`POST /params` has the same shape (it writes the submitted values over invented ones), as does the
+fetch path via `_persist_setup_answers`. So this is class-wide and pre-dates the workspaces work —
+phase 4.1 did not introduce it. What phase 4.1 changed is exposure: it puts a `[ Save ]` button on
+the behaviour that a user clicks deliberately.
+
+Deliberately not fixed on one route: a check on `POST /w/{id}/data` alone would leave the other
+three clobbering, which is the drift the same-site standing note (B6, and phase 3's changelog)
+warns against. The four config-writing routes should gain it together, along with a decision about
+what the user is shown when the document is unreadable — a 409-style "this analysis was written by
+a newer version" screen is the obvious shape, and it is a product call, not a mechanical one. Worth
+weighing against a version-downgrade being arguably worse than the CSRF exposure B6 covers.
+*Origin:* `20260726-workspaces-phase4.md` (review, finding 2).
+
+**K2. `[ Save ]` on the configure-data screen leaves a staged-but-unfetched mapping without a
+warning.**
+§2′.8 says the dirty check "does not guard `[ Save ]` or `[ Next → ]`, which persist", and the
+screen follows that literally. But on the edit screen `[ Save ]` persists the thing the check is
+about, whereas here it persists two booleans while the staged slot mapping stays unfetched. So the
+rule is honoured and its rationale is not: a user who stages a source and clicks `[ Save ]` is told
+nothing and lands on a list whose results still describe the old data.
+
+Reproduced in Chromium: after `[ Save ]` with a current-generation store entry, the dialog does not
+appear, the page navigates to `/`, and the entry survives in `localStorage` (so `ha_fetch.js`
+restores it on return — nothing is lost). This is a missing signal, not data loss, which is why it
+is filed rather than fixed. The plausible answers are to guard `[ Save ]` here too, or to have
+`[ Save ]` also commit the staged mapping; the second changes what `[ Save ]` means on this screen
+and is a product call.
+*Origin:* `20260726-workspaces-phase4.md` (review, finding 5).

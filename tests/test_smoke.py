@@ -800,3 +800,238 @@ def test_a_collapsed_advanced_pane_still_submits_its_values(browser, base_url):
     # template wrote it.
     assert "1 value overridden" in pg.locator("body").inner_text().lower()
     context.close()
+
+
+# ── The configure-data screen (phase 4.1, §2′.5, §2′.8, §2′.11) ────────────────────────────────
+
+
+def test_the_configure_data_button_reaches_the_screen_and_saves(browser, base_url):
+    """§2′.2's `[ Configure data ]` → §2′.5's screen → `[ Save ]` → back to the list.
+
+    The round trip through the controls a user touches. What only a browser can check here is that
+    the footer's `[ Save ]` — which sits OUTSIDE the form and reaches it through HTML's `form=`
+    association — actually submits the household box, and that the answer comes back on a reload.
+    A route test posts the fields directly and so cannot see the association at all.
+    """
+    url = _workspace_url(base_url)
+    workspace_id = url.rstrip("/").split("/")[-2]
+
+    context = browser.new_context()
+    context.add_cookies([{"name": "lang", "value": "en", "url": base_url}])
+    pg = context.new_page()
+    pg.goto(base_url + "/", wait_until="networkidle")
+
+    card = pg.locator(f'[data-workspace-id="{workspace_id}"]')
+    card.get_by_role("link", name="Configure data").click()
+    pg.wait_for_load_state("networkidle")
+    assert "/data" in pg.url, pg.url
+    # The screen, not a 404 or the three-panel page.
+    assert pg.locator("#slot-roster").count() == 1
+    assert pg.locator("#panel-params").count() == 0
+
+    # Answer both questions the non-default way, then save.
+    pg.locator('input[name="setup_haspv"][value="0"]').check()
+    pg.locator('input[name="setup_hasbattery"][value="1"]').check()
+    pg.get_by_role("button", name="Save").click()
+    pg.wait_for_load_state("networkidle")
+    assert pg.url.rstrip("/") == base_url.rstrip("/")
+
+    # Reopened, the screen reports what was stored — so the submit really went through the form.
+    pg.goto(f"{base_url}/w/{workspace_id}/data", wait_until="networkidle")
+    assert pg.locator('input[name="setup_haspv"][value="0"]').is_checked()
+    assert pg.locator('input[name="setup_hasbattery"][value="1"]').is_checked()
+
+    # Leave the module's shared workspace as it was found (has_pv on, no battery), since other
+    # tests in this file read the roster's PV-gated rows.
+    pg.locator('input[name="setup_haspv"][value="1"]').check()
+    pg.locator('input[name="setup_hasbattery"][value="0"]').check()
+    pg.get_by_role("button", name="Save").click()
+    pg.wait_for_load_state("networkidle")
+    context.close()
+
+
+def test_the_household_answers_regate_the_roster_without_a_round_trip(browser, base_url):
+    """§2′.5: the two answers "still re-derive the roster in place".
+
+    `applySetupGating` keys on the radio NAMES, so this is also the test that catches the names
+    drifting to the `setup.`-prefixed form: a rename leaves the handler bound to nothing and the
+    solar row simply stops responding. Asserted with no navigation between the two states, which is
+    the "in place" part.
+    """
+    url = _workspace_url(base_url)
+    workspace_id = url.rstrip("/").split("/")[-2]
+
+    context = browser.new_context()
+    context.add_cookies([{"name": "lang", "value": "en", "url": base_url}])
+    pg = context.new_page()
+    pg.goto(f"{base_url}/w/{workspace_id}/data", wait_until="networkidle")
+
+    pv_row = pg.locator("tr.slot-row[data-pv-only]").first
+    pg.locator('input[name="setup_haspv"][value="1"]').check()
+    assert pv_row.is_visible(), "the PV row should be shown when the answer is yes"
+
+    pg.locator('input[name="setup_haspv"][value="0"]').check()
+    assert not pv_row.is_visible(), "answering no should hide the PV row with no reload"
+
+    pg.locator('input[name="setup_haspv"][value="1"]').check()
+    assert pv_row.is_visible(), "and turning it back on should restore the row"
+    context.close()
+
+
+def test_leaving_with_a_staged_but_unfetched_slot_warns(browser, base_url):
+    """§2′.8: the dirty test here is a slot mapping changed since the last fetch.
+
+    The state is a generation-tagged `localStorage` entry (§2′.11), so this is the only place the
+    check can be exercised at all. All three branches are here, because each is a different
+    specified behaviour and two of them are the ones a naive check gets wrong:
+
+      * a CURRENT-generation entry warns, and `[ Keep editing ]` stays on the screen;
+      * a STALE-generation entry does NOT warn — the server already superseded it, so warning
+        would be a prompt about a change that has taken effect;
+      * no entry at all does not warn, which §2′.8 requires ("an unconditional prompt would be
+        noise on the common case of opening a screen to look at it").
+    """
+    url = _workspace_url(base_url)
+    workspace_id = url.rstrip("/").split("/")[-2]
+    key = f"ha.slots.{workspace_id}"
+
+    context = browser.new_context()
+    context.add_cookies([{"name": "lang", "value": "en", "url": base_url}])
+    pg = context.new_page()
+    pg.goto(f"{base_url}/w/{workspace_id}/data", wait_until="networkidle")
+
+    # The generation the server rendered — what a staged entry has to match to count as unfetched.
+    gen = pg.evaluate(
+        "() => JSON.parse(document.getElementById('source-generation').textContent)"
+    )
+
+    # 1. Nothing staged: the back link leaves immediately.
+    pg.evaluate("k => localStorage.removeItem(k)", key)
+    pg.get_by_role("link", name="Cancel").click()
+    pg.wait_for_load_state("networkidle")
+    assert pg.url.rstrip("/") == base_url.rstrip("/"), "a clean screen must not prompt"
+
+    # 2. A staged entry at the CURRENT generation: the warning fires and Keep editing stays.
+    pg.goto(f"{base_url}/w/{workspace_id}/data", wait_until="networkidle")
+    pg.evaluate(
+        """([k, g]) => localStorage.setItem(k, JSON.stringify(
+               {gen: g, slots: {grid_import_t1: {source: 'home_assistant', statId: 'sensor.x'}}}))""",
+        [key, gen],
+    )
+    pg.get_by_role("link", name="Cancel").click()
+    assert pg.locator("#unfetched-dialog").is_visible(), "a staged slot must warn before leaving"
+    body = pg.locator("#unfetched-dialog").inner_text()
+    assert "not loaded your data yet" in body
+    pg.get_by_role("button", name="Keep editing").first.click()
+    pg.wait_for_timeout(200)
+    assert "/data" in pg.url, "Keep editing must stay on the screen"
+
+    # 3. The same entry at a STALE generation is not dirty: a fetch has superseded it.
+    pg.evaluate(
+        """([k, g]) => localStorage.setItem(k, JSON.stringify(
+               {gen: g - 1, slots: {grid_import_t1: {source: 'home_assistant', statId: 'sensor.x'}}}))""",
+        [key, gen],
+    )
+    pg.get_by_role("link", name="Cancel").click()
+    pg.wait_for_load_state("networkidle")
+    assert pg.url.rstrip("/") == base_url.rstrip("/"), (
+        "a stale-generation entry must not warn — the server already superseded it"
+    )
+
+    pg.goto(f"{base_url}/w/{workspace_id}/data", wait_until="networkidle")
+    pg.evaluate("k => localStorage.removeItem(k)", key)
+    context.close()
+
+
+def test_leaving_anyway_from_the_warning_actually_leaves(browser, base_url):
+    """The other button on §2′.8's dialog: `[ Leave anyway ]` discards and navigates."""
+    url = _workspace_url(base_url)
+    workspace_id = url.rstrip("/").split("/")[-2]
+    key = f"ha.slots.{workspace_id}"
+
+    context = browser.new_context()
+    context.add_cookies([{"name": "lang", "value": "en", "url": base_url}])
+    pg = context.new_page()
+    pg.goto(f"{base_url}/w/{workspace_id}/data", wait_until="networkidle")
+    gen = pg.evaluate(
+        "() => JSON.parse(document.getElementById('source-generation').textContent)"
+    )
+    pg.evaluate(
+        """([k, g]) => localStorage.setItem(k, JSON.stringify(
+               {gen: g, slots: {grid_import_t1: {source: 'home_assistant', statId: 'sensor.x'}}}))""",
+        [key, gen],
+    )
+
+    pg.get_by_role("link", name="Cancel").click()
+    assert pg.locator("#unfetched-dialog").is_visible()
+    pg.get_by_role("button", name="Leave anyway").click()
+    pg.wait_for_load_state("networkidle")
+    assert pg.url.rstrip("/") == base_url.rstrip("/")
+
+    pg.goto(f"{base_url}/w/{workspace_id}/data", wait_until="networkidle")
+    pg.evaluate("k => localStorage.removeItem(k)", key)
+    context.close()
+
+
+def test_the_source_drawer_opens_on_the_configure_data_screen(browser, base_url):
+    """§2′.5: the drawer stays a right-side overlay over THIS screen.
+
+    `app/static/ha_fetch.js` needed no change to work here — it gates on `#slot-roster` and resolves
+    everything else by id — and this is what actually verifies that claim rather than asserting it.
+    A missing hook would leave the button inert, which no route test can see.
+    """
+    url = _workspace_url(base_url)
+    workspace_id = url.rstrip("/").split("/")[-2]
+
+    context = browser.new_context()
+    context.add_cookies([{"name": "lang", "value": "en", "url": base_url}])
+    pg = context.new_page()
+    pg.goto(f"{base_url}/w/{workspace_id}/data", wait_until="networkidle")
+
+    drawer = pg.locator("#source-drawer")
+    assert not drawer.is_visible(), "the drawer starts closed"
+
+    pg.locator("#slot-roster .slot-source-btn").first.click()
+    assert drawer.is_visible(), "the slot's source button must open the drawer"
+    # It is populated for the clicked slot, not empty chrome.
+    assert pg.locator("#drawer-source-list input[type=radio]").count() > 0
+
+    # Cancel discards and closes, leaving the committed state untouched (§2.2).
+    pg.locator("#drawer-cancel").click()
+    pg.wait_for_timeout(150)
+    assert not drawer.is_visible()
+    context.close()
+
+
+def test_the_wizard_footer_walks_edit_to_data_to_results(browser, base_url):
+    """§2′.8's wizard chain, now that step 2 exists.
+
+    Phase 3 had to send `[ Next → ]` from step 1 straight to the results page because the
+    configure-data screen did not exist. This walks the real sequence and is what would catch that
+    temporary destination being left behind.
+    """
+    url = _workspace_url(base_url)
+    workspace_id = url.rstrip("/").split("/")[-2]
+
+    context = browser.new_context()
+    context.add_cookies([{"name": "lang", "value": "en", "url": base_url}])
+    pg = context.new_page()
+    pg.goto(f"{base_url}/w/{workspace_id}/edit?mode=wizard", wait_until="networkidle")
+
+    pg.get_by_role("button", name="Next").click()
+    pg.wait_for_load_state("networkidle")
+    assert "/data" in pg.url, f"step 1's Next should reach configure data, got {pg.url}"
+    assert "mode=wizard" in pg.url, "the wizard mode must survive the step"
+
+    # Step 2's Previous goes BACK to step 1, still in wizard mode.
+    pg.get_by_role("link", name="Previous").click()
+    pg.wait_for_load_state("networkidle")
+    assert "/edit" in pg.url and "mode=wizard" in pg.url, pg.url
+
+    # Forward again, then step 2's Next ends the wizard on the results screen.
+    pg.get_by_role("button", name="Next").click()
+    pg.wait_for_load_state("networkidle")
+    pg.get_by_role("button", name="Next").click()
+    pg.wait_for_load_state("networkidle")
+    assert "/results" in pg.url, f"step 2's Next should reach results, got {pg.url}"
+    context.close()

@@ -1,0 +1,84 @@
+{#
+  _data_household.html — "About your household": the has_pv / has_battery scope questions
+  (specs/02-ux-wireframes.md §2.1, specs/20-workspaces-ux.md §2′.5).
+
+  Shared by panel ① (_panel_data.html, where these two questions sit at the top) and by the
+  configure-data screen (workspace_data.html), so the two render ONE copy of the markup rather
+  than two that can drift.
+
+  **The control names are `setup_haspv` / `setup_hasbattery`, deliberately NOT the `setup.`
+  prefix.** That is what keeps them independent of `params-form`: index.html's delegated `change`
+  handler asks `#params-form` to submit for any control whose name STARTS WITH `setup.`, and
+  `params_view.parse_form` reads `setup.simulate_cost` / `setup.has_pv` under the `setup` section
+  marker. These two answers travel by neither route — they are committed by `[ Fetch history ]`
+  (as fields on the ingest WS `header`, app/static/ha_fetch.js) and, on the configure-data screen,
+  by that screen's own `[ Save ]` / `[ Next → ]`. Renaming them to `setup.has_pv` would silently
+  enlist them into panel ②'s form and into `parse_form`'s section-gated branch, which is a
+  different commit point with different semantics.
+
+  Both re-gate the slot roster IMMEDIATELY and client-side (ha_fetch.js `applySetupGating`,
+  keyed on these exact two names), so the user sees which series are being asked for as they
+  answer. The server computes the initial hidden state, so the first paint is right with JS off.
+
+  `titled` draws §2′.5's box chrome — the heading and the card border. Panel ① passes false: as a
+  section at the top of a panel that already has a title, an extra titled box would be chrome,
+  which is the reading §2′.5 gives for the screen case being the other way round ("an untitled
+  pair of questions above a table reads as chrome; the box names what they are for").
+
+  Reads `cfg.has_pv` and `cfg.has_battery` from the render context.
+#}
+{% macro household_box(cfg, titled=False) %}
+{% if titled %}
+<div class="card bg-base-100 border border-base-300">
+  <div class="card-body gap-2 p-4">
+    <h2 class="text-sm font-semibold text-base-content/70">{{ _('About your household') }}</h2>
+{% endif %}
+
+    {# ── Scope questions (§2.1) ──────────────────────────────────────────────
+       `has_pv` and `has_battery` exist to decide which SLOTS are asked for, so the answer belongs
+       next to the roster it governs. `simulate_cost` is NOT here — it shapes panels ② and ③ as
+       well, so it is not a data-step question (§2′.6 moves it into the results block). #}
+    <div class="flex flex-col gap-2" id="setup-scope">
+      <div class="flex flex-wrap items-center gap-3">
+        <span class="w-56 label-text">{{ _('Do you have solar PV?') }}</span>
+        <label class="label cursor-pointer gap-1">
+          <input type="radio" name="setup_haspv" value="1" class="radio radio-sm" {% if cfg.has_pv %}checked{% endif %} />
+          <span class="label-text">{{ _('Yes') }}</span>
+        </label>
+        <label class="label cursor-pointer gap-1">
+          <input type="radio" name="setup_haspv" value="0" class="radio radio-sm" {% if not cfg.has_pv %}checked{% endif %} />
+          <span class="label-text">{{ _('No') }}</span>
+        </label>
+      </div>
+
+      {# The ⓘ is not decoration: "do you have a battery?" on a battery simulator invites the
+         wrong reading — that it configures the SIMULATED battery. It does not; it only decides
+         whether the existing battery's series are asked for, so load can be reconstructed net
+         of it (§6.3). Uses the shared .slot-info-btn / #slot-info-dialog pair. #}
+      <div class="flex flex-wrap items-center gap-3">
+        <span class="w-56 label-text">
+          {{ _('Do you already have a battery?') }}
+          <button type="button" class="btn btn-ghost btn-xs btn-circle align-middle slot-info-btn"
+                  aria-label="{{ _('About') }} {{ _('Do you already have a battery?') }}"
+                  data-info-title="{{ _('Do you already have a battery?') }}"
+                  data-info-body="{{ _('Answer yes only to supply your existing battery\'s charge and discharge series. They are used solely to work out what your house actually consumed — the app adds them back when reconstructing load from your grid meter, which only sees energy crossing the connection. The simulation below does not build on your existing battery: it assumes that battery is replaced by the one you configure in the parameters panel.') }}">ⓘ</button>
+        </span>
+        <label class="label cursor-pointer gap-1">
+          <input type="radio" name="setup_hasbattery" value="1" class="radio radio-sm" {% if cfg.has_battery %}checked{% endif %} />
+          <span class="label-text">{{ _('Yes') }}</span>
+        </label>
+        <label class="label cursor-pointer gap-1">
+          <input type="radio" name="setup_hasbattery" value="0" class="radio radio-sm" {% if not cfg.has_battery %}checked{% endif %} />
+          <span class="label-text">{{ _('No') }}</span>
+        </label>
+      </div>
+      <p class="text-xs text-base-content/60">
+        ⓘ {{ _('These answers decide which series are asked for below. They are saved when you fetch your data.') }}
+      </p>
+    </div>
+
+{% if titled %}
+  </div>
+</div>
+{% endif %}
+{% endmacro %}

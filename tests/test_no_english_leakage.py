@@ -328,6 +328,13 @@ def rendered(request):
                 # nothing else looks at, and an unscanned new screen is the one this file's H13
                 # reasoning says will quietly ship in English.
                 "/w/{id}/edit": client.get(page().replace("/results", "/edit"), headers=hdr),
+                # The configure-data screen (phase 4.1, §2′.5). A new surface with a lot of prose
+                # nothing else scans: the roster's legend and role labels, the drawer's chrome, the
+                # HA connection modal, the household box's ⓘ blurb, the footer, and three dialogs
+                # including §2′.8's staged-but-unfetched wording. Scanned here for the same reason
+                # the edit screen is — the strings that quietly ship in English are the ones on a
+                # page no scan looks at.
+                "/w/{id}/data": client.get(page().replace("/results", "/data"), headers=hdr),
                 "/results": client.post(
                     w("/results"), json={"period": "last_1_year"}, headers=hdr
                 ),
@@ -352,7 +359,10 @@ def rendered(request):
 # The five surfaces scanned. `/` is the workspace LIST since phase 2, `/w/{id}/results` is the
 # three-panel page that used to live there, and `/w/{id}/edit` is phase 3's edit-workspace
 # screen — all three are scanned, because each carries prose nothing else looks at.
-_PAGES = ["/", "/w/{id}/results", "/w/{id}/edit", "/results", "/results/benchmark"]
+_PAGES = [
+    "/", "/w/{id}/results", "/w/{id}/edit", "/w/{id}/data",
+    "/results", "/results/benchmark",
+]
 
 
 @pytest.mark.parametrize("scenario", SCENARIOS)
@@ -415,6 +425,9 @@ def test_the_scenarios_between_them_render_a_lot_of_prose(rendered):
             # prose, but not three panels of caveats. Its floor sits below the ~150 words it
             # renders, guarding against collapse rather than asserting verbosity, for the same
             # reason as the list's.
+            # The configure-data screen carries the roster, the drawer's chrome, the HA modal and
+            # three dialogs, so it is prose-rich even in the empty state (~300 words there, more
+            # once the quality box and the glance appear). Its floor sits at the panel level.
             floor = (
                 25 if page == "/results/benchmark"
                 else 60 if page == "/"

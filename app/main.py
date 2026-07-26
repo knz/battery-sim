@@ -59,6 +59,16 @@ layers — `params_view.parse_form`, `issue_message`, `simconfig_store.save` —
 second copy of the coercion table. It is also the one caller that passes
 `pricing_configured=True` (§2′.6), which is what unblocks the results screen's cost toggle.
 
+**`GET`/`POST /w/{id}/data` are the configure-data screen** (phase 4.1, §2′.5): panel ① promoted to
+a screen of its own — the slot roster, the source drawer, the HA connection modal, the data-quality
+box and the glance, all unchanged and rendered from the SAME partials panel ① uses, plus §2′.5's
+titled "About your household" box and §2′.8's footer in place of the old `[ Next: parameters → ]`
+CTA. The POST writes only `has_pv` / `has_battery`, and writes them through `_write_setup_answers` —
+the same body the ingest-WS path commits them with — rather than through `params_view.parse_form`,
+which would mean choosing a `sections` marker for a form that draws no checkbox. It is also the
+reason `app/static/ha_fetch.js` needed no change: that file gates on `#slot-roster` and resolves
+everything else by id, so it runs unmodified on the new screen.
+
 **Routes are workspace-scoped** (phase 1). Everything that reads or writes one analysis's data
 lives under `/w/{workspace_id}/…` and resolves its workspace through `deps.get_workspace`
 (specs/08-architecture.md §5.1, §5.5 invariant 2) instead of defaulting to the module constant
@@ -88,6 +98,8 @@ Routes:
     POST /workspaces                    → create a workspace; 303 into it
     GET  /w/{id}/edit                   → the edit-workspace screen (workspace_edit.html, §2′.4)
     POST /w/{id}/edit                   → validate + persist it; 303 on success
+    GET  /w/{id}/data                   → the configure-data screen (workspace_data.html, §2′.5)
+    POST /w/{id}/data                   → persist has_pv / has_battery; 303 on success
     GET  /w/{id}/results                → the three-panel page for one workspace (index.html)
     POST /w/{id}/delete                 → delete the workspace and everything in it; 303 to /
     POST /w/{id}/data/delete            → delete its measurements, keep the config; 303 to /
@@ -125,6 +137,7 @@ from fastapi.staticfiles import StaticFiles
 from app import (
     config,
     csrf,
+    data_screen_view,
     data_view,
     dataset,
     db,
@@ -478,9 +491,195 @@ async def save_workspace_edit(
             request, ws, candidate, title, result=result, wizard=wizard, save_error=True
         )
 
-    # §2′.8: `[ Save ]` returns to the list; `[ Next → ]` advances a step. The wizard's step 2 is
-    # the configure-data screen, which phase 4 builds — until then it would 404, so the wizard
-    # lands on the results page for the same reason `POST /workspaces` does (see its docstring).
+    # §2′.8: `[ Save ]` returns to the list; `[ Next → ]` advances a step. Step 2 is the
+    # configure-data screen, which phase 4.1 built — so this now points at the real destination
+    # rather than skipping ahead to the results page as it did while step 2 did not exist.
+    destination = f"/w/{ws.id}/data?mode=wizard" if wizard else "/"
+    return RedirectResponse(destination, status_code=303)
+
+
+def _data_page(
+    request: Request,
+    ws: deps.Workspace,
+    *,
+    wizard: bool = False,
+    save_error: bool = False,
+) -> HTMLResponse:
+    """Render `workspace_data.html` for one workspace (§2′.5). Shared by the GET and the POST.
+
+    Builds panel ①'s context exactly as `index()` does, from the same two sources — the persisted
+    config for the scope answers, and the persisted dataset for the roster, the quality box and the
+    glance — with the static sample as the empty state. It is the same view-model
+    (`data_view.panel_data_from`, `summary_view.data_summary_from`) rather than a second one, so a
+    slot roster on this screen and the one in panel ① cannot describe the workspace differently.
+
+    `data_summary` is the "once data has loaded" gate §2′.5 puts on the quality box and the glance:
+    present from DATA_READY onward, dropped in the empty state, and dropped again when the frames
+    yield no simulatable grid. The template gates BOTH boxes on it.
+
+    A corrupt dataset falls back to the sample rather than 500ing, for the reason `index()` gives:
+    this screen is where a user goes to REPLACE the data, so it is the last screen that may refuse
+    to render because the data is bad.
+    """
+    locale = i18n.resolve_locale(request)
+
+    ctx = sample_view()
+    ctx["workspace_id"] = ws.id
+
+    cfg = simconfig_store.load(ws.id)
+    # The household box and the roster's gating read these three off `cfg`, the same keys panel ①
+    # is given. `simulate_cost` is included because the roster's two price-bracketing rows are
+    # gated on it — this screen does not draw that control (§2′.6 puts it on the results screen)
+    # but it must still honour the stored answer when deciding which rows to show.
+    ctx["cfg"] = {
+        "has_pv": cfg.has_pv,
+        "has_battery": cfg.has_battery,
+        "simulate_cost": cfg.simulate_cost,
+    }
+
+    # Two SEPARATE questions, and conflating them cost the quality box on this screen once
+    # already. `has_dataset` is "the user has loaded something"; `data_summary` is "those frames
+    # yield a simulatable grid", which `data_summary_from` returns None for. A price-only dataset
+    # — the spot-price preset loads on its own, so this is a real intermediate state — is the case
+    # where they differ: it must still get the quality box, because this is the screen a user
+    # comes to in order to find out WHY their data is unusable.
+    # `ctx` starts as `sample_view()`, so both keys arrive pre-populated with SAMPLE figures. Each
+    # is therefore replaced-or-dropped explicitly below; letting a sample value survive is how the
+    # empty state would come to show figures for data the user never supplied.
+    has_dataset = False
+    summary = None
+    try:
+        loaded = dataset.load_latest(ws.id)
+        if loaded is not None and loaded.frames:
+            has_dataset = True
+            ctx["data"] = data_view.panel_data_from(loaded)
+            summary = summary_view.data_summary_from(loaded)
+    except Exception:  # pragma: no cover - defensive: a corrupt dataset must not break the page
+        pass
+    if summary is not None:
+        ctx["data_summary"] = summary
+    else:
+        ctx.pop("data_summary", None)
+
+    ctx["lang"] = {
+        "current": locale,
+        "options": [{"code": c, "label": c.upper()} for c in i18n.SUPPORTED],
+    }
+    # Read by ha_fetch.js to reconcile a locally-staged mapping, and by this screen's dirty check
+    # to decide whether anything is staged-but-unfetched (§2′.8, §2′.11).
+    ctx["source_generation"] = db.source_generation(ws.id)
+    # The quality box's own gate — see the `has_dataset` comment above. Separate from
+    # `data_summary`, which gates only the glance.
+    ctx["has_dataset"] = has_dataset
+    ctx["view"] = data_screen_view.data_screen_view(
+        cfg, ws.title, wizard=wizard, save_error=save_error
+    )
+    return HTMLResponse(
+        i18n.env_for(locale).get_template("workspace_data.html").render(**ctx)
+    )
+
+
+@app.get("/w/{workspace_id}/data", response_class=HTMLResponse)
+def configure_data(
+    request: Request,
+    ws: Annotated[deps.Workspace, Depends(deps.get_workspace)],
+    mode: str = "",
+):
+    """The configure-data screen (§2′.5): panel ① promoted to a screen of its own.
+
+    The slot roster, the source drawer and its staged-then-confirm behaviour, the HA connection
+    modal, the data-quality box and "Your data at a glance" all keep their specified behaviour and
+    their existing markup — the template includes the same partials panel ① does. What §2′.5 adds is
+    the titled "About your household" box around the two scope answers and §2′.8's footer, which
+    replaces panel ①'s `[ Next: parameters → ]` CTA.
+
+    `?mode=wizard` selects §2′.8's wizard footer (`[ ← Previous ] [ Next → ]`) instead of the card
+    footer (`[ Cancel ] [ Save ]`), the same query-parameter approach and the same reasoning as
+    `GET /w/{id}/edit`.
+
+    `simconfig_store.load` never raises — an unreadable document renders appendix-A defaults, so
+    this page always renders.
+    """
+    return _data_page(request, ws, wizard=(mode == "wizard"))
+
+
+@app.post("/w/{workspace_id}/data", response_class=HTMLResponse)
+async def save_configure_data(
+    request: Request,
+    ws: Annotated[deps.Workspace, Depends(deps.get_workspace)],
+    mode: str = "",
+):
+    """Persist the configure-data screen's two scope answers, then redirect (§2′.5, §2′.8).
+
+    **This route does NOT call `params_view.parse_form`, deliberately.** `parse_form` inherits every
+    absent field from its base, which makes a partial POST safe — except checkboxes, which invert
+    that rule and are gated on the hidden `sections` marker, and an over-claiming marker silently
+    CLEARS a checkbox the form never drew (phase 3 shipped two such defects). This screen draws no
+    checkbox at all, and `parse_form` has no `has_battery` branch to read anyway — only
+    `setup.has_pv`, behind the `setup` gate, under a name these controls deliberately do not use.
+    So the two radios are read directly here and the form carries no `sections` field: there is no
+    marker on this path to get wrong. See `changelog/20260726-workspaces-phase4.md`.
+
+    **No same-site check**, consistently with `POST /params` and `POST /w/{id}/edit`. `app/csrf.py`
+    draws its line at "can this request destroy something the user cannot recreate", and this route
+    is strictly weaker than either of those: it writes two booleans, each undone by clicking the
+    other radio, and it touches neither the dataset, nor the slot mapping, nor the workspace row.
+    Phase 3's standing note applies — if that judgement is revisited it should be revisited for all
+    three parameter-writing routes together rather than drifted into on one of them.
+
+    A missing radio is read as None and leaves the stored answer alone, rather than defaulting: an
+    absent group means the control was not submitted, which is not the user answering "no".
+
+    The write goes through `_write_setup_answers`, the RAISING variant — not the never-raises
+    `_persist_setup_answers` the fetch path uses. A `[ Save ]` here has persisted nothing else, so a
+    swallowed failure would render a screen claiming success with nothing on disk; instead the
+    failure comes back as this screen with the save-error notice, exactly as `POST /params` and
+    `POST /w/{id}/edit` report the same condition. It is not a 500 — an unwritable data directory is
+    a foreseeable local condition rather than a server bug.
+
+    There is no validation branch: two booleans cannot fail `validate()`, so there is nothing to
+    re-render with errors and no invalid path to persist behind.
+    """
+    try:
+        form = await request.form()
+    except Exception as exc:  # an unparseable body is a client error, not a server one
+        raise HTTPException(status_code=400, detail=f"invalid form body: {exc}") from exc
+
+    wizard = mode == "wizard" or str(form.get("mode") or "") == "wizard"
+
+    def answer(name: str) -> bool | None:
+        """One radio group as a tri-state: True, False, or None for "not submitted".
+
+        None rather than a default, so a submission that did not carry the group leaves the stored
+        answer alone. `"1"` is the only true value, matching the template and `ha_fetch.js`'s
+        `setupAnswer`.
+        """
+        if name not in form:
+            return None
+        return str(form.get(name)) == "1"
+
+    has_pv, has_battery = answer("setup_haspv"), answer("setup_hasbattery")
+    try:
+        _write_setup_answers(ws.id, has_pv, has_battery)
+    except OSError as exc:
+        log.warning("could not save the household answers: %s", exc)
+        return _data_page(request, ws, wizard=wizard, save_error=True)
+
+    # §2′.10: a config save is what advances `updated_at`, and only after something was actually
+    # stored — the same rule and the same ordering `POST /params` and `POST /w/{id}/edit` follow.
+    #
+    # "Actually stored" has to be checked HERE, not inferred from the call above returning without
+    # raising: `_write_setup_answers` returns early when both answers are None (a body carrying
+    # neither radio), and touching then would move the workspace to the top of the list, with its
+    # "last saved" badge advanced, for a save that wrote nothing. A rendered form always submits
+    # both radios, so this is reachable only by a hand-made POST — but the comment above claimed a
+    # guarantee the code did not have, which is the shape of thing this project keeps finding.
+    if has_pv is not None or has_battery is not None:
+        workspaces.touch(ws.id)
+
+    # §2′.8: `[ Save ]` returns to the list; `[ Next → ]` advances to step 3, the results screen,
+    # which is where the wizard ends (§2′.6 — that screen has no footer and is the end of both
+    # paths).
     destination = f"/w/{ws.id}/results" if wizard else "/"
     return RedirectResponse(destination, status_code=303)
 
@@ -948,6 +1147,55 @@ async def data_ingest_ws(
         return
 
 
+def _write_setup_answers(
+    workspace_id: str, has_pv: bool | None, has_battery: bool | None
+) -> None:
+    """Write the two scope answers onto the stored config. RAISES on failure.
+
+    The shared body of `_persist_setup_answers` (the fetch path, which must never raise) and
+    `POST /w/{id}/data` (the configure-data screen's footer, which must REPORT a failure). The two
+    callers need opposite error behaviour and identical write semantics, which is exactly what
+    wanting a shared body and two wrappers means:
+
+      * the fetch runs this AFTER the dataset is already persisted, so an exception would fail a
+        fetch whose real work succeeded — it is swallowed there, deliberately;
+      * the footer's `[ Save ]` has persisted nothing else, so a swallowed exception would show the
+        user a saved screen with nothing saved. Phase 4.1 nearly shipped that by reusing the
+        never-raises wrapper directly.
+
+    Either answer may be None, meaning the caller did not carry it — an older ingest client — in
+    which case the stored answer is left as it is rather than reset to a default.
+
+    `guard_submitted=False` is correct on both paths: neither draws panel ②'s form, so both must
+    take the store's carry-forward branch for `economic_guard` rather than claim the box was shown
+    and left unticked (which would clear a setting appendix A says is retained).
+
+    **`pricing_configured` is deliberately not passed**, so it defaults to `None` — "carry
+    forward". That is relied upon, not incidental: §2′.6 makes the EDIT screen the one write that
+    means "the user has told us what they pay", and setting the flag from here would unblock the
+    results screen's cost toggle from a screen that never asked about money.
+    """
+    if has_pv is None and has_battery is None:
+        return
+    stored = simconfig_store.load(workspace_id)
+    if has_pv is not None:
+        stored.has_pv = has_pv
+    if has_battery is not None:
+        stored.has_battery = has_battery
+    # Re-clone before saving. has_pv drives forced invariants (§2.5: pv_coupling → None,
+    # coupling → AC), and assigning the field above bypasses `__post_init__`, so the in-memory
+    # object is inconsistent until something reconstructs it; `clone` goes through the dataclass,
+    # which re-applies the forcing.
+    #
+    # This is defence in depth, NOT the mechanism the stored result depends on — measured, not
+    # assumed: `simconfig_store.save` normalises through `to_dict` on the write path, so dropping
+    # the clone still stores AC/None. Keeping it means any caller that inspects the config between
+    # the assignment and the save sees a consistent object, and it costs one call.
+    simconfig_store.save(
+        simconfig_store.clone(stored), workspace_id, guard_submitted=False
+    )
+
+
 def _persist_setup_answers(
     workspace_id: str, has_pv: bool | None, has_battery: bool | None
 ) -> None:
@@ -960,30 +1208,18 @@ def _persist_setup_answers(
     meaning the header did not carry it — an older client — in which case the stored answer is
     left as it is rather than reset to a default.
 
-    NEVER RAISES. It runs after the dataset has already been persisted and the source generation
-    bumped, so an exception here would fail a fetch whose real work succeeded, and the browser
-    would report LOAD_FAILED for a dataset that is on disk. A data directory that cannot be
-    written is logged and the answers are simply not updated; the next fetch writes them again.
+    NEVER RAISES, and callers depend on that. It runs after the dataset has already been persisted
+    and the source generation bumped, so an exception here would fail a fetch whose real work
+    succeeded, and the browser would report LOAD_FAILED for a dataset that is on disk. A data
+    directory that cannot be written is logged and the answers are simply not updated; the next
+    fetch writes them again.
 
-    `guard_submitted=False` is correct: this path draws no panel-② form at all, so it must take
-    the store's carry-forward branch for `economic_guard` rather than claim the box was shown and
-    left unticked (which would clear a setting appendix A says is retained).
+    **A caller that needs to REPORT a failure must use `_write_setup_answers` instead**, not this.
+    `POST /w/{id}/data` does: its `[ Save ]` has nothing else persisted to protect, so silence
+    there would mean telling the user their answers were stored when they were not.
     """
-    if has_pv is None and has_battery is None:
-        return
     try:
-        stored = simconfig_store.load(workspace_id)
-        if has_pv is not None:
-            stored.has_pv = has_pv
-        if has_battery is not None:
-            stored.has_battery = has_battery
-        # Re-clone before saving. has_pv drives forced invariants (§2.5: pv_coupling → None,
-        # coupling → AC), and assigning the field above bypasses `__post_init__` — so a household
-        # that just turned PV off would otherwise keep a stored DC coupling for an array it does
-        # not have. `clone` reconstructs through the dataclass, which re-applies the forcing.
-        simconfig_store.save(
-            simconfig_store.clone(stored), workspace_id, guard_submitted=False
-        )
+        _write_setup_answers(workspace_id, has_pv, has_battery)
     except Exception:  # pragma: no cover - defensive, see the docstring
         log.warning("could not persist setup answers after fetch", exc_info=True)
 

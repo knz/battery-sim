@@ -1,0 +1,492 @@
+{#
+  workspace_data.html — the configure-data screen (specs/20-workspaces-ux.md §2′.5, §2′.8).
+
+  `GET /w/{id}/data` renders this; `POST /w/{id}/data` persists the two scope answers and
+  redirects. The view-model is `app/data_screen_view.py`.
+
+  Panel ① of §2.2, promoted to a screen of its own. Its content is UNCHANGED and is not copied
+  here: the four boxes come from the same partials panel ① renders, so there is one copy of the
+  roster's ids and data-* attributes — all of which are a contract with app/static/ha_fetch.js.
+
+      _data_household.html   "About your household" (titled=True here — §2′.5 gives it a box)
+      _data_roster.html      the #slot-roster card, the [ Fetch history ] button
+      _data_quality.html     Data quality — drawn only once data has loaded
+      _data_glance.html      Your data at a glance — likewise
+
+  ## Four things in here that are easy to break
+
+  **The form carries NO `sections` field, and that is deliberate.** `params_view.parse_form` gates
+  every checkbox on that marker, and an over-claiming marker CLEARS the stored value of a checkbox
+  the screen never drew — phase 3 shipped two such defects. This screen draws zero checkboxes and
+  its POST does not call `parse_form` at all (it reads the two radios directly). Adding a
+  `sections` field here would be adding a hazard with nothing to gain: there is no checkbox for it
+  to describe.
+
+  **The two radios are `setup_haspv` / `setup_hasbattery`, NOT `setup.has_pv`.** The missing dot is
+  load-bearing — see `_data_household.html`'s header. index.html's delegated handler submits
+  `#params-form` for anything named `setup.*`, and `parse_form` reads `setup.has_pv` under a
+  section gate; these two answers travel by neither route.
+
+  **The drawer, the HA modal and the three dialogs are at PAGE level**, outside the form and
+  outside any collapse. `_panel_data.html`'s header records why: a `<dialog>` inside a closed
+  daisyUI collapse enters the top layer on showModal() — blocking every click — but is never
+  painted, because the collapse sets `content-visibility: hidden`. There is no collapse on this
+  screen, but page level is also simply where a shared modal belongs.
+
+  **The dirty check reads `localStorage`, not the form.** §2′.8: "changed" here means a slot
+  mapping staged but not yet fetched, and explicitly NOT the two radios. See the script at the
+  bottom.
+#}
+{% from "_data_glance.html" import data_glance with context %}
+{% from "_data_household.html" import household_box with context %}
+{% from "_data_roster.html" import slot_roster with context %}
+{% from "_data_quality.html" import data_quality with context %}
+<!doctype html>
+<html lang="{{ lang.current }}" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ _('Configure data') }}</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+{# `data-workspace-id` is the ONE place the page states which workspace it is showing, exactly as
+   index.html does it. ha_fetch.js reads it to key its per-workspace localStorage slot store
+   (§2′.11), and the dirty check below reads it for the same key. The ingest WebSocket path is not
+   built from it — the roster carries that path whole in data-ingest-ws. #}
+<body class="min-h-screen bg-base-200 text-base-content"
+      data-workspace-id="{{ workspace_id }}">
+
+  <header class="navbar bg-base-100 border-b border-base-300 px-4 lg:px-8">
+    <div class="flex-1 items-baseline gap-3">
+      {# The back link. §2′.8: present on every screen in both modes, and it behaves as
+         `[ Cancel ]` on the current screen — so the dirty check guards it too (script below). #}
+      <a class="btn btn-ghost btn-sm px-2" href="/" data-leave>{{ _('← Your analyses') }}</a>
+      {# §2′.5's wireframe names the analysis in the header. Displayed only — renaming is the edit
+         screen's job (§2′.4), and this screen posts no title field. #}
+      <span class="text-lg font-semibold">{{ view.title }}</span>
+    </div>
+    <div class="flex-none items-center gap-2">
+      <div class="join" role="group" aria-label="{{ _('Language') }}">
+        {% for opt in lang.options %}
+        <a class="btn btn-xs join-item {% if opt.code == lang.current %}btn-active{% endif %}"
+           href="/lang/{{ opt.code }}"
+           {% if opt.code == lang.current %}aria-current="true"{% endif %}>{{ opt.label }}</a>
+        {% endfor %}
+      </div>
+    </div>
+  </header>
+
+  <main class="mx-auto flex max-w-3xl flex-col gap-4 p-4 lg:p-8">
+    <h1 class="text-xl font-semibold">{{ _('Configure data') }}</h1>
+
+    {% if view.save_error %}
+    {# The two answers did not reach the disk. Surfaced rather than swallowed: the underlying
+       writer is contractually silent about failure (the ingest-WS path depends on that), so this
+       notice is the only thing that stops a `[ Save ]` reporting success it did not achieve. Not a
+       500 — an unwritable data directory is a foreseeable local condition, the same treatment
+       `POST /params` and `POST /w/{id}/edit` give it. #}
+    <div role="alert" class="alert alert-warning py-2 text-sm">
+      <span>{{ _('These answers could not be saved and will be lost when the app restarts. Check that the data directory is writable.') }}</span>
+    </div>
+    {% endif %}
+
+    {# The form wraps ONLY the household box: its two radios are the whole submission. The roster
+       is deliberately outside it — the roster's own actions (the drawer, [ Fetch history ]) are
+       script-driven and commit by their own paths, and a stray <button> inside a form would
+       submit it. #}
+    <form id="data-form" method="post"
+          action="/w/{{ workspace_id | urlencode }}/data{% if view.wizard %}?mode=wizard{% endif %}">
+      {# The mode also travels as a form field, so it survives a re-render that did not keep the
+         query string — the same belt-and-braces phase 3 used on the edit screen. #}
+      {% if view.wizard %}<input type="hidden" name="mode" value="wizard" />{% endif %}
+      {{ household_box(cfg, titled=True) }}
+    </form>
+
+    {# ── The slot roster (§2.2, unchanged) ──────────────────────────────────── #}
+    <p class="text-sm text-base-content/70">
+      {{ _('Pick where each series comes from. Choose a source per slot; for Home Assistant, connect once from the source drawer (Configure) and that connection is reused across every slot that uses it.') }}
+    </p>
+
+    {{ slot_roster(data, cfg, workspace_id) }}
+
+    {# ── Data quality, and the glance (§2.2, §2.3a) ─────────────────────────────
+         Both are "present once data has loaded" in §2′.5's wireframe, but they answer to DIFFERENT
+         gates, and using one for both was a defect caught in review.
+
+         `has_dataset` means the user has loaded something. Before any fetch it is false and
+         neither box appears — otherwise the static sample's quality figures would render beside no
+         glance at all, reading as a report about data the user never supplied.
+
+         `data_summary` additionally means those frames yield a SIMULATABLE GRID; it is None for a
+         dataset that loaded but has no grid meter (a price-only dataset, which the spot-price
+         preset produces on its own). That case keeps the quality box and loses only the glance —
+         the box is what names the problem, and this is the screen a user comes to in order to find
+         out why their data is unusable. Gating it on `data_summary` made it vanish exactly when it
+         was most needed. #}
+    {% if has_dataset %}
+    {{ data_quality(data) }}
+    {% endif %}
+    {% if data_summary %}
+    {{ data_glance(data_summary) }}
+    {% endif %}
+
+    {# ── Footer (§2′.8) ───────────────────────────────────────────────────────
+         Two modes, differing only here. From a card: `[ Cancel ]` (discard this screen's edits and
+         return to the list — it never deletes the workspace) and `[ Save ]`. In the wizard:
+         `[ ← Previous ]`, which goes back to step 1 keeping what was entered, and `[ Next → ]`,
+         which PERSISTS and advances.
+
+         The right button submits `#data-form` from OUTSIDE it, via the `form=` attribute — HTML's
+         explicit form association, the same mechanism `_setup_band.html` uses. That is what lets
+         the footer sit below the roster while the form wraps only the household box.
+
+         The left button leaves the screen in both modes, so both carry `data-leave` and are guarded
+         by the dirty check. The right button persists and is not. #}
+    <div class="flex items-center justify-between pt-2" data-footer>
+      {% if view.wizard %}
+      <a class="btn btn-ghost btn-sm" href="/w/{{ workspace_id | urlencode }}/edit?mode=wizard"
+         data-leave>{{ _('← Previous') }}</a>
+      <button type="submit" form="data-form" class="btn btn-primary btn-sm">{{ _('Next →') }}</button>
+      {% else %}
+      <a class="btn btn-ghost btn-sm" href="/" data-leave>{{ _('Cancel') }}</a>
+      <button type="submit" form="data-form" class="btn btn-primary btn-sm">{{ _('Save') }}</button>
+      {% endif %}
+    </div>
+  </main>
+
+  {# ── The staged-but-unfetched dialog (§2′.8) ────────────────────────────────
+       NOT the edit screen's "Discard your changes?" copy. §2′.8 gives this screen its own wording
+       because what is at stake is different: the drawer already committed the source choice and
+       `[ Fetch history ]` writes the dataset, so what is unfinished is a mapping that has changed
+       since the last fetch — leaving now means the change never took effect and the results still
+       describe the data loaded earlier. `[ Keep editing ]` has the default focus: the safe option
+       is the one Enter takes. #}
+  <dialog id="unfetched-dialog" class="modal">
+    <div class="modal-box">
+      <h3 class="text-lg font-bold">{{ _('You have not loaded your data yet') }}</h3>
+      <p class="py-3 text-sm">
+        {{ _('You changed where some of your data comes from, but have not fetched it. Your results will still be based on the data loaded earlier.') }}
+      </p>
+      <div class="modal-action">
+        <form method="dialog">
+          <button class="btn btn-ghost btn-sm" autofocus>{{ _('Keep editing') }}</button>
+        </form>
+        <button type="button" id="unfetched-leave" class="btn btn-error btn-sm">{{ _('Leave anyway') }}</button>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>{{ _('Keep editing') }}</button></form>
+  </dialog>
+
+  {# ── Slot info dialog — the shared ⓘ modal (specs §4.1, §2.3a). ──────────────────
+       One modal for every ⓘ .slot-info-btn on the screen: the household box's battery blurb, the
+       roster's role blurbs and the glance's derived-metric blurbs. ha_fetch.js fills the title +
+       body from the clicked button's data-* (already translated server-side) and calls showModal().
+       Page level, as on index.html. #}
+  <dialog id="slot-info-dialog" class="modal">
+    <div class="modal-box">
+      <h3 class="text-lg font-bold" id="slot-info-title"></h3>
+      <p class="py-3 text-sm text-base-content/80" id="slot-info-body"></p>
+      <div class="modal-action">
+        <form method="dialog"><button class="btn btn-ghost btn-sm">{{ _('close') }}</button></form>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>{{ _('close') }}</button></form>
+  </dialog>
+
+  {# ── "Not built yet" dialog — the pending affordance (§2.1). Reached from the drawer's CSV
+       option, which ha_fetch.js creates dynamically with data-feature-key="data_source_csv".
+       Identical to index.html's and workspace_edit.html's; this screen carries its own copy
+       because it is a separate page. #}
+  <dialog id="pending-dialog" class="modal" data-feature-key="">
+    <div class="modal-box">
+      <h3 class="text-lg font-bold">{{ _('Not built yet') }}</h3>
+      <p class="py-2">
+        <span id="pending-control-name" class="font-medium">{{ _('This control') }}</span>
+        {{ _('is part of the plan for this simulator, but it is not built yet. The app is being written one feature at a time and this one has not been reached.') }}
+      </p>
+      <p class="pb-2 text-sm text-base-content/70">
+        {{ _('If you would use it, say so. It tells us what to build next, and it is the only signal we get.') }}
+      </p>
+      <p id="pending-thanks" class="pb-2 text-sm text-success hidden">
+        {{ _('Thanks. We have recorded that you want this.') }}
+      </p>
+      <div class="modal-action">
+        <button id="pending-thumbsup" class="btn btn-primary btn-sm">{{ _('👍 I want this') }}</button>
+        <form method="dialog"><button class="btn btn-ghost btn-sm">{{ _('close') }}</button></form>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>{{ _('close') }}</button></form>
+  </dialog>
+
+  {# ── Home Assistant connection modal (§2.2). The ONE place Home Assistant is connected, opened
+       by the "Configure" button beside the Home Assistant radio in the source drawer. Driven
+       client-side by ha_fetch.js: the browser fetches statistics from the user's HA directly (the
+       token never reaches our backend, §7.5). Keep every element ID below — ha_fetch.js depends on
+       them (#ha-base-url, #ha-token, #ha-test-btn, #ha-status). #}
+  <dialog id="ha-config-dialog" class="modal">
+    <div class="modal-box">
+      <div class="flex flex-wrap items-baseline justify-between gap-2">
+        <h3 class="text-lg font-bold">{{ _('Home Assistant connection') }}</h3>
+        <span class="text-xs text-base-content/50">{{ _('Shared across all slots that use Home Assistant') }}</span>
+      </div>
+      <div class="flex flex-col gap-3 py-3">
+        <label class="form-control">
+          <span class="label-text mb-1">{{ _('Base URL') }}</span>
+          <input type="text" id="ha-base-url" class="input input-bordered input-sm"
+                 placeholder="https://homeassistant.local:8123" />
+        </label>
+        <label class="form-control">
+          <span class="label-text mb-1">{{ _('Token') }}</span>
+          <input type="password" id="ha-token" class="input input-bordered input-sm"
+                 autocomplete="off" placeholder="{{ _('long-lived access token') }}" />
+          <span class="label-text-alt mt-1 text-base-content/50">
+            {{ _('Stays in your browser. It is sent only to your Home Assistant, never to this app.') }}
+          </span>
+        </label>
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <span class="text-sm text-base-content/60" id="ha-status">{{ _('Not connected') }}</span>
+          <button type="button" class="btn btn-outline btn-sm" id="ha-test-btn">{{ _('Test connection') }}</button>
+        </div>
+      </div>
+      <div class="modal-action">
+        <form method="dialog"><button class="btn btn-ghost btn-sm">{{ _('close') }}</button></form>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>{{ _('close') }}</button></form>
+  </dialog>
+
+  {# ── Source-picker drawer (§2.2 slot-first, §2′.5 "a right-side overlay over this screen").
+       A single right-side panel, shared by every slot row's "Choose source…" button. Opened by
+       ha_fetch.js, which fills #drawer-slot-title and #drawer-source-list for the clicked slot.
+       Hidden by default (aria-hidden + off-canvas); closable via ✕, the backdrop, and Escape.
+
+       Staged-then-confirm, UNTOUCHED by §2′.5: the drawer is transactional. Selecting a source or
+       an entity only STAGES a drawer-local draft (ha_fetch.js) — nothing reaches the committed
+       per-slot state or the row label until #drawer-confirm is pressed. #drawer-cancel, ✕, the
+       backdrop and Escape all discard the draft and leave the committed state untouched. #}
+  <div id="source-drawer" class="fixed inset-0 z-40 hidden" aria-hidden="true">
+    <div id="source-drawer-backdrop" class="absolute inset-0 bg-black/40"></div>
+    <aside class="absolute right-0 top-0 h-full w-full max-w-md bg-base-100 shadow-xl
+                  border-l border-base-300 overflow-y-auto"
+           role="dialog" aria-modal="true" aria-labelledby="drawer-slot-title" tabindex="-1">
+      <div class="flex flex-col gap-4 p-5">
+        <div class="flex items-start justify-between gap-2">
+          <div>
+            <h2 class="text-base font-semibold">{{ _('Choose a source') }}</h2>
+            <p id="drawer-slot-title" class="text-sm text-base-content/60"></p>
+          </div>
+          <button type="button" id="drawer-close" class="btn btn-ghost btn-sm btn-square"
+                  aria-label="{{ _('Close') }}">✕</button>
+        </div>
+
+        {# The source options for the current slot, rendered by ha_fetch.js. #}
+        <div id="drawer-source-list" class="flex flex-col gap-2"></div>
+
+        {# Home Assistant entity picker — shown by JS only when the selected source is Home
+           Assistant. The single <select> is (re)populated per slot when the drawer opens or the
+           HA radio is picked. The chosen id is kept in per-slot JS state, not in this DOM node. #}
+        <div id="drawer-ha-entity" class="hidden flex-col gap-1">
+          <label class="form-control">
+            <span class="label-text mb-1">{{ _('Entity') }}</span>
+            <select id="drawer-entity-select" class="select select-bordered select-sm font-mono w-full"
+                    aria-label="{{ _('Entity') }}">
+              <option value="">{{ _('— none —') }}</option>
+            </select>
+          </label>
+        </div>
+
+        {# Notes shown depending on the selected option's kind (toggled by JS). #}
+        <p id="drawer-ha-note" class="text-xs text-base-content/60 hidden">
+          {{ _('Uses the shared Home Assistant connection — configure it once (the button above), then fetch history for all Home Assistant slots together.') }}
+        </p>
+        {# Backend-source status line (shown only for a backend_load source; carries the
+           load-in-progress / error text). The action itself is the shared Confirm button below. #}
+        <div id="drawer-backend-action" class="hidden flex-col gap-2">
+          <span id="drawer-backend-status" class="text-sm text-base-content/60"></span>
+        </div>
+
+        {# Transactional footer (§2.2, staged-then-confirm). Nothing the drawer stages is committed
+           until Confirm is pressed. Cancel (like ✕ / backdrop / Escape) discards the staged draft
+           and leaves the committed state untouched. #}
+        <div class="mt-2 flex items-center justify-end gap-2">
+          <button type="button" id="drawer-cancel" class="btn btn-ghost btn-sm">
+            {{ _('Cancel') }}
+          </button>
+          <button type="button" id="drawer-confirm" class="btn btn-primary btn-sm" disabled>
+            {{ _('Confirm') }}
+          </button>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  {# The source generation (specs §2.2): the browser tags each locally-saved source customization
+     with this, and on reload keeps its local choice only while this is unchanged, yielding to the
+     server once a fetch has advanced it. Bumped only by a persisted HA fetch; 0 before the first
+     one. Read by ha_fetch.js AND by this screen's dirty check (§2′.8, §2′.11) — the check is
+     exactly "is there a staged entry still at the current generation". #}
+  <script id="source-generation" type="application/json">{{ source_generation | default(0) | tojson }}</script>
+
+  {# i18n strings the drawer's and fetcher's JS need at runtime (app/static/ha_fetch.js), rendered
+     here so gettext extracts the msgids and the browser reads them already translated. Same set
+     and same reasoning as index.html's copy — see that file's header note on why runtime values
+     travel as %(name)s placeholders in one msgid rather than as concatenated fragments. #}
+{%- set drawer_i18n = {
+      "loading": _("Loading…"),
+      "load_failed": _("Could not load. Please try again."),
+      "loaded_ok": _("Loaded. Reloading…"),
+      "pending_hint": _("Not built yet"),
+      "upload_csv": _("Upload CSV"),
+      "choose_entity": _("choose entity…"),
+      "connect_first": _("Configure the connection first"),
+      "ha_source": _("Home Assistant"),
+      "choose_source": _("Choose source…"),
+      "none": _("— none —"),
+      "configure": _("Configure…"),
+      "ha_connected": _("✓ Connected"),
+      "connecting": _("Connecting…"),
+      "need_url_token": _("Enter a base URL and token first."),
+      "connected_counts": _("✓ Connected · %(energy)s energy + %(price)s measurement statistics"),
+      "failed_reason": _("✗ %(reason)s"),
+      "ws_open_failed": _("Could not open a WebSocket to %(url)s."),
+      "ws_connect_failed": _("Connection failed. Check the URL, and that your browser trusts the certificate (open %(url)s once to accept it)."),
+      "ws_closed": _("connection closed"),
+      "ha_token_rejected": _("Home Assistant rejected the token."),
+      "ha_error": _("HA error"),
+      "need_source": _("Choose a source for at least one slot first."),
+      "need_ha_connection": _("Configure the Home Assistant connection first."),
+      "fetching_slot": _("Fetching %(slot)s (%(n)s/%(total)s)…"),
+      "loading_slot": _("Loading %(slot)s…"),
+      "imported_series": _("✓ Imported %(count)s series. Reloading…"),
+      "ingest_unreachable": _("Could not reach the app's ingest endpoint."),
+      "ingest_rejected": _("Ingest rejected: %(reason)s"),
+      "ingest_closed_early": _("Ingest connection closed early.")
+  } -%}
+  <script id="drawer-i18n" type="application/json">{{ drawer_i18n | tojson }}</script>
+
+  <script>
+  (function () {
+    // §2′.8's dirty check for THIS screen, which is not a form-dirty check.
+    //
+    // "Changed" here means a slot mapping staged but not yet fetched — the roster says one thing
+    // and the loaded data reflects another, so leaving now means the change never took effect.
+    // §2′.8 is explicit that the two radios do NOT trigger it on their own: flipping one changes
+    // which slots are ASKED FOR, not which data is loaded, and they are committed by the fetch
+    // (and by this screen's own Save) either way.
+    //
+    // The state lives in localStorage, not on the server: `ha.slots.<workspace>` tagged with the
+    // `source_generation` the client saw when it saved (§2′.11, and ha_fetch.js's header, branch 2
+    // of "Two things carry a source choice across a reload"). An entry whose gen EQUALS the
+    // rendered generation is by definition staged-but-unfetched, because a fetch is the only thing
+    // that bumps the generation and it re-renders the slot server-side afterwards. An entry at an
+    // older generation has already been superseded by the server and is not dirty.
+    //
+    // Read fresh on each click rather than cached at load: a drawer Confirm writes the store while
+    // this page is still open, so a snapshot taken at load would miss exactly the choice the
+    // warning exists for.
+    var WORKSPACE_ID = document.body.getAttribute('data-workspace-id') || '';
+    var LS_SLOTS = 'ha.slots.' + WORKSPACE_ID;
+
+    function serverGen() {
+      try {
+        var el = document.getElementById('source-generation');
+        if (!el) return 0;
+        var g = JSON.parse(el.textContent);
+        return (typeof g === 'number' && isFinite(g)) ? g : 0;
+      } catch (e) { return 0; }
+    }
+
+    function hasStagedSlots() {
+      try {
+        var obj = JSON.parse(localStorage.getItem(LS_SLOTS) || 'null');
+        // `Array.isArray` on both: an array is a truthy `typeof 'object'`, so without these a
+        // `{"gen":0,"slots":["x"]}` written by anything other than ha_fetch.js would count its
+        // indices as staged slots and warn about a mapping that does not exist.
+        if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return false;
+        if (typeof obj.gen !== 'number' || !obj.slots) return false;
+        if (typeof obj.slots !== 'object' || Array.isArray(obj.slots)) return false;
+        // A stale generation means the server already superseded this entry (ha_fetch.js clears it
+        // on load for the same reason). Only a CURRENT entry is an unfetched change.
+        if (obj.gen !== serverGen()) return false;
+        return Object.keys(obj.slots).length > 0;
+      } catch (e) {
+        // An unreadable store must not block the user from leaving. Failing open is right here:
+        // the cost of a false negative is a warning the user does not see, and the cost of a false
+        // positive is a screen they cannot leave.
+        return false;
+      }
+    }
+
+    var dialog = document.getElementById('unfetched-dialog');
+    var pendingHref = null;
+
+    // Guards everything that LEAVES the screen: `[ Cancel ]`, `[ ← Previous ]` and the back link,
+    // all marked `data-leave`. `[ Save ]` and `[ Next → ]` persist and are deliberately not
+    // guarded (§2′.8).
+    document.addEventListener('click', function (ev) {
+      var leave = ev.target.closest && ev.target.closest('[data-leave]');
+      if (!leave) return;
+      if (!hasStagedSlots()) return;   // nothing staged: leave immediately
+      ev.preventDefault();
+      pendingHref = leave.getAttribute('href');
+      dialog.showModal();
+    });
+
+    document.getElementById('unfetched-leave').addEventListener('click', function () {
+      dialog.close();
+      if (pendingHref) window.location.href = pendingHref;
+    });
+  })();
+
+  (function () {
+    // The pending affordance (§2.1), a copy of index.html's handler for this standalone page.
+    // Delegated from `document` so the drawer's dynamically-created CSV option (ha_fetch.js)
+    // opens the dialog with no wiring on that side. Keys already thumbed this session are
+    // remembered so a second click neither re-counts nor re-POSTs; the POST is fire-and-forget
+    // and its outcome never revises the acknowledgement.
+    var dialog = document.getElementById('pending-dialog');
+    var nameEl = document.getElementById('pending-control-name');
+    var thanksEl = document.getElementById('pending-thanks');
+    var thumbsBtn = document.getElementById('pending-thumbsup');
+    var labelWant = {{ _('👍 I want this') | tojson }};
+    var labelNoted = {{ _('✓ Noted') | tojson }};
+    var thumbed = new Set();
+
+    function renderState(key) {
+      var noted = thumbed.has(key);
+      thumbsBtn.textContent = noted ? labelNoted : labelWant;
+      thumbsBtn.disabled = noted;
+      thanksEl.classList.toggle('hidden', !noted);
+    }
+
+    document.addEventListener('click', function (ev) {
+      var btn = ev.target.closest && ev.target.closest('[data-pending-name]');
+      if (!btn) return;
+      nameEl.textContent = btn.getAttribute('data-pending-name') || '';
+      dialog.setAttribute('data-feature-key', btn.getAttribute('data-feature-key') || '');
+      renderState(dialog.getAttribute('data-feature-key'));
+      dialog.showModal();
+    });
+
+    thumbsBtn.addEventListener('click', function () {
+      var key = dialog.getAttribute('data-feature-key');
+      if (!key || thumbed.has(key)) return;
+      thumbed.add(key);
+      renderState(key);
+      fetch('/feature-interest/' + encodeURIComponent(key), { method: 'POST' })
+        .catch(function () { /* failures are ignored (§2.1, §5.1) */ });
+    });
+  })();
+  </script>
+
+  {# Browser-side Home Assistant fetch and the source drawer (specs/06-home-assistant-ingestion.md).
+     The token stays in the browser and is sent only to the user's own HA; fetched rows stream to
+     the backend over the workspace-scoped ingest WS (§7.5).
+
+     **This file needed no change to work here.** It gates itself on `#slot-roster` being present
+     and looks everything else up by id, so including the roster partial is the whole integration:
+     the drawer, the entity picker, the ⓘ dialog, `applySetupGating` (keyed on `setup_haspv` /
+     `setup_hasbattery`) and `[ Fetch history ]` all bind exactly as they do on index.html. #}
+  <script src="/static/ha_fetch.js" defer></script>
+</body>
+</html>

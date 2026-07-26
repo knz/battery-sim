@@ -28,11 +28,10 @@
   dialog's title, body and form action from the card that was clicked — one dialog serves every
   card, which is why the title travels as data rather than being written into a per-card dialog.
 
-  Build-progress note: `[ Update ]` now reaches the real edit screen (`/w/{id}/edit`, phase 3).
-  `[ Configure data ]` still points at `/w/{id}/data`, which phase 4 builds, and currently leads
-  to a 404. It is rendered anyway, as §2′.2's action table requires ("always"): a 404 there is a
-  build-progress fact rather than a specified state, and hiding the button would encode the
-  opposite of what the spec says about it.
+  Build-progress note: every action on this card now reaches a real screen. `[ Update ]` goes to
+  the edit screen (`/w/{id}/edit`, phase 3) and `[ Configure data ]` to the configure-data screen
+  (`/w/{id}/data`, phase 4.1); neither 404s any more. `[ Results ]` still leads to the three-panel
+  page, which phase 4.2 reduces to the results screen (§2′.6).
 #}
 {% from "_msg.html" import msg %}
 <article class="card border border-base-300 bg-base-100 rounded-box" data-workspace-card

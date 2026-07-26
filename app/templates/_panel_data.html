@@ -1,76 +1,39 @@
 {#
   _panel_data.html — Panel ① Data input, slot-first (specs/02-ux-wireframes.md §2.2, §2.1).
 
-  Collapsed to a one-line summary; expands to the slot-first body: a short intro, the slot
-  roster, and the data-quality box. The values are either the static sample
-  (app/sample_data.py `data`) or a real persisted dataset's view-model
-  (app/data_view.py `panel_data_from`) — the two share this shape.
+  Collapsed to a one-line summary; expands to the slot-first body: the two scope questions, a
+  short intro, the slot roster, the data-quality box and "Your data at a glance".
 
-  Slot-first design: the panel leads with the roster of data slots (roles + requirement markers).
-  Each slot ROW shows its chosen source (row.source) or a "Choose source…" affordance; clicking
-  the affordance opens the shared right-side source-picker DRAWER (mounted in index.html), which
-  lists that slot's available sources (row.sources) and their config. The drawer is opened by JS
-  reading data-* attributes off the row's button (ha_fetch.js).
+  **Phase 4.1 reduced this file to a shell of includes.** Its four content blocks now live in
+  partials shared with the configure-data screen (`workspace_data.html`, §2′.5), which renders the
+  SAME markup as a screen of its own:
 
-  The Home Assistant entity (statistic id) for a slot is chosen INSIDE the drawer, not on this
-  main row: there is no entity to choose for any source other than Home Assistant. The row's
-  source button therefore also carries the chosen HA entity inline in its label (e.g.
-  "Home Assistant · sensor.…import_t1"); ha_fetch.js updates that label after the user picks an
-  entity in the drawer this session (the persisted view-model does not carry a re-selectable
-  statistic id, only a "(res, N intervals)" coverage summary, so a persisted HA slot shows just
-  the source label until re-picked). The roster table has three columns: Role, Req, Source.
+      _data_household.html   the has_pv / has_battery scope questions
+      _data_roster.html      the #slot-roster card (every id here is a ha_fetch.js contract)
+      _data_quality.html     the Data-quality box
+      _data_glance.html      "Your data at a glance" (§2.3a; already shared with panel ③)
 
-  The Home Assistant CONNECTION is SHARED and lives in a MODAL (#ha-config-dialog in index.html),
-  opened by a "Configure" button beside the Home Assistant radio in the drawer — not a panel-level
-  card. The user tests/connects once (URL + token + Test connection); every HA-source slot then
-  reuses that connection — the drawer's single entity <select> is filled by ha_fetch.js from that
-  connection, and Confirm for an HA slot needs both a tested connection and a chosen entity.
+  Sharing them rather than copying was not cosmetic: the roster's ids and data-* attributes are a
+  contract with app/static/ha_fetch.js, and a second copy would be a second thing to keep in step
+  with that file. The panel renders the same markup it rendered before, with one string exception
+  noted in `_data_roster.html` (the legend no longer points at "the setup band above", which no
+  longer holds those answers on either screen).
 
-  The panel OPENS with its two scope questions (§2.1) — "Do you have solar PV?" (cfg.has_pv) and
-  "Do you already have a battery?" (cfg.has_battery) — placed directly below the panel title,
-  above the roster they govern. They are committed by this panel's own fetch button. The third
-  scope choice, cfg.simulate_cost, stays in the setup band above (_setup_band.html) because it
-  shapes panels ② and ③ too rather than being a data-step question.
+  The household box is included with `titled=False` here: this panel already has a title, so
+  §2′.5's box chrome would be chrome-on-chrome. The configure-data screen passes true.
 
-  The slot roster is gated by all three (§2.2, §2.1): the solar row shows only when cfg.has_pv,
-  the two existing-battery rows only when cfg.has_battery, and the two Spot price (min/max) rows
-  only when cfg.simulate_cost.
+  Phase 4.2 removes this panel altogether, folding what remains into the results screen (§2′.6).
+  Until then it keeps its `[ Next: parameters → ]` CTA — §2′.5 replaces that CTA with a footer on
+  the NEW screen, and this panel is 4.2's to delete rather than 4.1's to edit.
 
-  Gated rows are rendered but carry `hidden`, so the band's radios can re-gate the table
-  client-side without a round-trip (ha_fetch.js `applySetupGating`). The server computes the
-  initial hidden state, so the first paint is right with JS off. A hidden row is not fetchable:
-  ha_fetch.js skips hidden rows when collecting the slots to stream.
+  The values are either the static sample (app/sample_data.py `data`) or a real persisted
+  dataset's view-model (app/data_view.py `panel_data_from`) — the two share this shape.
+
+  The third scope choice, cfg.simulate_cost, stays in the setup band above (_setup_band.html)
+  because it shapes panels ② and ③ too rather than being a data-step question.
 
   UI chrome is wrapped in _() for translation (English/Dutch); data values (entity IDs, numbers)
-  stay literal. Role labels and source labels/blurbs are English source strings translated here
-  via _(); their msgids come from sample_data.py's _N markers.
-
-  The data-quality box's VALUES — the panel summary, the coverage and grid lines, the per-series
-  granularity cells, the gap/reset/register lines and the price caveat — go through the `msg()`
-  macro (_msg.html), not through a bare `{{ … }}` or `_()`. They arrive from app/data_view.py as
-  (msgid, params) pairs so their msgid is a compile-time constant the extractor can see; rendering
-  one raw would print the dict, and wrapping one in `_()` would look up a runtime string that
-  matches no catalog entry — which is exactly the defect the pairs exist to fix. The macro also
-  accepts a bare string, which is what app/sample_data.py still supplies for the same fields.
-
-  It also formats a FIGURE, and the box's counts are figures. They arrive as `i18n.num()` pairs (a
-  number plus the name of a convention) rather than as text, because Dutch groups thousands with a
-  point where English uses a comma — "8.760 intervallen" against "8,760 intervals" — and the
-  view-model runs before the locale is known. Nothing to do here beyond routing them through the
-  same macro, which is the point of putting the formatting there.
-
-  The `req` → marker mapping: required ●, conditional ◐ (PV-only), cost_optional ◒
-  (cost-simulation-only), optional ○.
-
-  A row whose view-model carries an `info` blurb (SlotSpec.info, specs §4.1) also renders an ⓘ
-  button next to its role label; clicking opens the shared #slot-info-dialog (filled by
-  ha_fetch.js from the button's data-info-title/body). Rows without `info` render no icon, so
-  the affordance is generic — a new series gets one by populating that field, not by editing here.
-
-  Below the data-quality box, and above the CTA, the panel renders the "Your data at a glance"
-  figures (§2.3a) from the shared _data_glance.html macro — but only when `data_summary` is set,
-  i.e. once a dataset has loaded. This used to be an unnumbered band between panels ① and ②
-  (_panel_summary.html, now removed); it is a section of this panel, so it collapses with it.
+  stay literal.
 #}
 {# `with context` is REQUIRED, not stylistic: Jinja macro imports do not receive the
    importing template's context, which is where the i18n extension puts the per-request
@@ -78,6 +41,9 @@
    the process and never change again (an English-first server shows an English band to
    Dutch users). Covered by test_data_glance_is_translated_in_both_copies. #}
 {% from "_data_glance.html" import data_glance with context %}
+{% from "_data_household.html" import household_box with context %}
+{% from "_data_roster.html" import slot_roster with context %}
+{% from "_data_quality.html" import data_quality with context %}
 {% from "_msg.html" import msg with context %}
 <section class="collapse collapse-arrow bg-base-100 border border-base-300 rounded-box">
   <input type="checkbox" aria-label="{{ _('Toggle Data panel') }}" />
@@ -91,249 +57,21 @@
   <div class="collapse-content">
     <div class="flex flex-col gap-4 pt-2">
 
-      {# ── Scope questions (§2.1) ──────────────────────────────────────────────
-         `has_pv` and `has_battery` live HERE, at the top of panel ①, rather than in the setup
-         band above it: both answers exist to decide which SLOTS this panel asks for, and the
-         answer belongs next to the roster it governs. `simulate_cost` stays in the setup band —
-         it shapes panels ② and ③ as well, so it is not a data-step question.
-
-         Both re-gate the roster below immediately (ha_fetch.js `applySetupGating`) and are
-         COMMITTED by the fetch button at the bottom of this panel, along with the rest of the
-         data configuration. See _setup_band.html's header for the full rationale. #}
-      <div class="flex flex-col gap-2" id="setup-scope">
-        <div class="flex flex-wrap items-center gap-3">
-          <span class="w-56 label-text">{{ _('Do you have solar PV?') }}</span>
-          <label class="label cursor-pointer gap-1">
-            <input type="radio" name="setup_haspv" value="1" class="radio radio-sm" {% if cfg.has_pv %}checked{% endif %} />
-            <span class="label-text">{{ _('Yes') }}</span>
-          </label>
-          <label class="label cursor-pointer gap-1">
-            <input type="radio" name="setup_haspv" value="0" class="radio radio-sm" {% if not cfg.has_pv %}checked{% endif %} />
-            <span class="label-text">{{ _('No') }}</span>
-          </label>
-        </div>
-
-        {# The ⓘ is not decoration: "do you have a battery?" on a battery simulator invites the
-           wrong reading — that it configures the SIMULATED battery. It does not; it only decides
-           whether the existing battery's series are asked for, so load can be reconstructed net
-           of it (§6.3). Uses the shared .slot-info-btn / #slot-info-dialog pair. #}
-        <div class="flex flex-wrap items-center gap-3">
-          <span class="w-56 label-text">
-            {{ _('Do you already have a battery?') }}
-            <button type="button" class="btn btn-ghost btn-xs btn-circle align-middle slot-info-btn"
-                    aria-label="{{ _('About') }} {{ _('Do you already have a battery?') }}"
-                    data-info-title="{{ _('Do you already have a battery?') }}"
-                    data-info-body="{{ _('Answer yes only to supply your existing battery\'s charge and discharge series. They are used solely to work out what your house actually consumed — the app adds them back when reconstructing load from your grid meter, which only sees energy crossing the connection. The simulation below does not build on your existing battery: it assumes that battery is replaced by the one you configure in the parameters panel.') }}">ⓘ</button>
-          </span>
-          <label class="label cursor-pointer gap-1">
-            <input type="radio" name="setup_hasbattery" value="1" class="radio radio-sm" {% if cfg.has_battery %}checked{% endif %} />
-            <span class="label-text">{{ _('Yes') }}</span>
-          </label>
-          <label class="label cursor-pointer gap-1">
-            <input type="radio" name="setup_hasbattery" value="0" class="radio radio-sm" {% if not cfg.has_battery %}checked{% endif %} />
-            <span class="label-text">{{ _('No') }}</span>
-          </label>
-        </div>
-        <p class="text-xs text-base-content/60">
-          ⓘ {{ _('These answers decide which series are asked for below. They are saved when you fetch your data.') }}
-        </p>
-      </div>
+      {{ household_box(cfg, titled=False) }}
 
       {# ── Intro ───────────────────────────────────────────────────────────── #}
       <p class="text-sm text-base-content/70">
         {{ _('Pick where each series comes from. Choose a source per slot; for Home Assistant, connect once from the source drawer (Configure) and that connection is reused across every slot that uses it.') }}
       </p>
 
-      {# ── Slot roster ─────────────────────────────────────────────────────── #}
-      {# The #slot-roster card carries data-ingest-ws: ha_fetch.js reads it to open the backend
-         ingest WebSocket (§7.5). It used to live on the now-removed #ha-connection card; the
-         Home Assistant connection UI moved into the drawer's configuration modal (#ha-config-
-         dialog in index.html), opened by a "Configure" button beside the HA source radio.
-
-         The path is workspace-scoped (`/w/{id}/data/ingest/ws`, specs/08-architecture.md §5.1)
-         and is built HERE, server-side, rather than assembled in JS from the workspace id. The
-         attribute already carried the whole path, so keeping that shape means ha_fetch.js still
-         reads one attribute and knows nothing about the URL layout. The id is the same
-         `workspace_id` index.html puts on <body>, so the socket and the page's fetches cannot
-         end up addressing different workspaces. #}
-      {# One row per data.mapping entry (the full slot roster from data_view/sample_data), gated
-         by the setup band (§2.2): the solar row shows only with has_pv; the two price-bracketing
-         rows only with simulate_cost. Each row shows role, requirement marker, and the chosen
-         source. The entity (HA statistic id) is NOT a column here — it is chosen in the drawer;
-         the source button's label carries the chosen HA entity inline (ha_fetch.js). The
-         "Choose source…" button opens the shared drawer, carrying the slot name + its source
-         list (as JSON) for JS to render. #}
-      <div class="card bg-base-200 border border-base-300" id="slot-roster"
-           data-ingest-ws="/w/{{ workspace_id | urlencode }}/data/ingest/ws">
-        <div class="card-body gap-3 p-4">
-          <h3 class="text-sm font-semibold text-base-content/70">{{ _('Series slots') }}</h3>
-
-          <div class="overflow-x-auto">
-            <table class="table table-sm">
-              <thead>
-                <tr>
-                  <th>{{ _('Role') }}</th>
-                  <th class="text-center">{{ _('Req') }}</th>
-                  <th>{{ _('Source') }}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for row in data.mapping %}
-                  {# Gated rows are RENDERED and hidden with a class, not omitted: the setup-band
-                     radios re-gate this table client-side as the user answers (ha_fetch.js
-                     `applySetupGating`), and a row that was never rendered could not come back
-                     without a round-trip. The data-*-only attributes tell JS which answer each row
-                     depends on; the server still computes the initial hidden state below, so the
-                     first paint is correct with JS disabled. A hidden row's slot is skipped by
-                     mappedSlots()/stagedBackendSlots(), so it is never fetched. #}
-                  {% set row_hidden = (row.pv_only and not cfg.has_pv) or (row.battery_only and not cfg.has_battery) or (row.cost_only and not cfg.simulate_cost) %}
-                  <tr class="slot-row{% if row_hidden %} hidden{% endif %}"
-                      data-slot-row="{{ row.name }}"
-                      {% if row.pv_only %}data-pv-only="1"{% endif %}
-                      {% if row.battery_only %}data-battery-only="1"{% endif %}
-                      {% if row.cost_only %}data-cost-only="1"{% endif %}>
-                    {# Role label, plus an optional ⓘ info affordance. The icon renders only when
-                       the slot's view-model carries an `info` blurb (specs §4.1), so the roster
-                       is generic: a future series gets an icon by populating SlotSpec.info, with
-                       no change here. Clicking opens the shared #slot-info-dialog below; the
-                       button carries the (translated) title + body as data-* for ha_fetch.js. #}
-                    <td>
-                      <span class="align-middle">{{ _(row.role) }}</span>
-                      {% if row.info %}
-                      <button type="button"
-                              class="btn btn-ghost btn-xs btn-circle align-middle slot-info-btn"
-                              aria-label="{{ _('About') }} {{ _(row.role) }}"
-                              data-info-title="{{ _(row.role) }}"
-                              data-info-body="{{ _(row.info) }}">ⓘ</button>
-                      {% endif %}
-                    </td>
-                    <td class="text-center">
-                      {% if row.req == "required" %}<span title="{{ _('required') }}">●</span>
-                      {% elif row.req == "conditional" %}<span title="{{ _('required if you have PV') }}" class="text-primary">◐</span>
-                      {% elif row.req == "cost_optional" %}<span title="{{ _('offered if you simulate costs') }}" class="text-primary">◒</span>
-                      {% else %}<span title="{{ _('optional') }}" class="text-base-content/40">○</span>{% endif %}
-                    </td>
-                    <td>
-                      {# The chosen source's label, or a "Choose source…" affordance. Either way
-                         the button opens the drawer for this slot; when a source is chosen the
-                         button also lets the user change it — including, for Home Assistant, the
-                         entity (statistic id) chosen inside the drawer. #}
-                      {% set chosen = namespace(label=None) %}
-                      {% for s in row.sources %}
-                        {% if s.key == row.source %}{% set chosen.label = s.label %}{% endif %}
-                      {% endfor %}
-                      {# The source list carried to the drawer, with labels/blurbs translated
-                         here (their msgids come from sample_data.py). "pending" flags the CSV
-                         option so JS renders it disabled with the [?] affordance. #}
-                      {% set src_list = [] %}
-                      {% for s in row.sources %}
-                        {% set _ = src_list.append({"key": s.key, "kind": s.kind, "label": _(s.label), "blurb": _(s.blurb)}) %}
-                      {% endfor %}
-                      {# The label text ha_fetch.js maintains: it appends the chosen HA entity
-                         (source · entity) once picked in the drawer this session. Rendered inside
-                         a .slot-source-label span so JS can rewrite just the text. For an HA slot
-                         with no entity chosen yet, JS shows "Home Assistant · choose entity…". #}
-                      {# For a fetched Home Assistant slot the persisted statistic id (row.stat_id)
-                         is carried in data-slot-stat-id, and the label is rendered server-side as
-                         "Home Assistant · <id>" so it shows on first paint (no client state, specs
-                         §2.2). ha_fetch.js seeds slotState.statId from this attribute. #}
-                      {% set is_ha = row.source == 'home_assistant' %}
-                      <button type="button"
-                              class="btn btn-sm {% if chosen.label %}btn-ghost{% else %}btn-outline btn-primary{% endif %} slot-source-btn"
-                              data-slot="{{ row.name }}"
-                              data-slot-role="{{ _(row.role) }}"
-                              data-slot-source="{{ row.source or '' }}"
-                              data-slot-stat-id="{{ row.stat_id or '' }}"
-                              data-slot-kind="{{ 'price' if 'price' in (row.name or '') else 'energy' }}"
-                              data-slot-sources="{{ src_list | tojson | forceescape }}">
-                        <span class="slot-source-label">
-                          {%- if is_ha %}{{ _('Home Assistant') }} · {% if row.stat_id %}{{ row.stat_id }}{% else %}{{ _('choose entity…') }}{% endif %}
-                          {%- elif chosen.label %}{{ _(chosen.label) }}
-                          {%- else %}{{ _('Choose source…') }}{% endif -%}
-                        </span>
-                        {% if chosen.label %}<span class="text-xs opacity-60">{{ _('change') }}</span>{% endif %}
-                      </button>
-                    </td>
-                  </tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
-
-          <p class="text-xs text-base-content/60">
-            {{ _('● = required.  ○ = optional.  ◐ = required only if you have solar PV.  ◒ = offered only if you simulate costs (intra-hour price bracketing). Which rows appear comes from the answers in the setup band above. Spot price drives the charge and discharge bands, so it is required whether or not you simulate costs.') }}
-          </p>
-
-          {# Fetch progress — hidden until a fetch starts (ha_fetch.js). "Fetch history" pulls
-             only the slots whose chosen source is Home Assistant and that have an entity chosen
-             in the drawer (ha_fetch.js reads that per-slot state, not any per-row DOM select). #}
-          <progress id="ha-fetch-progress" class="progress progress-primary w-full hidden" max="100"></progress>
-          <div class="flex flex-wrap items-center justify-between gap-2">
-            <span class="text-sm text-base-content/60" id="ha-fetch-status"></span>
-            <button type="button" class="btn btn-primary btn-sm" id="ha-fetch-btn" disabled>{{ _('Fetch history') }}</button>
-          </div>
-        </div>
-      </div>
+      {{ slot_roster(data, cfg, workspace_id) }}
 
       {# The shared #slot-info-dialog used to live here. It now sits at PAGE level in index.html:
          a <dialog> inside .collapse-content still enters the top layer when collapsed — blocking
          all input — but is never painted, because daisyUI sets content-visibility:hidden on a
          closed collapse. See index.html for the full note. #}
 
-      {# ── Data quality ────────────────────────────────────────────────────── #}
-      <div class="card bg-base-200 border border-base-300">
-        <div class="card-body gap-3 p-4">
-          <h3 class="text-sm font-semibold text-base-content/70">{{ _('Data quality') }}</h3>
-
-          <div class="grid grid-cols-1 gap-1 sm:grid-cols-[auto_1fr] sm:gap-x-6">
-            <span class="text-base-content/60">{{ _('Coverage') }}</span><span>{{ msg(data.quality.coverage) }}</span>
-            <span class="text-base-content/60">{{ _('Simulation grid') }}</span><span>{{ msg(data.quality.grid) }}</span>
-          </div>
-
-          {# Per-series granularity. Only the lossy (averaged) reconciliation is marked ⚠. #}
-          <div class="overflow-x-auto">
-            <table class="table table-sm">
-              <thead>
-                <tr><th>{{ _('Series') }}</th><th>{{ _('Recorded at') }}</th><th>{{ _('The run uses') }}</th></tr>
-              </thead>
-              <tbody>
-                {% for s in data.quality.series %}
-                <tr>
-                  <td>{{ _(s.name) }}</td>
-                  <td>{% for r in s.recorded %}<div class="text-xs">{{ msg(r) }}</div>{% endfor %}</td>
-                  <td>
-                    {% if s.warn %}<span class="text-warning">⚠ {{ msg(s.uses) }}</span>
-                    {% else %}{{ msg(s.uses) }}{% endif %}
-                  </td>
-                </tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
-
-          {# The price-granularity warning shows only when a price series was averaged down
-             (§6.2). Absent otherwise — the template does not fabricate an empty alert. #}
-          {% if data.quality.price_warning %}
-          <div role="alert" class="alert alert-warning py-2">
-            <span class="text-sm">⚠ {{ msg(data.quality.price_warning) }}</span>
-          </div>
-          {% endif %}
-
-          <div class="grid grid-cols-1 gap-1 sm:grid-cols-[auto_1fr] sm:gap-x-6">
-            <span class="text-base-content/60">{{ _('Gaps') }}</span><span>{{ msg(data.quality.gaps) }}</span>
-            <span class="text-base-content/60">{{ _('Counter resets') }}</span><span>{{ msg(data.quality.resets) }}</span>
-            <span class="text-base-content/60">{{ _('Meter registers') }}</span><span>{{ msg(data.quality.registers) }}</span>
-          </div>
-
-          {# The reconstructed-load warning depends on load reconstruction (§6.3), a later
-             increment. Shown only when that computation has produced one. #}
-          {% if data.quality.load_warning %}
-          <div role="alert" class="alert alert-warning py-2">
-            <span class="text-sm">⚠ {{ msg(data.quality.load_warning) }}</span>
-          </div>
-          {% endif %}
-        </div>
-      </div>
+      {{ data_quality(data) }}
 
       {# ── Your data at a glance (§2.3a) ──────────────────────────────────────
          The battery-free figures computed from the loaded dataset, rendered as a peer of the
