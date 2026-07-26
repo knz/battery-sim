@@ -99,6 +99,7 @@ These apply to every file in this package and are not restated in full elsewhere
 | [17-open-questions.md](17-open-questions.md) | Decisions still owed by the product owner | Product owner |
 | [18-dutch-electricity-background.md](18-dutch-electricity-background.md) | Domain background: what the meter measures, how the bill is built, salderen and the 2027 regime, what is still unknown | Everyone; essential if the Dutch regime is unfamiliar |
 | [19-prototype-experiments.md](19-prototype-experiments.md) | Measurements to run once a prototype exists: which parameters, policies and diagnostics actually change the answer | Product owner, backend |
+| [20-workspaces-ux.md](20-workspaces-ux.md) | **Draft.** Multi-workspace restructure: the workspace list, the three per-workspace screens, the new-analysis wizard. Supersedes §2.1's single-page stepper; §2.2–§2.4's box contents are unchanged | Frontend, product owner |
 | [appendix-a-defaults.md](appendix-a-defaults.md) | Every default parameter value with its rationale | Everyone |
 | [appendix-b-glossary.md](appendix-b-glossary.md) | Dutch energy terminology and abbreviations | Everyone |
 | [implementation-progress.md](implementation-progress.md) | Living build record: which controls are pending and their feature keys (not a spec) | Implementers |

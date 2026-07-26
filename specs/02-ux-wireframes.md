@@ -5,6 +5,12 @@
 > **Read with:** [03-topology-selector.md](03-topology-selector.md) for the illustrated
 > selectors referenced from panel ②, and [04-state-machine.md](04-state-machine.md) for
 > the state transitions these panels drive.
+>
+> **§2.1 is under revision.** [20-workspaces-ux.md](20-workspaces-ux.md) proposes replacing
+> the single-page stepper and the setup band with a workspace list and three per-workspace
+> screens. That draft changes *which screen* each control sits on; it does not change the
+> box-level contents specified in §2.2, §2.3a, §2.3 and §2.4, which it references rather
+> than restates. Read this file for what the controls are, and 20 for where they live.
 
 ## 2.1 Overall layout
 
