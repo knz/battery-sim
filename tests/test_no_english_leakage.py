@@ -88,34 +88,55 @@ def _visible_text(html: str) -> str:
     return re.sub(r"[ \t]+", " ", html)
 
 
-def _dutch_pages(client) -> dict[str, str]:
-    """The three renders that between them contain every user-facing string."""
+@pytest.fixture(scope="module")
+def dutch_text(client) -> dict[str, str]:
+    """The three renders that between them contain every user-facing string, as visible text.
+
+    Module-scoped because the renders are the expensive part of this file by a wide margin: on a
+    machine with a real `data/` directory, `POST /results` runs a simulation over the stored
+    dataset, and the three renders together cost ~5.7s. Both tests below are parametrized over
+    the same three pages, so computing them per test ran the same three renders six times — ~34s
+    to arrive at the same HTML — and each call discarded two of the three pages it had just built.
+
+    The strip to visible text is cached here too rather than in the tests, because that is what
+    both tests actually consume; caching the raw HTML would leave `_visible_text` running six
+    times over the same markup.
+
+    Returned strings are immutable and the tests only read them, so sharing across tests cannot
+    couple them. What this fixture does NOT fix is the coverage question in `followups.md` H13:
+    which boxes these pages render still depends on the developer's stored dataset and config,
+    so a green run here still does not prove the catalogs are complete.
+    """
     hdr = {"Cookie": "lang=nl"}
     index = client.get("/", headers=hdr)
     results = client.post("/results", json={"period": "last_1_year"}, headers=hdr)
     bench = client.post("/results/benchmark", json={"period": "last_1_year"}, headers=hdr)
     for name, r in (("/", index), ("/results", results), ("/results/benchmark", bench)):
         assert r.status_code == 200, f"{name} returned {r.status_code}"
-    return {"/": index.text, "/results": results.text, "/results/benchmark": bench.text}
+    return {
+        "/": _visible_text(index.text),
+        "/results": _visible_text(results.text),
+        "/results/benchmark": _visible_text(bench.text),
+    }
 
 
 @pytest.mark.parametrize("page", ["/", "/results", "/results/benchmark"])
-def test_no_forbidden_english_fragment_on_a_dutch_page(client, page):
+def test_no_forbidden_english_fragment_on_a_dutch_page(dutch_text, page):
     """Named regression check: the exact fragments measured leaking must be gone."""
-    text = _visible_text(_dutch_pages(client)[page])
+    text = dutch_text[page]
     found = sorted({f for f in FORBIDDEN_FRAGMENTS if f in text})
     assert not found, f"{page} still renders English fragments in Dutch: {found}"
 
 
 @pytest.mark.parametrize("page", ["/", "/results", "/results/benchmark"])
-def test_no_english_prose_survives_on_a_dutch_page(client, page):
+def test_no_english_prose_survives_on_a_dutch_page(dutch_text, page):
     """Open-ended check: no line should read as English prose.
 
     Two or more closed-class English markers in one line is the threshold — one can be a Dutch
     homograph ("in", "over", "was"), but two together is a sentence someone forgot to translate.
     """
     offenders = []
-    for line in _visible_text(_dutch_pages(client)[page]).split("\n"):
+    for line in dutch_text[page].split("\n"):
         line = line.strip()
         if not line:
             continue
