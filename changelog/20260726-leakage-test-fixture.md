@@ -184,6 +184,45 @@ makes the test FAIL rather than pass vacuously, and breaking `i18n.num` fails it
 Full suite in a bare worktree: **878 passed, 2 skipped, 0 failed**, 33.0s. `test_i18n.py` and
 `test_no_english_leakage.py` give identical results with and without the developer's `data/`.
 
+## Follow-up: the suite wrote into the developer's ./data — DONE
+
+Noticed while rebasing, and pre-existing rather than introduced here (confirmed by stashing this
+branch's commits and seeing the base branch do it too).
+
+**Mechanism, established by bisecting the writes rather than inferred.** `app/main.py:183` runs
+`CONFIG = config.load()` at IMPORT time, and `config.load()` generates and persists an
+`installation_id` into `data/config.toml` on first run — so merely importing `app.main` created
+the directory and wrote a pseudonymous identity into it. The first request through any
+unredirected client then added `feature_interest.db` and the `local/` workspace row. Verified by
+splitting the two: a bare `import app.main` produces `config.toml` alone; a subsequent `GET /`
+adds the other two. Importing `app.config` on its own writes nothing.
+
+This was never intentional. `app/main.py`'s lifespan carries a comment explaining that its
+workspace creation lives there rather than at import time precisely so it does not "create rows
+in whatever directory happens to be resolved at import time" — but `CONFIG` is resolved at import
+time and does exactly that.
+
+**Fix.** `tests/conftest.py` now points `BATTERY_SIM_DATA_DIR` at a throwaway temp directory for
+the whole session, registered with `atexit` for cleanup. It runs at conftest IMPORT time, not in
+a fixture: pytest imports every test module before the first fixture runs, and several do
+`from app.main import app` at module level, so a session-scoped autouse fixture would execute
+after the write had already happened. Uses `setdefault` semantics, so a developer or CI job that
+deliberately sets the variable keeps its own choice, and `tests/test_smoke.py` — which sets it
+explicitly for its uvicorn subprocess — is unaffected.
+
+Individual tests still redirect to their own `tmp_path` as before; this only catches the ones
+that never redirected at all.
+
+**Verification.** With a REAL `data/` copied in, every file is byte-identical (md5 over the whole
+tree) after a full suite run — previously the suite wrote `config.toml` and created workspace
+rows there. No `data/` is created in a bare checkout. An explicitly-set `BATTERY_SIM_DATA_DIR` is
+still honoured, and no temp directories leak. Suite unchanged at **898 passed, 2 skipped**.
+
+Not changed: `app/main.py`'s import-time `CONFIG = config.load()` is still the underlying cause,
+and still writes for anyone importing the module outside the test suite. Moving it behind the
+lifespan would be the deeper fix and is an application change rather than a test one, so it is
+left alone here and worth filing.
+
 ## Phase 2, as originally specified
 
 Point the leakage tests at a predefined dataset held separately from the live instance, so
