@@ -13,7 +13,7 @@ implementation and commit. Minor review findings are either fixed immediately or
 | Phase | State |
 |---|---|
 | 0 — Prepare | done — [changelog](20260726-workspaces-phase0.md) |
-| 1 — Workspace-scoped routes | not started |
+| 1 — Workspace-scoped routes | done — [changelog](20260726-workspaces-phase1.md) |
 | 2 — The list screen | not started |
 | 3 — Edit workspace | not started |
 | 4 — Configure data, and results | not started |

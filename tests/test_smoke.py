@@ -11,6 +11,12 @@ counter route (specs/08-architecture.md §5.1) upserts once per key and 404s an 
 The server runs against a throwaway data directory so the counter DB and the generated
 config.toml never touch the working tree.
 
+One test here is about the BROWSER's storage rather than the page's markup:
+`test_ha_fetch_scopes_its_slot_store_per_workspace` pins that `ha_fetch.js` keys its slot store
+per workspace and discards the pre-workspaces global `ha.slots`
+(specs/20-workspaces-ux.md §2′.11). It belongs in a real browser because what it checks is what
+that module DOES at load, which no source-level assertion can observe.
+
     uv run pytest tests/test_smoke.py
 
 Requires the CSS built (npm run build:css) and Playwright's Chromium installed.
@@ -196,6 +202,50 @@ def test_slot_info_dialog_works_when_panel_1_is_collapsed(page):
     # The `page` fixture is module-scoped: restore panel ① to expanded, the state the other tests
     # in this file expect (several click controls inside it).
     toggle.check()
+
+
+def test_ha_fetch_scopes_its_slot_store_per_workspace(browser, base_url):
+    """`ha.slots` is keyed per workspace, and a pre-existing global key is discarded (§2′.11).
+
+    Driven in a real browser rather than asserted on the source, because the behaviour under test
+    is what `ha_fetch.js` does to `localStorage` at load — the module reads `data-workspace-id`,
+    derives its key from it, and removes the pre-workspaces global one. A source-level check would
+    pass on a file that never runs (the module returns early when the roster is absent, and a
+    syntax error would be invisible).
+
+    A fresh context is used so this cannot disturb the module-scoped `page` fixture's storage.
+    """
+    context = browser.new_context()
+    pg = context.new_page()
+    # Seed the pre-workspaces global key, as an upgraded installation's browser would hold it, then
+    # load the page so the module runs against it.
+    pg.goto(base_url + "/", wait_until="networkidle")
+    pg.evaluate("localStorage.setItem('ha.slots', JSON.stringify({gen: 0, slots: {a: 1}}))")
+    pg.reload(wait_until="networkidle")
+    # Panels render collapsed; the roster's buttons are not clickable until panel ① is open.
+    for cb in pg.locator("section.collapse > input[type=checkbox]").all():
+        cb.check()
+
+    # The legacy key is gone, and NOT copied into the workspace key: a mapping staged before the
+    # upgrade must not come back looking deliberately staged in `local`.
+    assert pg.evaluate("localStorage.getItem('ha.slots')") is None
+    assert pg.evaluate("localStorage.getItem('ha.slots.local')") is None
+
+    # And a choice made now lands under the SCOPED key. Driven through the drawer, which is the
+    # only thing that writes the store. A backend_load source is picked rather than Home Assistant
+    # because Confirm gates the HA branch on a tested connection AND a chosen entity, neither of
+    # which this page has; a backend source commits as soon as it is selected, and Confirm merely
+    # stages it (the load happens on Fetch history, so nothing is contacted here).
+    pg.locator("#slot-roster .slot-source-btn[data-slot-sources*='backend_load']").first.click()
+    pg.locator("#source-drawer input[name='drawer-source'][value='energy_charts']").check()
+    pg.locator("#drawer-confirm").click()
+
+    stored = pg.evaluate("localStorage.getItem('ha.slots.local')")
+    assert stored is not None, "the drawer wrote nothing under the workspace-scoped key"
+    assert "energy_charts" in stored
+    # The global key stays gone — the scoped write must not resurrect it.
+    assert pg.evaluate("localStorage.getItem('ha.slots')") is None
+    context.close()
 
 
 def test_data_summary_absent_in_empty_state(page):

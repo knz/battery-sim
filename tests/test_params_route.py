@@ -27,6 +27,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from app.domain.frames import QUALITY_DTYPE, SeriesFrame
+from tests.conftest import seed_workspace, w
 
 _DAYS = 30
 _HOURS = _DAYS * 24
@@ -78,6 +79,9 @@ def client(tmp_path, monkeypatch):
         _series("price_spot", "price", cheap_expensive),
     ]
     dataset.save_dataset(frames, (_WIN_START, _WIN_END), "test", [], None)
+    # The routes are workspace-scoped now, and `TestClient(app)` outside a `with` block skips the
+    # lifespan that would have adopted this data dir's workspace — so create the row explicitly.
+    seed_workspace()
 
     from app import main
 
@@ -144,7 +148,7 @@ def _saved_kwh(client, **body) -> float:
     asserted is that the ROUTE's config threading reaches the page — a view-model call would
     bypass exactly the wiring under test.
     """
-    r = client.post("/results", json=body or {"period": "last_1_year"})
+    r = client.post(w("/results"), json=body or {"period": "last_1_year"})
     assert r.status_code == 200
     # The tile renders as: <div class="stat-title …">GRID IMPORT SAVED</div>
     # <div class="stat-value …">1,412<span …> kWh</span></div>
@@ -163,7 +167,7 @@ def _saved_kwh(client, **body) -> float:
 def test_a_valid_submission_persists_and_returns_the_panel(client):
     from app import simconfig_store
 
-    r = client.post("/params", data=_form(**{"battery.usable_capacity_kwh": "20"}))
+    r = client.post(w("/params"), data=_form(**{"battery.usable_capacity_kwh": "20"}))
     assert r.status_code == 200
     assert r.headers["X-Params-Valid"] == "1"
     assert 'id="panel-params"' in r.text          # the swap target root
@@ -171,7 +175,7 @@ def test_a_valid_submission_persists_and_returns_the_panel(client):
 
 
 def test_the_summary_line_in_the_response_reflects_the_submission(client):
-    r = client.post("/params", data=_form(**{"battery.usable_capacity_kwh": "20",
+    r = client.post(w("/params"), data=_form(**{"battery.usable_capacity_kwh": "20",
                                              "battery.max_charge_kw": "7"}))
     assert "20.0 kWh · 7.0/5.0 kW" in r.text
 
@@ -179,7 +183,7 @@ def test_the_summary_line_in_the_response_reflects_the_submission(client):
 def test_a_stored_config_is_rendered_on_the_next_page_load(client):
     """The persisted parameter set drives GET / — which is the restart case, since load() holds
     no process state."""
-    client.post("/params", data=_form(**{"battery.usable_capacity_kwh": "22.5"}))
+    client.post(w("/params"), data=_form(**{"battery.usable_capacity_kwh": "22.5"}))
     page = client.get("/")
     assert page.status_code == 200
     assert 'name="battery.usable_capacity_kwh"' in page.text
@@ -197,8 +201,8 @@ def test_an_invalid_submission_is_not_persisted_and_keeps_the_typed_value(client
     """
     from app import simconfig_store
 
-    client.post("/params", data=_form(**{"battery.usable_capacity_kwh": "20"}))   # a good baseline
-    r = client.post("/params", data=_form(**{"battery.max_charge_kw": "not-a-number"}))
+    client.post(w("/params"), data=_form(**{"battery.usable_capacity_kwh": "20"}))   # a good baseline
+    r = client.post(w("/params"), data=_form(**{"battery.max_charge_kw": "not-a-number"}))
 
     assert r.status_code == 200                       # a rendered form, not a failed request
     assert r.headers["X-Params-Valid"] == "0"
@@ -215,14 +219,14 @@ def test_an_invalid_submission_does_not_500(client):
     """
     junk = {k: "🙃" for k in _form() if k != "sections"}
     junk["sections"] = "battery grid charge discharge topology"
-    r = client.post("/params", data=junk)
+    r = client.post(w("/params"), data=junk)
     assert r.status_code == 200
     assert r.headers["X-Params-Valid"] == "0"
 
 
 def test_an_empty_submission_does_not_500(client):
     """Nothing but the section marker: every field inherits, so this is a valid no-op."""
-    r = client.post("/params", data={"sections": "battery"})
+    r = client.post(w("/params"), data={"sections": "battery"})
     assert r.status_code == 200
 
 
@@ -240,7 +244,7 @@ def test_every_numeric_field_survives_a_very_long_value(client):
     from app import params_view
 
     for name, _path, _fn in params_view.FIELDS:
-        r = client.post("/params", data=_cost_form(**{name: "9" * 400}))
+        r = client.post(w("/params"), data=_cost_form(**{name: "9" * 400}))
         assert r.status_code == 200, f"{name} produced {r.status_code}"
         assert r.headers["X-Params-Valid"] == "0", name
 
@@ -259,9 +263,9 @@ def test_a_very_long_numeric_input_is_a_field_error_not_a_500(client, digits):
     """
     from app import simconfig_store
 
-    client.post("/params", data=_form(**{"battery.usable_capacity_kwh": "11"}))
+    client.post(w("/params"), data=_form(**{"battery.usable_capacity_kwh": "11"}))
     r = client.post(
-        "/params", data=_form(**{"battery.usable_capacity_kwh": "9" * digits})
+        w("/params"), data=_form(**{"battery.usable_capacity_kwh": "9" * digits})
     )
     assert r.status_code == 200
     assert r.headers["X-Params-Valid"] == "0"
@@ -289,7 +293,7 @@ def test_a_forged_sections_value_cannot_clear_the_retained_guard(client):
     parked.simulate_cost = False
     simconfig_store.save(parked)
 
-    r = client.post("/params", data=_form(sections="battery grid charge discharge pricing"))
+    r = client.post(w("/params"), data=_form(sections="battery grid charge discharge pricing"))
     assert r.status_code == 200
 
     # Still parked: re-enabling cost simulation must restore the user's tick.
@@ -313,7 +317,7 @@ def test_an_unwritable_data_dir_reports_on_the_panel_rather_than_500ing(client, 
 
     monkeypatch.setattr(simconfig_store, "save", boom)
 
-    r = client.post("/params", data=_form(**{"battery.usable_capacity_kwh": "13"}))
+    r = client.post(w("/params"), data=_form(**{"battery.usable_capacity_kwh": "13"}))
     assert r.status_code == 200
     assert "could not be saved" in r.text
     # The submitted values still drive this render — they simply will not survive a restart.
@@ -331,8 +335,8 @@ def test_a_body_that_is_not_a_form_never_500s_and_changes_nothing(client):
     """
     from app import simconfig_store
 
-    client.post("/params", data=_form(**{"battery.usable_capacity_kwh": "17"}))
-    r = client.post("/params", content=b"\x00\x01\x02", headers={"Content-Type": "text/plain"})
+    client.post(w("/params"), data=_form(**{"battery.usable_capacity_kwh": "17"}))
+    r = client.post(w("/params"), content=b"\x00\x01\x02", headers={"Content-Type": "text/plain"})
     assert r.status_code < 500
     assert simconfig_store.load().battery.usable_capacity_kwh == 17
 
@@ -341,7 +345,7 @@ def test_band_overlap_warns_and_still_persists(client):
     """§7.3 check 12 / §6.7: netting handles it at runtime, so it must not block the save."""
     from app import simconfig_store
 
-    r = client.post("/params", data=_form(**{"policy.band_b": "0.500", "policy.band_c": "0.100"}))
+    r = client.post(w("/params"), data=_form(**{"policy.band_b": "0.500", "policy.band_c": "0.100"}))
     assert r.headers["X-Params-Valid"] == "1"
     assert simconfig_store.load().policy.band_b == 0.5
     assert "overlap" in r.text.lower()
@@ -351,7 +355,7 @@ def test_a_corrupt_stored_config_still_renders_the_page(client):
     """Deliverable 1: the app must always render. A broken file falls back to defaults."""
     from app import simconfig_store
 
-    client.post("/params", data=_form())
+    client.post(w("/params"), data=_form())
     simconfig_store.config_path().write_text("{ truncated", encoding="utf-8")
     page = client.get("/")
     assert page.status_code == 200
@@ -366,7 +370,7 @@ def test_an_unsupported_phase_topology_shows_the_soft_block(client):
     from app import simconfig_store
 
     r = client.post(
-        "/params",
+        w("/params"),
         data=_form(**{"grid.phases": "3", "topology.battery_phases": "one_phase"}),
     )
     assert r.headers["X-Params-Valid"] == "1"            # SOFT block: the config is still valid
@@ -379,7 +383,7 @@ def test_continuing_sets_topology_approximated(client):
     from app import simconfig_store
 
     client.post(
-        "/params",
+        w("/params"),
         data=_form(**{"grid.phases": "3", "topology.battery_phases": "three_times_one_phase",
                       "topology.approximated": "1"}),
     )
@@ -403,14 +407,14 @@ def test_fixture_12_an_approximated_run_is_identical_to_the_three_phase_case(cli
     from app import simconfig_store
 
     three_phase = _form(**{"grid.phases": "3", "topology.battery_phases": "three_phase"})
-    client.post("/params", data=three_phase)
+    client.post(w("/params"), data=three_phase)
     assert simconfig_store.load().topology.approximated is False
     supported_saving = _saved_kwh(client)
-    supported_body = client.post("/results", json={"period": "last_1_year"}).text
+    supported_body = client.post(w("/results"), json={"period": "last_1_year"}).text
 
     approximated = _form(**{"grid.phases": "3", "topology.battery_phases": "one_phase",
                             "topology.approximated": "1"})
-    client.post("/params", data=approximated)
+    client.post(w("/params"), data=approximated)
     cfg = simconfig_store.load()
 
     # (1) the flag is set, and it is the UNSUPPORTED topology that is stored.
@@ -420,7 +424,7 @@ def test_fixture_12_an_approximated_run_is_identical_to_the_three_phase_case(cli
     # (2) the numbers are identical.
     assert _saved_kwh(client) == supported_saving
 
-    approximated_body = client.post("/results", json={"period": "last_1_year"}).text
+    approximated_body = client.post(w("/results"), json={"period": "last_1_year"}).text
     # ...and the ONLY difference in the rendered panel is the caveat the soft block pins to it.
     assert "3-phase approximation" in approximated_body
     assert "3-phase approximation" not in supported_body
@@ -433,10 +437,10 @@ def test_a_parameter_change_moves_panel_3s_figures(client):
     """End-to-end: post a bigger battery, and the saving moves. This is the whole point of the
     phase — before it, `results_from` built its own `SimulationConfig()` and the form changed
     nothing."""
-    client.post("/params", data=_form(**{"battery.usable_capacity_kwh": "5"}))
+    client.post(w("/params"), data=_form(**{"battery.usable_capacity_kwh": "5"}))
     small = _saved_kwh(client)
 
-    client.post("/params", data=_form(**{"battery.usable_capacity_kwh": "30",
+    client.post(w("/params"), data=_form(**{"battery.usable_capacity_kwh": "30",
                                          "battery.max_charge_kw": "10",
                                          "battery.max_discharge_kw": "10"}))
     large = _saved_kwh(client)
@@ -455,28 +459,28 @@ def test_a_parameter_change_moves_panel_3s_figures(client):
     # What IS asserted beyond inequality: the mapping is a function of the config and nothing
     # else, so going back to the first parameter set reproduces the first figure exactly. That
     # rules out the figure merely drifting with request order or with some cached state.
-    client.post("/params", data=_form(**{"battery.usable_capacity_kwh": "5"}))
+    client.post(w("/params"), data=_form(**{"battery.usable_capacity_kwh": "5"}))
     assert _saved_kwh(client) == small
 
 
 def test_the_benchmark_route_uses_the_same_config(client):
     """`/results` and `/results/benchmark` must not disagree about which battery is being
     described. The benchmark's `Your policy` row IS the policy saving, so it tracks the config."""
-    client.post("/params", data=_form(**{"battery.usable_capacity_kwh": "5"}))
-    small = client.post("/results/benchmark", json={"period": "last_1_year"})
+    client.post(w("/params"), data=_form(**{"battery.usable_capacity_kwh": "5"}))
+    small = client.post(w("/results/benchmark"), json={"period": "last_1_year"})
     assert small.status_code == 200
 
-    client.post("/params", data=_form(**{"battery.usable_capacity_kwh": "30",
+    client.post(w("/params"), data=_form(**{"battery.usable_capacity_kwh": "30",
                                          "battery.max_charge_kw": "10",
                                          "battery.max_discharge_kw": "10"}))
-    large = client.post("/results/benchmark", json={"period": "last_1_year"})
+    large = client.post(w("/results/benchmark"), json={"period": "last_1_year"})
     assert large.status_code == 200
     assert large.text != small.text
 
 
 def test_index_renders_panel_3_under_the_stored_config(client):
     """GET / must agree with POST /results — both read the same persisted parameter set."""
-    client.post("/params", data=_form(**{"battery.usable_capacity_kwh": "25",
+    client.post(w("/params"), data=_form(**{"battery.usable_capacity_kwh": "25",
                                          "battery.max_charge_kw": "10",
                                          "battery.max_discharge_kw": "10"}))
     page = client.get("/")
@@ -501,14 +505,14 @@ def test_the_pricing_box_renders_only_with_cost_simulation_on(client):
     that drew it unconditionally, which is the defect worth catching. The `economic_guard`
     checkbox goes with it (§2.3 names it separately).
     """
-    off = client.post("/params", data=_form())
+    off = client.post(w("/params"), data=_form())
     assert off.headers["X-Params-Valid"] == "1"
     for absent in ('name="pricing.vat_rate"', 'name="pricing.contract"',
                    'name="pricing.supplier_markup"', 'name="policy.economic_guard"',
                    'name="pricing.dal_start_hour"'):
         assert absent not in off.text, absent
 
-    on = client.post("/params", data=_cost_form())
+    on = client.post(w("/params"), data=_cost_form())
     assert on.headers["X-Params-Valid"] == "1"
     for present in ('name="pricing.vat_rate"', 'name="pricing.contract"',
                     'name="pricing.supplier_markup"', 'name="policy.economic_guard"',
@@ -525,12 +529,12 @@ def test_the_setup_band_radio_changes_simulate_cost_and_re_renders_the_panel(cli
     """
     from app import simconfig_store
 
-    on = client.post("/params", data=_cost_form())
+    on = client.post(w("/params"), data=_cost_form())
     assert simconfig_store.load().simulate_cost is True
     assert 'name="pricing.vat_rate"' in on.text
 
     off = client.post(
-        "/params",
+        w("/params"),
         data=_form(sections="setup battery grid charge discharge topology",
                    **{"setup.simulate_cost": "no"}),
     )
@@ -547,7 +551,7 @@ def test_every_pricing_field_persists_and_vat_converts_both_ways(client):
     """
     from app import simconfig_store
 
-    r = client.post("/params", data=_cost_form(**{
+    r = client.post(w("/params"), data=_cost_form(**{
         "pricing.supplier_markup": "0.0300",
         "pricing.energy_tax_excl_vat": "0.10000",
         "pricing.vat_rate": "9",
@@ -580,8 +584,8 @@ def test_an_out_of_range_pricing_value_blocks_and_binds_to_its_input(client):
     """§6.5's ranges (`validate()`): a VAT rate above 1 is a confident wrong euro figure."""
     from app import simconfig_store
 
-    client.post("/params", data=_cost_form())
-    r = client.post("/params", data=_cost_form(**{"pricing.vat_rate": "300"}))
+    client.post(w("/params"), data=_cost_form())
+    r = client.post(w("/params"), data=_cost_form(**{"pricing.vat_rate": "300"}))
     assert r.status_code == 200
     assert r.headers["X-Params-Valid"] == "0"
     assert 'data-field-error="pricing.vat_rate"' in r.text
@@ -597,7 +601,7 @@ def test_the_pending_contract_radios_render_disabled_with_their_keys(client):
     """
     from app import features
 
-    r = client.post("/params", data=_cost_form())
+    r = client.post(w("/params"), data=_cost_form())
     for key in ("pricing_contract_fixed", "pricing_contract_variable", "pricing_tlk_tiered"):
         assert key in features.FEATURE_KEYS
         assert f'data-feature-key="{key}"' in r.text
@@ -626,7 +630,7 @@ def test_the_contract_help_affordance_uses_the_shared_dialog(client):
     roster and the disabled charge policies already use, so this adds no JS. Asserted so that a
     future refactor of the dialog cannot quietly orphan this one caller.
     """
-    r = client.post("/params", data=_cost_form())
+    r = client.post(w("/params"), data=_cost_form())
     assert 'data-info-title="Contract types"' in r.text
     body = re.search(r'data-info-body="([^"]*)"[^>]*>ⓘ</button>\s*\n?\s*<label class="label gap-1',
                      r.text)
@@ -637,11 +641,11 @@ def test_the_contract_help_affordance_uses_the_shared_dialog(client):
 
 def test_the_summary_line_names_the_contract_or_energy_only(client):
     """§2.1's final clause, through the route so the rendered line is what is asserted."""
-    on = client.post("/params", data=_cost_form())
+    on = client.post(w("/params"), data=_cost_form())
     assert "· dynamic</span>" in on.text or "· dynamic" in on.text
 
     off = client.post(
-        "/params",
+        w("/params"),
         data=_form(sections="setup battery grid charge discharge topology",
                    **{"setup.simulate_cost": "no"}),
     )
@@ -659,7 +663,7 @@ def test_pricing_values_survive_turning_cost_simulation_off_and_on(client):
     """
     from app import simconfig_store
 
-    client.post("/params", data=_cost_form(**{
+    client.post(w("/params"), data=_cost_form(**{
         "pricing.supplier_markup": "0.0777",
         "pricing.vat_rate": "9",
         "pricing.degradation_eur_per_kwh": "0.0250",
@@ -669,14 +673,14 @@ def test_pricing_values_survive_turning_cost_simulation_off_and_on(client):
 
     energy_only = _form(sections="setup battery grid charge discharge topology",
                         **{"setup.simulate_cost": "no"})
-    client.post("/params", data=energy_only)
+    client.post(w("/params"), data=energy_only)
     parked = simconfig_store.load()
     assert parked.simulate_cost is False
     assert parked.pricing.supplier_markup == 0.0777     # inert, but retained
     assert parked.pricing.vat_rate == pytest.approx(0.09)
     assert parked.economic_guard is False               # forced off in effect
 
-    r = client.post("/params", data=dict(energy_only, **{"setup.simulate_cost": "yes"}))
+    r = client.post(w("/params"), data=dict(energy_only, **{"setup.simulate_cost": "yes"}))
     restored = simconfig_store.load()
     assert restored.simulate_cost is True
     assert restored.pricing.supplier_markup == 0.0777
@@ -701,8 +705,8 @@ def test_the_cost_tint_marks_the_pricing_box_and_only_the_pricing_box(client):
     # The OFF render first: `_form()`'s `sections` carries no `setup` marker, so it INHERITS the
     # stored `simulate_cost` (which is the retention behaviour appendix A asks for). Posting it
     # before the cost form is what makes it an energy-only render rather than an inheriting one.
-    off = client.post("/params", data=_form()).text
-    on = client.post("/params", data=_cost_form()).text
+    off = client.post(w("/params"), data=_form()).text
+    on = client.post(w("/params"), data=_cost_form()).text
 
     # Every TEXT input under `pricing.` is tinted. Radios and checkboxes are excluded on purpose:
     # a border tint on a 16px round control is not legible, so those take the tint on their label

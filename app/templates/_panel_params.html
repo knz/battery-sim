@@ -89,7 +89,14 @@
   </div>
 
   <div class="collapse-content">
-    <form id="params-form" method="post" action="/params" class="flex flex-col gap-4 pt-2">
+    {# Scoped, like every other write path (phase 1). The delegated handler in index.html
+       preventDefault()s and refetches this same URL, so the attribute is inert while the script
+       runs — but it is the no-JS fallback, and a flat `/params` here is a 404 the moment that
+       script does not run. Both render sites (index.html's include and POST .../params' standalone
+       render) pass `workspace_id`. #}
+    <form id="params-form" method="post"
+          action="/w/{{ workspace_id | urlencode }}/params"
+          class="flex flex-col gap-4 pt-2">
       {# Which boxes this render drew — see the header comment and params_view._section. #}
       <input type="hidden" name="sections" value="{{ params.sections }}" />
 

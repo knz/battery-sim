@@ -36,6 +36,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from app.domain.frames import QUALITY_DTYPE, SeriesFrame
+from tests.conftest import seed_workspace, w
 
 # A fixed hourly window so totals are exact: 30 days × 24 h of 1 h intervals from 2026-01-01 UTC.
 _DAYS = 30
@@ -73,13 +74,16 @@ def client(tmp_path, monkeypatch):
         _energy("grid_export_t1", 0.0),
     ]
     dataset.save_dataset(frames, (_WIN_START, _WIN_END), "test", [], None)
+    # The routes are workspace-scoped now, and `TestClient(app)` outside a `with` block skips the
+    # lifespan that would have adopted this data dir's workspace — so create the row explicitly.
+    seed_workspace()
 
     from app import main
     return TestClient(main.app)
 
 
 def test_results_preset_returns_fragment(client):
-    r = client.post("/results", json={"period": "last_1_week"})
+    r = client.post(w("/results"), json={"period": "last_1_week"})
     assert r.status_code == 200
     body = r.text
     # The swap target root and the panel identity are present (it is the _panel_results fragment).
@@ -89,14 +93,14 @@ def test_results_preset_returns_fragment(client):
 
 def test_results_default_body_is_full_year_clamped(client):
     # Empty body → default preset (last_1_year), clamped to the 30-day coverage.
-    r = client.post("/results", json={})
+    r = client.post(w("/results"), json={})
     assert r.status_code == 200
     assert 'id="panel-results"' in r.text
 
 
 def test_results_explicit_range(client):
     r = client.post(
-        "/results",
+        w("/results"),
         json={"start": "2026-01-05T00:00:00Z", "end": "2026-01-12T00:00:00Z"},
     )
     assert r.status_code == 200
@@ -118,7 +122,7 @@ def test_results_headline_carries_real_simulated_figures(client):
     cost: the row is captioned "Extra grid import", not "avoided", and the with-battery import
     (337 kWh) is HIGHER than the baseline (336 kWh).
     """
-    r = client.post("/results", json={"period": "last_1_week"})
+    r = client.post(w("/results"), json={"period": "last_1_week"})
     assert r.status_code == 200
     assert "336 kWh" in r.text          # simulated baseline import
     assert "337 kWh" in r.text          # with battery — higher, because the battery cost energy
@@ -135,7 +139,7 @@ def test_results_fragment_includes_data_glance_band(client):
     # import resolves in the standalone render() path, not just the full page. Panel ③'s copy
     # carries its OWN heading ("Your energy use during the selected period"), NOT panel ①'s title,
     # since it is scoped to the selected range.
-    r = client.post("/results", json={"period": "last_1_week"})
+    r = client.post(w("/results"), json={"period": "last_1_week"})
     assert r.status_code == 200
     # The panel-③ section heading (default EN locale). Its NL is "Je energieverbruik in de
     # geselecteerde periode".
@@ -150,7 +154,7 @@ def test_results_data_glance_styled_like_energy_savings(client):
     # Panel ③'s copy is framed to match the "Energy savings" section below it (§2.4): a
     # `divider divider-start` heading and NO card frame around the figures. Both dividers carry
     # the same classes, so the two sections read as peers.
-    r = client.post("/results", json={"period": "last_1_week"})
+    r = client.post(w("/results"), json={"period": "last_1_week"})
     divider_cls = 'class="divider divider-start text-xs font-semibold uppercase tracking-wider'
     # Two dividers: the glance section and Energy savings, identically styled.
     assert r.text.count(divider_cls) == 2
@@ -207,7 +211,7 @@ def test_data_glance_is_translated_in_both_copies(client):
     assert "zoals je meter ze heeft geregistreerd" in r.text
     assert "as your meter recorded them" not in r.text
     # The panel-③ fragment renders the same macro through a different route.
-    r3 = client.post("/results", json={"period": "last_1_week"}, headers={"Cookie": "lang=nl"})
+    r3 = client.post(w("/results"), json={"period": "last_1_week"}, headers={"Cookie": "lang=nl"})
     assert "Je energieverbruik in de geselecteerde periode" in r3.text
     assert ">Net<" in r3.text
     assert "zoals je meter ze heeft geregistreerd" in r3.text
@@ -217,7 +221,7 @@ def test_range_picker_states_the_day_count(client):
     # The selected window's length is stated ONCE per panel, in the range picker's coverage line
     # (dates · N days · resolution). It used to be repeated under the glance heading below; that
     # copy is gone, so this line is now the only place panel ③ says how long the range is.
-    r = client.post("/results", json={"period": "last_1_week"})
+    r = client.post(w("/results"), json={"period": "last_1_week"})
     assert r.status_code == 200
     assert "· 7 days ·" in r.text
     assert "simulated hourly" in r.text
@@ -239,13 +243,13 @@ def test_slot_info_dialog_is_at_page_level(client):
 
 
 def test_results_unknown_preset_400(client):
-    r = client.post("/results", json={"period": "last_decade"})
+    r = client.post(w("/results"), json={"period": "last_decade"})
     assert r.status_code == 400
 
 
 def test_results_both_period_and_range_400(client):
     r = client.post(
-        "/results",
+        w("/results"),
         json={"period": "last_1_week", "start": "2026-01-05T00:00:00Z"},
     )
     assert r.status_code == 400
@@ -253,23 +257,26 @@ def test_results_both_period_and_range_400(client):
 
 def test_results_inverted_range_400(client):
     r = client.post(
-        "/results",
+        w("/results"),
         json={"start": "2026-01-12T00:00:00Z", "end": "2026-01-05T00:00:00Z"},
     )
     assert r.status_code == 400
 
 
 def test_results_bad_date_400(client):
-    r = client.post("/results", json={"start": "not-a-date", "end": "2026-01-12T00:00:00Z"})
+    r = client.post(w("/results"), json={"start": "not-a-date", "end": "2026-01-12T00:00:00Z"})
     assert r.status_code == 400
 
 
 def test_results_no_dataset_409(tmp_path, monkeypatch):
-    # A fresh data dir with NO dataset seeded → the route reports 409, not a 500.
+    # A fresh data dir with the workspace but NO dataset seeded → 409, not a 500 and not a 404.
+    # The distinction matters now that the route resolves a workspace first: "this workspace has
+    # no data" (409) and "there is no such workspace" (404) are different answers.
     monkeypatch.setenv("BATTERY_SIM_DATA_DIR", str(tmp_path))
+    seed_workspace()
     from app import main
     c = TestClient(main.app)
-    r = c.post("/results", json={"period": "last_1_week"})
+    r = c.post(w("/results"), json={"period": "last_1_week"})
     assert r.status_code == 409
 
 
@@ -285,7 +292,7 @@ def test_results_no_dataset_409(tmp_path, monkeypatch):
 
 def test_results_omits_the_benchmark_and_carries_the_lazy_placeholder(client):
     """POST /results must NOT run the DP, and must leave the fetcher what it needs."""
-    r = client.post("/results", json={"period": "last_1_week"})
+    r = client.post(w("/results"), json={"period": "last_1_week"})
     assert r.status_code == 200
     html = r.text
     # The placeholder, its window request, and the loading state the fetcher replaces.
@@ -297,7 +304,7 @@ def test_results_omits_the_benchmark_and_carries_the_lazy_placeholder(client):
 
 
 def test_benchmark_route_returns_the_rendered_box(client):
-    r = client.post("/results/benchmark", json={"period": "last_1_week"})
+    r = client.post(w("/results/benchmark"), json={"period": "last_1_week"})
     assert r.status_code == 200
     html = r.text
     assert "Benchmark: grid import avoided" in html
@@ -313,7 +320,7 @@ def test_benchmark_route_returns_the_rendered_box(client):
 
 def test_benchmark_route_accepts_an_explicit_range(client):
     r = client.post(
-        "/results/benchmark",
+        w("/results/benchmark"),
         json={"start": "2026-01-05T00:00:00Z", "end": "2026-01-12T00:00:00Z"},
     )
     assert r.status_code == 200
@@ -330,25 +337,25 @@ def test_benchmark_route_accepts_the_placeholders_own_window_request(client):
     import json
     import re
 
-    panel = client.post("/results", json={"period": "last_1_week"})
+    panel = client.post(w("/results"), json={"period": "last_1_week"})
     assert panel.status_code == 200
     m = re.search(r'data-benchmark-body="([^"]*)"', panel.text)
     assert m, "the placeholder carries no window request for the fetcher to use"
     body = json.loads(m.group(1).replace("&#34;", '"').replace("&quot;", '"'))
     assert set(body) == {"start", "end"}
-    r = client.post("/results/benchmark", json=body)
+    r = client.post(w("/results/benchmark"), json=body)
     assert r.status_code == 200
     assert "Benchmark: grid import avoided" in r.text
 
 
 def test_benchmark_route_unknown_period_400(client):
-    r = client.post("/results/benchmark", json={"period": "last_5_centuries"})
+    r = client.post(w("/results/benchmark"), json={"period": "last_5_centuries"})
     assert r.status_code == 400
 
 
 def test_benchmark_route_period_and_range_together_400(client):
     r = client.post(
-        "/results/benchmark",
+        w("/results/benchmark"),
         json={"period": "last_1_week", "start": "2026-01-05T00:00:00Z"},
     )
     assert r.status_code == 400
@@ -356,7 +363,7 @@ def test_benchmark_route_period_and_range_together_400(client):
 
 def test_benchmark_route_inverted_range_400(client):
     r = client.post(
-        "/results/benchmark",
+        w("/results/benchmark"),
         json={"start": "2026-01-12T00:00:00Z", "end": "2026-01-05T00:00:00Z"},
     )
     assert r.status_code == 400
@@ -364,7 +371,7 @@ def test_benchmark_route_inverted_range_400(client):
 
 def test_benchmark_route_bad_date_400(client):
     r = client.post(
-        "/results/benchmark", json={"start": "not-a-date", "end": "2026-01-12T00:00:00Z"}
+        w("/results/benchmark"), json={"start": "not-a-date", "end": "2026-01-12T00:00:00Z"}
     )
     assert r.status_code == 400
 
@@ -372,9 +379,10 @@ def test_benchmark_route_bad_date_400(client):
 def test_benchmark_route_no_dataset_409(tmp_path, monkeypatch):
     """A cleared dataset must degrade to a clean 409, so the box says so and the panel is unharmed."""
     monkeypatch.setenv("BATTERY_SIM_DATA_DIR", str(tmp_path))
+    seed_workspace()
     from app import main
     c = TestClient(main.app)
-    r = c.post("/results/benchmark", json={"period": "last_1_week"})
+    r = c.post(w("/results/benchmark"), json={"period": "last_1_week"})
     assert r.status_code == 409
 
 
@@ -429,6 +437,7 @@ def cost_client(tmp_path, monkeypatch):
     cfg = SimulationConfig()
     cfg.simulate_cost = True
     simconfig_store.save(cfg)
+    seed_workspace()
 
     from app import main
     return TestClient(main.app), simconfig_store
@@ -441,7 +450,7 @@ def test_cost_section_renders_when_simulate_cost_is_on(cost_client):
     with the fixture while the structure is what §2.4 specifies.
     """
     client, _ = cost_client
-    r = client.post("/results", json={"period": "last_1_week"})
+    r = client.post(w("/results"), json={"period": "last_1_week"})
     assert r.status_code == 200
     assert "Cost savings" in r.text
     assert "MONEY SAVED" in r.text
@@ -467,7 +476,7 @@ def test_cost_section_absent_and_affordance_offered_when_simulate_cost_is_off(co
     from app.domain.simconfig import SimulationConfig
 
     store.save(SimulationConfig())  # simulate_cost defaults to False
-    r = client.post("/results", json={"period": "last_1_week"})
+    r = client.post(w("/results"), json={"period": "last_1_week"})
     assert r.status_code == 200
     assert "Cost savings" not in r.text
     assert "MONEY SAVED" not in r.text
@@ -499,9 +508,9 @@ def test_fixture_18_the_rendered_energy_half_is_unchanged_by_the_toggle(cost_cli
     client, store = cost_client
     from app.domain.simconfig import SimulationConfig
 
-    on = client.post("/results", json={"period": "last_1_week"}).text
+    on = client.post(w("/results"), json={"period": "last_1_week"}).text
     store.save(SimulationConfig())
-    off = client.post("/results", json={"period": "last_1_week"}).text
+    off = client.post(w("/results"), json={"period": "last_1_week"}).text
 
     # Everything above the COST SAVINGS divider. With cost off the divider is absent, so the
     # energy half is the whole fragment up to the affordance that replaced it.
@@ -541,7 +550,7 @@ def test_the_monthly_chart_gains_a_euro_option_rather_than_swapping_the_kwh_one(
     import json as _json
     import re as _re
 
-    on = client.post("/results", json={"period": "last_1_week"}).text
+    on = client.post(w("/results"), json={"period": "last_1_week"}).text
     assert 'data-chart-view="kwh"' in on
     assert 'data-chart-view="eur"' in on
     assert "Monthly savings (€)" in on
@@ -555,7 +564,7 @@ def test_the_monthly_chart_gains_a_euro_option_rather_than_swapping_the_kwh_one(
 
     from app.domain.simconfig import SimulationConfig
     store.save(SimulationConfig())
-    off = client.post("/results", json={"period": "last_1_week"}).text
+    off = client.post(w("/results"), json={"period": "last_1_week"}).text
     assert 'data-chart-view="eur"' not in off
     assert "Monthly savings (€)" not in off
     node_off = _json.loads(_re.search(
@@ -585,7 +594,7 @@ def test_the_money_benchmark_box_renders_from_the_shared_partial(cost_client):
     assert "Benchmark: money saved" in r.text
     assert "computing" in r.text
 
-    r = client.post("/results/benchmark", json={"period": "last_1_week"})
+    r = client.post(w("/results/benchmark"), json={"period": "last_1_week"})
     assert r.status_code == 200
     # With cost simulation on the response carries BOTH boxes, each wrapped with the slot it
     # belongs in, because both DPs ran on this request anyway. Returning one and discarding the
@@ -613,7 +622,7 @@ def test_the_benchmark_response_is_a_bare_energy_box_when_cost_is_off(client):
     consumed before this increment. Pinned so the two-box shape cannot become unconditional and
     silently change what an energy-only install receives.
     """
-    r = client.post("/results/benchmark", json={"period": "last_1_week"})
+    r = client.post(w("/results/benchmark"), json={"period": "last_1_week"})
     assert r.status_code == 200
     assert "data-slot=" not in r.text
     assert "Benchmark: money saved" not in r.text
@@ -667,7 +676,7 @@ def test_the_cost_tint_marks_the_cost_section_and_not_the_energy_one(cost_client
     import re
 
     client, store = cost_client
-    on = client.post("/results", json={"period": "last_1_week"}).text
+    on = client.post(w("/results"), json={"period": "last_1_week"}).text
 
     # The divider that opens the cost half is tinted; the one that opens the energy half is not.
     assert re.search(r'divider[^"]*cost-label"[^>]*>\s*Cost savings\s*<', on)
@@ -689,6 +698,6 @@ def test_the_cost_tint_marks_the_cost_section_and_not_the_energy_one(cost_client
     from app.domain.simconfig import SimulationConfig
 
     store.save(SimulationConfig())
-    off = client.post("/results", json={"period": "last_1_week"}).text
+    off = client.post(w("/results"), json={"period": "last_1_week"}).text
     assert "cost-label" not in off
     assert "Energy savings" in off      # …and the untinted half is untouched

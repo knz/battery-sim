@@ -23,6 +23,8 @@ from datetime import datetime, timezone
 import numpy as np
 import pytest
 
+from tests.conftest import seed_workspace, w
+
 UTC = timezone.utc
 
 
@@ -49,8 +51,17 @@ def client(tmp_path, monkeypatch):
     importlib.reload(db)
     import app.dataset as dataset
     importlib.reload(dataset)
+    # Reloaded because it captured the PRE-reload `db` module object at import; without this the
+    # workspace row would be written to whichever database that older module still points at.
+    import app.workspaces as workspaces
+    importlib.reload(workspaces)
+    import app.deps as deps
+    importlib.reload(deps)
     import app.main as main
     importlib.reload(main)
+    # The routes are workspace-scoped now (`/w/{id}/…`) and the fixture's TestClient is used
+    # outside a `with` block, so the lifespan that would adopt this data dir never runs.
+    seed_workspace()
     from fastapi.testclient import TestClient
     return TestClient(main.app), main, dataset
 
@@ -322,7 +333,7 @@ _HIST_WINDOW = {"start": "2024-03-01T00:00:00+00:00", "end": "2024-03-05T00:00:0
 def test_load_endpoint_attaches_price_from_committed_data(client):
     tc, main, dataset = client
     resp = tc.post(
-        "/data/slot/price_spot/load",
+        w("/data/slot/price_spot/load"),
         json={"source": "energy_charts", "window": _HIST_WINDOW},
     )
     assert resp.status_code == 200, resp.text
@@ -349,7 +360,7 @@ def test_load_endpoint_does_not_bump_source_generation(client):
 
     assert db.source_generation() == 0
     resp = tc.post(
-        "/data/slot/price_spot/load",
+        w("/data/slot/price_spot/load"),
         json={"source": "energy_charts", "window": _HIST_WINDOW},
     )
     assert resp.status_code == 200, resp.text
@@ -366,7 +377,7 @@ def test_load_endpoint_merges_into_existing_dataset(client):
     dataset.save_dataset(frames, win, "home_assistant", [])
 
     resp = tc.post(
-        "/data/slot/price_spot/load",
+        w("/data/slot/price_spot/load"),
         json={"source": "energy_charts", "window": _HIST_WINDOW},
     )
     assert resp.status_code == 200, resp.text
@@ -389,7 +400,7 @@ def test_load_endpoint_naive_window_into_aware_dataset(client):
 
     # Window strings carry NO offset — the exact shape that used to crash.
     resp = tc.post(
-        "/data/slot/price_spot/load",
+        w("/data/slot/price_spot/load"),
         json={"source": "energy_charts",
               "window": {"start": "2024-03-01T00:00:00", "end": "2024-03-05T00:00:00"}},
     )
@@ -403,7 +414,7 @@ def test_load_endpoint_naive_window_into_aware_dataset(client):
 def test_load_endpoint_unknown_slot_404(client):
     tc, _, _ = client
     resp = tc.post(
-        "/data/slot/not_a_slot/load",
+        w("/data/slot/not_a_slot/load"),
         json={"source": "energy_charts", "window": _HIST_WINDOW},
     )
     assert resp.status_code == 404
@@ -413,7 +424,7 @@ def test_load_endpoint_unknown_slot_404(client):
 def test_load_endpoint_unknown_source_404(client):
     tc, _, _ = client
     resp = tc.post(
-        "/data/slot/price_spot/load",
+        w("/data/slot/price_spot/load"),
         json={"source": "no_such_source", "window": _HIST_WINDOW},
     )
     assert resp.status_code == 404
@@ -425,7 +436,7 @@ def test_load_endpoint_browser_fetch_source_rejected(client):
     tc, _, _ = client
     # HA is available for every slot, so this exercises the kind guard specifically (not availability).
     resp = tc.post(
-        "/data/slot/grid_import_t1/load",
+        w("/data/slot/grid_import_t1/load"),
         json={"source": "home_assistant", "window": _HIST_WINDOW},
     )
     assert resp.status_code == 400
@@ -437,7 +448,7 @@ def test_load_endpoint_source_unavailable_for_slot(client):
     """energy_charts only fills price_spot; asking it for an energy slot is a 400."""
     tc, _, _ = client
     resp = tc.post(
-        "/data/slot/grid_import_t1/load",
+        w("/data/slot/grid_import_t1/load"),
         json={"source": "energy_charts", "window": _HIST_WINDOW},
     )
     assert resp.status_code == 400
@@ -447,7 +458,7 @@ def test_load_endpoint_source_unavailable_for_slot(client):
 def test_load_endpoint_bad_window_400(client):
     tc, _, _ = client
     resp = tc.post(
-        "/data/slot/price_spot/load",
+        w("/data/slot/price_spot/load"),
         json={"source": "energy_charts", "window": {"start": "2024-03-05T00:00:00+00:00",
                                                     "end": "2024-03-01T00:00:00+00:00"}},
     )

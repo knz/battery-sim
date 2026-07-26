@@ -12,8 +12,9 @@
  *     once (URL + token + Test connection) in the #ha-config-dialog MODAL, opened by a "Configure"
  *     button beside the Home Assistant radio in the drawer — there is no panel-level connection
  *     card any more. The listed statistic ids are then reused for every HA-source slot. Fetched
- *     rows stream to our backend over WS /data/ingest/ws (app/ingest_ws.py), which normalises and
- *     persists them.
+ *     rows stream to our backend over WS /w/{workspace_id}/data/ingest/ws (app/ingest_ws.py),
+ *     which normalises and persists them. The scoped path is not built here — the roster carries
+ *     it whole in data-ingest-ws, so this file never has to know the URL layout.
  *
  *  2. The slot-first source-picker drawer. Each slot row (templates/_panel_data.html) has a
  *     "Choose source…" button carrying the slot name, its kind (energy/price), and its source
@@ -24,8 +25,11 @@
  *         plus a "Configure" button that opens the shared connection modal. The entity picker is
  *         disabled and Confirm is blocked until the connection tests OK; Confirm then needs a
  *         chosen entity too, so a committed HA slot is always fetchable.
- *       * energy_charts (backend_load)   → Confirm POSTs /data/slot/{slot}/load {source, window}
- *         and reloads so panel ① re-renders from the persisted dataset (specs §3.5).
+ *       * energy_charts (backend_load)   → Confirm only STAGES the choice; the slot is reified
+ *         server-side by the next Fetch history, as a `backend_load` message on the ingest WS.
+ *         (There IS a POST /w/{id}/data/slot/{slot}/load route, and this used to call it on
+ *         Confirm, but the all-or-nothing reify model moved that work into the fetch — see
+ *         "Staged-then-confirm" below. Nothing in this file calls that route today.)
  *       * data_source_csv (pending)      → the shared "not built yet" dialog (#pending-dialog).
  *
  *     A row may also carry an ⓘ info affordance (SlotSpec.info, specs §4.1). A delegated click on
@@ -40,17 +44,21 @@
  * and mappedSlots read. openDrawer seeds `draft` from the committed slotState (so the current choice
  * shows pre-selected) without touching slotState. A single Confirm button commits:
  *       * HA source   → writes draft → slotState, refreshes the row label, closes. No reload.
- *       * backend     → runs the load POST (as the old "Use this source" did) and reloads on success.
+ *       * backend     → the SAME thing, minus the entity. Neither branch calls the server: the
+ *                       drawer is a pure staging surface and Fetch history reifies both kinds.
+ *                       (This line used to describe a load POST + reload on the backend branch;
+ *                       that stopped being true when reify moved into the fetch, and the text
+ *                       had not followed. Corrected while re-rooting the routes.)
  * Cancel / Escape / ✕ / backdrop DISCARD: closeDrawer reverts to the committed state and never
  * mutates slotState or the row label. slotState is seeded from each .slot-source-btn's data-*
  * attributes at load (the committed initial state). mappedSlots() (used by Fetch history) reads
  * slotState — the HA slots whose statId is set — so the fetch depends only on committed state.
  *
- * Surviving the reload (localStorage ha.slots + a source GENERATION). A backend_load Confirm
- * (energy_charts) ends in a full window.location.reload() so panel ① re-renders from the persisted
+ * Surviving the reload (localStorage ha.slots.<workspace> + a source GENERATION). A successful
+ * Fetch history ends in a full window.location.reload() so panel ① re-renders from the persisted
  * dataset. That reload drops all in-memory slotState, and the persisted view-model carries no
- * re-selectable statistic id — so without help an HA slot's chosen entity AND its (possibly
- * pre-fetch) source are lost the moment you pick a backend source on another slot.
+ * re-selectable statistic id for a slot that has not been fetched — so without help a STAGED HA
+ * slot's chosen entity and source are lost across any reload, including an ordinary refresh.
  *
  * Two things carry a source choice across a reload, split by whether the slot has been FETCHED:
  *
@@ -60,14 +68,14 @@
  *     shows "Home Assistant · <id>" after any reload with no client state involved. The statistic
  *     id is not secret (only the token is, §7.5), so persisting it server-side is fine.
  *
- *  2. Pre-fetch customizations → localStorage ha.slots, reconciled by a server-issued generation
+ *  2. Pre-fetch customizations → localStorage ha.slots.<workspace>, reconciled by a generation
  *     number (specs §2.2). These are choices the user made but has NOT yet fetched: HA picked for a
  *     data-less slot, or a source override on a slot the server fills differently. The server holds
  *     a per-workspace `source_generation`, bumped ONLY when a fetch persists a new dataset — never
  *     by a backend_load Confirm — and rendered into #source-generation. Confirm on an HA slot saves
  *     { gen, slots: { <slot>: {source, statId} } } tagged with the current generation. On load:
  *       * local gen === server gen → USE LOCAL wholesale (source AND statId): the pre-fetch choice
- *         survives the reload a backend_load Confirm triggers.
+ *         survives the reload.
  *       * server gen  >  local gen → a fetch has happened since (here or on another client in the
  *         same workspace); the server is authoritative, the stale local slots are dropped.
  *     A fetch advances the generation, so a pre-fetch entry saved beforehand is superseded by the
@@ -75,6 +83,25 @@
  *
  * localStorage is browser-local by design (same as the URL/token): a PRE-FETCH customization does
  * not follow you across browsers. A FETCHED slot does, because it lives server-side.
+ *
+ * Workspace scoping (specs/20-workspaces-ux.md §2′.11, specs/08-architecture.md §5.1). The data
+ * routes are under `/w/{id}/…`, and localStorage splits along the same line — but not uniformly,
+ * because the two things stored here answer different questions:
+ *
+ *   * The CONNECTION (ha.base_url, ha.token) stays GLOBAL. It answers "where is this household's
+ *     Home Assistant", which every analysis of that household shares.
+ *   * The SLOT STORE is keyed `ha.slots.<workspace id>`. It answers "which entity feeds which role
+ *     in THIS analysis", and a single key would make a mapping staged in one analysis look staged
+ *     in all of them. The generation tag cannot substitute for the split: it compares an integer
+ *     against this workspace's `source_generation`, and another workspace's counter is a different
+ *     integer that can collide by coincidence.
+ *
+ * The ingest WebSocket path is not built here at all — the roster's data-ingest-ws carries the
+ * whole scoped path, rendered server-side (_panel_data.html), so this file keeps knowing nothing
+ * about the URL layout. It reads <body data-workspace-id> only to key the store.
+ *
+ * A pre-workspaces global `ha.slots` from an older build is DISCARDED rather than adopted into
+ * `local` — the reasoning is beside the removal, below.
  *
  * User actions on the connection card:
  *   Test connection  — open wss://<ha>/api/websocket, auth, recorder/list_statistic_ids, store
@@ -95,20 +122,39 @@
   var HA_FINE_WINDOW_DAYS = 10;   // trailing days fetched at 5-minute resolution
   var HA_CHUNK_DAYS = 90;         // max days per statistics_during_period call (frame-size cap)
   var HISTORY_DAYS = 730;         // how far back to request hourly (long-term stats never purge)
+  // The connection stays GLOBAL, deliberately (specs/20-workspaces-ux.md §2′.11): one household,
+  // one Home Assistant. Every workspace analyses the same house's data, so re-entering the URL and
+  // the long-lived token per analysis would be friction with nothing behind it. They remain
+  // browser-only either way (§7.5).
   var LS_URL = "ha.base_url";
   var LS_TOKEN = "ha.token";
+
+  // The slot roster carries data-ingest-ws (it used to live on the removed #ha-connection card).
+  // Its presence also gates the whole module: no roster → panel not on this page.
+  var conn = document.getElementById("slot-roster");
+  if (!conn) return;  // panel not on this page
+
+  // Which workspace this page is showing (index.html's <body data-workspace-id>). The routes are
+  // workspace-scoped (specs/08-architecture.md §5.1); the ingest WebSocket path is rendered
+  // server-side onto the roster's data-ingest-ws, so this id is needed here only to key the slot
+  // store below.
+  var WORKSPACE_ID = document.body.getAttribute("data-workspace-id") || "";
+
   // Per-slot Home Assistant selections, browser-local (specs §7.5, same posture as URL/token).
   // A JSON object { gen: <int>, slots: { <slot>: { source, statId } } } holding ONLY browser_fetch
   // (HA) slots, tagged with the source generation the client saw when it saved (see the file header
   // for the reconcile rule). It exists so an HA slot's source AND chosen entity survive the full-
   // page reload a backend_load Confirm triggers. Backend-load choices are never stored — they are
   // already server-side, and a stored copy would only drift.
-  var LS_SLOTS = "ha.slots";
-
-  // The slot roster carries data-ingest-ws (it used to live on the removed #ha-connection card).
-  // Its presence also gates the whole module: no roster → panel not on this page.
-  var conn = document.getElementById("slot-roster");
-  if (!conn) return;  // panel not on this page
+  //
+  // The key is PER WORKSPACE (§2′.11) — `ha.slots.<workspace id>`. Unlike the connection, a slot
+  // mapping is a statement about one analysis: which entity feeds which role here. A single global
+  // key would make a mapping staged in one analysis appear staged in every other, and the staleness
+  // rule cannot catch that, because it compares generations rather than workspaces — the store's
+  // `gen` would be another workspace's `source_generation`, which is a different counter that
+  // happens to be an integer. `source_generation` is per-workspace for the same reason (§5.5's
+  // exception covers `feature_interest` and nothing else).
+  var LS_SLOTS = "ha.slots." + WORKSPACE_ID;
 
   // The Home Assistant connection UI now lives in the #ha-config-dialog modal (index.html),
   // opened by the drawer's "Configure" button. The field IDs are unchanged, so these bindings
@@ -183,6 +229,24 @@
       serverGen = (typeof g === "number" && isFinite(g)) ? g : 0;
     }
   } catch (e) { serverGen = 0; }
+
+  // The pre-workspaces global key. An installation upgraded across this change may still hold one,
+  // and it is DISCARDED rather than migrated onto `ha.slots.local`. Two reasons, and the second is
+  // the load-bearing one:
+  //
+  //   * What it holds is a PRE-FETCH staging convenience — a source, and for HA an entity, chosen
+  //     but not yet fetched. Losing it costs one re-selection in a drawer the user is already
+  //     standing in. Nothing fetched is in here; that lives in series_meta and renders from the
+  //     dataset regardless.
+  //   * Adopting it would be a silent write into a NAMED workspace on someone else's behalf. The
+  //     generation tag does not make that safe: it would carry over intact and match, so a mapping
+  //     staged before the upgrade would come back looking deliberately staged in `local` — exactly
+  //     the "appears staged in another analysis" confusion §2′.11 asks us to prevent, arriving from
+  //     the time axis instead of the workspace axis.
+  //
+  // Removed rather than left to sit, so it does not linger as a key nothing reads. This is a
+  // one-time cleanup; once no browser holds it the removal is a no-op and can go.
+  try { localStorage.removeItem("ha.slots"); } catch (e) { /* ignore */ }
 
   // localStorage-backed HA slot selections, tagged with the generation they were saved at.
   //   { gen: <int>, slots: { <slot>: { source, statId } } }

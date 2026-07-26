@@ -19,51 +19,78 @@ returns success, whatever the outbound request does.
 
 Beyond the pending affordance, this layer now serves the Home Assistant **data import**
 (specs/06-home-assistant-ingestion.md, browser-fetch increment). The browser fetches statistics
-from the user's own HA instance directly and streams the raw rows to `WS /data/ingest/ws`; the
-backend normalises them into SeriesFrames (app/domain) and persists them (app/dataset.py) so
-they survive a restart. No HA token ever reaches this backend — it stays in the browser.
+from the user's own HA instance directly and streams the raw rows to
+`WS /w/{id}/data/ingest/ws`; the backend normalises them into SeriesFrames (app/domain) and
+persists them (app/dataset.py) so they survive a restart. No HA token ever reaches this backend —
+it stays in the browser.
 
 Beyond the browser-fetch path, this layer serves the slot-first **backend_load** sources
 (specs/02-ux-wireframes.md §2.2, specs/06-home-assistant-ingestion.md §4.3): POST
-/data/slot/{slot_name}/load loads one slot from a backend source (e.g. the preset Energy-Charts
-spot price) and merges the resulting series into the latest dataset via dataset.upsert_series —
-without a browser round-trip and without discarding the other series. browser_fetch sources
-(Home Assistant) are NOT loaded here; their frames still arrive over WS /data/ingest/ws.
+/w/{id}/data/slot/{slot_name}/load loads one slot from a backend source (e.g. the preset
+Energy-Charts spot price) and merges the resulting series into the latest dataset via
+dataset.upsert_series — without a browser round-trip and without discarding the other series.
+browser_fetch sources (Home Assistant) are NOT loaded here; their frames still arrive over WS
+/w/{id}/data/ingest/ws.
 
 Beyond panel ③, this layer serves **panel ② — the parameter form** (specs §2.3, §2.5, §3.2
-`PARAMS_CHANGED`). POST /params coerces the submitted fields (app/params_view.py — coercion is the
-form layer's job, `simconfig` rejects `str` on purpose), builds a `SimulationConfig`, validates it
-against §7.3 checks 11/12, persists it ONLY when valid (app/simconfig_store.py) and returns the
-re-rendered panel. An invalid submission re-renders with the user's own values still in the fields
-and the errors bound inline per field. The persisted config drives panel ③: index(), POST /results
-and POST /results/benchmark all read the same one, so a parameter change moves the results.
+`PARAMS_CHANGED`). POST /w/{id}/params coerces the submitted fields (app/params_view.py —
+coercion is the form layer's job, `simconfig` rejects `str` on purpose), builds a
+`SimulationConfig`, validates it against §7.3 checks 11/12, persists it ONLY when valid
+(app/simconfig_store.py) and returns the re-rendered panel. An invalid submission re-renders with
+the user's own values still in the fields and the errors bound inline per field. The persisted
+config drives panel ③: index(), POST /w/{id}/results and POST /w/{id}/results/benchmark all read
+the same one, so a parameter change moves the results.
 
 On startup (the `lifespan` below) the app adopts the pre-index single workspace into the
-`workspaces` table (app/workspaces.py, specs/20-workspaces-ux.md §2′.10). This is phase 0 of the
-workspaces restructure and changes nothing a user sees: every route below is still flat, and
-still operates on `db.WORKSPACE_ID`.
+`workspaces` table (app/workspaces.py, specs/20-workspaces-ux.md §2′.10).
+
+**Routes are workspace-scoped** (phase 1 of the workspaces restructure). Everything that reads or
+writes one analysis's data now lives under `/w/{workspace_id}/…` and resolves its workspace through
+`deps.get_workspace` (specs/08-architecture.md §5.1, §5.5 invariant 2) instead of defaulting to the
+module constant `db.WORKSPACE_ID`. Three routes stay FLAT, each for its own reason:
+
+  * `GET /` — still the single-page UI for `local`. This phase moves no screens; the list screen
+    that eventually takes this URL is phase 2. It is the one place `db.WORKSPACE_ID` is still read
+    as "the workspace", and it is marked as such below so the next phase knows where to look.
+  * `POST /feature-interest/{key}` — installation-wide since phase 0 (§2′.10, app/db.py).
+  * `GET /lang/{code}` — sets a cookie; there is nothing workspace-shaped about a language.
+
+The consequence for the browser: no path may be written as a literal any more. `<body>` carries
+`data-workspace-id`, and every `fetch()` in index.html plus the ingest WebSocket URL in
+ha_fetch.js build their path from it. `localStorage`'s slot store is keyed per workspace for the
+same reason (§2′.11) — see app/static/ha_fetch.js.
 
 Routes:
-    GET  /                          → the full page (index.html)
-    POST /params                    → validate + persist panel ②; return the HTML fragment
-    POST /results                   → recompute panel ③ over a window; return the HTML fragment
-    POST /results/benchmark         → the §6.12 perfect-foresight box for that window (slow; lazy)
-    GET  /lang/{code}               → set the language cookie, redirect back
-    POST /feature-interest/{key}    → record interest in a pending control; 204 on success
-    WS   /data/ingest/ws            → stream browser-fetched HA rows in; persist SeriesFrames
-    POST /data/slot/{name}/load     → load one slot from a backend_load source; merge + report
-    /static/*                       → CSS, generated stylesheet, Plotly, topology SVGs
+    GET  /                              → the full page (index.html), for `local`
+    POST /w/{id}/params                 → validate + persist panel ②; return the HTML fragment
+    POST /w/{id}/results                → recompute panel ③ over a window; return the fragment
+    POST /w/{id}/results/benchmark      → the §6.12 perfect-foresight box (slow; lazy)
+    WS   /w/{id}/data/ingest/ws         → stream browser-fetched HA rows in; persist SeriesFrames
+    POST /w/{id}/data/slot/{name}/load  → load one slot from a backend_load source; merge + report
+    GET  /lang/{code}                   → set the language cookie, redirect back
+    POST /feature-interest/{key}        → record interest in a pending control; 204 on success
+    /static/*                           → CSS, generated stylesheet, Plotly, topology SVGs
 
 Run:  uv run uvicorn app.main:app --reload
 """
 
 import asyncio
 import logging
+import sqlite3
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Annotated
 
-from fastapi import Body, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import (
+    Body,
+    Depends,
+    FastAPI,
+    HTTPException,
+    Request,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
@@ -72,6 +99,7 @@ from app import (
     data_view,
     dataset,
     db,
+    deps,
     features,
     i18n,
     ingest_ws,
@@ -95,21 +123,53 @@ log = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    """Startup work: adopt the pre-index single workspace into the workspace index.
+    """Startup work: make sure `local` is in the workspace index, so the single page works.
 
-    `workspaces.migrate_local()` is idempotent — it inserts nothing once the index is non-empty,
-    and nothing at all on a fresh installation with no config and no dataset on disk — so running
+    Two steps, and the second one is new in phase 1.
+
+    `workspaces.migrate_local()` adopts a PRE-INDEX installation: it inserts nothing once the index
+    is non-empty, and nothing at all when `local` has no config and no dataset on disk — so running
     it on every start is a `SELECT COUNT(*)` in the ordinary case.
 
-    This is a lifespan rather than more import-time work beside `CONFIG` because it WRITES to the
+    Then `local` is created if it still does not exist. Phase 0 deliberately left a fresh
+    installation with an EMPTY index: §2′.2's list screen should show the empty state and the
+    wizard rather than an analysis the user never made. That was harmless while every route was
+    flat. It is not harmless now: `GET /` still renders the single-page UI for `local`, and every
+    fetch and socket on that page is `/w/local/…`, which `deps.get_workspace` 404s when the row is
+    absent. A fresh install would draw a page whose every control fails. So the row is created
+    here — with the same `DEFAULT_TITLE` the migration uses, so an adopted installation and a fresh
+    one are indistinguishable afterwards.
+
+    **This is temporary, and phase 2 should remove it.** Once `GET /` is the list, the empty index
+    is a state the UI can express and this line stops being a fix and starts being the phantom
+    workspace §2′.2 does not want. It lives in the lifespan rather than in `index()` because a GET
+    that writes to the database is a worse shape than a startup step that does.
+
+    A lifespan rather than more import-time work beside `CONFIG`, because both steps WRITE to the
     data directory. Importing `app.main` (a test collecting routes, a tooling import) must not
     create rows in whatever directory happens to be resolved at import time; a lifespan runs only
     when the app is actually served, which is when a data directory has been chosen deliberately.
-    A migration failure is logged and swallowed: the app must still serve, and the list route
-    reads the index rather than depending on this having succeeded.
+    The consequence for tests: a `TestClient(app)` built OUTSIDE a `with` block never runs this, so
+    a route test against a temp data dir has to create the workspace itself
+    (`tests/conftest.seed_workspace`).
+
+    A failure in either step is logged and swallowed: the app must still serve. What follows from
+    that, stated plainly, is that a failure here leaves the page rendering with its controls
+    404ing — the same state phase 0's empty index produced, and the reason the ensure exists.
     """
     try:
         workspaces.migrate_local()
+        if workspaces.get(db.WORKSPACE_ID) is None:
+            try:
+                workspaces.create(workspaces.DEFAULT_TITLE, workspace_id=db.WORKSPACE_ID)
+            except sqlite3.IntegrityError:
+                # Check-then-act: two workers starting together both see no row and both insert.
+                # The id is the primary key, so the loser lands here — and the row it wanted now
+                # exists, which is the outcome it was after. Swallowed narrowly (this one
+                # exception, around this one statement) rather than by the outer handler, which
+                # would log it as a migration failure that did not happen. Measured: 2 of 12
+                # concurrent starts against a fresh directory take this branch.
+                log.debug("workspace %s created concurrently", db.WORKSPACE_ID)
     except Exception:  # pragma: no cover - defensive: startup must not be fatal
         log.exception("workspace migration failed (ignored)")
     yield
@@ -130,17 +190,33 @@ CONFIG = config.load()
 
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
-    """Render the whole page from the static sample view-model, in the request's locale."""
+    """Render the whole page from the static sample view-model, in the request's locale.
+
+    **This route is still flat, and still renders `local`.** Every other data route is now under
+    `/w/{workspace_id}/…`; this one is not, because phase 1 moves no screens — the list screen that
+    takes this URL is phase 2, and until then there is exactly one page and it shows the migrated
+    workspace. So `WORKSPACE` below is the module constant, used deliberately and named once so the
+    next phase has a single site to change rather than a search to run.
+
+    The id it renders IS threaded into the page (`data-workspace-id` on `<body>`, and the roster's
+    `data-ingest-ws`), because the fragments this page fetches are already scoped. Without that the
+    page could still render and no button on it would work.
+    """
     locale = i18n.resolve_locale(request)
+    # Phase 1's one remaining unscoped read of "the workspace" — see the docstring.
+    workspace_id = db.WORKSPACE_ID
 
     ctx = sample_view()
+    # The browser builds every fetch path from this (index.html's `data-workspace-id`), so the
+    # single page addresses the same workspace it was rendered from.
+    ctx["workspace_id"] = workspace_id
 
     # Panel ② (§2.3) renders from the PERSISTED parameter set — appendix-A defaults until the
     # user submits the form, and appendix-A defaults again if the stored file is unreadable
     # (simconfig_store.load never raises, so the page always renders). The setup band above panel
     # ① reads has_pv / simulate_cost off the same config, so `cfg` is replaced too: it used to be
     # the static sample dict, and leaving it would let the band and the panel disagree.
-    cfg = simconfig_store.load()
+    cfg = simconfig_store.load(workspace_id)
     ctx["params"] = params_view.params_view(cfg)
     ctx["cfg"] = {
         "has_pv": cfg.has_pv,
@@ -160,7 +236,7 @@ def index(request: Request):
     # yield no simulatable grid, in which case it is omitted exactly as in the empty state.
     has_dataset = False
     try:
-        loaded = dataset.load_latest()
+        loaded = dataset.load_latest(workspace_id)
         if loaded is not None and loaded.frames:
             ctx["data"] = data_view.panel_data_from(loaded)
             ctx["data_summary"] = summary_view.data_summary_from(loaded)
@@ -184,20 +260,33 @@ def index(request: Request):
     }
     # The source generation (specs §2.2): rendered so the browser can reconcile its locally-saved
     # source customizations. Bumped only by a persisted HA fetch; 0 before the first one.
-    ctx["source_generation"] = db.source_generation()
+    ctx["source_generation"] = db.source_generation(workspace_id)
     return HTMLResponse(i18n.env_for(locale).get_template("index.html").render(**ctx))
 
 
-@app.post("/params", response_class=HTMLResponse)
-async def params(request: Request):
+@app.post("/w/{workspace_id}/params", response_class=HTMLResponse)
+async def params(
+    request: Request,
+    ws: Annotated[deps.Workspace, Depends(deps.get_workspace)],
+):
     """Validate and persist the panel-② parameter set, and return the re-rendered panel (§3.2).
+
+    Scoped by workspace (§5.1): both the config read and the config write name `ws.id`, so a
+    submission against one workspace cannot reach another's document. `deps.get_workspace` has
+    already 404'd an unknown or path-unsafe id before this body runs.
+
+    It does NOT yet call `workspaces.touch(ws.id)`. §2′.10 makes a config save the one event that
+    advances `updated_at`, and this is the route that saves — but nothing reads that field until
+    the list screen's ordering and "last saved" badge exist (phase 2), and this phase is meant to
+    change no behaviour. Wiring it belongs with the screen that shows it; noted so it is not
+    forgotten there.
 
     **Why a form POST returning a fragment, and not JSON.** Panel ② is a form of ~20 inputs whose
     re-render has to carry per-field errors next to the inputs that caused them. Sending JSON and
     re-rendering client-side would mean a second, JS-side copy of the label/gating/translation
     logic that `params_view` already owns; returning the rendered panel keeps ONE renderer. It is
-    also the pattern already established for panel ③ (`POST /results` → fragment → `outerHTML`
-    swap, delegated listeners in index.html), so the browser side is three lines.
+    also the pattern already established for panel ③ (`POST /w/{id}/results` → fragment →
+    `outerHTML` swap, delegated listeners in index.html), so the browser side is three lines.
 
     The sequence, which is §3.2's `PARAMS_CHANGED` ("Validate; persist; if valid → INPUT_CHANGED"):
 
@@ -227,7 +316,7 @@ async def params(request: Request):
     except Exception as exc:  # an unparseable body is a client error, not a server one
         raise HTTPException(status_code=400, detail=f"invalid form body: {exc}") from exc
 
-    stored = simconfig_store.load()
+    stored = simconfig_store.load(ws.id)
     candidate = params_view.parse_form(form, stored)
     result = candidate.validate()
     save_error = False
@@ -238,7 +327,9 @@ async def params(request: Request):
             # is the only way the store can tell an unticked box from an absent control — see
             # simconfig_store's carry-forward rule and appendix A's retention requirement.
             simconfig_store.save(
-                candidate, guard_submitted=params_view.guard_was_submitted(form, stored)
+                candidate,
+                ws.id,
+                guard_submitted=params_view.guard_was_submitted(form, stored),
             )
         except OSError as exc:
             # A save that silently did nothing would tell the user their parameters were stored
@@ -253,6 +344,10 @@ async def params(request: Request):
     locale = i18n.resolve_locale(request)
     html = i18n.env_for(locale).get_template("_panel_params.html").render(
         params=params_view.params_view(candidate, result, save_error=save_error),
+        # The form's own action is scoped, and this render is standalone (a panel swap), so the
+        # id has to come from here as well as from index()'s context — otherwise the swapped-in
+        # form posts to `/w//params` and the no-JS fallback 404s.
+        workspace_id=ws.id,
         cfg={
             "has_pv": candidate.has_pv,
             "has_battery": candidate.has_battery,
@@ -262,8 +357,12 @@ async def params(request: Request):
     return HTMLResponse(html, headers={"X-Params-Valid": "0" if result.blocking else "1"})
 
 
-@app.post("/results", response_class=HTMLResponse)
-def results(request: Request, body: dict = Body(...)):
+@app.post("/w/{workspace_id}/results", response_class=HTMLResponse)
+def results(
+    request: Request,
+    ws: Annotated[deps.Workspace, Depends(deps.get_workspace)],
+    body: dict = Body(...),
+):
     """Recompute panel ③ over a requested window and return the rendered fragment (specs §3.2).
 
     The period/date picker in panel ③ POSTs here to recompute the ENERGY SAVINGS view-model over
@@ -286,11 +385,12 @@ def results(request: Request, body: dict = Body(...)):
     placeholder the browser fills in with a second request, so a range change repaints at ~0.13 s
     instead of waiting ~4.6 s for the DP.
     """
-    loaded, window = _resolve_results_window(body)
+    loaded, window = _resolve_results_window(ws.id, body)
 
     # The SAME persisted parameter set index() and /results/benchmark read, so the three cannot
-    # disagree about which battery the panel is describing.
-    result = results_view.results_from(loaded, window, cfg=simconfig_store.load())
+    # disagree about which battery the panel is describing. Scoped: this workspace's config, over
+    # this workspace's dataset.
+    result = results_view.results_from(loaded, window, cfg=simconfig_store.load(ws.id))
     if result is None:
         raise HTTPException(status_code=409, detail="no simulatable data")
 
@@ -301,12 +401,13 @@ def results(request: Request, body: dict = Body(...)):
     return HTMLResponse(html)
 
 
-def _resolve_results_window(body: dict):
-    """Turn a `POST /results`-shaped body into (loaded_dataset, window), or raise a clean 4xx.
+def _resolve_results_window(workspace_id: str, body: dict):
+    """Turn a `POST /w/{id}/results`-shaped body into (loaded_dataset, window), or a clean 4xx.
 
-    Shared by `POST /results` and `POST /results/benchmark` so the two cannot drift on which
-    requests they accept or on which status code each failure gets. The contract, unchanged from
-    what `/results` already had:
+    Shared by `POST /w/{id}/results` and `POST /w/{id}/results/benchmark` so the two cannot drift
+    on which requests they accept or on which status code each failure gets. `workspace_id` is the
+    resolved `Workspace.id`, not raw path input — the caller has been through
+    `deps.get_workspace`. The contract, otherwise unchanged from what `/results` already had:
 
         {"period": "<preset>"}             — one of results_view.PERIOD_DAYS, coverage-anchored, OR
         {"start": "<iso>", "end": "<iso>"} — an explicit range (tz-aware UTC, like _parse_window).
@@ -317,7 +418,7 @@ def _resolve_results_window(body: dict):
         * an unknown preset, an empty/out-of-coverage range, or both period and range → 400
           (resolve_window raises ValueError).
     """
-    loaded = dataset.load_latest()
+    loaded = dataset.load_latest(workspace_id)
     if loaded is None or not loaded.frames:
         raise HTTPException(status_code=409, detail="no dataset")
 
@@ -346,8 +447,12 @@ def _resolve_results_window(body: dict):
     return loaded, window
 
 
-@app.post("/results/benchmark", response_class=HTMLResponse)
-def results_benchmark(request: Request, body: dict = Body(...)):
+@app.post("/w/{workspace_id}/results/benchmark", response_class=HTMLResponse)
+def results_benchmark(
+    request: Request,
+    ws: Annotated[deps.Workspace, Depends(deps.get_workspace)],
+    body: dict = Body(...),
+):
     """Compute §6.12's perfect-foresight benchmark over a window and return just that card.
 
     **This route exists because the DP is slow.** It costs ~2.3 s per pass on a year of hourly data
@@ -358,9 +463,9 @@ def results_benchmark(request: Request, body: dict = Body(...)):
     browser fetches this afterwards, filling the `#benchmark-slot` placeholder in. Nothing is
     cached — that option was considered and lazy loading was chosen instead.
 
-    Same request shape and the same clean 4xx/409 error conditions as `POST /results` (both go
-    through `_resolve_results_window`), so a window the panel could render is never one the box
-    rejects. The response body is `_benchmark_box.html`'s output, not the whole panel.
+    Same request shape and the same clean 4xx/409 error conditions as `POST /w/{id}/results`
+    (both go through `_resolve_results_window`), so a window the panel could render is never one
+    the box rejects. The response body is `_benchmark_box.html`'s output, not the whole panel.
 
     **It returns BOTH boxes when cost simulation is on**, each wrapped in a container carrying the
     slot id it belongs in, and the browser distributes them. Runs D and E are both gated on
@@ -369,14 +474,14 @@ def results_benchmark(request: Request, body: dict = Body(...)):
     DP bill. With cost simulation off the response is the energy box alone, unwrapped exactly as
     before, so nothing about the energy path's contract changes.
 
-    A window with no simulatable grid → 409, exactly as `/results`. The benchmark key can also be
-    absent when there WAS a grid but no intervals to simulate; that is a 409 too, since there is no
-    box to return and the placeholder's failure path is the honest outcome.
+    A window with no simulatable grid → 409, exactly as `/w/{id}/results`. The benchmark key can
+    also be absent when there WAS a grid but no intervals to simulate; that is a 409 too, since
+    there is no box to return and the placeholder's failure path is the honest outcome.
     """
-    loaded, window = _resolve_results_window(body)
+    loaded, window = _resolve_results_window(ws.id, body)
 
     result = results_view.results_from(
-        loaded, window, cfg=simconfig_store.load(), with_benchmark=True
+        loaded, window, cfg=simconfig_store.load(ws.id), with_benchmark=True
     )
     if result is None or "benchmark" not in result:
         raise HTTPException(status_code=409, detail="no simulatable data")
@@ -425,8 +530,11 @@ async def feature_interest(feature_key: str):
     return Response(status_code=204)
 
 
-@app.websocket("/data/ingest/ws")
-async def data_ingest_ws(ws: WebSocket):
+@app.websocket("/w/{workspace_id}/data/ingest/ws")
+async def data_ingest_ws(
+    ws: WebSocket,
+    workspace: Annotated[deps.Workspace, Depends(deps.get_workspace)],
+):
     """Stream browser-fetched HA statistics rows in; normalise, persist, and report back.
 
     Protocol in app/ingest_ws.py: a `header`, then `series`/`rows` batches per mapped series,
@@ -436,6 +544,13 @@ async def data_ingest_ws(ws: WebSocket):
 
     A protocol or validation error is reported as an `error` frame and closes the socket without
     persisting — the LOAD_FAILED path (specs §3.2). No HA token is ever received here (§7.5).
+
+    **An unknown or path-unsafe workspace fails the HANDSHAKE, not the protocol.** The dependency
+    raises before `accept()`, and FastAPI answers a rejected WebSocket dependency with an ordinary
+    HTTP 404 response instead of upgrading — so there is no socket on which to send an `error`
+    frame, and the browser's `WebSocket` constructor reports a connection failure. That is the
+    right shape: a bad workspace id is a bad *address*, not a bad message, and the client's
+    existing "could not reach the app's ingest endpoint" path already covers it.
     """
     await ws.accept()
     session = ingest_ws.IngestSession()
@@ -476,12 +591,15 @@ async def data_ingest_ws(ws: WebSocket):
                     dataset_id = await asyncio.to_thread(
                         dataset.save_dataset,
                         frames, window, session.source or "home_assistant", warnings, sources_map,
+                        workspace.id,
                     )
                     # A persisted fetch is the one event that advances the source generation
                     # (specs §2.2): it establishes new server-side authority, so any client's
                     # locally-saved source customization tagged with an older generation yields to
                     # the server after this. This is the ONLY bump site.
-                    generation = await asyncio.to_thread(db.bump_source_generation)
+                    generation = await asyncio.to_thread(
+                        db.bump_source_generation, workspace.id
+                    )
                     # The setup-band answers this fetch carried (specs §2.1): persisted HERE,
                     # after the dataset, because the fetch button is what commits the whole data
                     # configuration and these two answers are part of it.
@@ -492,7 +610,8 @@ async def data_ingest_ws(ws: WebSocket):
                     # The mismatch it risks — a stored dataset whose answers did not persist — is
                     # self-correcting, since the next fetch writes both again.
                     await asyncio.to_thread(
-                        _persist_setup_answers, session.setup_has_pv, session.setup_has_battery
+                        _persist_setup_answers,
+                        workspace.id, session.setup_has_pv, session.setup_has_battery,
                     )
                     report = normalize.grid_report(frames, window)
                     await ws.send_json(
@@ -518,8 +637,13 @@ async def data_ingest_ws(ws: WebSocket):
         return
 
 
-def _persist_setup_answers(has_pv: bool | None, has_battery: bool | None) -> None:
+def _persist_setup_answers(
+    workspace_id: str, has_pv: bool | None, has_battery: bool | None
+) -> None:
     """Write the setup-band answers a fetch carried onto the stored config (specs §2.1).
+
+    `workspace_id` is the resolved `Workspace.id` the fetch was addressed to — the same one the
+    dataset was just written under, so the answers describing that data land beside it.
 
     Called from the WS `done` handler on a worker thread (file I/O). Either answer may be None,
     meaning the header did not carry it — an older client — in which case the stored answer is
@@ -537,7 +661,7 @@ def _persist_setup_answers(has_pv: bool | None, has_battery: bool | None) -> Non
     if has_pv is None and has_battery is None:
         return
     try:
-        stored = simconfig_store.load()
+        stored = simconfig_store.load(workspace_id)
         if has_pv is not None:
             stored.has_pv = has_pv
         if has_battery is not None:
@@ -546,7 +670,9 @@ def _persist_setup_answers(has_pv: bool | None, has_battery: bool | None) -> Non
         # coupling → AC), and assigning the field above bypasses `__post_init__` — so a household
         # that just turned PV off would otherwise keep a stored DC coupling for an array it does
         # not have. `clone` reconstructs through the dataclass, which re-applies the forcing.
-        simconfig_store.save(simconfig_store.clone(stored), guard_submitted=False)
+        simconfig_store.save(
+            simconfig_store.clone(stored), workspace_id, guard_submitted=False
+        )
     except Exception:  # pragma: no cover - defensive, see the docstring
         log.warning("could not persist setup answers after fetch", exc_info=True)
 
@@ -559,7 +685,7 @@ def _jsonable_grid(report: dict) -> dict:
 
 
 # The one source kind this endpoint loads. browser_fetch sources (Home Assistant) are shown in
-# the drawer but their frames arrive over WS /data/ingest/ws — asking to load one here is a
+# the drawer but their frames arrive over WS /w/{id}/data/ingest/ws — asking to load one here is a
 # client error, not something the backend can do (the HA token stays in the browser, specs §7.5).
 _BACKEND_LOAD: SourceKind = "backend_load"
 
@@ -567,7 +693,7 @@ _BACKEND_LOAD: SourceKind = "backend_load"
 def _resolve_backend_source(slot_name: str, source_key: str):
     """Resolve (slot, source) for a backend-load of `slot_name` from `source_key`.
 
-    Shared by the WS reify path and POST /data/slot/{slot}/load. Raises ValueError with a
+    Shared by the WS reify path and POST /w/{id}/data/slot/{slot}/load. Raises ValueError with a
     user-facing message on any of: unknown slot, unknown source, source not available for the
     slot, or a non-backend_load source (a browser_fetch source's data arrives over the WS, not a
     load). Each caller translates ValueError into its own error type (IngestError / HTTPException).
@@ -611,8 +737,12 @@ def _load_backend_frame(slot_name: str, source_key: str, window) -> SeriesFrame:
         ) from exc
 
 
-@app.post("/data/slot/{slot_name}/load")
-async def load_slot(slot_name: str, body: dict = Body(...)):
+@app.post("/w/{workspace_id}/data/slot/{slot_name}/load")
+async def load_slot(
+    slot_name: str,
+    ws: Annotated[deps.Workspace, Depends(deps.get_workspace)],
+    body: dict = Body(...),
+):
     """Load one slot from a backend_load source and merge its series into the latest dataset.
 
     Body: {"source": "<source_key>", "window": {"start": "<iso>", "end": "<iso>"}}. The window is
@@ -651,7 +781,9 @@ async def load_slot(slot_name: str, body: dict = Body(...)):
             detail=f"could not load {slot_name!r} from {source_key!r}: {exc}",
         ) from exc
 
-    dataset_id = await asyncio.to_thread(dataset.upsert_series, frame, source_key, window)
+    dataset_id = await asyncio.to_thread(
+        dataset.upsert_series, frame, source_key, window, ws.id
+    )
     report = normalize.grid_report([frame], window)
     return JSONResponse(
         {

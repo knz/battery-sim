@@ -1,6 +1,6 @@
 """Integration test for the WS ingest endpoint + persistence (specs §4.3, §5.1, §3.5).
 
-Drives WS /data/ingest/ws with a scripted client (FastAPI TestClient) that replays the kind of
+Drives WS /w/{id}/data/ingest/ws with a scripted client (FastAPI TestClient) that replays the kind of
 rows the browser forwards after fetching from Home Assistant, then asserts the dataset was
 persisted and restores across a reload. Runs against a throwaway data dir so the SQLite DB and
 the series .npz files never touch the working tree — the same isolation the smoke test uses.
@@ -12,6 +12,8 @@ import importlib
 import os
 
 import pytest
+
+from tests.conftest import seed_workspace, w
 
 
 @pytest.fixture()
@@ -28,8 +30,17 @@ def client(tmp_path, monkeypatch):
     importlib.reload(db)
     import app.dataset as dataset
     importlib.reload(dataset)
+    # Reloaded because it captured the PRE-reload `db` module object at import; without this the
+    # workspace row would be written to whichever database that older module still points at.
+    import app.workspaces as workspaces
+    importlib.reload(workspaces)
+    import app.deps as deps
+    importlib.reload(deps)
     import app.main as main
     importlib.reload(main)
+    # The routes are workspace-scoped now (`/w/{id}/…`) and the fixture's TestClient is used
+    # outside a `with` block, so the lifespan that would adopt this data dir never runs.
+    seed_workspace()
     from fastapi.testclient import TestClient
     return TestClient(main.app), main, dataset
 
@@ -64,7 +75,7 @@ def _drive_valid_ingest(ws):
 
 def test_valid_ingest_persists_and_reports(client):
     tc, main, dataset = client
-    with tc.websocket_connect("/data/ingest/ws") as ws:
+    with tc.websocket_connect(w("/data/ingest/ws")) as ws:
         result = _drive_valid_ingest(ws)
 
     assert result["type"] == "result"
@@ -93,7 +104,7 @@ def test_valid_ingest_persists_and_reports(client):
 
 def test_unknown_series_is_rejected(client):
     tc, main, dataset = client
-    with tc.websocket_connect("/data/ingest/ws") as ws:
+    with tc.websocket_connect(w("/data/ingest/ws")) as ws:
         ws.send_json({"type": "header",
                       "window": {"start": "2026-07-20T00:00:00+00:00", "end": "2026-07-20T02:00:00+00:00"}})
         ws.send_json({"type": "series", "name": "not_a_real_slot", "kind": "energy"})
@@ -106,7 +117,7 @@ def test_unknown_series_is_rejected(client):
 
 def test_rows_before_series_is_rejected(client):
     tc, main, dataset = client
-    with tc.websocket_connect("/data/ingest/ws") as ws:
+    with tc.websocket_connect(w("/data/ingest/ws")) as ws:
         ws.send_json({"type": "header",
                       "window": {"start": "2026-07-20T00:00:00+00:00", "end": "2026-07-20T02:00:00+00:00"}})
         ws.send_json({"type": "rows", "name": "grid_import_t1", "rows": [[0, 1.0]]})
@@ -116,7 +127,7 @@ def test_rows_before_series_is_rejected(client):
 
 def test_done_before_header_is_rejected(client):
     tc, main, dataset = client
-    with tc.websocket_connect("/data/ingest/ws") as ws:
+    with tc.websocket_connect(w("/data/ingest/ws")) as ws:
         ws.send_json({"type": "done"})
         msg = ws.receive_json()
     assert msg["type"] == "error"
@@ -133,7 +144,7 @@ def test_two_resolutions_are_not_differenced_together(client):
     tc, main, dataset = client
     HOUR_MS = 3_600_000
     FIVE_MS = 300_000
-    with tc.websocket_connect("/data/ingest/ws") as ws:
+    with tc.websocket_connect(w("/data/ingest/ws")) as ws:
         ws.send_json({"type": "header",
                       "window": {"start": "2026-07-01T00:00:00+00:00", "end": "2026-07-10T00:00:00+00:00"}})
         ws.send_json({"type": "series", "name": "grid_import_t1", "kind": "energy"})
@@ -175,7 +186,7 @@ def test_page_shows_sample_before_any_fetch(client):
 def test_page_reflects_persisted_dataset_after_ingest(client):
     """After a WS ingest, GET / renders panel ① from the persisted dataset (specs §3.5)."""
     tc, main, dataset = client
-    with tc.websocket_connect("/data/ingest/ws") as ws:
+    with tc.websocket_connect(w("/data/ingest/ws")) as ws:
         result = _drive_valid_ingest(ws)
     assert result["type"] == "result"
 
@@ -214,14 +225,14 @@ def test_fetch_bumps_source_generation(client):
     # Before any fetch the page renders generation 0.
     assert '<script id="source-generation" type="application/json">0</script>' in tc.get("/").text
 
-    with tc.websocket_connect("/data/ingest/ws") as ws:
+    with tc.websocket_connect(w("/data/ingest/ws")) as ws:
         result = _drive_valid_ingest(ws)
     assert result["generation"] == 1
     assert db.source_generation() == 1
     assert '<script id="source-generation" type="application/json">1</script>' in tc.get("/").text
 
     # A second fetch bumps again — this is what makes another client's stored customization stale.
-    with tc.websocket_connect("/data/ingest/ws") as ws:
+    with tc.websocket_connect(w("/data/ingest/ws")) as ws:
         result = _drive_valid_ingest(ws)
     assert result["generation"] == 2
     assert db.source_generation() == 2
@@ -239,7 +250,7 @@ def test_fetch_reifies_ha_and_backend_into_one_dataset(client):
     NOT lost, unlike the old flow where save_dataset created a fresh dataset that orphaned it.
     """
     tc, main, dataset = client
-    with tc.websocket_connect("/data/ingest/ws") as ws:
+    with tc.websocket_connect(w("/data/ingest/ws")) as ws:
         ws.send_json({"type": "header", "source": "home_assistant",
                       "window": {"start": "2024-03-01T00:00:00+00:00",
                                  "end": "2024-03-05T00:00:00+00:00"}})
@@ -265,7 +276,7 @@ def test_fetch_reifies_ha_and_backend_into_one_dataset(client):
 def test_fetch_with_only_a_backend_slot(client):
     """A backend-only fetch (energy_charts spot price, no HA slots) reifies a dataset (specs §2.2)."""
     tc, main, dataset = client
-    with tc.websocket_connect("/data/ingest/ws") as ws:
+    with tc.websocket_connect(w("/data/ingest/ws")) as ws:
         ws.send_json({"type": "header", "source": "home_assistant", "window": _HIST_WINDOW})
         ws.send_json({"type": "backend_load", "name": "price_spot",
                       "source": "energy_charts", "window": _HIST_WINDOW})
@@ -285,7 +296,7 @@ def test_fetch_backend_failure_is_all_or_nothing(client):
     must NOT be persisted: the dataset is unchanged (still none here).
     """
     tc, main, dataset = client
-    with tc.websocket_connect("/data/ingest/ws") as ws:
+    with tc.websocket_connect(w("/data/ingest/ws")) as ws:
         ws.send_json({"type": "header", "source": "home_assistant",
                       "window": {"start": "2024-03-01T00:00:00+00:00",
                                  "end": "2024-03-05T00:00:00+00:00"}})
@@ -333,7 +344,7 @@ def test_the_fetch_commits_the_setup_answers(client):
     assert store.load().has_pv is True          # appendix-A defaults before any fetch
     assert store.load().has_battery is False
 
-    with tc.websocket_connect("/data/ingest/ws") as ws:
+    with tc.websocket_connect(w("/data/ingest/ws")) as ws:
         assert _drive_with_setup(ws, has_pv=False, has_battery=True)["type"] == "result"
 
     cfg = store.load()
@@ -350,7 +361,7 @@ def test_a_header_without_the_setup_fields_leaves_the_stored_answers_alone(clien
     from app.domain.simconfig import SimulationConfig
 
     store.save(SimulationConfig(has_pv=False, has_battery=True))
-    with tc.websocket_connect("/data/ingest/ws") as ws:
+    with tc.websocket_connect(w("/data/ingest/ws")) as ws:
         assert _drive_valid_ingest(ws)["type"] == "result"   # no has_pv/has_battery in its header
 
     cfg = store.load()
@@ -370,7 +381,7 @@ def test_committing_no_pv_normalises_the_stored_coupling(client):
     store.save(SimulationConfig(
         has_pv=True, topology=TopologyConfig(pv_coupling=PvCoupling.DC_HYBRID)
     ))
-    with tc.websocket_connect("/data/ingest/ws") as ws:
+    with tc.websocket_connect(w("/data/ingest/ws")) as ws:
         assert _drive_with_setup(ws, has_pv=False)["type"] == "result"
 
     cfg = store.load()

@@ -12,6 +12,12 @@
   pending affordance), and the slot-first source-picker drawer (#source-drawer) — a shared
   right-side panel opened by panel ①'s per-slot "Choose source…" buttons and driven by
   ha_fetch.js. No HTMX round-trips, no simulation.
+
+  Workspace scoping. The data routes live under `/w/{id}/…` (specs/08-architecture.md §5.1),
+  so this page states its workspace once — `data-workspace-id` on <body> — and the scripts below
+  build every path from it via `wsPath()`. Nothing here writes a scoped path as a literal; the
+  three flat routes (/lang/{code}, /feature-interest/{key} and the page itself) are the only
+  literals left. ha_fetch.js reads the same attribute for its own scoping.
 #}
 <!doctype html>
 <html lang="{{ lang.current }}" data-theme="light">
@@ -21,7 +27,13 @@
   <title>{{ _('Home Battery Simulator') }}</title>
   <link rel="stylesheet" href="/static/app.css">
 </head>
-<body class="min-h-screen bg-base-200 text-base-content">
+{# `data-workspace-id` is the ONE place the page states which workspace it is showing. Every
+   fetch below and the ingest WebSocket in ha_fetch.js build their path from it — no route path
+   is written as a literal any more, because the data routes are workspace-scoped
+   (`/w/{id}/…`, specs/08-architecture.md §5.1, specs/20-workspaces-ux.md §2′.10). It also keys
+   ha_fetch.js's per-workspace localStorage slot store (§2′.11). #}
+<body class="min-h-screen bg-base-200 text-base-content"
+      data-workspace-id="{{ workspace_id }}">
 
   {# ── Header ─────────────────────────────────────────────────────────────────── #}
   <header class="navbar bg-base-100 border-b border-base-300 px-4 lg:px-8">
@@ -322,13 +334,23 @@
   <script>
     // Panel ③ results picker + monthly chart (specs/02-ux-wireframes.md §2.4, §3.2).
     //
-    // Fragment-swap model: POST /results returns the whole _panel_results.html output; we swap it
-    // in by replacing #panel-results' outerHTML. A swapped-in inline <script> re-inserts but does
-    // NOT re-execute, so ALL of panel ③'s behaviour must live here — in index.html, on a part of
-    // the page that is never swapped — and reach into the panel via DELEGATED listeners on
+    // Fragment-swap model: POST /w/{id}/results returns the whole _panel_results.html output; we
+    // swap it in by replacing #panel-results' outerHTML. A swapped-in inline <script> re-inserts
+    // but does NOT re-execute, so ALL of panel ③'s behaviour must live here — in index.html, on a
+    // part of the page that is never swapped — and reach into the panel via DELEGATED listeners on
     // `document` plus a named chart-draw function. This binds ONCE; the fresh buttons/inputs work
     // with no re-binding after every swap.
     (function () {
+      // Every route this IIFE calls is workspace-scoped (specs/08-architecture.md §5.1), so no
+      // path is a literal: `wsPath('/results')` → `/w/<id>/results`, with the id read once from
+      // <body data-workspace-id>. Reading it at load rather than per call is deliberate — the
+      // attribute is on a node no fragment swap replaces, and a page that somehow lost it should
+      // fail visibly on the first request rather than silently address a different workspace.
+      var WORKSPACE_ID = document.body.getAttribute('data-workspace-id') || '';
+      function wsPath(suffix) {
+        return '/w/' + encodeURIComponent(WORKSPACE_ID) + suffix;
+      }
+
       // Draw the monthly-import bar chart from the #monthly-data node currently in the DOM (the
       // one the last render/swap injected). Called on initial load and after each swap so the
       // chart always reflects the window just computed. Guarded so a missing bundle or node is a
@@ -417,7 +439,7 @@
         var ctl = typeof AbortController !== 'undefined' ? new AbortController() : null;
         var timer = setTimeout(function () { if (ctl) ctl.abort(); }, BENCHMARK_TIMEOUT_MS);
 
-        fetch('/results/benchmark', {
+        fetch(wsPath('/results/benchmark'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
@@ -493,7 +515,7 @@
         recalcPending = null;
         var spinner = document.getElementById('results-recalculating');
         if (spinner) spinner.classList.remove('hidden');
-        fetch('/results', {
+        fetch(wsPath('/results'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body)
@@ -586,7 +608,7 @@
         if (saving) saving.classList.remove('hidden');
 
         var valid = false;
-        fetch('/params', { method: 'POST', body: new FormData(form) })
+        fetch(wsPath('/params'), { method: 'POST', body: new FormData(form) })
           .then(function (resp) {
             if (!resp.ok) throw new Error('params failed: ' + resp.status);
             valid = resp.headers.get('X-Params-Valid') === '1';

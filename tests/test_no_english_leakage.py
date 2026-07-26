@@ -26,6 +26,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from app.main import app
+from tests.conftest import w
 
 # Words that are strong evidence of untranslated English prose. Deliberately closed-class
 # (articles, prepositions, auxiliaries, determiners) — these are the words a translator always
@@ -109,8 +110,8 @@ def dutch_text(client) -> dict[str, str]:
     """
     hdr = {"Cookie": "lang=nl"}
     index = client.get("/", headers=hdr)
-    results = client.post("/results", json={"period": "last_1_year"}, headers=hdr)
-    bench = client.post("/results/benchmark", json={"period": "last_1_year"}, headers=hdr)
+    results = client.post(w("/results"), json={"period": "last_1_year"}, headers=hdr)
+    bench = client.post(w("/results/benchmark"), json={"period": "last_1_year"}, headers=hdr)
     for name, r in (("/", index), ("/results", results), ("/results/benchmark", bench)):
         assert r.status_code == 200, f"{name} returned {r.status_code}"
     return {

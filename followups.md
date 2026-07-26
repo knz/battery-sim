@@ -593,3 +593,25 @@ differently-built version with another offset would break it. Left as a document
 than re-engineered: the field is telemetry no user reads, and an instant-based ordering costs a
 parse per row.
 *Origin:* `20260726-workspaces-phase0.md` finding 4.
+
+**I6. `workspaces.touch()` still has no production caller.** §2′.10 makes a config save the one
+event that advances `updated_at`, and `POST /w/{id}/params` is that save — but it does not call
+`touch`, because nothing reads the field until phase 2's list ordering and "last saved" badge
+exist, and phase 1 was scoped to change no behaviour. Wire it with the screen that shows it, or the
+first list will order every workspace by its creation time.
+*Origin:* `20260726-workspaces-phase1.md`.
+
+**I7. The lifespan now CREATES `local` when it is missing, which phase 2 must remove.** Phase 0
+deliberately left a fresh installation with an empty index so §2′.2's list can show its empty state
+and the wizard. Scoping the routes made that a broken page — `GET /` renders the single-page UI for
+`local` and every control on it 404s without the row — so `app/main.py`'s lifespan creates it. Once
+`GET /` is the list, this line becomes the phantom workspace §2′.2 does not want.
+*Origin:* `20260726-workspaces-phase1.md`.
+
+**I8. `ha_fetch.js`'s file header had drifted from the code, independently of the workspace work.**
+It described a backend_load Confirm as POSTing `/data/slot/{slot}/load` and triggering a reload;
+both stopped being true when reify moved into Fetch history, and the browser no longer calls that
+route at all (only tests do). The two lines directly touching the re-rooted path were corrected in
+phase 1; the surrounding "surviving the reload" narrative was updated only where it named the wrong
+trigger. A full pass over that header against the current code is still owed.
+*Origin:* `20260726-workspaces-phase1.md`.

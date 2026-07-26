@@ -24,6 +24,7 @@ import concurrent.futures
 import pytest
 
 from app import i18n
+from tests.conftest import w
 
 
 # ── 1. The percent trap ────────────────────────────────────────────────────────────────────────
@@ -583,7 +584,7 @@ def test_the_rendered_dutch_pages_use_dutch_number_conventions():
     client = TestClient(app)
 
     def visible(lang: str) -> str:
-        r = client.post("/results", json={"period": "last_1_year"},
+        r = client.post(w("/results"), json={"period": "last_1_year"},
                         headers={"Cookie": f"lang={lang}"})
         assert r.status_code == 200
         html = re.sub(r"<(script|style).*?</\1>", " ", r.text, flags=re.S)

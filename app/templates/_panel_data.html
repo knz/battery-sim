@@ -148,7 +148,14 @@
       {# The #slot-roster card carries data-ingest-ws: ha_fetch.js reads it to open the backend
          ingest WebSocket (§7.5). It used to live on the now-removed #ha-connection card; the
          Home Assistant connection UI moved into the drawer's configuration modal (#ha-config-
-         dialog in index.html), opened by a "Configure" button beside the HA source radio. #}
+         dialog in index.html), opened by a "Configure" button beside the HA source radio.
+
+         The path is workspace-scoped (`/w/{id}/data/ingest/ws`, specs/08-architecture.md §5.1)
+         and is built HERE, server-side, rather than assembled in JS from the workspace id. The
+         attribute already carried the whole path, so keeping that shape means ha_fetch.js still
+         reads one attribute and knows nothing about the URL layout. The id is the same
+         `workspace_id` index.html puts on <body>, so the socket and the page's fetches cannot
+         end up addressing different workspaces. #}
       {# One row per data.mapping entry (the full slot roster from data_view/sample_data), gated
          by the setup band (§2.2): the solar row shows only with has_pv; the two price-bracketing
          rows only with simulate_cost. Each row shows role, requirement marker, and the chosen
@@ -157,7 +164,7 @@
          "Choose source…" button opens the shared drawer, carrying the slot name + its source
          list (as JSON) for JS to render. #}
       <div class="card bg-base-200 border border-base-300" id="slot-roster"
-           data-ingest-ws="/data/ingest/ws">
+           data-ingest-ws="/w/{{ workspace_id | urlencode }}/data/ingest/ws">
         <div class="card-body gap-3 p-4">
           <h3 class="text-sm font-semibold text-base-content/70">{{ _('Series slots') }}</h3>
 
