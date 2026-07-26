@@ -32,10 +32,13 @@ construction: a broken stored config must not take the page down. It is NOT a si
 the user's values — a file that parses gives back exactly what it holds, including values that
 `validate()` will report as blocking.
 
-## `retained.economic_guard`: ONE slot, for the ONE field the config object normalises away
+## The `retained` block: two slots, for two things that are not parameters of a run
 
-**This slot is single-purpose and must stay that way.** It is not the home of "the cost-only
-parameters" as a class — it holds `economic_guard` and nothing else.
+**It is not the home of "the cost-only parameters" as a class.** It holds exactly two entries,
+for two different and individually argued reasons, and neither generalises to a third without
+the same argument being made again.
+
+### `retained.economic_guard` — the ONE field the config object normalises away
 
 Appendix A draws a distinction that is easy to miss. The twelve cost-only parameters
 (`energy_tax_excl_vat`, `vat_rate`, `supplier_markup`, `feedin_alpha`, `feedin_beta`,
@@ -75,10 +78,37 @@ resetting it, which is what appendix A asks for, without touching the domain mod
 `topology.pv_coupling` needs no such treatment: it is Optional, `None` is a legitimate persisted
 value, and the illustrated selector re-answers the question the moment PV comes back.
 
+### `retained.pricing_configured` — not a parameter at all
+
+The §2′.6 flag meaning "the user has told us what they pay". It gates one thing: whether the
+cost toggle on the results screen is Blocked. It is in this block for a DIFFERENT reason from
+`economic_guard`, and conflating the two would be the start of treating `retained` as a junk
+drawer.
+
+`economic_guard` is here because `_force_invariants` erases it. `pricing_configured` is here
+because **it is not a simulation parameter**. No §6 algorithm reads it, `validate()` has no rule
+to check it against, and `PricingConfig`'s own docstring describes a set of contract terms — a
+boolean about whether the user has visited a screen does not belong among them. Putting it there
+would also mean threading it through `parse_form`, `clone`, every `PricingConfig(...)`
+construction and the §6.5 call sites, for a value none of them can act on.
+
+`postcode`, by contrast, IS on `SimulationConfig` (top level, beside `has_pv`): it is a standing
+fact about the household in the same sense, nothing normalises it, and it round-trips through
+the ordinary field path with no special handling. The distinction is whether the datum describes
+the household (config document, plain field) or describes the user's progress through the UI
+(this block).
+
+§2′.6 says the flag is set when the *screen is saved*, not when a field is edited. That is why
+`save()`'s `pricing_configured` keyword defaults to `None` — "not this caller's business, carry
+the stored value forward" — rather than to `False`. Only the edit-workspace save passes a bool.
+The same default is what implements "never cleared automatically": no other save can unset it.
+
 Main items:
     config_path(workspace_id)     the JSON document's path.
     load(workspace_id)            the stored config, or appendix-A defaults on ANY failure.
-    save(cfg, ..., guard_submitted)  write it atomically (temp file + replace).
+    is_document_readable(ws)      whether the stored document is safe to read-modify-write.
+    is_pricing_configured(ws)     the §2′.6 flag; False when unknown.
+    save(cfg, ..., guard_submitted, pricing_configured)  write it atomically (temp + replace).
     to_dict(cfg, retained, ...) / from_dict(d)   the serialisation, exposed for tests.
     clone(cfg)                    a copy, for deriving a candidate without touching the stored one.
 """
@@ -139,6 +169,7 @@ def to_dict(
     retained: dict | None = None,
     *,
     guard_submitted: bool = False,
+    pricing_configured: bool | None = None,
 ) -> dict:
     """`cfg` as a JSON-safe document.
 
@@ -162,6 +193,11 @@ def to_dict(
     says so explicitly otherwise. `save(..., guard_submitted=True)` is how the route reports "this
     submission actually drew the checkbox, so its absence means unticked"; without it a stored
     `True` is carried forward untouched.
+
+    `pricing_configured` is the §2′.6 flag (module comment). `None` — the default — means "this
+    caller is not the edit-workspace save, carry the stored value forward". Only a caller that
+    actually saved the contract screen passes a bool, which is what makes the flag mean "the user
+    committed to a contract" rather than "some save happened to run".
     """
     b, g, p, t, pr = cfg.battery, cfg.grid, cfg.policy, cfg.topology, cfg.pricing
     prior = retained if isinstance(retained, dict) else {}
@@ -169,9 +205,17 @@ def to_dict(
         keep_guard = bool(p.economic_guard)
     else:
         keep_guard = bool(prior.get("economic_guard", p.economic_guard))
+    if pricing_configured is None:
+        keep_configured = bool(prior.get("pricing_configured", False))
+    else:
+        keep_configured = bool(pricing_configured)
     return {
-        "retained": {"economic_guard": keep_guard},
+        "retained": {
+            "economic_guard": keep_guard,
+            "pricing_configured": keep_configured,
+        },
         "version": _VERSION,
+        "postcode": str(cfg.postcode or ""),
         "has_pv": bool(cfg.has_pv),
         "has_battery": bool(cfg.has_battery),
         "simulate_cost": bool(cfg.simulate_cost),
@@ -400,6 +444,11 @@ def from_dict(doc: object) -> SimulationConfig:
         simulate_cost=bool(doc.get("simulate_cost", dflt.simulate_cost)),
         dp_soc_levels=_int_or_default(doc.get("dp_soc_levels"), dflt.dp_soc_levels),
         dp_action_levels=_int_or_default(doc.get("dp_action_levels"), dflt.dp_action_levels),
+        # Absent from every document written before §2′.4 added the field, so it defaults like
+        # any other missing key. A stored non-string (hand-edited file, different build) falls
+        # back to the default for the same reason `_number_or_default` does: the user cannot fix
+        # a value they never typed.
+        postcode=doc.get("postcode") if isinstance(doc.get("postcode"), str) else dflt.postcode,
     )
 
 
@@ -432,6 +481,34 @@ def load(workspace_id: str = db.WORKSPACE_ID) -> SimulationConfig:
     return from_dict(doc)
 
 
+def is_document_readable(workspace_id: str = db.WORKSPACE_ID) -> bool:
+    """Whether the stored document is one this build can round-trip without losing values.
+
+    `load()` never raises: it answers appendix-A defaults for an absent file, an unparseable one,
+    and — deliberately — one whose `version` is not this build's (module comment). That makes it
+    the right function for RENDERING a page and the wrong basis for a REWRITE, because the
+    defaults it invents would then replace the values it could not read. Anything that saves back
+    a config it did not obtain from the user needs this distinction; `workspaces.migrate_local` is
+    the first such caller.
+
+    True only for a document that parses as JSON, is an object, and carries a version this build
+    accepts — absent (read as v1) or v1 itself, matching `from_dict`'s own rule. False for an
+    absent file as well, so a caller that treats "no document" differently from "a document we
+    must not touch" checks for the file separately; the two lead to opposite actions.
+    """
+    try:
+        path = config_path(workspace_id)
+        if not path.exists():
+            return False
+        with path.open("r", encoding="utf-8") as fh:
+            doc = json.load(fh)
+    except Exception:
+        return False
+    if not isinstance(doc, dict):
+        return False
+    return doc.get("version", _VERSION) == _VERSION
+
+
 def _retained_block(workspace_id: str) -> dict:
     """The stored `retained` block, or `{}`. Never raises, for the same reason `load()` does not."""
     try:
@@ -446,11 +523,23 @@ def _retained_block(workspace_id: str) -> dict:
     return block if isinstance(block, dict) else {}
 
 
+def is_pricing_configured(workspace_id: str = db.WORKSPACE_ID) -> bool:
+    """Whether the user has told us what they pay (specs/20-workspaces-ux.md §2′.6).
+
+    The one reader is whether the cost toggle is Blocked. False on a workspace that has never
+    saved the contract screen, including one with no document at all. Never raises, for the same
+    reason `load()` does not — a page that cannot read this must still render, with the toggle
+    blocked, which is the safe direction.
+    """
+    return bool(_retained_block(workspace_id).get("pricing_configured", False))
+
+
 def save(
     cfg: SimulationConfig,
     workspace_id: str = db.WORKSPACE_ID,
     *,
     guard_submitted: bool = False,
+    pricing_configured: bool | None = None,
 ) -> Path:
     """Write `cfg` to the workspace's document and return the path.
 
@@ -472,6 +561,10 @@ def save(
     an unticked box means unticked rather than absent. Default False, which carries the stored
     value forward — see `to_dict`'s carry-forward rule and the module comment.
 
+    `pricing_configured` sets the §2′.6 flag. Default `None` carries the stored value forward,
+    which is what makes "never cleared automatically" fall out of the ordinary case: every save
+    that is not the edit-workspace save leaves the flag exactly as it was.
+
     Unlike `load`, this DOES propagate an I/O error: a save that silently did nothing would tell
     the user their parameters were stored when they were not. The route decides what to do with it.
     """
@@ -484,6 +577,7 @@ def save(
             cfg,
             retained=_retained_block(workspace_id),
             guard_submitted=guard_submitted,
+            pricing_configured=pricing_configured,
         ),
         indent=2,
         sort_keys=False,
@@ -542,4 +636,5 @@ def clone(cfg: SimulationConfig) -> SimulationConfig:
         simulate_cost=cfg.simulate_cost,
         dp_soc_levels=cfg.dp_soc_levels,
         dp_action_levels=cfg.dp_action_levels,
+        postcode=cfg.postcode,
     )

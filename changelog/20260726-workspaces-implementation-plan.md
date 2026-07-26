@@ -4,7 +4,21 @@ Companion to [20260726-workspaces-ux-restructure.md](20260726-workspaces-ux-rest
 which records the design conversation. This file is the build plan for
 [specs/20-workspaces-ux.md](../specs/20-workspaces-ux.md).
 
-**Status: proposed, not approved.** No code has been written.
+**Status: approved 2026-07-26.** Building phase by phase, with a sub-agent review pass between
+implementation and commit. Minor review findings are either fixed immediately or filed in
+[`followups.md`](../followups.md).
+
+### Build log
+
+| Phase | State |
+|---|---|
+| 0 — Prepare | done — [changelog](20260726-workspaces-phase0.md) |
+| 1 — Workspace-scoped routes | not started |
+| 2 — The list screen | not started |
+| 3 — Edit workspace | not started |
+| 4 — Configure data, and results | not started |
+| 5 — The wizard | not started |
+| 6 — Finish | not started |
 
 ---
 

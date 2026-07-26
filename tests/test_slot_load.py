@@ -221,6 +221,96 @@ def test_upsert_series_standalone_when_no_dataset(dataset):
     assert loaded.window == win
 
 
+def test_upsert_series_rolls_back_and_keeps_the_existing_series(dataset):
+    """An exception escaping `upsert_series` must leave the series the user already had.
+
+    Regression (changelog 20260726 finding 9). `upsert_series` replaces a series by DELETE
+    followed by INSERT. The connection is in autocommit mode so the migration can run its own
+    `BEGIN IMMEDIATE`, and for a window that also meant the `with` block committed the DELETE and
+    then let the exception escape before the INSERT — the user's existing series, silently gone.
+    What is pinned here is the user-visible property: after the failure the OLD series is still
+    there and still readable, not merely that the new one is absent.
+    """
+    win = (datetime(2024, 3, 1, tzinfo=UTC), datetime(2024, 3, 2, tzinfo=UTC))
+    dataset.save_dataset(
+        [_energy_frame("grid_import_t1", 1.0), _energy_frame("price_spot", 0.2)],
+        win, "home_assistant", [],
+    )
+
+    # Fail exactly where the regression bites: after the DELETE, before the replacement lands.
+    def boom(*args, **kwargs):
+        raise RuntimeError("crash between the delete and the insert")
+
+    # Patched/restored by hand rather than with monkeypatch.undo(), which would also revert the
+    # fixture's BATTERY_SIM_DATA_DIR setenv and send the assertions below at the real ./data.
+    real = dataset._insert_series_meta
+    dataset._insert_series_meta = boom
+    try:
+        with pytest.raises(RuntimeError):
+            dataset.upsert_series(_energy_frame("price_spot", 9.9), "energy_charts", win)
+    finally:
+        dataset._insert_series_meta = real
+
+    loaded = dataset.load_latest()
+    assert loaded is not None
+    # The pre-existing series survived the failed replacement: still listed, still loadable.
+    assert {f.name for f in loaded.frames} == {"grid_import_t1", "price_spot"}
+    # Its metadata is the ORIGINAL row — the DELETE was rolled back, not re-applied.
+    assert loaded.series_sources["price_spot"] == "home_assistant"
+    # The untouched series is entirely unaffected.
+    meter = next(f for f in loaded.frames if f.name == "grid_import_t1")
+    assert abs(meter.values[0] - 1.0) < 1e-9
+    # Exactly one row, i.e. the rollback did not leave a duplicate either.
+    with dataset._connect() as conn:
+        n = conn.execute(
+            "SELECT COUNT(*) FROM series_meta WHERE name = 'price_spot'"
+        ).fetchone()[0]
+    assert n == 1
+
+    # The documented LIMIT of the guarantee, pinned so it is a known property rather than a
+    # surprise: `_save_frame` runs before the transaction and is not rolled back with it, so the
+    # .npz holds the new array even though series_meta describes the old series. What the
+    # transaction buys is that the series still exists and is readable — not that its values are
+    # unchanged. See `upsert_series`' docstring for why the file half is left non-atomic.
+    price = next(f for f in loaded.frames if f.name == "price_spot")
+    assert abs(price.values[0] - 9.9) < 1e-9
+
+
+def test_save_dataset_rolls_back_leaving_no_partial_dataset(dataset):
+    """An exception escaping `save_dataset` must leave no `datasets` row behind.
+
+    Regression (changelog 20260726 finding 9), the other half. `save_dataset` writes one
+    `datasets` row and then one `series_meta` row per frame; under autocommit without an explicit
+    transaction, a failure partway left a dataset row with missing or partial series beneath it,
+    which `load_latest` would then restore as a dataset short of its series.
+    """
+    win = (datetime(2024, 3, 1, tzinfo=UTC), datetime(2024, 3, 2, tzinfo=UTC))
+    frames = [_energy_frame("grid_import_t1", 1.0), _energy_frame("price_spot", 0.2)]
+
+    calls = {"n": 0}
+    real = dataset._insert_series_meta
+
+    def fail_on_second(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise RuntimeError("crash after the first series_meta row")
+        return real(*args, **kwargs)
+
+    # Restored by hand, not via monkeypatch.undo() — see the note in the upsert test above.
+    dataset._insert_series_meta = fail_on_second
+    try:
+        with pytest.raises(RuntimeError):
+            dataset.save_dataset(frames, win, "home_assistant", [])
+    finally:
+        dataset._insert_series_meta = real
+
+    # Neither the dataset row nor the one series_meta row that had already been inserted survives.
+    with dataset._connect() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM datasets").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM series_meta").fetchone()[0] == 0
+    assert dataset.load_latest() is None
+
+
 # --- 4. endpoint: load price_spot from energy_charts over an in-range historical window --------
 
 # A window fully inside committed NL-2024 data. last_on_disk is 2026-07 (> this window end), so

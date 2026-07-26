@@ -38,6 +38,11 @@ re-rendered panel. An invalid submission re-renders with the user's own values s
 and the errors bound inline per field. The persisted config drives panel ③: index(), POST /results
 and POST /results/benchmark all read the same one, so a parameter change moves the results.
 
+On startup (the `lifespan` below) the app adopts the pre-index single workspace into the
+`workspaces` table (app/workspaces.py, specs/20-workspaces-ux.md §2′.10). This is phase 0 of the
+workspaces restructure and changes nothing a user sees: every route below is still flat, and
+still operates on `db.WORKSPACE_ID`.
+
 Routes:
     GET  /                          → the full page (index.html)
     POST /params                    → validate + persist panel ②; return the HTML fragment
@@ -54,6 +59,7 @@ Run:  uv run uvicorn app.main:app --reload
 
 import asyncio
 import logging
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -74,6 +80,7 @@ from app import (
     results_view,
     simconfig_store,
     summary_view,
+    workspaces,
 )
 from app.domain import normalize
 from app.domain.frames import SeriesFrame
@@ -86,7 +93,29 @@ BASE_DIR = Path(__file__).resolve().parent
 
 log = logging.getLogger(__name__)
 
-app = FastAPI(title="Home Battery Simulator")
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    """Startup work: adopt the pre-index single workspace into the workspace index.
+
+    `workspaces.migrate_local()` is idempotent — it inserts nothing once the index is non-empty,
+    and nothing at all on a fresh installation with no config and no dataset on disk — so running
+    it on every start is a `SELECT COUNT(*)` in the ordinary case.
+
+    This is a lifespan rather than more import-time work beside `CONFIG` because it WRITES to the
+    data directory. Importing `app.main` (a test collecting routes, a tooling import) must not
+    create rows in whatever directory happens to be resolved at import time; a lifespan runs only
+    when the app is actually served, which is when a data directory has been chosen deliberately.
+    A migration failure is logged and swallowed: the app must still serve, and the list route
+    reads the index rather than depending on this having succeeded.
+    """
+    try:
+        workspaces.migrate_local()
+    except Exception:  # pragma: no cover - defensive: startup must not be fatal
+        log.exception("workspace migration failed (ignored)")
+    yield
+
+
+app = FastAPI(title="Home Battery Simulator", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
 # Config is resolved once at import time. This also generates and persists the installation_id
@@ -378,9 +407,13 @@ async def feature_interest(feature_key: str):
     """Record a thumbs-up for a pending control and fire the optional outbound report.
 
     Rejects any key outside the closed vocabulary (app/features.py) with 404. On a known key
-    the local counter is upserted (once per workspace+key, §5.1) and the outbound POST is
+    the local counter is upserted (once per key, installation-wide) and the outbound POST is
     scheduled fire-and-forget: the endpoint returns 204 regardless of whether that request
     succeeds, fails, or is disabled by an unset URL (§2.1, §5.1 invariants).
+
+    This route stays FLAT — unscoped by workspace — where the rest are being re-rooted under
+    `/w/{id}/…`. The counter records what this household wants, not what one analysis wants
+    (specs/20-workspaces-ux.md §2′.10; see app/db.py for the invariant-1 exception).
     """
     if not features.is_known(feature_key):
         raise HTTPException(status_code=404, detail="unknown feature key")

@@ -545,3 +545,51 @@ information that now exists — Phase 6's form layer shipped, so both are answer
 Collation complete: 38 items across six areas, plus four process notes. Not triaged into a
 priority order and not verified against the current tree — both are the user's call. If a next step
 is wanted, the three clusters above are where the leverage is; which one to take first is open.
+
+---
+
+# Added 2026-07-26 — workspaces restructure, phase 0
+
+## I. Deferred by the workspaces restructure (phase 0)
+
+**I1. `upsert_series`' rollback covers the rows, not the `.npz` file.** `_save_frame` runs before
+the transaction and `_frame_path` is deterministic by name, so a failed replacement restores the
+`series_meta` row but leaves the *new* array on disk. The honest post-condition is "the series is
+still there, still listed, still readable with its original metadata", not "its values are
+unchanged". Strictly smaller damage than the regression it replaced (which removed the series
+outright), and the same rows-versus-files split that findings 6 and 8 of that phase already accept.
+Closing it properly means writing the frame to a temp path and renaming it inside the transaction,
+or accepting a two-phase write. Documented in `upsert_series`' docstring and pinned by an assertion
+in `tests/test_slot_load.py`.
+*Origin:* `20260726-workspaces-phase0.md` finding 9.
+
+**I2. The card's interval count is derived, and can be plainly wrong rather than approximate.**
+`workspaces._data_facts` computes `window / resolution` from `series_meta`, using `max(resolutions)`
+without `choose_grid`'s `covers(window)` filter — so a short auxiliary series drags the reported
+grid coarser. Measured: a 900 s grid series over a two-day window plus a three-hour 3600 s solar
+series reports 3600 s / 48 intervals instead of 900 s / 192. Deliberate, to keep a list of N cards
+from loading N datasets. If it misleads in practice, the fix is a persisted `n_intervals` column on
+`datasets`, not an npz read per card.
+*Origin:* `20260726-workspaces-phase0.md` finding 5.
+
+**I3. `delete` is not atomic across SQLite and the filesystem.** Rows are deleted, then the
+directory is removed with `ignore_errors=True`. A crash between the two, or an unwritable directory,
+leaves unreferenced `.npz` files with no route to reclaim them, and a failed `rmtree` is silent.
+Accepted for a local single-user app — the failure mode is wasted disk, not a wrong result, since
+every read goes through `series_meta`. Closing it needs a startup sweep for directories with no
+workspace row. Stated in the docstrings rather than fixed.
+*Origin:* `20260726-workspaces-phase0.md` finding 8.
+
+**I4. `monkeypatch.undo()` is a trap in the workspace test modules.** It also reverts the fixture's
+`BATTERY_SIM_DATA_DIR` setenv, silently redirecting any later assertion at the developer's real
+`./data`. Worked around with manual patch/restore in `tests/test_slot_load.py`; worth a fixture that
+makes the data-dir override non-revertible so the next test author does not rediscover it.
+*Origin:* `20260726-workspaces-phase0.md` finding 9.
+
+**I5. `feature_interest`'s collapse orders timestamps lexicographically.** `MIN(last_clicked_at)`
+over TEXT equals the earliest instant only because `record_interest` writes
+`datetime.now(timezone.utc).isoformat()` — fixed width, always `+00:00`. A row written by a
+differently-built version with another offset would break it. Left as a documented assumption rather
+than re-engineered: the field is telemetry no user reads, and an instant-based ordering costs a
+parse per row.
+*Origin:* `20260726-workspaces-phase0.md` finding 4.

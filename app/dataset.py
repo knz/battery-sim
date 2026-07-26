@@ -16,6 +16,14 @@ Two homes, mirroring §5.1:
 Multi-user readiness (§5.5): every row carries workspace_id; there is one workspace for now
 (db.WORKSPACE_ID). No module-level mutable state.
 
+Atomicity: `save_dataset` and `upsert_series` are both multi-statement writes, and their `with
+_connect()` blocks are transactions — they commit as a unit or roll back entirely, which is
+`db._Connection`'s doing rather than sqlite3's (the connection is in autocommit mode for the
+migration's sake; see app/db.py). This matters most for `upsert_series`, which replaces a series
+by DELETE-then-INSERT: without the rollback an exception between the two removes a series the user
+already had and puts nothing back. The `.npz` writes stay OUTSIDE the transaction and are not
+undone by it — the limit is spelled out in `upsert_series`' docstring.
+
 Per-series provenance (slot-first sources): a dataset's series may come from different sources
 now — the energy meters from Home Assistant, the spot price from the preset Energy-Charts source
 (specs §2.2 slot-first source picker). So provenance is recorded PER SERIES in series_meta
@@ -24,6 +32,7 @@ into the latest dataset, replacing any series of the same name and leaving the o
 this is what lets a backend-loaded price attach to an existing HA-fetched energy dataset (§4.3).
 
 Main items:
+    connect()                                                    a connection with both schemas.
     save_dataset(frames, window, source, warnings, sources, workspace_id) -> int  persist; id.
     upsert_series(frame, source_key, window, workspace_id) -> int          merge one series in.
     load_latest(workspace_id) -> LoadedDataset | None                     restore on startup.
@@ -120,10 +129,22 @@ def _as_utc(dt: datetime) -> datetime:
 
 
 def _connect():
-    conn = db._connect()  # reuse the feature_interest DB file and its data-dir resolution
+    conn = db.connect()  # reuse the shared DB file, its data-dir resolution and its own schema
     conn.executescript(_SCHEMA)
     _migrate(conn)
     return conn
+
+
+def connect():
+    """A connection with BOTH this module's tables and app/db.py's created and migrated.
+
+    The public spelling of `_connect`, for the modules that need to query `datasets` /
+    `series_meta` alongside the workspace index (app/workspaces.py). It exists because
+    `db.connect()` alone does not create these two tables, so a query against them on a fresh
+    installation — where no dataset has ever been saved — would fail with "no such table" rather
+    than returning nothing.
+    """
+    return _connect()
 
 
 def _migrate(conn) -> None:
@@ -287,6 +308,19 @@ def upsert_series(
     dataset window is left as-is. The stored window is the advertised fetch span only; the actual
     per-series coverage that the simulation grid uses is recomputed from the frames' own indices
     at read time (normalize.grid_report, specs §6.2), so a slightly wide window here is harmless.
+
+    **Atomicity, and its limit.** The SQL below runs in one transaction (`db.connect`'s `with`
+    block): the DELETE of the existing series_meta row and the INSERT of its replacement either
+    both land or neither does. That matters because they are a replace — without the rollback, an
+    exception between them removes a series the user already had and puts nothing back.
+
+    The `.npz` write is NOT part of that transaction and is not undone by it. It happens first, and
+    `_frame_path` is deterministic by name, so a failure after this line leaves the file holding
+    the NEW array while `series_meta` still points at it describing the OLD series. The row-level
+    guarantee is therefore "the series is still there and still readable", not "its values are
+    unchanged". Accepted for the same reason `workspaces.delete` accepts its rows/files split: the
+    fix is a write-to-temp-and-rename plus a reclaim pass, which is more machinery than a local
+    single-user app warrants, and the failed path re-runs on the next load.
     """
     _save_frame(_frame_path(workspace_id, frame.name), frame)
 

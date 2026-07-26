@@ -119,8 +119,12 @@ authoritative list is `app/features.py` (`FEATURE_KEYS`); the templates carry th
 
 Built ([changelog 20260723-pending-affordance-impl](../changelog/20260723-pending-affordance-impl.md)):
 
-- `feature_interest(workspace_id, feature_key, count, last_clicked_at)` in a local SQLite
-  file under the data dir (`app/db.py`), upsert-once per `(workspace_id, feature_key)`.
+- `feature_interest(feature_key, count, last_clicked_at)` in a local SQLite file under the
+  data dir (`app/db.py`), upsert-once per `feature_key`. This table is installation-wide, not
+  per-workspace — the deliberate and only exception to [§5.5](08-architecture.md)'s invariant 1,
+  argued there. It was originally keyed `(workspace_id, feature_key)`; the workspaces restructure
+  re-keyed it, collapsing existing rows by `feature_key` and keeping the earliest
+  `last_clicked_at`.
 - `InterestReporter` outbound POST (`app/interest.py`): fire-and-forget, off unless
   `feature_interest_url` is set; body is `{feature_key, app_version, installation_id}`.
 - `config.toml` loading and first-run `installation_id` generation (`app/config.py`).

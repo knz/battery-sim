@@ -748,6 +748,15 @@ class SimulationConfig:
         dp_soc_levels / dp_action_levels   §6.12's DP discretisation, appendix A's 101 and 41.
                       Shared by BOTH perfect-foresight runs (D and E) — the two objectives differ
                       only in `transition_cost`, so a single pair of grid sizes is correct.
+        postcode      the household's Dutch postcode, empty by default
+                      (specs/20-workspaces-ux.md §2′.4). **Nothing in this module or in the
+                      simulation core reads it**, and no §6 algorithm takes it as an input; it is
+                      collected while the user is on the edit screen so a later
+                      sunrise/sunset-aware diagnostic does not have to ask for it. Stored as the
+                      user typed it — no format is enforced, because no consumer has yet fixed
+                      what precision it needs (§2′.4 leaves that open). It sits here rather than
+                      in one of the five groups for the same reason `has_pv` does: it is a
+                      standing fact about the household, not a form box's parameter.
 
     Construction NEVER raises, even on nonsense input: see the module comment and `validate()`.
     """
@@ -768,6 +777,9 @@ class SimulationConfig:
     # numbers are what fixture 6's bound is measured at.
     dp_soc_levels: int = 101
     dp_action_levels: int = 41
+    # Inert this increment — see the class docstring. Not touched by `_force_invariants` and not
+    # checked by `validate()`: there is no rule to check it against until something reads it.
+    postcode: str = ""
 
     def __post_init__(self) -> None:
         """Defensively copy the five sub-configs, then normalise the forced settings.

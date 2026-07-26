@@ -62,13 +62,13 @@
 ┌──────▼────────────────────────────────────────────────────────────────────┐
 │  PERSISTENCE                                                              │
 │    SQLite  (SQLAlchemy)                                                   │
-│      workspaces(id, owner_id, name, created_at)                           │
+│      workspaces(id, owner_id, title, created_at, updated_at)              │
 │      datasets(id, workspace_id, source_type, fetched_at, coverage, qa)    │
 │      series_meta(id, dataset_id, name, kind, resolution_s, path,          │
 │                  fine_resolution_s, fine_coverage, source_type)           │
 │      params(workspace_id, json, updated_at)          -- current config    │
 │      runs(id, workspace_id, run_id, config_hash, result_json, created_at) │
-│      feature_interest(workspace_id, feature_key, count, last_clicked_at)  │
+│      feature_interest(feature_key, count, last_clicked_at)  -- §5.5 exc.  │
 │                                                                           │
 │      -- No credentials table: the HA token stays in the browser (§7.5).   │
 │                                                                           │
@@ -159,13 +159,15 @@ added cost outputs is bit-identical across the flag.
 
 `feature_interest` records that a user asked for a control that is specified but not built
 yet ([§2.1](02-ux-wireframes.md#the-pending-affordance)). `feature_key` is the short stable
-string that names the control; `(workspace_id, feature_key)` is the primary key, so a
-repeat click updates `last_clicked_at` and leaves `count` alone.
+string that names the control, and it is the primary key on its own, so a repeat click updates
+`last_clicked_at` and leaves `count` alone.
 
-The table carries `workspace_id` like every other, for the reason given in §5.5: no table is
-implicitly global. Interest is arguably an installation-level fact rather than a
-workspace-level one, and totalling across workspaces at read time is the right way to get
-that — cheaper than making one table an exception to the rule the whole schema rests on.
+**This table is installation-wide** — the one exception to §5.5's invariant 1, argued there and
+in [20-workspaces-ux.md §2′.10](20-workspaces-ux.md#2′10-what-the-backend-needs-noted-not-designed).
+It was originally keyed per workspace, on the reasoning that totalling across workspaces at read
+time was cheaper than an exception to the rule the schema rests on. The workspace list showed
+why that is wrong in a way totalling does not fix: the count is one household's boolean wish,
+and a workspace deletion would retract a signal the user never withdrew.
 
 `InterestReporter` is the adapter that performs the outbound POST. It is an adapter and not
 a service because it does I/O and nothing else, and it is the **only** component in the
@@ -241,6 +243,22 @@ The following are v1 requirements *because* they make multi-tenancy a later addi
 change rather than a rewrite:
 
 1. **Every persisted row carries `workspace_id`.** No table is implicitly global.
+
+   **One deliberate exception: `feature_interest`.** Its primary key is `feature_key` alone,
+   and its rows survive the deletion of every workspace, including the last. The reasoning is
+   in [20-workspaces-ux.md §2′.10](20-workspaces-ux.md#2′10-what-the-backend-needs-noted-not-designed):
+   the invariant's purpose is that user *data* never leaks between workspaces or, later,
+   between accounts, and interest counters are not user data in that sense — they are outbound
+   product telemetry, already reported under the pseudonymous `installation_id` from
+   `config.toml` rather than under any workspace identity. Keying them per workspace also made
+   the counter answer the wrong question: the same household could register the same wish from
+   three analyses, and deleting one would retract a signal the user never withdrew.
+
+   This exception covers `feature_interest` and nothing else. In particular
+   `workspace_state.source_generation` remains per-workspace — it tracks one workspace's
+   fetches, and sharing it would let a fetch in one analysis invalidate a source customization
+   saved in another. Any future candidate for the same treatment needs its own argument that
+   the row is telemetry rather than user data.
 2. **`Workspace` is resolved via a FastAPI dependency**, never read from a global.
    In v1 `get_principal()` returns a hard-coded `Principal(id="local")` and
    `get_workspace()` returns the single workspace. Adding auth means replacing exactly
