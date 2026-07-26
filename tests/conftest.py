@@ -25,9 +25,14 @@ Finally, this module points `BATTERY_SIM_DATA_DIR` at a throwaway directory for 
 session, so that running the suite never writes into the developer's real `./data`. See
 `_isolate_data_dir` below for why that has to happen here, at import time.
 
+Phase 2 adds one more, for the same reason: `GET /` became the workspace list and the three-panel
+page moved to `GET /w/{id}/results`, so a test that wants "the page" asks `page()` for it rather
+than writing a literal that will move again when phase 4 splits that screen in two.
+
 Main items:
     W                the `/w/local` prefix.
     w(suffix)        `W + suffix`; the workspace-scoped URL for the default workspace.
+    page(id)         the URL of the three-panel page for a workspace (`GET /w/{id}/results`).
     seed_workspace() create the workspace row (idempotent), under the CURRENT data dir.
 """
 
@@ -85,6 +90,17 @@ W = f"/w/{WORKSPACE_ID}"
 def w(suffix: str = "") -> str:
     """The workspace-scoped URL for `suffix` under the default `local` workspace."""
     return W + suffix
+
+
+def page(workspace_id: str = WORKSPACE_ID) -> str:
+    """The URL of the three-panel page for `workspace_id` (phase 2: `GET /w/{id}/results`).
+
+    Named for what the tests want — "the page" — rather than for where it currently lives, since
+    `/` was that URL until phase 2 and phase 4 splits this screen into two. GET and POST on
+    `/w/{id}/results` are different routes: the GET renders the whole page, the POST returns just
+    the panel-③ fragment.
+    """
+    return f"/w/{workspace_id}/results"
 
 
 def seed_workspace(workspace_id: str = WORKSPACE_ID, title: str = "Test workspace") -> str:

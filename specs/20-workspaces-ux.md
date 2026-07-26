@@ -131,7 +131,7 @@ here than annotating a distinction the card has no room to explain.
 
 ### The info box
 
-Four facts about the *dataset*, in a visually distinct block so they are not confused with the
+Five facts about the *dataset*, in a visually distinct block so they are not confused with the
 config badges above them:
 
 1. **Grid consumption** loaded / not loaded
@@ -207,9 +207,8 @@ dialog that says only what it destroys makes the user guess at the rest.
   │     The measurements loaded into "Our house, dynamic contract"       │
   │     will be deleted, along with the results computed from them.      │
   │                                                                      │
-  │     The configuration is kept — your connection, contract and        │
-  │     battery settings stay as they are, and you can load data         │
-  │     again.                                                           │
+  │     Your connection, contract and battery settings are kept.         │
+  │     You will need to choose your data sources again.                 │
   │                                                                      │
   │     This cannot be undone.                                           │
   │                                                                      │
@@ -228,14 +227,34 @@ Rules for both:
 - After confirming, the user stays on the list, which re-renders. Deleting data leaves the
   card in the no-data state shown as the third card in [§2′.2](#2′2-the-workspace-list--the-apps-home-screen).
 
-**"Delete data" keeps the per-slot source mapping.** The dataset and the source choices are
-separable, and only the measurements are deleted: the slot roster still shows which entity or
-preset fills each slot, so a user deleting data to re-fetch a longer window presses
-`[ Fetch history ]` and is done. A user who mapped the wrong entity changes that slot in the
-drawer, which is where source choices are edited anyway.
+**"Delete data" keeps the configuration, and does NOT keep a fetched slot's source mapping.**
+The two halves of that sentence are the honest statement of what the operation does, and the
+dialog copy above says both.
 
-This is what the dialog copy above promises — "you can load data again" — and it makes the
-sentence "The configuration is kept" true of the source mapping as well as the parameters.
+The configuration is genuinely separable from the dataset: `simconfig.json` is a different
+document, so the connection, contract and battery settings come through a data deletion
+untouched, and the workspace is still the same analysis afterwards.
+
+The source mapping is not separable, because for a slot that has been **fetched** it is not
+held apart from the data — it is part of it. When a fetch persists a series, the source key and
+the Home Assistant statistic id are stored in `series_meta` alongside that series, and the slot
+roster renders the slot's source from the dataset on every reload; this is branch 1 of "Two
+things carry a source choice across a reload" in
+[`app/static/ha_fetch.js`](../app/static/ha_fetch.js)'s header, which describes the split
+accurately. Deleting the measurements deletes those rows, so the slot returns to being
+unassigned.
+
+What does survive is branch 2: a **pre-fetch staged choice**, one the user made in the drawer
+but has not fetched yet, which lives in `localStorage` keyed by workspace and is reconciled
+against `source_generation`. A data deletion deliberately leaves `source_generation` alone, so a
+staged choice is not invalidated by it.
+
+The practical consequence, and the reason the copy had to change: a user who deletes data in
+order to re-fetch a longer window does **not** simply press `[ Fetch history ]` again — they
+choose their sources first. Making that untrue would mean preserving `series_meta`'s source
+columns across a deletion, i.e. keeping rows that describe series that no longer exist; the
+mapping is worth less than the confusion that would cause, so the behaviour stands and the
+sentence changed.
 
 ---
 
@@ -867,8 +886,10 @@ must cover; none of them are settled here.
   and the list's ordering both read it, and §2′.2 defines it as the *configuration's* save
   time — so loading data must not reorder the list or advance the badge.
 - **Cascade semantics for the two deletes.** "Delete data" must clear the dataset rows, the
-  `.npz` files and any cached results while leaving `simconfig.json` and the slot mapping
-  ([§2′.3](#2′3-the-two-confirmation-modals)); "delete analysis" must remove the workspace
+  `.npz` files and any cached results while leaving `simconfig.json`
+  ([§2′.3](#2′3-the-two-confirmation-modals)). It does *not* leave a fetched slot's source
+  mapping, which lives in `series_meta` and goes with the data — §2′.3 sets out the split and
+  the dialog copy states it; "delete analysis" must remove the workspace
   directory and every row keyed by its id — with one exception, below.
 - **`feature_interest` becomes installation-wide**, dropping `workspace_id` from its key. It
   records that *this household* wants a feature, which is a fact about the person using the

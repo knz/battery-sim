@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-26 11:44+0200\n"
+"POT-Creation-Date: 2026-07-26 21:10+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -18,12 +18,24 @@ msgstr ""
 "Generated-By: Babel 2.18.0\n"
 
 #, python-format
+msgid ""
+"\"%(title)s\" and everything in it — the configuration, the loaded data "
+"and the results — will be deleted."
+msgstr ""
+
+#, python-format
 msgid "%(baseline)s without a battery → %(battery)s with one"
 msgstr ""
 
 #, python-format
 msgid "%(before)s → %(after)s"
 msgstr ""
+
+#, python-format
+msgid "%(count)s interval · %(res)s"
+msgid_plural "%(count)s intervals · %(res)s"
+msgstr[0] ""
+msgstr[1] ""
 
 #, python-format
 msgid "%(dates)s   (%(n)s day)"
@@ -87,6 +99,10 @@ msgid "%(pct)s of intervals had negative reconstructed load (clamped to 0)."
 msgstr ""
 
 #, python-format
+msgid "%(phases)s×%(fuse)s A"
+msgstr ""
+
+#, python-format
 msgid "%(pp)s pp"
 msgstr ""
 
@@ -119,6 +135,9 @@ msgid "(%(res)s, %(n)s interval)"
 msgid_plural "(%(res)s, %(n)s intervals)"
 msgstr[0] ""
 msgstr[1] ""
+
+msgid "+ New analysis"
+msgstr ""
 
 msgid "+ weekends"
 msgstr ""
@@ -176,6 +195,11 @@ msgid "Advanced"
 msgstr ""
 
 msgid "Allow export to grid during D2/D3"
+msgstr ""
+
+msgid ""
+"An analysis is one household and one question: your data, your contract, "
+"and the battery you are considering."
 msgstr ""
 
 #, python-format
@@ -288,6 +312,9 @@ msgstr ""
 msgid "Choose source…"
 msgstr ""
 
+msgid "Choose your data sources to get a result."
+msgstr ""
+
 msgid "Close"
 msgstr ""
 
@@ -297,6 +324,9 @@ msgid ""
 "%(capacity)s kWh usable, %(charge_kw)s/%(discharge_kw)s kW, "
 "%(efficiency)s round-trip efficiency, charge %(charge_policy)s / "
 "discharge %(discharge_policy)s."
+msgstr ""
+
+msgid "Configure data"
 msgstr ""
 
 msgid "Configure the Home Assistant connection first."
@@ -384,6 +414,18 @@ msgid "Day/night window"
 msgstr ""
 
 msgid "Degradation cost"
+msgstr ""
+
+msgid "Delete analysis"
+msgstr ""
+
+msgid "Delete data"
+msgstr ""
+
+msgid "Delete the loaded data?"
+msgstr ""
+
+msgid "Delete this analysis?"
 msgstr ""
 
 msgid "Discharge battery to cover house load"
@@ -510,6 +552,9 @@ msgstr ""
 msgid "Grid connection"
 msgstr ""
 
+msgid "Grid consumption"
+msgstr ""
+
 msgid "Grid export"
 msgstr ""
 
@@ -544,6 +589,9 @@ msgid "Grid import, with battery"
 msgstr ""
 
 msgid "Grid power"
+msgstr ""
+
+msgid "Grid production"
 msgstr ""
 
 msgid "Grid-coupled battery"
@@ -690,6 +738,9 @@ msgstr ""
 msgid "No battery"
 msgstr ""
 
+msgid "No data loaded yet."
+msgstr ""
+
 msgid "Not built yet"
 msgstr ""
 
@@ -802,6 +853,9 @@ msgstr ""
 msgid "Req"
 msgstr ""
 
+msgid "Results"
+msgstr ""
+
 msgid "Role"
 msgstr ""
 
@@ -841,9 +895,6 @@ msgid "Series slots"
 msgstr ""
 
 msgid "Serve house load when consumption exceeds solar"
-msgstr ""
-
-msgid "Settings"
 msgstr ""
 
 msgid "Shared across all slots that use Home Assistant"
@@ -1015,6 +1066,12 @@ msgstr ""
 msgid "The lower bound is above the upper bound, so this band never fires."
 msgstr ""
 
+#, python-format
+msgid ""
+"The measurements loaded into \"%(title)s\" will be deleted, along with "
+"the results computed from them."
+msgstr ""
+
 msgid "The perfect-foresight benchmark could not be computed for this period."
 msgstr ""
 
@@ -1087,6 +1144,9 @@ msgid ""
 "to judge whether it is worth buying."
 msgstr ""
 
+msgid "This cannot be undone."
+msgstr ""
+
 msgid "This control"
 msgstr ""
 
@@ -1130,6 +1190,9 @@ msgstr ""
 msgid "Two conversions PV→battery"
 msgstr ""
 
+msgid "Update"
+msgstr ""
+
 msgid "Upload CSV"
 msgstr ""
 
@@ -1160,6 +1223,12 @@ msgid "Where the money comes from"
 msgstr ""
 
 msgid "Yes"
+msgstr ""
+
+msgid "You have no analyses yet."
+msgstr ""
+
+msgid "Your analyses"
 msgstr ""
 
 #, python-format
@@ -1195,6 +1264,11 @@ msgid ""
 " smart meter nets across phases the energy result should be close; what "
 "is not modelled is the per-phase power limit, which a 1-phase battery "
 "cannot exceed however the load is distributed."
+msgstr ""
+
+msgid ""
+"Your connection, contract and battery settings are kept. You will need to"
+" choose your data sources again."
 msgstr ""
 
 msgid "Your data at a glance"
@@ -1419,6 +1493,9 @@ msgstr ""
 msgid "leave empty to derive from the fuse"
 msgstr ""
 
+msgid "loaded"
+msgstr ""
+
 msgid "long-lived access token"
 msgstr ""
 
@@ -1440,7 +1517,13 @@ msgstr ""
 msgid "none detected"
 msgstr ""
 
+msgid "not applicable (no PV)"
+msgstr ""
+
 msgid "not in v1"
+msgstr ""
+
+msgid "not loaded"
 msgstr ""
 
 msgid "not mapped"
@@ -1465,6 +1548,10 @@ msgid "required"
 msgstr ""
 
 msgid "required if you have PV"
+msgstr ""
+
+#, python-format
+msgid "saved %(when)s"
 msgstr ""
 
 msgid "saving…"
@@ -1497,9 +1584,6 @@ msgstr ""
 msgid "valid"
 msgstr ""
 
-msgid "workspace: local"
-msgstr ""
-
 msgid "α"
 msgstr ""
 
@@ -1513,6 +1597,9 @@ msgid "…if export allowed"
 msgstr ""
 
 msgid "€"
+msgstr ""
+
+msgid "← Your analyses"
 msgstr ""
 
 msgid "≈260 kWh/yr"

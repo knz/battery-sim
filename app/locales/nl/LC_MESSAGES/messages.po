@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-26 11:44+0200\n"
+"POT-Creation-Date: 2026-07-26 21:10+0200\n"
 "PO-Revision-Date: 2026-07-23 20:30+0200\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: nl\n"
@@ -19,12 +19,26 @@ msgstr ""
 "Generated-By: Babel 2.18.0\n"
 
 #, python-format
+msgid ""
+"\"%(title)s\" and everything in it — the configuration, the loaded data "
+"and the results — will be deleted."
+msgstr ""
+"\"%(title)s\" en alles wat erin zit — de instellingen, de geladen "
+"gegevens en de resultaten — wordt verwijderd."
+
+#, python-format
 msgid "%(baseline)s without a battery → %(battery)s with one"
 msgstr "%(baseline)s zonder batterij → %(battery)s met batterij"
 
 #, python-format
 msgid "%(before)s → %(after)s"
 msgstr "%(before)s → %(after)s"
+
+#, python-format
+msgid "%(count)s interval · %(res)s"
+msgid_plural "%(count)s intervals · %(res)s"
+msgstr[0] "%(count)s interval · %(res)s"
+msgstr[1] "%(count)s intervallen · %(res)s"
 
 #, python-format
 msgid "%(dates)s   (%(n)s day)"
@@ -102,6 +116,10 @@ msgstr ""
 "(afgekapt op 0)."
 
 #, python-format
+msgid "%(phases)s×%(fuse)s A"
+msgstr "%(phases)s×%(fuse)s A"
+
+#, python-format
 msgid "%(pp)s pp"
 msgstr "%(pp)s pp"
 
@@ -134,6 +152,9 @@ msgid "(%(res)s, %(n)s interval)"
 msgid_plural "(%(res)s, %(n)s intervals)"
 msgstr[0] "(%(res)s, %(n)s interval)"
 msgstr[1] "(%(res)s, %(n)s intervallen)"
+
+msgid "+ New analysis"
+msgstr "+ Nieuwe analyse"
 
 msgid "+ weekends"
 msgstr "+ weekenden"
@@ -197,6 +218,13 @@ msgstr "Geavanceerd"
 
 msgid "Allow export to grid during D2/D3"
 msgstr "Teruglevering aan net toestaan tijdens D2/D3"
+
+msgid ""
+"An analysis is one household and one question: your data, your contract, "
+"and the battery you are considering."
+msgstr ""
+"Een analyse gaat over één huishouden en één vraag: je gegevens, je "
+"contract en de batterij waar je over nadenkt."
 
 #, python-format
 msgid ""
@@ -323,6 +351,9 @@ msgstr "Kies eerst voor minstens één reeks een bron."
 msgid "Choose source…"
 msgstr "Kies bron…"
 
+msgid "Choose your data sources to get a result."
+msgstr "Kies je gegevensbronnen om een resultaat te krijgen."
+
 msgid "Close"
 msgstr "Sluiten"
 
@@ -337,6 +368,9 @@ msgstr ""
 "%(capacity)s kWh bruikbaar, %(charge_kw)s/%(discharge_kw)s kW, "
 "%(efficiency)s retourrendement, laden %(charge_policy)s / ontladen "
 "%(discharge_policy)s."
+
+msgid "Configure data"
+msgstr "Gegevens instellen"
 
 msgid "Configure the Home Assistant connection first."
 msgstr "Stel eerst de Home Assistant-verbinding in."
@@ -429,6 +463,18 @@ msgstr "Dal/normaal-venster"
 
 msgid "Degradation cost"
 msgstr "Degradatiekosten"
+
+msgid "Delete analysis"
+msgstr "Analyse verwijderen"
+
+msgid "Delete data"
+msgstr "Gegevens verwijderen"
+
+msgid "Delete the loaded data?"
+msgstr "De geladen gegevens verwijderen?"
+
+msgid "Delete this analysis?"
+msgstr "Deze analyse verwijderen?"
 
 msgid "Discharge battery to cover house load"
 msgstr "Batterij ontladen om het huisverbruik te dekken"
@@ -563,6 +609,9 @@ msgstr "Laden vanaf net wanneer de spotprijs binnen de band valt"
 msgid "Grid connection"
 msgstr "Netaansluiting"
 
+msgid "Grid consumption"
+msgstr "Netafname"
+
 msgid "Grid export"
 msgstr "Netinvoeding"
 
@@ -601,6 +650,9 @@ msgstr "Netafname, met batterij"
 
 msgid "Grid power"
 msgstr "Netvermogen"
+
+msgid "Grid production"
+msgstr "Netinvoeding"
 
 msgid "Grid-coupled battery"
 msgstr "Netgekoppelde batterij"
@@ -753,6 +805,9 @@ msgstr "Nee"
 msgid "No battery"
 msgstr "Zonder batterij"
 
+msgid "No data loaded yet."
+msgstr "Nog geen gegevens geladen."
+
 msgid "Not built yet"
 msgstr "Nog niet gebouwd"
 
@@ -901,6 +956,9 @@ msgstr "Vastgelegd op"
 msgid "Req"
 msgstr "Vereist"
 
+msgid "Results"
+msgstr "Resultaten"
+
 msgid "Role"
 msgstr "Rol"
 
@@ -947,9 +1005,6 @@ msgstr "Reeksplaatsen"
 
 msgid "Serve house load when consumption exceeds solar"
 msgstr "Huisverbruik dekken wanneer het verbruik de opwek overtreft"
-
-msgid "Settings"
-msgstr "Instellingen"
 
 msgid "Shared across all slots that use Home Assistant"
 msgstr "Gedeeld door alle plaatsen die Home Assistant gebruiken"
@@ -1173,6 +1228,14 @@ msgstr ""
 "De ondergrens ligt boven de bovengrens, dus deze band treedt nooit in "
 "werking."
 
+#, python-format
+msgid ""
+"The measurements loaded into \"%(title)s\" will be deleted, along with "
+"the results computed from them."
+msgstr ""
+"De metingen die in \"%(title)s\" geladen zijn, worden verwijderd, samen "
+"met de resultaten die eruit berekend zijn."
+
 msgid "The perfect-foresight benchmark could not be computed for this period."
 msgstr ""
 "De perfecte-vooruitzichtbenchmark kon voor deze periode niet worden "
@@ -1284,6 +1347,9 @@ msgstr ""
 "kostenbesparing hieronder in plaats van naar dit cijfer om te beoordelen "
 "of hij de moeite waard is."
 
+msgid "This cannot be undone."
+msgstr "Dit kan niet ongedaan worden gemaakt."
+
 msgid "This control"
 msgstr "Dit onderdeel"
 
@@ -1340,6 +1406,9 @@ msgstr "Token"
 msgid "Two conversions PV→battery"
 msgstr "Twee omzettingen PV→batterij"
 
+msgid "Update"
+msgstr "Aanpassen"
+
 msgid "Upload CSV"
 msgstr "CSV uploaden"
 
@@ -1374,6 +1443,12 @@ msgstr "Waar het geld vandaan komt"
 
 msgid "Yes"
 msgstr "Ja"
+
+msgid "You have no analyses yet."
+msgstr "Je hebt nog geen analyses."
+
+msgid "Your analyses"
+msgstr "Je analyses"
 
 #, python-format
 msgid ""
@@ -1435,6 +1510,13 @@ msgstr ""
 "energieresultaat dichtbij liggen; wat niet is gemodelleerd is de "
 "vermogensgrens per fase, die een 1-fasebatterij niet kan overschrijden "
 "hoe de belasting ook is verdeeld."
+
+msgid ""
+"Your connection, contract and battery settings are kept. You will need to"
+" choose your data sources again."
+msgstr ""
+"Je aansluiting, contract en batterij-instellingen blijven bewaard. Je moet"
+" je gegevensbronnen opnieuw kiezen."
 
 msgid "Your data at a glance"
 msgstr "Je gegevens in één oogopslag"
@@ -1730,6 +1812,9 @@ msgstr "laat leeg voor gelijk aan afname"
 msgid "leave empty to derive from the fuse"
 msgstr "laat leeg om af te leiden uit de hoofdzekering"
 
+msgid "loaded"
+msgstr "geladen"
+
 msgid "long-lived access token"
 msgstr "long-lived access token (langlevend toegangstoken)"
 
@@ -1751,8 +1836,14 @@ msgstr "na aftrek van je bestaande batterij"
 msgid "none detected"
 msgstr "geen gevonden"
 
+msgid "not applicable (no PV)"
+msgstr "niet van toepassing (geen PV)"
+
 msgid "not in v1"
 msgstr "niet in v1"
+
+msgid "not loaded"
+msgstr "niet geladen"
 
 msgid "not mapped"
 msgstr "niet toegewezen"
@@ -1777,6 +1868,10 @@ msgstr "vereist"
 
 msgid "required if you have PV"
 msgstr "vereist als je zonnepanelen hebt"
+
+#, python-format
+msgid "saved %(when)s"
+msgstr "opgeslagen %(when)s"
 
 msgid "saving…"
 msgstr "opslaan…"
@@ -1808,9 +1903,6 @@ msgstr "niet gedefinieerd"
 msgid "valid"
 msgstr "geldig"
 
-msgid "workspace: local"
-msgstr "werkruimte: lokaal"
-
 msgid "α"
 msgstr "α"
 
@@ -1825,6 +1917,9 @@ msgstr "…als teruglevering toegestaan"
 
 msgid "€"
 msgstr "€"
+
+msgid "← Your analyses"
+msgstr "← Je analyses"
 
 msgid "≈260 kWh/yr"
 msgstr "≈260 kWh/jaar"
@@ -1901,6 +1996,12 @@ msgstr "👍 Ik wil dit"
 
 #~ msgid "Serve house load"
 #~ msgstr "Huisverbruik dekken"
+
+#~ msgid "Settings"
+#~ msgstr "Instellingen"
+
+#~ msgid "Simulate cost savings"
+#~ msgstr "Kostenbesparing simuleren"
 
 #~ msgid ""
 #~ "Simulated at hourly resolution. A "
@@ -2060,6 +2161,9 @@ msgstr "👍 Ik wil dit"
 #~ "inspelen op schommelingen binnen het "
 #~ "uur."
 
+#~ msgid "workspace: local"
+#~ msgstr "werkruimte: lokaal"
+
 #~ msgid ""
 #~ "● = required.  ○ = optional.  ◐"
 #~ " = required only if you have "
@@ -2081,6 +2185,16 @@ msgstr "👍 Ik wil dit"
 #~ "en is dus vereist, of je nu "
 #~ "kosten simuleert of niet."
 
-#~ msgid "Simulate cost savings"
-#~ msgstr "Kostenbesparing simuleren"
+#~ msgid ""
+#~ "The configuration is kept — your "
+#~ "connection, contract and battery settings "
+#~ "stay as they are, your data "
+#~ "sources stay chosen, and you can "
+#~ "load data again."
+#~ msgstr ""
+#~ "De instellingen blijven behouden — je"
+#~ " aansluiting, contract en batterij blijven"
+#~ " zoals ze zijn, je gegevensbronnen "
+#~ "blijven gekozen, en je kunt opnieuw "
+#~ "gegevens laden."
 

@@ -332,6 +332,10 @@ def test_the_three_flat_routes_are_not_scoped(two):
     Pinned because "scope everything" is the easy over-correction, and two of these are wrong to
     scope for reasons a reader of the URL table cannot see: `feature_interest` is installation-wide
     by decision 10, and the language is a cookie.
+
+    `GET /` stays flat for a third reason since phase 2: it is the workspace LIST, which is about
+    every workspace and so belongs to none. `POST /workspaces` is flat for a fourth — it creates
+    the id there is nothing to scope by yet — and is covered by `tests/test_workspace_list.py`.
     """
     assert two.get("/").status_code == 200
     assert two.get("/lang/nl", follow_redirects=False).status_code == 303
@@ -340,14 +344,14 @@ def test_the_three_flat_routes_are_not_scoped(two):
 
 
 def test_the_page_carries_the_workspace_id_the_browser_needs(two):
-    """`GET /` must state its workspace, or every fetch on the page addresses nothing.
+    """`GET /w/{id}/results` must state its workspace, or every fetch on it addresses nothing.
 
     Both carriers are asserted: `<body data-workspace-id>` (which index.html's `wsPath` builds
     every fetch from) and the roster's `data-ingest-ws` (the whole scoped socket path, rendered
     server-side). They must agree — a page whose fetches and socket named different workspaces
     would be a genuinely confusing failure.
     """
-    body = two.get("/").text
+    body = two.get(f"/w/{_A}/results").text
     assert f'data-workspace-id="{_A}"' in body
     assert f'data-ingest-ws="/w/{_A}/data/ingest/ws"' in body
 
@@ -367,7 +371,7 @@ def test_the_params_form_posts_to_its_own_workspace(two):
     """
     flat = 'action="/params"'
 
-    full_page = two.get("/").text
+    full_page = two.get(f"/w/{_A}/results").text
     assert f'action="/w/{_A}/params"' in full_page
     assert flat not in full_page
 

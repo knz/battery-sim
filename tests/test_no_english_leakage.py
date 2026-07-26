@@ -31,7 +31,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from app.domain.frames import QUALITY_DTYPE, SeriesFrame
-from tests.conftest import seed_workspace, w
+from tests.conftest import page, seed_workspace, w
 
 # Words that are strong evidence of untranslated English prose. Deliberately closed-class
 # (articles, prepositions, auxiliaries, determiners) — these are the words a translator always
@@ -316,7 +316,12 @@ def rendered(request):
             client = TestClient(main.app)
 
             pages = {
+                # The workspace LIST (phase 2's `GET /`): its own screen, with its own strings —
+                # badges, the info box, the action set and the two deletion dialogs. Included
+                # here because it is now the app's entry point and nothing else scans it.
                 "/": client.get("/", headers=hdr),
+                # The three-panel page, which was `GET /` until phase 2 relocated it.
+                "/w/{id}/results": client.get(page(), headers=hdr),
                 "/results": client.post(
                     w("/results"), json={"period": "last_1_year"}, headers=hdr
                 ),
@@ -338,7 +343,10 @@ def rendered(request):
     return out
 
 
-_PAGES = ["/", "/results", "/results/benchmark"]
+# The four surfaces scanned. `/` is the workspace LIST since phase 2, and `/w/{id}/results` is the
+# three-panel page that used to live there — both are scanned, because both carry prose and the
+# list is now the app's entry point.
+_PAGES = ["/", "/w/{id}/results", "/results", "/results/benchmark"]
 
 
 @pytest.mark.parametrize("scenario", SCENARIOS)
@@ -393,7 +401,11 @@ def test_the_scenarios_between_them_render_a_lot_of_prose(rendered):
             # case — which `unreliable_pv` reaches honestly, at 33 words. The floor sits below
             # that rather than above it, because the box collapsing to nothing is what this
             # guards against, not the box being terse.
-            floor = 25 if page == "/results/benchmark" else 200
+            # The workspace list is one card and a handful of badges — no panels, no caveats — so
+            # the panel floor does not apply to it. Its own floor sits below the ~110 words one
+            # card plus the two dialogs render, for the same reason as the benchmark box's: this
+            # guards against the screen collapsing to nothing, not against it being brief.
+            floor = 25 if page == "/results/benchmark" else 60 if page == "/" else 200
             assert words >= floor, (
                 f"{scenario}{page} rendered only {words} words, below the {floor}-word floor — "
                 f"the page has collapsed to an empty or error state and the English scan above "
@@ -438,6 +450,9 @@ def test_each_scenario_still_surfaces_its_boxes(rendered):
     scan above keeps passing while quietly covering less. This is the check that fails instead.
     """
     for scenario, markers in _SCENARIO_MARKERS.items():
+        # The panel markers live on the three-panel page and the two fragments, not on the list —
+        # the list carries no panel at all. Joining all four is still right: a marker only has to
+        # appear SOMEWHERE, and including the list costs nothing.
         blob = " ".join(rendered[scenario][p] for p in _PAGES)
         for marker in markers:
             assert marker in blob, (
@@ -482,12 +497,19 @@ def test_the_english_page_is_unaffected(rendered):
     passing Dutch result means the strings were translated — not that the extractor is broken.
 
     Uses the plain app (no seeded dataset) because the point is about the LANGUAGE, not the data:
-    the English index is full of English whether or not a dataset is stored.
+    the English page is full of English whether or not a dataset is stored.
+
+    The workspace ROW still has to exist, since phase 2 the page is the scoped `/w/{id}/results`
+    and an unknown id is a 404 — which would render as zero markers and look like `_visible_text`
+    being broken, i.e. exactly the failure this test claims to distinguish. Seeded under the
+    session-wide temp data dir `tests/conftest` sets up; the `rendered` fixture has already
+    restored `BATTERY_SIM_DATA_DIR` to it by the time this runs.
     """
     from app.main import app as plain_app
 
+    seed_workspace()
     hdr = {"Cookie": "lang=en"}
-    text = _visible_text(TestClient(plain_app).get("/", headers=hdr).text)
+    text = _visible_text(TestClient(plain_app).get(page(), headers=hdr).text)
     words = re.findall(r"[A-Za-z]+", text.lower())
     # `word`, not `w` — `w` is conftest's URL helper, and shadowing it here would be a live
     # trap for the next person who adds a scoped request to this test.

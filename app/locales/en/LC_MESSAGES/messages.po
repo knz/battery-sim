@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-26 11:44+0200\n"
+"POT-Creation-Date: 2026-07-26 21:10+0200\n"
 "PO-Revision-Date: 2026-07-23 20:40+0200\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: en\n"
@@ -19,12 +19,26 @@ msgstr ""
 "Generated-By: Babel 2.18.0\n"
 
 #, python-format
+msgid ""
+"\"%(title)s\" and everything in it — the configuration, the loaded data "
+"and the results — will be deleted."
+msgstr ""
+"\"%(title)s\" and everything in it — the configuration, the loaded data "
+"and the results — will be deleted."
+
+#, python-format
 msgid "%(baseline)s without a battery → %(battery)s with one"
 msgstr ""
 
 #, python-format
 msgid "%(before)s → %(after)s"
 msgstr "%(before)s → %(after)s"
+
+#, python-format
+msgid "%(count)s interval · %(res)s"
+msgid_plural "%(count)s intervals · %(res)s"
+msgstr[0] "%(count)s interval · %(res)s"
+msgstr[1] "%(count)s intervals · %(res)s"
 
 #, python-format
 msgid "%(dates)s   (%(n)s day)"
@@ -99,6 +113,10 @@ msgid "%(pct)s of intervals had negative reconstructed load (clamped to 0)."
 msgstr "%(pct)s of intervals had negative reconstructed load (clamped to 0)."
 
 #, python-format
+msgid "%(phases)s×%(fuse)s A"
+msgstr "%(phases)s×%(fuse)s A"
+
+#, python-format
 msgid "%(pp)s pp"
 msgstr "%(pp)s pp"
 
@@ -131,6 +149,9 @@ msgid "(%(res)s, %(n)s interval)"
 msgid_plural "(%(res)s, %(n)s intervals)"
 msgstr[0] "(%(res)s, %(n)s interval)"
 msgstr[1] "(%(res)s, %(n)s intervals)"
+
+msgid "+ New analysis"
+msgstr "+ New analysis"
 
 msgid "+ weekends"
 msgstr "+ weekends"
@@ -192,6 +213,13 @@ msgstr "Advanced"
 
 msgid "Allow export to grid during D2/D3"
 msgstr "Allow export to grid during D2/D3"
+
+msgid ""
+"An analysis is one household and one question: your data, your contract, "
+"and the battery you are considering."
+msgstr ""
+"An analysis is one household and one question: your data, your contract, "
+"and the battery you are considering."
 
 #, python-format
 msgid ""
@@ -319,6 +347,9 @@ msgstr "Choose a source for at least one slot first."
 msgid "Choose source…"
 msgstr "Choose source…"
 
+msgid "Choose your data sources to get a result."
+msgstr "Choose your data sources to get a result."
+
 msgid "Close"
 msgstr "Close"
 
@@ -333,6 +364,9 @@ msgstr ""
 "%(capacity)s kWh usable, %(charge_kw)s/%(discharge_kw)s kW, "
 "%(efficiency)s round-trip efficiency, charge %(charge_policy)s / "
 "discharge %(discharge_policy)s."
+
+msgid "Configure data"
+msgstr "Configure data"
 
 msgid "Configure the Home Assistant connection first."
 msgstr "Configure the Home Assistant connection first."
@@ -424,6 +458,18 @@ msgstr "Day/night window"
 
 msgid "Degradation cost"
 msgstr "Degradation cost"
+
+msgid "Delete analysis"
+msgstr "Delete analysis"
+
+msgid "Delete data"
+msgstr "Delete data"
+
+msgid "Delete the loaded data?"
+msgstr "Delete the loaded data?"
+
+msgid "Delete this analysis?"
+msgstr "Delete this analysis?"
 
 msgid "Discharge battery to cover house load"
 msgstr "Discharge battery to cover house load"
@@ -558,6 +604,9 @@ msgstr "Grid charge when spot price is in band"
 msgid "Grid connection"
 msgstr "Grid connection"
 
+msgid "Grid consumption"
+msgstr "Grid consumption"
+
 msgid "Grid export"
 msgstr "Grid export"
 
@@ -596,6 +645,9 @@ msgstr "Grid import, with battery"
 
 msgid "Grid power"
 msgstr "Grid power"
+
+msgid "Grid production"
+msgstr "Grid production"
 
 msgid "Grid-coupled battery"
 msgstr "Grid-coupled battery"
@@ -748,6 +800,9 @@ msgstr "No"
 msgid "No battery"
 msgstr "No battery"
 
+msgid "No data loaded yet."
+msgstr "No data loaded yet."
+
 msgid "Not built yet"
 msgstr "Not built yet"
 
@@ -885,6 +940,9 @@ msgstr "Recorded at"
 msgid "Req"
 msgstr "Req"
 
+msgid "Results"
+msgstr "Results"
+
 msgid "Role"
 msgstr "Role"
 
@@ -930,9 +988,6 @@ msgstr "Series slots"
 
 msgid "Serve house load when consumption exceeds solar"
 msgstr "Serve house load when consumption exceeds solar"
-
-msgid "Settings"
-msgstr "Settings"
 
 msgid "Shared across all slots that use Home Assistant"
 msgstr "Shared across all slots that use Home Assistant"
@@ -1136,6 +1191,14 @@ msgstr ""
 msgid "The lower bound is above the upper bound, so this band never fires."
 msgstr "The lower bound is above the upper bound, so this band never fires."
 
+#, python-format
+msgid ""
+"The measurements loaded into \"%(title)s\" will be deleted, along with "
+"the results computed from them."
+msgstr ""
+"The measurements loaded into \"%(title)s\" will be deleted, along with "
+"the results computed from them."
+
 msgid "The perfect-foresight benchmark could not be computed for this period."
 msgstr "The perfect-foresight benchmark could not be computed for this period."
 
@@ -1231,6 +1294,9 @@ msgid ""
 "to judge whether it is worth buying."
 msgstr ""
 
+msgid "This cannot be undone."
+msgstr "This cannot be undone."
+
 msgid "This control"
 msgstr "This control"
 
@@ -1282,6 +1348,9 @@ msgstr "Token"
 msgid "Two conversions PV→battery"
 msgstr "Two conversions PV→battery"
 
+msgid "Update"
+msgstr "Update"
+
 msgid "Upload CSV"
 msgstr "Upload CSV"
 
@@ -1315,6 +1384,12 @@ msgstr ""
 
 msgid "Yes"
 msgstr "Yes"
+
+msgid "You have no analyses yet."
+msgstr "You have no analyses yet."
+
+msgid "Your analyses"
+msgstr "Your analyses"
 
 #, python-format
 msgid ""
@@ -1365,6 +1440,13 @@ msgstr ""
 " smart meter nets across phases the energy result should be close; what "
 "is not modelled is the per-phase power limit, which a 1-phase battery "
 "cannot exceed however the load is distributed."
+
+msgid ""
+"Your connection, contract and battery settings are kept. You will need to"
+" choose your data sources again."
+msgstr ""
+"Your connection, contract and battery settings are kept. You will need to"
+" choose your data sources again."
 
 msgid "Your data at a glance"
 msgstr "Your data at a glance"
@@ -1642,6 +1724,9 @@ msgstr "leave empty for the same as import"
 msgid "leave empty to derive from the fuse"
 msgstr "leave empty to derive from the fuse"
 
+msgid "loaded"
+msgstr "loaded"
+
 msgid "long-lived access token"
 msgstr "long-lived access token"
 
@@ -1663,8 +1748,14 @@ msgstr "net of your existing battery"
 msgid "none detected"
 msgstr "none detected"
 
+msgid "not applicable (no PV)"
+msgstr "not applicable (no PV)"
+
 msgid "not in v1"
 msgstr "not in v1"
+
+msgid "not loaded"
+msgstr "not loaded"
 
 msgid "not mapped"
 msgstr "not mapped"
@@ -1689,6 +1780,10 @@ msgstr "required"
 
 msgid "required if you have PV"
 msgstr "required if you have PV"
+
+#, python-format
+msgid "saved %(when)s"
+msgstr "saved %(when)s"
 
 msgid "saving…"
 msgstr "saving…"
@@ -1720,9 +1815,6 @@ msgstr "undefined"
 msgid "valid"
 msgstr "valid"
 
-msgid "workspace: local"
-msgstr "workspace: local"
-
 msgid "α"
 msgstr "α"
 
@@ -1737,6 +1829,9 @@ msgstr "…if export allowed"
 
 msgid "€"
 msgstr ""
+
+msgid "← Your analyses"
+msgstr "← Your analyses"
 
 msgid "≈260 kWh/yr"
 msgstr "≈260 kWh/yr"
@@ -1810,6 +1905,12 @@ msgstr "👍 I want this"
 
 #~ msgid "Serve house load"
 #~ msgstr "Serve house load"
+
+#~ msgid "Settings"
+#~ msgstr "Settings"
+
+#~ msgid "Simulate cost savings"
+#~ msgstr "Simulate cost savings"
 
 #~ msgid ""
 #~ "Simulated at hourly resolution. A "
@@ -1964,6 +2065,9 @@ msgstr "👍 I want this"
 #~ "per hour and cannot act on "
 #~ "within-hour swings."
 
+#~ msgid "workspace: local"
+#~ msgstr "workspace: local"
+
 #~ msgid ""
 #~ "● = required.  ○ = optional.  ◐"
 #~ " = required only if you have "
@@ -1985,6 +2089,16 @@ msgstr "👍 I want this"
 #~ " it is required whether or not "
 #~ "you simulate costs."
 
-#~ msgid "Simulate cost savings"
-#~ msgstr "Simulate cost savings"
+#~ msgid ""
+#~ "The configuration is kept — your "
+#~ "connection, contract and battery settings "
+#~ "stay as they are, your data "
+#~ "sources stay chosen, and you can "
+#~ "load data again."
+#~ msgstr ""
+#~ "The configuration is kept — your "
+#~ "connection, contract and battery settings "
+#~ "stay as they are, your data "
+#~ "sources stay chosen, and you can "
+#~ "load data again."
 

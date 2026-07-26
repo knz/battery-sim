@@ -1,0 +1,226 @@
+{#
+  workspaces.html — the workspace list, the app's home screen (specs/20-workspaces-ux.md §2′.2).
+
+  `GET /` renders this. It replaces the single-page stepper as the entry point; the stepper is
+  now `GET /w/{id}/results` (index.html), which phase 4 splits into the data and results screens.
+
+  Contents, in §2′.2's order: the header, the "Your analyses" heading with `[ + New analysis ]`,
+  one `_workspace_card.html` per workspace (most recently updated first — the ORDER is decided by
+  `workspaces.list_summaries()`'s SQL, not here), and the two page-level confirmation dialogs.
+
+  **The header keeps the title and the language toggle, and nothing else** (§2′.2). The
+  `[workspace: local]` badge named the single implicit workspace and has nothing left to say once
+  a list exists; the `[⚙]` was never wired to anything. Both are removed from this screen and
+  from index.html.
+
+  **This screen is plain navigation.** Every card action that goes somewhere is an `<a href>`, and
+  the two that delete are ordinary form POSTs inside a `<dialog>`. There is no fetch, no fragment
+  swap and no use of index.html's hand-rolled `outerHTML` machinery — that machinery exists so
+  panel ③ can repaint without losing panel ②'s scroll position, which is a problem this screen
+  does not have. The only script here fills the two shared dialogs from the clicked card.
+
+  **The two dialogs are PAGE-LEVEL, not inside a card**, for the reason index.html documents at
+  its own `#slot-info-dialog`: a `<dialog>` inside a subtree daisyUI gives
+  `content-visibility: hidden` still enters the top layer on `showModal()` — so it blocks every
+  click on the page — but is never painted, leaving the user with a frozen page and no popup.
+  Cards are not collapsibles today, so the specific trigger does not exist here; page level is
+  still where they belong, because one dialog per card would also mean N copies of the same copy
+  in the DOM and N form actions to keep in step. One dialog, filled from the card that opened it.
+
+  **Both dialogs state what SURVIVES as well as what goes** (§2′.3), quote the workspace title,
+  put the verb on the confirming button rather than "OK", style it destructive, and give
+  `[ Cancel ]` the default focus (`autofocus`). No "don't ask again": both are irreversible and
+  neither is frequent enough for the prompt to be friction.
+
+  The title is substituted into the body at render time from the clicked card's `data-*`, which is
+  why the body is split into a `%(title)s`-bearing sentence and the rest — the sentence is one
+  msgid with a hole, translated then interpolated (app/i18n.py's `interpolate`), never
+  concatenated from fragments.
+#}
+<!doctype html>
+<html lang="{{ lang.current }}" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ _('Home Battery Simulator') }}</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="min-h-screen bg-base-200 text-base-content">
+
+  {# ── Header — title and language toggle only (§2′.2). ────────────────────────────── #}
+  <header class="navbar bg-base-100 border-b border-base-300 px-4 lg:px-8">
+    <div class="flex-1">
+      <span class="text-lg font-semibold">{{ _('Home Battery Simulator') }}</span>
+    </div>
+    <div class="flex-none items-center gap-2">
+      <div class="join" role="group" aria-label="{{ _('Language') }}">
+        {% for opt in lang.options %}
+        <a class="btn btn-xs join-item {% if opt.code == lang.current %}btn-active{% endif %}"
+           href="/lang/{{ opt.code }}"
+           {% if opt.code == lang.current %}aria-current="true"{% endif %}>{{ opt.label }}</a>
+        {% endfor %}
+      </div>
+    </div>
+  </header>
+
+  <main class="mx-auto flex max-w-4xl flex-col gap-4 p-4 lg:p-8">
+
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <h1 class="text-xl font-semibold">{{ _('Your analyses') }}</h1>
+      {# A form rather than a link: creating a workspace WRITES, and a GET that writes is the
+         wrong shape (the same reasoning phase 1 applied to the lifespan). It posts to
+         /workspaces, which creates and redirects. #}
+      <form method="post" action="/workspaces">
+        <button type="submit" class="btn btn-primary btn-sm">{{ _('+ New analysis') }}</button>
+      </form>
+    </div>
+
+    {% if cards %}
+      {% for card in cards %}
+        {% include "_workspace_card.html" %}
+      {% endfor %}
+    {% else %}
+      {# The empty state — a fresh installation, which is now a state the UI can express rather
+         than something the backend has to paper over with a phantom workspace (§2′.2, and phase
+         1's followup I7, closed here). #}
+      <div class="rounded-box border border-dashed border-base-300 bg-base-100 p-8 text-center">
+        <p class="text-base font-medium">{{ _('You have no analyses yet.') }}</p>
+        <p class="mt-1 text-sm text-base-content/70">
+          {{ _('An analysis is one household and one question: your data, your contract, and the battery you are considering.') }}
+        </p>
+        <form method="post" action="/workspaces" class="mt-4">
+          <button type="submit" class="btn btn-primary btn-sm">{{ _('+ New analysis') }}</button>
+        </form>
+      </div>
+    {% endif %}
+  </main>
+
+  {# ── Delete-analysis dialog (§2′.3). ─────────────────────────────────────────────── #}
+  <dialog id="delete-workspace-dialog" class="modal">
+    <div class="modal-box">
+      <h3 class="text-lg font-bold">{{ _('Delete this analysis?') }}</h3>
+      <p class="py-3 text-sm">
+        <span data-delete-workspace-body></span>
+      </p>
+      <p class="pb-2 text-sm text-base-content/70">{{ _('This cannot be undone.') }}</p>
+      <div class="modal-action">
+        {# Cancel first and focused by default: the safe option should be the one Enter takes. #}
+        <form method="dialog">
+          <button class="btn btn-ghost btn-sm" autofocus>{{ _('Cancel') }}</button>
+        </form>
+        {# The confirming button carries the VERB, not "OK" (§2′.3), and is styled destructive.
+           A real POST + redirect back to this list — see main.py's delete route for why POST
+           rather than a browser DELETE. #}
+        <form method="post" data-delete-workspace-form>
+          <button type="submit" class="btn btn-error btn-sm">{{ _('Delete analysis') }}</button>
+        </form>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>{{ _('Cancel') }}</button></form>
+  </dialog>
+
+  {# ── Delete-data dialog (§2′.3). Says what is KEPT and what is NOT.
+
+       The configuration survives; the per-slot source mapping of a FETCHED slot does not. That
+       mapping is not browser state — a fetch stores the source key and the HA statistic id in
+       `series_meta` beside the series, and deleting the data deletes it (app/static/ha_fetch.js's
+       header, branch 1 of "Two things carry a source choice across a reload"). Only a PRE-FETCH
+       staged choice in localStorage, branch 2, is untouched.
+
+       This copy previously promised "your data sources stay chosen", which was written from
+       branch 2 and is false for every slot the user had actually fetched — the common case, and
+       the case the dialog is shown in. §2′.3 and workspaces.delete_data have been corrected to
+       match; the deletion behaviour itself is unchanged and correct. ────────────────── #}
+  <dialog id="delete-data-dialog" class="modal">
+    <div class="modal-box">
+      <h3 class="text-lg font-bold">{{ _('Delete the loaded data?') }}</h3>
+      <p class="py-3 text-sm">
+        <span data-delete-data-body></span>
+      </p>
+      <p class="pb-2 text-sm text-base-content/70">
+        {{ _('Your connection, contract and battery settings are kept. You will need to choose your data sources again.') }}
+      </p>
+      <p class="pb-2 text-sm text-base-content/70">{{ _('This cannot be undone.') }}</p>
+      <div class="modal-action">
+        <form method="dialog">
+          <button class="btn btn-ghost btn-sm" autofocus>{{ _('Cancel') }}</button>
+        </form>
+        <form method="post" data-delete-data-form>
+          <button type="submit" class="btn btn-error btn-sm">{{ _('Delete data') }}</button>
+        </form>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>{{ _('Cancel') }}</button></form>
+  </dialog>
+
+  {# The two body sentences, rendered once here as translated templates with a `%(title)s` hole
+     and read by the script below. They live in the DOM rather than in the script because a
+     string inside a <script> block is invisible to `pybabel extract` (babel.cfg extracts Jinja
+     templates through the i18n extension, which does not descend into script bodies), and a
+     msgid that the extractor cannot see is a msgid that renders in English on a Dutch page —
+     followups A1's exact failure mode. Held in a <template> so they are never painted. #}
+  <template id="delete-copy">
+    <span data-copy="workspace">{{ _('"%(title)s" and everything in it — the configuration, the loaded data and the results — will be deleted.') }}</span>
+    <span data-copy="data">{{ _('The measurements loaded into "%(title)s" will be deleted, along with the results computed from them.') }}</span>
+  </template>
+
+  <script>
+  (function () {
+    // The two confirmation dialogs (§2′.3). One dialog per KIND, shared by every card: the card
+    // that was clicked supplies the workspace id and title through `data-*`, and this fills the
+    // dialog's body sentence and its form action before showModal().
+    //
+    // Deliberately small and self-contained. This screen does not use index.html's fragment-swap
+    // machinery — every navigation here is a real page load and both deletions are ordinary form
+    // POSTs, so the only thing script is needed for is putting the right title in the dialog.
+    const copy = document.getElementById('delete-copy');
+    const TEXT = {
+      workspace: copy.content.querySelector('[data-copy="workspace"]').textContent,
+      data: copy.content.querySelector('[data-copy="data"]').textContent,
+    };
+
+    // Substitute %(title)s into an already-translated sentence — the same two-step order the
+    // server uses (translate, then interpolate; app/i18n.py). Interpolating a title into a
+    // template is safe here because the value is assigned via textContent, never innerHTML.
+    //
+    // split/join rather than `replace(/%\(title\)s/g, title)`: `String.replace` gives the
+    // REPLACEMENT string its own escape syntax, so a title containing `$&`, "$`", `$'` or `$$`
+    // is not inserted literally — a workspace called `My $& Analysis` came out as
+    // "My %(title)s Analysis", because `$&` re-inserts the matched text. Not a security problem
+    // (the result goes through textContent), but the dialog then names the workspace differently
+    // from the card that opened it, which is the whole reason §2′.3 quotes the title. split/join
+    // has no escape syntax at all, so there is nothing to get wrong.
+    function fill(template, title) {
+      return template.split('%(title)s').join(title);
+    }
+
+    function open(kind, id, title) {
+      const dialog = document.getElementById(
+        kind === 'workspace' ? 'delete-workspace-dialog' : 'delete-data-dialog');
+      const body = dialog.querySelector(
+        kind === 'workspace' ? '[data-delete-workspace-body]' : '[data-delete-data-body]');
+      const form = dialog.querySelector(
+        kind === 'workspace' ? '[data-delete-workspace-form]' : '[data-delete-data-form]');
+      body.textContent = fill(TEXT[kind], title);
+      form.action = kind === 'workspace'
+        ? '/w/' + encodeURIComponent(id) + '/delete'
+        : '/w/' + encodeURIComponent(id) + '/data/delete';
+      dialog.showModal();
+    }
+
+    // Delegated, so a re-rendered list needs no re-binding.
+    document.addEventListener('click', function (ev) {
+      const ws = ev.target.closest('[data-delete-workspace]');
+      if (ws) {
+        open('workspace', ws.dataset.workspaceId, ws.dataset.workspaceTitle);
+        return;
+      }
+      const data = ev.target.closest('[data-delete-data]');
+      if (data) {
+        open('data', data.dataset.workspaceId, data.dataset.workspaceTitle);
+      }
+    });
+  })();
+  </script>
+</body>
+</html>

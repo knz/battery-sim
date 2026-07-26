@@ -27,7 +27,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from app.domain.frames import QUALITY_DTYPE, SeriesFrame
-from tests.conftest import seed_workspace, w
+from tests.conftest import page, seed_workspace, w
 
 _DAYS = 30
 _HOURS = _DAYS * 24
@@ -184,10 +184,10 @@ def test_a_stored_config_is_rendered_on_the_next_page_load(client):
     """The persisted parameter set drives GET / — which is the restart case, since load() holds
     no process state."""
     client.post(w("/params"), data=_form(**{"battery.usable_capacity_kwh": "22.5"}))
-    page = client.get("/")
-    assert page.status_code == 200
-    assert 'name="battery.usable_capacity_kwh"' in page.text
-    assert 'value="22.5"' in page.text
+    rendered_page = client.get(page())
+    assert rendered_page.status_code == 200
+    assert 'name="battery.usable_capacity_kwh"' in rendered_page.text
+    assert 'value="22.5"' in rendered_page.text
 
 
 # ── The error path ───────────────────────────────────────────────────────────────────────────
@@ -357,9 +357,9 @@ def test_a_corrupt_stored_config_still_renders_the_page(client):
 
     client.post(w("/params"), data=_form())
     simconfig_store.config_path().write_text("{ truncated", encoding="utf-8")
-    page = client.get("/")
-    assert page.status_code == 200
-    assert "10.0 kWh · 5.0/5.0 kW · 90%" in page.text     # appendix-A defaults
+    rendered_page = client.get(page())
+    assert rendered_page.status_code == 200
+    assert "10.0 kWh · 5.0/5.0 kW · 90%" in rendered_page.text     # appendix-A defaults
 
 
 # ── §2.5(b) / §7.3 check 18 — the soft block ─────────────────────────────────────────────────
@@ -483,12 +483,12 @@ def test_index_renders_panel_3_under_the_stored_config(client):
     client.post(w("/params"), data=_form(**{"battery.usable_capacity_kwh": "25",
                                          "battery.max_charge_kw": "10",
                                          "battery.max_discharge_kw": "10"}))
-    page = client.get("/")
+    rendered_page = client.get(page())
     fragment_saving = _saved_kwh(client)
     # The tile prints a thousands separator and, for a negative saving, a typographic minus
     # (§7.2 item 9's honest sign); normalise both before comparing.
     rendered = re.search(
-        r"GRID IMPORT SAVED.*?stat-value[^>]*>\s*([−+-]?[\d,]+(?:\.\d+)?)", page.text, re.S
+        r"GRID IMPORT SAVED.*?stat-value[^>]*>\s*([−+-]?[\d,]+(?:\.\d+)?)", rendered_page.text, re.S
     )
     assert rendered, "GET / did not render the GRID IMPORT SAVED tile"
     assert float(rendered.group(1).replace(",", "").replace("−", "-")) == fragment_saving
@@ -748,5 +748,5 @@ def test_the_setup_band_toggle_carries_the_cost_tint(client):
     """
     import re
 
-    off = client.get("/").text
+    off = client.get(page()).text
     assert re.search(r'cost-label[^>]*>\s*Simulate cost savings\?\s*<', off)

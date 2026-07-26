@@ -59,20 +59,27 @@ a config save and from nowhere else — in particular not from `dataset.save_dat
 
 Two different operations, per §2′.3:
 
-  * `delete_data` clears the dataset rows and the `.npz` files, leaving `simconfig.json`, the
-    workspace row and the slot mapping. The workspace survives with its configuration intact.
+  * `delete_data` clears the dataset rows and the `.npz` files, leaving `simconfig.json` and the
+    workspace row. The workspace survives with its CONFIGURATION intact — but note that a FETCHED
+    slot's source mapping does not survive, because it lives in `series_meta`, which is part of
+    what is being deleted. See `delete_data` and §2′.3.
   * `delete` removes the workspace row, every row keyed by its id, and the whole workspace
     directory. `feature_interest` is deliberately NOT touched — it is installation-wide and
     survives the deletion of every workspace, including the last (see `app/db.py`).
 
-The ROW deletes within each are atomic: both touch two tables, and their `with` block is a
-transaction (`db._Connection`), so a partial delete cannot leave `series_meta` rows whose
-`datasets` parent is gone — the orphan shape that was also reachable by a mis-scoped query before
-`delete_data` was corrected. `delete` calls `delete_data`, so their blocks nest; only the outermost
-begins and ends a transaction, which is why the nested `BEGIN` SQLite would reject never happens.
+The ROW deletes within EACH FUNCTION's own `with` block are atomic: a block is a transaction
+(`db._Connection`), so `delete_data` cannot leave `series_meta` rows whose `datasets` parent is
+gone — the orphan shape that was also reachable by a mis-scoped query before it was corrected.
 
-Neither is atomic ACROSS rows and files, though: the files are removed after the transaction and
-the `rmtree` ignores errors, so an interruption can leave files nothing references, silently.
+**The two functions are NOT atomic with each other**, and an earlier version of this comment said
+they were. `delete_data` opens `dataset.connect()` and `delete` opens `db.connect()`; `_depth` is
+per-connection, so two distinct connection objects never nest. `delete` therefore runs three
+sequential independent steps, and their ORDER is chosen so the crash that can happen between them
+leaves unreachable residue rather than a live workspace whose data has silently vanished. The full
+reasoning is in `delete`.
+
+Nothing here is atomic across rows and files either: the files are removed after the transaction
+and the `rmtree` ignores errors, so an interruption can leave files nothing references, silently.
 Stated rather than fixed — the residue is wasted disk, not a wrong answer, and reclaiming it needs
 a startup sweep this app does not otherwise need. The reasoning is in `delete`.
 
@@ -175,23 +182,32 @@ def _parse(ts: str) -> datetime:
     return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
 
 
+def _insert(conn, wid: str, title: str) -> str:
+    """The INSERT alone, on a caller-supplied connection.
+
+    Split out of `create` so `migrate_local` can run its emptiness check and its insert inside ONE
+    transaction on ONE connection — the check-then-act race that shape otherwise has is documented
+    there. Every other caller goes through `create`, which opens its own connection.
+    """
+    now = _now()
+    conn.execute(
+        """INSERT INTO workspaces (id, owner_id, title, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?)""",
+        (wid, OWNER_ID, title, now, now),
+    )
+    return wid
+
+
 def create(title: str, workspace_id: str | None = None) -> str:
     """Insert a workspace and return its id.
 
-    The id is opaque and generated (a uuid4 hex) unless the caller names one, which only the
-    migration does — it must produce exactly `db.WORKSPACE_ID` so the config and dataset already
-    on disk under that directory belong to the new row. `created_at` and `updated_at` start
-    equal, so a workspace that has never been saved still sorts and badges sensibly.
+    The id is opaque and generated (a uuid4 hex) unless the caller names one, which only tests
+    do now — the migration inserts through `_insert` on its own connection, for the transaction
+    reason documented there. `created_at` and `updated_at` start equal, so a workspace that has
+    never been saved still sorts and badges sensibly.
     """
-    wid = workspace_id or uuid.uuid4().hex
-    now = _now()
     with db.connect() as conn:
-        conn.execute(
-            """INSERT INTO workspaces (id, owner_id, title, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?)""",
-            (wid, OWNER_ID, title, now, now),
-        )
-    return wid
+        return _insert(conn, workspace_id or uuid.uuid4().hex, title)
 
 
 def get(workspace_id: str) -> dict | None:
@@ -229,6 +245,13 @@ def touch(workspace_id: str) -> None:
     The ONLY writer of `updated_at` after creation. Loading data must not call this — the card's
     "last saved" badge reads the config's save time, and the list is ordered by it, so a fetch
     that reordered the list would be a surprise every time.
+
+    **The rule is "last USER-INITIATED save", which is narrower than "last time the document was
+    written", and the difference is deliberate.** A fetch writes the setup-band answers onto the
+    config (`main._persist_setup_answers`) without calling this, so after a fetch `simconfig.json`
+    is newer than the badge claims. That is not a bug to be closed by adding a `touch` here: doing
+    so would reorder the list behind a data load, which is precisely what §2′.10 forbids. If the
+    badge's wording ever needs to be exact, the wording is what changes.
     """
     with db.connect() as conn:
         conn.execute(
@@ -349,11 +372,20 @@ def _workspace_dir(workspace_id: str) -> Path:
 def delete_data(workspace_id: str) -> None:
     """Remove the workspace's datasets and series files, keeping its configuration (§2′.3).
 
-    Deletes the `datasets` and `series_meta` rows and the `series/` directory. `simconfig.json`,
-    the workspace row and the browser-held slot mapping all survive — the user asked to clear the
-    data, not to undo their setup. `source_generation` is left alone: it is a monotonic counter
-    the browser compares against, and resetting it would make a stale local customization look
-    current again.
+    Deletes the `datasets` and `series_meta` rows and the `series/` directory. `simconfig.json`
+    and the workspace row survive — the user asked to clear the data, not to undo their setup.
+
+    **A FETCHED slot's source mapping does NOT survive, and the dialog copy says so.** It is not
+    browser state: when a fetch persists a series, its source key and HA statistic id are stored in
+    `series_meta` alongside it, and the slot roster renders the slot's source from the dataset on
+    every reload (`app/static/ha_fetch.js`, branch 1 of "Two things carry a source choice across a
+    reload"). Deleting `series_meta` is deleting that. Only branch 2 — a PRE-FETCH staged choice in
+    `localStorage`, one the user made but has not fetched — is untouched here. §2′.3 and the
+    delete-data dialog used to promise the mapping survived in general; both now state the split.
+
+    `source_generation` is still left alone, and that is what protects branch 2: it is a monotonic
+    counter the browser compares a staged mapping against, so resetting it would make a live staged
+    choice look stale and discard the one kind of mapping this delete does not otherwise touch.
 
     The two row deletes are ONE transaction (`db._Connection`), so `series_meta` and `datasets`
     cannot go out of step with each other — no dataset stripped of its series, no series rows left
@@ -384,25 +416,47 @@ def delete(workspace_id: str) -> None:
     thumbs-up records what this household wants and must survive the deletion of the analysis it
     was clicked from, including the deletion of the last one (see `app/db.py`).
 
-    The row deletes are atomic — `workspace_state` and `workspaces` go together in one transaction,
-    and the `delete_data` call above runs its own (blocks nest safely, only the outermost begins
-    and commits; see `db._Connection`).
+    **This is NOT one transaction, and an earlier version of this docstring wrongly said it was.**
+    The claim was that the `delete_data` call nests into this function's block the way
+    `db._Connection`'s blocks nest. They cannot: `delete_data` opens `dataset.connect()` and the
+    block below opens `db.connect()`, and `_depth` is per-CONNECTION, so two connection objects
+    never nest into each other however the `with` blocks are written. What actually runs is three
+    sequential, independent steps — the row deletes, the data deletes, the `rmtree` — each atomic
+    in itself, none atomic with the others.
 
-    **Rows and files are not atomic together, deliberately.** They go in separate steps, and
-    `rmtree` passes `ignore_errors=True`, so an interruption between them — or a file the process
-    may not remove — leaves a directory on disk that no row references, and says nothing about it.
-    That
-    is stated rather than fixed: the workspace is gone from the index either way, so the user sees
-    what they asked for, and the residue is wasted disk rather than a wrong answer. Making it
-    genuinely atomic needs a startup pass reclaiming directories with no workspace row, which is
-    more machinery than a local single-user delete warrants. If orphaned directories ever turn out
-    to matter, that pass is where the fix goes.
+    **So the ORDER is chosen for which crash leaves the better wreckage**, since some order has to
+    lose. The workspace row goes FIRST, and the data second:
+
+      * Row first, crash after → dataset rows and `.npz` files behind a workspace that is gone
+        from the index. Unreachable residue: nothing lists it, nothing can open it, and it is the
+        same shape as the orphaned directory the `rmtree` step already tolerates.
+      * Data first, crash after (the previous order) → the workspace row SURVIVES with its
+        measurements destroyed. The list still shows the card, `[ Results ]` still invites the
+        user in, and their data is silently gone. That is strictly worse: it presents as corruption
+        of a live analysis rather than as leftover bytes.
+
+    Either way the user's request is honoured on the next successful pass; only one of them lies to
+    them in the meantime.
+
+    Genuine atomicity was considered and not attempted. The two tables live in the same SQLite
+    file, so sharing one connection is technically possible — but it would mean giving
+    `delete_data` a connection parameter that exists for this one caller, and threading it through
+    a function whose own contract is "open the dataset database and clear it". An honest docstring
+    plus the ordering that fails better is the proportionate answer for a local single-user delete.
+
+    **Rows and files are not atomic together either**, for the same reason and with the same
+    accepted cost: `rmtree` passes `ignore_errors=True`, so an interruption — or a file the process
+    may not remove — leaves a directory on disk that no row references. The residue is wasted disk
+    rather than a wrong answer. Reclaiming it needs a startup pass over directories with no
+    workspace row, which is more machinery than this warrants; if orphans ever turn out to matter,
+    that pass is where the fix goes.
     """
     _workspace_dir(workspace_id)  # traversal check before any destructive work
-    delete_data(workspace_id)
+    # The index row first — see the docstring on why this order's failure mode is the better one.
     with db.connect() as conn:
         conn.execute("DELETE FROM workspace_state WHERE workspace_id = ?", (workspace_id,))
         conn.execute("DELETE FROM workspaces WHERE id = ?", (workspace_id,))
+    delete_data(workspace_id)
     shutil.rmtree(_workspace_dir(workspace_id), ignore_errors=True)
 
 
@@ -456,6 +510,29 @@ def migrate_local() -> bool:
     cost toggle asks for a contract once. That is recoverable in a single screen; a destroyed
     parameter set is not.
 
+    **The emptiness check and the INSERT are ONE transaction**, and they have to be. Written as a
+    `SELECT COUNT(*)`, a released connection and then a `create()`, this is a check-then-act race:
+    two threads or two uvicorn workers starting together both see an empty table and both insert
+    `local`, and the second gets `IntegrityError: UNIQUE constraint failed: workspaces.id`. It was
+    reproduced with 16 concurrent threads against a genuine pre-index directory — 2 failures in 6
+    runs. The suite never sees it, because it only fires when there is something on disk to adopt.
+
+    It matters more than a swallowed exception usually would: `app/main.py`'s lifespan catches it
+    broadly and logs `workspace migration failed (ignored)`, and that message tells the reader an
+    installation may have been left unadopted. A scary and untrue log, during the one startup
+    operation where a scary log would be believed.
+
+    So the whole decision runs inside a single `dataset.connect()` block. `_Connection.__enter__`
+    issues `BEGIN IMMEDIATE`, taking the write lock BEFORE the count, so a second migration blocks
+    at that point (up to `db._TIMEOUT_S`) and then reads a table that is no longer empty and
+    returns False. The insert goes through `_insert` on this same connection rather than `create`,
+    which would open a second one and put the INSERT outside the transaction the check holds.
+
+    The config work stays OUTSIDE the transaction on purpose: it is file I/O, it cannot be rolled
+    back by SQLite, and holding a write lock across it would serialise every other writer behind a
+    disk read for no atomicity gained. By the time it runs, this call has won the race — the row is
+    committed and no second migration can be in flight.
+
     `updated_at` is NOT bumped afterwards: the row was just created with
     `updated_at == created_at`, and this save is the migration's, not the user's.
     """
@@ -467,11 +544,13 @@ def migrate_local() -> bool:
             "SELECT 1 FROM datasets WHERE workspace_id = ? LIMIT 1", (db.WORKSPACE_ID,)
         ).fetchone()
 
-    has_config = simconfig_store.config_path(db.WORKSPACE_ID).exists()
-    if not has_config and not has_dataset:
-        return False
+        has_config = simconfig_store.config_path(db.WORKSPACE_ID).exists()
+        if not has_config and not has_dataset:
+            return False
 
-    create(DEFAULT_TITLE, workspace_id=db.WORKSPACE_ID)
+        # Same connection, same transaction as the count above — see the docstring.
+        _insert(conn, db.WORKSPACE_ID, DEFAULT_TITLE)
+
     if has_config and not simconfig_store.is_document_readable(db.WORKSPACE_ID):
         # A document is there but this build cannot make sense of it (docstring). Adopt the
         # workspace and leave the file exactly as it is.

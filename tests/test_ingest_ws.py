@@ -13,7 +13,7 @@ import os
 
 import pytest
 
-from tests.conftest import seed_workspace, w
+from tests.conftest import page, seed_workspace, w
 
 
 @pytest.fixture()
@@ -176,7 +176,7 @@ def test_two_resolutions_are_not_differenced_together(client):
 def test_page_shows_sample_before_any_fetch(client):
     """With no dataset, panel ① renders the static sample (empty state)."""
     tc, main, dataset = client
-    html = tc.get("/").text
+    html = tc.get(page()).text
     # A sample-only quality string the real view-model never emits. (The sample's placeholder
     # entity ids are no longer rendered — the HA entity is chosen in the drawer, not shown as a
     # main-row column — so a quality-string marker is used instead.)
@@ -190,7 +190,7 @@ def test_page_reflects_persisted_dataset_after_ingest(client):
         result = _drive_valid_ingest(ws)
     assert result["type"] == "result"
 
-    html = tc.get("/").text
+    html = tc.get(page()).text
     # The real view-model's summary reports the fetched series count and grid.
     assert "3 series" in html
     # The real granularity table uses role labels; the sample's placeholder entity ids are gone.
@@ -223,13 +223,13 @@ def test_fetch_bumps_source_generation(client):
 
     assert db.source_generation() == 0
     # Before any fetch the page renders generation 0.
-    assert '<script id="source-generation" type="application/json">0</script>' in tc.get("/").text
+    assert '<script id="source-generation" type="application/json">0</script>' in tc.get(page()).text
 
     with tc.websocket_connect(w("/data/ingest/ws")) as ws:
         result = _drive_valid_ingest(ws)
     assert result["generation"] == 1
     assert db.source_generation() == 1
-    assert '<script id="source-generation" type="application/json">1</script>' in tc.get("/").text
+    assert '<script id="source-generation" type="application/json">1</script>' in tc.get(page()).text
 
     # A second fetch bumps again — this is what makes another client's stored customization stale.
     with tc.websocket_connect(w("/data/ingest/ws")) as ws:

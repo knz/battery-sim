@@ -42,26 +42,44 @@ config drives panel ③: index(), POST /w/{id}/results and POST /w/{id}/results/
 the same one, so a parameter change moves the results.
 
 On startup (the `lifespan` below) the app adopts the pre-index single workspace into the
-`workspaces` table (app/workspaces.py, specs/20-workspaces-ux.md §2′.10).
+`workspaces` table (app/workspaces.py, specs/20-workspaces-ux.md §2′.10). A FRESH installation is
+left with an empty index deliberately, because the list screen expresses that state.
 
-**Routes are workspace-scoped** (phase 1 of the workspaces restructure). Everything that reads or
-writes one analysis's data now lives under `/w/{workspace_id}/…` and resolves its workspace through
-`deps.get_workspace` (specs/08-architecture.md §5.1, §5.5 invariant 2) instead of defaulting to the
-module constant `db.WORKSPACE_ID`. Three routes stay FLAT, each for its own reason:
+**`GET /` is the workspace list** (phase 2, §2′.2): one card per analysis, most recently updated
+first, with `[ + New analysis ]` and the two deletions. The three-panel page that used to live at
+`/` is now `GET /w/{id}/results` — relocated and scoped, otherwise unchanged; phase 4 splits it
+into the configure-data and results screens.
 
-  * `GET /` — still the single-page UI for `local`. This phase moves no screens; the list screen
-    that eventually takes this URL is phase 2. It is the one place `db.WORKSPACE_ID` is still read
-    as "the workspace", and it is marked as such below so the next phase knows where to look.
+**Routes are workspace-scoped** (phase 1). Everything that reads or writes one analysis's data
+lives under `/w/{workspace_id}/…` and resolves its workspace through `deps.get_workspace`
+(specs/08-architecture.md §5.1, §5.5 invariant 2) instead of defaulting to the module constant
+`db.WORKSPACE_ID`. Four routes stay FLAT, each for its own reason:
+
+  * `GET /` — the list. It is ABOUT every workspace, so it belongs to none.
+  * `POST /workspaces` — creates one; there is no id to scope it by yet.
   * `POST /feature-interest/{key}` — installation-wide since phase 0 (§2′.10, app/db.py).
   * `GET /lang/{code}` — sets a cookie; there is nothing workspace-shaped about a language.
 
-The consequence for the browser: no path may be written as a literal any more. `<body>` carries
-`data-workspace-id`, and every `fetch()` in index.html plus the ingest WebSocket URL in
+**The three state-changing routes are same-site only** (`app/csrf.py`). `POST /workspaces`,
+`POST /w/{id}/delete` and `POST /w/{id}/data/delete` declare `csrf.require_same_site` and answer a
+cross-site request with 403. The two deletions are the reason: a workspace migrated from a
+pre-index installation has the shared constant id `local`, so before this check any page in any
+tab could destroy the user's analysis with one forged form POST. It is a header check rather than
+a token, which keeps the app's no-session/no-secret property — the reasoning, and the one case it
+deliberately does not cover (`POST /w/{id}/params`), are in `app/csrf.py`.
+
+The consequence for the browser: no path may be written as a literal any more. index.html's
+`<body>` carries `data-workspace-id`, and every `fetch()` there plus the ingest WebSocket URL in
 ha_fetch.js build their path from it. `localStorage`'s slot store is keyed per workspace for the
-same reason (§2′.11) — see app/static/ha_fetch.js.
+same reason (§2′.11) — see app/static/ha_fetch.js. The LIST screen needs none of that: every
+action on it is a plain link or an ordinary form POST.
 
 Routes:
-    GET  /                              → the full page (index.html), for `local`
+    GET  /                              → the workspace list (workspaces.html)
+    POST /workspaces                    → create a workspace; 303 into it
+    GET  /w/{id}/results                → the three-panel page for one workspace (index.html)
+    POST /w/{id}/delete                 → delete the workspace and everything in it; 303 to /
+    POST /w/{id}/data/delete            → delete its measurements, keep the config; 303 to /
     POST /w/{id}/params                 → validate + persist panel ②; return the HTML fragment
     POST /w/{id}/results                → recompute panel ③ over a window; return the fragment
     POST /w/{id}/results/benchmark      → the §6.12 perfect-foresight box (slow; lazy)
@@ -76,7 +94,6 @@ Run:  uv run uvicorn app.main:app --reload
 
 import asyncio
 import logging
-import sqlite3
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -96,6 +113,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app import (
     config,
+    csrf,
     data_view,
     dataset,
     db,
@@ -108,6 +126,7 @@ from app import (
     results_view,
     simconfig_store,
     summary_view,
+    workspace_list_view,
     workspaces,
 )
 from app.domain import normalize
@@ -123,53 +142,34 @@ log = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    """Startup work: make sure `local` is in the workspace index, so the single page works.
+    """Startup work: adopt a pre-index installation into the workspace index. One step.
 
-    Two steps, and the second one is new in phase 1.
+    `workspaces.migrate_local()` gives the PRE-INDEX single workspace a row: it inserts nothing
+    once the index is non-empty, and nothing at all when `local` has no config and no dataset on
+    disk — so running it on every start is a `SELECT COUNT(*)` in the ordinary case.
 
-    `workspaces.migrate_local()` adopts a PRE-INDEX installation: it inserts nothing once the index
-    is non-empty, and nothing at all when `local` has no config and no dataset on disk — so running
-    it on every start is a `SELECT COUNT(*)` in the ordinary case.
+    **A fresh installation deliberately ends up with an EMPTY index, and that is now a state the
+    UI expresses.** Phase 1 added a second step here that created `local` when it was missing,
+    because `GET /` rendered the single-page UI for `local` and every control on that page 404'd
+    without the row. Phase 2 removed it: `GET /` is the workspace list, an empty list draws its
+    invitation to create the first analysis (§2′.2), and creating the row here would put a
+    phantom analysis on that screen that the user never made. Followup I7, closed.
 
-    Then `local` is created if it still does not exist. Phase 0 deliberately left a fresh
-    installation with an EMPTY index: §2′.2's list screen should show the empty state and the
-    wizard rather than an analysis the user never made. That was harmless while every route was
-    flat. It is not harmless now: `GET /` still renders the single-page UI for `local`, and every
-    fetch and socket on that page is `/w/local/…`, which `deps.get_workspace` 404s when the row is
-    absent. A fresh install would draw a page whose every control fails. So the row is created
-    here — with the same `DEFAULT_TITLE` the migration uses, so an adopted installation and a fresh
-    one are indistinguishable afterwards.
-
-    **This is temporary, and phase 2 should remove it.** Once `GET /` is the list, the empty index
-    is a state the UI can express and this line stops being a fix and starts being the phantom
-    workspace §2′.2 does not want. It lives in the lifespan rather than in `index()` because a GET
-    that writes to the database is a worse shape than a startup step that does.
-
-    A lifespan rather than more import-time work beside `CONFIG`, because both steps WRITE to the
-    data directory. Importing `app.main` (a test collecting routes, a tooling import) must not
-    create rows in whatever directory happens to be resolved at import time; a lifespan runs only
-    when the app is actually served, which is when a data directory has been chosen deliberately.
-    The consequence for tests: a `TestClient(app)` built OUTSIDE a `with` block never runs this, so
-    a route test against a temp data dir has to create the workspace itself
+    A lifespan rather than import-time work beside `CONFIG`, because this step WRITES to the data
+    directory. Importing `app.main` (a test collecting routes, a tooling import) must not create
+    rows in whatever directory happens to be resolved at import time; a lifespan runs only when
+    the app is actually served, which is when a data directory has been chosen deliberately. The
+    consequence for tests: a `TestClient(app)` built OUTSIDE a `with` block never runs this, so a
+    route test against a temp data dir creates the workspace itself
     (`tests/conftest.seed_workspace`).
 
-    A failure in either step is logged and swallowed: the app must still serve. What follows from
-    that, stated plainly, is that a failure here leaves the page rendering with its controls
-    404ing — the same state phase 0's empty index produced, and the reason the ensure exists.
+    A failure is logged and swallowed: the app must still serve. What follows, stated plainly, is
+    that a failed migration leaves a genuine pre-index installation looking like a fresh one — an
+    empty list beside a `local/` directory that still holds its config and dataset. Nothing is
+    lost, and the next successful start adopts it.
     """
     try:
         workspaces.migrate_local()
-        if workspaces.get(db.WORKSPACE_ID) is None:
-            try:
-                workspaces.create(workspaces.DEFAULT_TITLE, workspace_id=db.WORKSPACE_ID)
-            except sqlite3.IntegrityError:
-                # Check-then-act: two workers starting together both see no row and both insert.
-                # The id is the primary key, so the loser lands here — and the row it wanted now
-                # exists, which is the outcome it was after. Swallowed narrowly (this one
-                # exception, around this one statement) rather than by the outer handler, which
-                # would log it as a migration failure that did not happen. Measured: 2 of 12
-                # concurrent starts against a fresh directory take this branch.
-                log.debug("workspace %s created concurrently", db.WORKSPACE_ID)
     except Exception:  # pragma: no cover - defensive: startup must not be fatal
         log.exception("workspace migration failed (ignored)")
     yield
@@ -189,22 +189,146 @@ CONFIG = config.load()
 
 
 @app.get("/", response_class=HTMLResponse)
-def index(request: Request):
-    """Render the whole page from the static sample view-model, in the request's locale.
+def workspace_list(request: Request):
+    """The workspace list — the app's home screen (specs/20-workspaces-ux.md §2′.2).
 
-    **This route is still flat, and still renders `local`.** Every other data route is now under
-    `/w/{workspace_id}/…`; this one is not, because phase 1 moves no screens — the list screen that
-    takes this URL is phase 2, and until then there is exactly one page and it shows the migrated
-    workspace. So `WORKSPACE` below is the module constant, used deliberately and named once so the
-    next phase has a single site to change rather than a search to run.
+    One card per workspace, most recently updated first. The ordering is
+    `workspaces.list_summaries()`'s SQL (`ORDER BY updated_at DESC`), not anything decided here,
+    and `updated_at` is the CONFIGURATION's save time — so loading data never reorders the list
+    (§2′.10). `POST /w/{id}/params` is what advances it.
 
-    The id it renders IS threaded into the page (`data-workspace-id` on `<body>`, and the roster's
-    `data-ingest-ws`), because the fragments this page fetches are already scoped. Without that the
-    page could still render and no button on it would work.
+    **The empty list is a real state, not an error.** A fresh installation has no workspaces and
+    the screen draws its invitation to create the first one. Phase 1's lifespan created a `local`
+    row to keep the old single page working; that is gone (followup I7), because a phantom
+    analysis on this screen is exactly what §2′.2 says must not happen.
+
+    Cheap by construction: `list_summaries` reads the dataset facts from SQLite metadata alone,
+    never from the `.npz` arrays, so a list of N cards is one query plus N small JSON config reads
+    rather than N dataset loads. The one honest caveat — a derived interval count that a short
+    auxiliary series can drag off — is in `workspaces._data_facts` and followup I2.
     """
     locale = i18n.resolve_locale(request)
-    # Phase 1's one remaining unscoped read of "the workspace" — see the docstring.
-    workspace_id = db.WORKSPACE_ID
+    return HTMLResponse(
+        i18n.env_for(locale).get_template("workspaces.html").render(
+            cards=workspace_list_view.cards(workspaces.list_summaries()),
+            lang={
+                "current": locale,
+                "options": [{"code": c, "label": c.upper()} for c in i18n.SUPPORTED],
+            },
+        )
+    )
+
+
+@app.post("/workspaces", dependencies=[Depends(csrf.require_same_site)])
+def create_workspace():
+    """Create a workspace and redirect into it (§2′.2's `[ + New analysis ]`).
+
+    **POST, not GET, and a redirect afterwards.** Creating writes, so it is not a navigation; and
+    redirect-after-POST means a reload of the destination does not create a second workspace.
+
+    Same-site only (`app/csrf.py`). An unchecked create lets any page in any tab fill the user's
+    list with analyses they never made — noise rather than damage, unlike the two deletions, but
+    prevented by the same one-line dependency, so there is no reason to leave it open.
+
+    **Where it redirects, and why that is temporary.** §2′.2 sends `[ + New analysis ]` into the
+    three-step wizard, which phase 5 builds. Until it exists this redirects to
+    `/w/{id}/results` — the only per-workspace screen phase 2 has, and the one the old single page
+    became, so the new workspace lands somewhere that renders its (appendix-A default)
+    configuration and invites a data load. The alternatives were worse: staying on the list would
+    make the button look like it had done nothing beyond adding a card, and pointing at
+    `/w/{id}/edit` or `/w/{id}/data` would 404 until phases 3 and 4 land.
+
+    The title is `workspaces.DEFAULT_TITLE`, untranslated for the reason stated there: it is
+    written to the database once and a stored string cannot follow the user's later language
+    toggle. The user renames it on the edit screen (§2′.4), which phase 3 builds.
+    """
+    workspace_id = workspaces.create(workspaces.DEFAULT_TITLE)
+    return RedirectResponse(f"/w/{workspace_id}/results", status_code=303)
+
+
+@app.post("/w/{workspace_id}/delete", dependencies=[Depends(csrf.require_same_site)])
+def delete_workspace(ws: Annotated[deps.Workspace | None, Depends(deps.get_optional_workspace)]):
+    """Delete a workspace and everything in it, then return to the list (§2′.3).
+
+    **POST rather than a browser `DELETE`.** An HTML form can only issue GET or POST, and this is
+    submitted by a form inside the confirmation dialog — a `DELETE` would need a `fetch`, which
+    would make the one destructive action on the screen the only thing that stops working when a
+    script fails to load. Redirect-after-POST returns to the re-rendered list, which §2′.3
+    requires ("After confirming, the user stays on the list, which re-renders").
+
+    **Same-site only** (`app/csrf.py`). This route deletes the user's analysis irreversibly and
+    the migrated workspace's id is the shared constant `local`, so without the check any page in
+    any tab could destroy it with a single forged form POST. That was reproduced; see the module.
+
+    **An already-deleted workspace redirects rather than 404ing** (`get_optional_workspace`). A
+    second submission — a double-click on the dialog, Back-then-resubmit — has already achieved
+    the end state it asked for, and §2′.3 says the user stays on the list. Answering it with a raw
+    JSON 404 body was what the user actually saw before.
+
+    `workspaces.delete` removes the workspace row, every row keyed by its id, and the whole
+    directory. `feature_interest` is deliberately untouched: it is installation-wide since phase 0
+    and records what this household wants, which survives the deletion of the analysis it was
+    clicked from — including the deletion of the last one.
+    """
+    if ws is not None:
+        workspaces.delete(ws.id)
+    return RedirectResponse("/", status_code=303)
+
+
+@app.post("/w/{workspace_id}/data/delete", dependencies=[Depends(csrf.require_same_site)])
+def delete_workspace_data(
+    ws: Annotated[deps.Workspace | None, Depends(deps.get_optional_workspace)],
+):
+    """Delete a workspace's loaded measurements, keeping its configuration (§2′.3).
+
+    The card returns to its no-data state and the workspace survives with its CONFIGURATION
+    intact: `simconfig.json` and the workspace row, so the connection, contract and battery
+    settings are exactly as they were.
+
+    **The per-slot source mapping does NOT survive for slots that were fetched**, and the dialog
+    copy says so. `workspaces.delete_data` clears every `series_meta` row, and for a fetched slot
+    that row is where the source key and the HA statistic id live — see `app/static/ha_fetch.js`'s
+    header, branch 1 of "Two things carry a source choice across a reload". Only branch 2, a
+    PRE-FETCH staged choice held in `localStorage`, is untouched by a backend delete. An earlier
+    version of this docstring claimed the mapping lived in `localStorage` in general and was
+    therefore safe; that was wrong for exactly the case the dialog was describing, and §2′.3 has
+    been corrected alongside it.
+
+    `source_generation` is still deliberately left alone — it is a monotonic counter the browser
+    compares a staged mapping against, and resetting it would make a live staged choice look
+    stale, which would discard branch 2 as well as branch 1.
+
+    Same POST-and-redirect shape as `delete_workspace`, with the same same-site check and the same
+    redirect-rather-than-404 on an already-deleted workspace, for the same reasons.
+
+    `updated_at` is NOT advanced. §2′.10 makes a config save the one event that advances it, and
+    this deletes data rather than saving configuration — bumping here would reorder the list
+    behind a deletion, which is the same surprise a data LOAD reordering it would be.
+    """
+    if ws is not None:
+        workspaces.delete_data(ws.id)
+    return RedirectResponse("/", status_code=303)
+
+
+@app.get("/w/{workspace_id}/results", response_class=HTMLResponse)
+def index(
+    request: Request,
+    ws: Annotated[deps.Workspace, Depends(deps.get_workspace)],
+):
+    """The three-panel screen for one workspace, in the request's locale.
+
+    **This is the old `GET /` page, relocated and scoped.** Phase 2 moved it here so `/` could
+    become the list (§2′.2); it is otherwise unchanged, and phase 4 splits it into the
+    configure-data screen (§2′.5) and the results screen (§2′.6). Until then the `[ Results ]` and
+    `[ Configure data ]` card actions both lead to parts of this one page.
+
+    The id is threaded into the page (`data-workspace-id` on `<body>`, and the roster's
+    `data-ingest-ws`) because every fragment this page fetches is scoped. It now comes from the
+    resolved `Workspace` rather than from `db.WORKSPACE_ID`, which was phase 1's last unscoped
+    read of "the workspace".
+    """
+    locale = i18n.resolve_locale(request)
+    workspace_id = ws.id
 
     ctx = sample_view()
     # The browser builds every fetch path from this (index.html's `data-workspace-id`), so the
@@ -275,11 +399,19 @@ async def params(
     submission against one workspace cannot reach another's document. `deps.get_workspace` has
     already 404'd an unknown or path-unsafe id before this body runs.
 
-    It does NOT yet call `workspaces.touch(ws.id)`. §2′.10 makes a config save the one event that
-    advances `updated_at`, and this is the route that saves — but nothing reads that field until
-    the list screen's ordering and "last saved" badge exist (phase 2), and this phase is meant to
-    change no behaviour. Wiring it belongs with the screen that shows it; noted so it is not
-    forgotten there.
+    **No same-site check here, deliberately** — unlike the three routes that carry
+    `csrf.require_same_site`. This is an idempotent overwrite of one local parameter set with
+    values a forging page would be choosing blind and could not read back, which is precisely the
+    threat followups B6 weighed and accepted. What changed in phase 2, and what the check exists
+    for, is IRREVERSIBLE DELETION — so the line is drawn at "can this destroy something the user
+    cannot recreate", not at "is this a POST". The asymmetry is a decision; see `app/csrf.py`.
+
+    **A successful save advances `updated_at`** (`workspaces.touch`, §2′.10). This is the one
+    event that does: the list screen's "last saved" badge and its most-recently-updated-first
+    ordering both read that field, and a data load deliberately does not touch it, or fetching
+    history would reorder the list behind the user. Only a save that actually happened counts — a
+    submission that fails validation, or one whose write raised, leaves the field alone, because
+    the badge reports when the configuration was last STORED and neither of those stored anything.
 
     **Why a form POST returning a fragment, and not JSON.** Panel ② is a form of ~20 inputs whose
     re-render has to carry per-field errors next to the inputs that caused them. Sending JSON and
@@ -331,6 +463,10 @@ async def params(
                 ws.id,
                 guard_submitted=params_view.guard_was_submitted(form, stored),
             )
+            # The config was stored, so this is a "last saved" event (§2′.10, docstring above).
+            # After the save, never before: a bumped timestamp on a write that then failed would
+            # put the workspace at the top of the list for a save that did not happen.
+            workspaces.touch(ws.id)
         except OSError as exc:
             # A save that silently did nothing would tell the user their parameters were stored
             # when they were not — so this is reported, never swallowed. But a data directory that

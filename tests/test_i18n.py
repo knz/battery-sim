@@ -26,7 +26,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from app import i18n
-from tests.conftest import seed_workspace, w
+from tests.conftest import page, seed_workspace, w
 
 
 # ── 1. The percent trap ────────────────────────────────────────────────────────────────────────
@@ -161,12 +161,18 @@ def _drawer_i18n(code: str) -> dict:
     Goes through the real route rather than rendering index.html with a hand-built context: the
     template's context is app/main.py's business, and duplicating it here would make this test
     fail whenever that context grows.
+
+    The page moved to `/w/{id}/results` in phase 2 (`/` is the workspace list now), which is a
+    SCOPED route, so the workspace row has to exist before the request — `TestClient(app)` outside
+    a `with` block runs no lifespan and this module seeds nothing else. It writes into the
+    session-wide temp data dir `tests/conftest` sets up, never the developer's `./data`.
     """
     from starlette.testclient import TestClient
 
     from app.main import app
 
-    html = TestClient(app).get("/", headers={"Cookie": f"lang={code}"}).text
+    seed_workspace()
+    html = TestClient(app).get(page(), headers={"Cookie": f"lang={code}"}).text
     block = re.search(
         r'<script id="drawer-i18n" type="application/json">(.*?)</script>', html, re.S
     )

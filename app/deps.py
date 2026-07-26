@@ -46,6 +46,7 @@ Main items:
     get_principal()        FastAPI dependency; the hard-coded local principal (§5.5 invariant 2).
     resolve_workspace_id() the syntactic check alone, for callers that are not routes.
     get_workspace()        FastAPI dependency; path id → `Workspace`, or 404.
+    get_optional_workspace() the same, but `None` instead of 404 — for the deletion routes.
 """
 
 from __future__ import annotations
@@ -153,6 +154,47 @@ def get_workspace(
     row = workspaces.get(workspace_id)
     if row is None or not _authorize(principal, row):
         raise HTTPException(status_code=404, detail="no such workspace")
+    return Workspace(
+        id=row["id"],
+        owner_id=row["owner_id"],
+        title=row["title"],
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+    )
+
+
+def get_optional_workspace(
+    principal: Annotated[Principal, Depends(get_principal)],
+    workspace_id: Annotated[str, Path()],
+) -> Workspace | None:
+    """`get_workspace`, but an unresolvable workspace is `None` rather than a 404.
+
+    **This exists for the two DELETION routes and should not spread beyond them.** A request to
+    delete something that is already gone has already achieved the end state it asked for, so
+    answering it with an error is answering a question nobody asked. §2′.3 requires that after
+    confirming, the user stays on the list — and a 404 there is a raw JSON body on screen instead,
+    which an ordinary double-click on the dialog's submit button was enough to reach (the form has
+    no submit-disable, and Back-then-resubmit does it too).
+
+    Every OTHER route keeps `get_workspace` and its 404. `GET /w/{id}/results` on an unknown id is
+    a bad *address* and has no end state to have already reached; softening it would render an
+    empty results page for a workspace that does not exist.
+
+    A path-unsafe id is `None` here as well, not an exception: it cannot name a workspace, so
+    there is nothing to delete, which is the same answer as a well-formed id that is gone. The
+    route's redirect is then the honest response and the storage layer is never reached with it.
+    """
+    if (
+        not workspace_id
+        or "/" in workspace_id
+        or "\\" in workspace_id
+        or "\x00" in workspace_id
+        or workspace_id in (".", "..")
+    ):
+        return None
+    row = workspaces.get(workspace_id)
+    if row is None or not _authorize(principal, row):
+        return None
     return Workspace(
         id=row["id"],
         owner_id=row["owner_id"],

@@ -120,12 +120,42 @@ it would discard the user's answer if they re-enable PV), but it reads oddly nex
 only offers P2. Wants a presentation decision.
 *Origin:* `20260725-panel2-parameters-phase6.md`.
 
-**B6. CSRF is absent on `POST /params`, as a recorded decision.** Local-only app, `workspace_id` is
-the hardcoded `"local"` and never user-influenced, no exfiltration path (the response is
-same-origin-read-blocked), worst outcome is a rewritten local parameter set; a token would add a
-session/secret surface the app does not otherwise have. Listed here because it is a standing
-decision to revisit if the app ever stops being local-only, not because it is pending work.
-*Origin:* `20260725-phase6-review-defects.md`, `20260724-panel3-battery-simulation.md`.
+**B6. Cross-site POSTs: the three destructive routes are checked, `POST /params` is not.**
+Rewritten 2026-07-26 (workspaces phase 2 review) — the previous entry's two premises had both
+become false and are recorded here so the change of position is legible.
+
+*What the old entry said, and why it stopped holding.* It declined CSRF protection outright on the
+grounds that `workspace_id` was "the hardcoded `local` and never user-influenced" and that the
+"worst outcome is a rewritten local parameter set". Phase 1 put the workspace id in the path, so
+the first is no longer true. Phase 2 added `POST /w/{id}/delete` and `POST /w/{id}/data/delete`, so
+the second is no longer true either: the worst outcome is irreversible deletion of a workspace's
+rows, its `simconfig.json` and its whole directory.
+
+*Reproduced.* A single `POST /w/local/delete` carrying `Origin: https://evil.example` was accepted
+and destroyed the workspace. No guessing was involved — a migrated pre-index installation always
+has the id `local`, so every such installation was equally targetable by a fixed URL.
+
+*What is protected now.* `app/csrf.py` provides `require_same_site`, a FastAPI dependency declared
+by `POST /workspaces`, `POST /w/{id}/delete` and `POST /w/{id}/data/delete`; a cross-site request
+gets 403. It trusts `Sec-Fetch-Site` when present and falls back to comparing `Origin` against the
+request's own host. **This deliberately keeps the property the old entry declined tokens for**: no
+session, no secret, no server-side state — the browser already supplies headers page script cannot
+forge, so no token is needed for these three.
+
+*What is NOT protected, and why that is a decision.* `POST /w/{id}/params` is left open. It is an
+idempotent overwrite of one local parameter set with values a forging page chooses blind and cannot
+read back (the response is same-origin-read-blocked), which is exactly the threat the original
+entry weighed and accepted — that reasoning survives intact for this route, because what changed in
+phase 2 was the arrival of irreversible deletion, not anything about `params`. The line is drawn at
+"can this request destroy something the user cannot recreate".
+
+*The remaining hole in the check.* When BOTH `Sec-Fetch-Site` and `Origin` are absent the request
+is allowed. No browser produces a cross-origin POST without one of them, so this is not reachable
+from a browser attack; it is reachable by `curl`, a scripted local client, or a proxy that strips
+headers. Closing it needs a token, which is the option excluded above. First thing to revisit if
+the app ever stops being local-only — at which point it would need a session anyway.
+*Origin:* `20260725-phase6-review-defects.md`, `20260724-panel3-battery-simulation.md`,
+`20260726-workspaces-phase2.md` (review).
 
 **B7. `_finite()` rejects `str`, so `GridConfig(phases="3")` blocks rather than coercing.**
 Defensible (coercion belongs to the form layer) but the opposite choice is equally defensible; the
@@ -578,7 +608,15 @@ leaves unreferenced `.npz` files with no route to reclaim them, and a failed `rm
 Accepted for a local single-user app — the failure mode is wasted disk, not a wrong result, since
 every read goes through `series_meta`. Closing it needs a startup sweep for directories with no
 workspace row. Stated in the docstrings rather than fixed.
-*Origin:* `20260726-workspaces-phase0.md` finding 8.
+
+*Updated 2026-07-26 (phase 2 review).* The same non-atomicity turned out to hold between `delete`'s
+two SQL steps as well, not just between rows and files: `delete_data` opens `dataset.connect()` and
+`delete` opens `db.connect()`, and `_Connection._depth` is per-connection, so the docstring's claim
+that the blocks nested into one transaction was false. The steps were REORDERED so the workspace
+row goes first — a crash then leaves unreachable data rows behind a workspace that is gone, instead
+of a live card whose measurements had silently vanished. Still not atomic; the reasoning for
+accepting that rather than threading one connection through both is in `workspaces.delete`.
+*Origin:* `20260726-workspaces-phase0.md` finding 8, `20260726-workspaces-phase2.md` (review).
 
 **I4. `monkeypatch.undo()` is a trap in the workspace test modules.** It also reverts the fixture's
 `BATTERY_SIM_DATA_DIR` setenv, silently redirecting any later assertion at the developer's real
@@ -594,14 +632,20 @@ than re-engineered: the field is telemetry no user reads, and an instant-based o
 parse per row.
 *Origin:* `20260726-workspaces-phase0.md` finding 4.
 
-**I6. `workspaces.touch()` still has no production caller.** §2′.10 makes a config save the one
+**I6. `workspaces.touch()` still has no production caller. — DONE (phase 2).**
+`POST /w/{id}/params` now calls it, after a save that actually happened. Pinned by
+`tests/test_workspace_list.py`'s ordering test and by the invalid-submission companion.
+ §2′.10 makes a config save the one
 event that advances `updated_at`, and `POST /w/{id}/params` is that save — but it does not call
 `touch`, because nothing reads the field until phase 2's list ordering and "last saved" badge
 exist, and phase 1 was scoped to change no behaviour. Wire it with the screen that shows it, or the
 first list will order every workspace by its creation time.
 *Origin:* `20260726-workspaces-phase1.md`.
 
-**I7. The lifespan now CREATES `local` when it is missing, which phase 2 must remove.** Phase 0
+**I7. The lifespan now CREATES `local` when it is missing, which phase 2 must remove. — DONE
+(phase 2).** Removed; `migrate_local()` stays. A fresh installation shows §2′.2's empty list, pinned
+in a real browser against a genuinely fresh data directory (`tests/test_smoke.py`).
+ Phase 0
 deliberately left a fresh installation with an empty index so §2′.2's list can show its empty state
 and the wizard. Scoping the routes made that a broken page — `GET /` renders the single-page UI for
 `local` and every control on it 404s without the row — so `app/main.py`'s lifespan creates it. Once
@@ -615,3 +659,21 @@ route at all (only tests do). The two lines directly touching the re-rooted path
 phase 1; the surrounding "surviving the reload" narrative was updated only where it named the wrong
 trigger. A full pass over that header against the current code is still owed.
 *Origin:* `20260726-workspaces-phase1.md`.
+
+**I9. `DataFacts.loaded` means "has a dataset", not "has energy data", and the card shows it.**
+A workspace whose only series is a PRICE series (the preset spot-price load, which is the one
+dataset a backend_load can produce on its own) gets `loaded=True`, so §2′.2's info box opens in its
+full form and reads "not loaded" three times — once per energy role — while the card still offers
+`[ Results ]`. Nothing renders wrongly in the narrow sense: the size line is correctly omitted
+(`_data_facts` derives the interval count from energy resolutions only and returns None) and no
+literal `None` reaches the page. But the card invites the user to a results screen that has no
+grid to simulate.
+
+This is a phase-0 `_data_facts` property that the phase-2 card merely surfaces, not a defect
+introduced by the card, which is why it is recorded rather than fixed here. The plausible change is
+for `loaded` to mean "has at least one ENERGY series", which would put such a workspace in the
+no-data variant and withdraw `[ Results ]` — consistent with §2.1's Inapplicable rule. Not made
+unilaterally: it changes what a card says about a real dataset the user did load, and a
+price-only workspace is a legitimate intermediate state during setup, so whether the right answer
+is the stricter flag or a third "prices only" state is a product call.
+*Origin:* `20260726-workspaces-phase2.md` (review, finding 8).

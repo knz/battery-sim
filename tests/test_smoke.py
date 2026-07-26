@@ -78,27 +78,51 @@ def browser():
         b.close()
 
 
-def _open(browser, base_url, lang):
-    """Open the page in a pinned language (cookie), panels expanded."""
+def _workspace_url(base_url) -> str:
+    """Create a workspace through the real route and return the URL of its three-panel page.
+
+    `GET /` is the workspace LIST since phase 2, and a throwaway data directory starts with no
+    workspaces at all — deliberately (§2′.2's empty state; phase 1's followup I7). So the page
+    every structural test below asserts on has to be reached rather than assumed, and the honest
+    way to reach it is to create a workspace the way a user does.
+
+    Module-scoped via the fixtures that call it, so the whole file shares ONE workspace: several
+    tests here mutate state (the setup-band radios persist, the thumbs-up upserts), and they
+    already shared one before phase 2 gave that workspace an id.
+    """
+    req = Request(base_url + "/workspaces", data=b"", method="POST")
+    with urlopen(req) as r:
+        # urllib follows the 303, so the final URL is the destination the route redirected to.
+        return r.url
+
+
+def _open(browser, base_url, lang, url=None):
+    """Open the three-panel page in a pinned language (cookie), panels expanded."""
     context = browser.new_context()
     context.add_cookies([{"name": "lang", "value": lang, "url": base_url}])
     pg = context.new_page()
-    pg.goto(base_url + "/", wait_until="networkidle")
+    pg.goto(url or _workspace_url(base_url), wait_until="networkidle")
     for cb in pg.locator("section.collapse > input[type=checkbox]").all():
         cb.check()
     return pg
 
 
 @pytest.fixture(scope="module")
-def page(browser, base_url):
-    # English is pinned so the structural assertions are stable regardless of the test
-    # environment's Accept-Language (the app itself auto-detects for real users).
-    return _open(browser, base_url, "en")
+def workspace_url(base_url):
+    """One workspace for the whole module — see `_workspace_url`."""
+    return _workspace_url(base_url)
 
 
 @pytest.fixture(scope="module")
-def page_nl(browser, base_url):
-    return _open(browser, base_url, "nl")
+def page(browser, base_url, workspace_url):
+    # English is pinned so the structural assertions are stable regardless of the test
+    # environment's Accept-Language (the app itself auto-detects for real users).
+    return _open(browser, base_url, "en", workspace_url)
+
+
+@pytest.fixture(scope="module")
+def page_nl(browser, base_url, workspace_url):
+    return _open(browser, base_url, "nl", workspace_url)
 
 
 def test_three_panels_present(page):
@@ -213,13 +237,21 @@ def test_ha_fetch_scopes_its_slot_store_per_workspace(browser, base_url):
     pass on a file that never runs (the module returns early when the roster is absent, and a
     syntax error would be invisible).
 
-    A fresh context is used so this cannot disturb the module-scoped `page` fixture's storage.
+    A fresh context AND its own workspace are used so this cannot disturb the module-scoped
+    `page` fixture's storage — the scoped key is per workspace, so sharing one would make the two
+    write to the same entry.
     """
+    url = _workspace_url(base_url)
+    # `/w/<id>/results` — the id is what the scoped localStorage key is built from, so it is read
+    # off the URL rather than assumed to be `local` (workspaces get generated ids since phase 2).
+    workspace_id = url.rstrip("/").split("/")[-2]
+    scoped_key = f"ha.slots.{workspace_id}"
+
     context = browser.new_context()
     pg = context.new_page()
     # Seed the pre-workspaces global key, as an upgraded installation's browser would hold it, then
     # load the page so the module runs against it.
-    pg.goto(base_url + "/", wait_until="networkidle")
+    pg.goto(url, wait_until="networkidle")
     pg.evaluate("localStorage.setItem('ha.slots', JSON.stringify({gen: 0, slots: {a: 1}}))")
     pg.reload(wait_until="networkidle")
     # Panels render collapsed; the roster's buttons are not clickable until panel ① is open.
@@ -227,9 +259,9 @@ def test_ha_fetch_scopes_its_slot_store_per_workspace(browser, base_url):
         cb.check()
 
     # The legacy key is gone, and NOT copied into the workspace key: a mapping staged before the
-    # upgrade must not come back looking deliberately staged in `local`.
+    # upgrade must not come back looking deliberately staged in this workspace.
     assert pg.evaluate("localStorage.getItem('ha.slots')") is None
-    assert pg.evaluate("localStorage.getItem('ha.slots.local')") is None
+    assert pg.evaluate(f"localStorage.getItem({scoped_key!r})") is None
 
     # And a choice made now lands under the SCOPED key. Driven through the drawer, which is the
     # only thing that writes the store. A backend_load source is picked rather than Home Assistant
@@ -240,7 +272,7 @@ def test_ha_fetch_scopes_its_slot_store_per_workspace(browser, base_url):
     pg.locator("#source-drawer input[name='drawer-source'][value='energy_charts']").check()
     pg.locator("#drawer-confirm").click()
 
-    stored = pg.evaluate("localStorage.getItem('ha.slots.local')")
+    stored = pg.evaluate(f"localStorage.getItem({scoped_key!r})")
     assert stored is not None, "the drawer wrote nothing under the workspace-scoped key"
     assert "energy_charts" in stored
     # The global key stays gone — the scoped write must not resurrect it.
@@ -409,3 +441,255 @@ def test_the_cost_tint_actually_renders_and_is_not_merely_a_class_name(page):
     assert cost_h3.evaluate("e => getComputedStyle(e).color") != plain_h3.evaluate(
         "e => getComputedStyle(e).color"
     ), "a cost heading renders the same colour as a plain one"
+
+
+# ── The workspace list (specs/20-workspaces-ux.md §2′.2, §2′.3) ──────────────────────────────
+#
+# Phase 2's new screen, driven in a real browser rather than only through route tests. The reason
+# is the one the previous two phases both learned the hard way: a route test seeds its own
+# preconditions and asserts on markup, so it can be green about a screen that never renders — the
+# fresh-install defect phase 1 shipped was invisible to 823 passing non-browser tests and surfaced
+# only from the one test that drove a genuinely empty installation in a browser.
+#
+# These use their OWN browser context and their own workspaces, so they cannot disturb the
+# module-scoped `page` fixture (which shares one workspace across the file).
+
+
+def _list_page(browser, base_url):
+    """A fresh English context on the workspace list at `/`."""
+    context = browser.new_context()
+    context.add_cookies([{"name": "lang", "value": "en", "url": base_url}])
+    pg = context.new_page()
+    pg.goto(base_url + "/", wait_until="networkidle")
+    return context, pg
+
+
+def test_the_list_creates_a_workspace_and_navigates_into_it(browser, base_url):
+    """`[ + New analysis ]` is a real form POST that lands on the new workspace's page.
+
+    Driven end to end because the button, the route, the redirect and the destination are four
+    separate things and a route test only sees the middle two.
+    """
+    context, pg = _list_page(browser, base_url)
+    before = pg.locator("[data-workspace-card]").count()
+
+    pg.get_by_role("button", name="+ New analysis").first.click()
+    pg.wait_for_load_state("networkidle")
+
+    import re as _re
+
+    assert _re.search(r"/w/[0-9a-f]{32}/results$", pg.url), pg.url
+    # The three-panel page, not an error document.
+    assert "PARAMETERS" in pg.locator("body").inner_text()
+
+    pg.goto(base_url + "/", wait_until="networkidle")
+    assert pg.locator("[data-workspace-card]").count() == before + 1
+    context.close()
+
+
+def test_a_new_card_shows_the_no_data_variant(browser, base_url):
+    """§2′.2's third card: the invitation, and `[ Results ]` / `[ Delete data ]` ABSENT.
+
+    In a browser rather than only in markup because the Inapplicable rule is about what the user
+    can SEE — a control rendered but hidden, or rendered disabled, would satisfy a naive markup
+    check and be the wrong rendering. `is_visible()` is the assertion the rule actually makes.
+    """
+    url = _workspace_url(base_url)
+    workspace_id = url.rstrip("/").split("/")[-2]
+    context, pg = _list_page(browser, base_url)
+
+    card = pg.locator(f'[data-workspace-card][data-workspace-id="{workspace_id}"]')
+    assert card.get_by_text("No data loaded yet.").is_visible()
+    assert card.locator('a[href$="/results"]').count() == 0
+    assert card.locator("[data-delete-data]").count() == 0
+    # The three §2′.2 marks "always" are there and clickable.
+    assert card.locator(f'a[href="/w/{workspace_id}/data"]').is_visible()
+    assert card.locator(f'a[href="/w/{workspace_id}/edit"]').is_visible()
+    assert card.locator("[data-delete-workspace]").is_visible()
+    context.close()
+
+
+def test_the_delete_dialog_names_the_workspace_and_deletes_it(browser, base_url):
+    """§2′.3: the modal opens, quotes the title, and confirming returns to the re-rendered list.
+
+    The title-quoting is the part that needs a browser: one dialog serves every card, and the
+    title is written into it by script from the clicked card's `data-*`. A server-side test cannot
+    see that happen, and getting it wrong would show the wrong household's name above a
+    destructive button — which is exactly the confusion §2′.3 requires the quoting to prevent.
+    """
+    url = _workspace_url(base_url)
+    workspace_id = url.rstrip("/").split("/")[-2]
+    context, pg = _list_page(browser, base_url)
+
+    card = pg.locator(f'[data-workspace-card][data-workspace-id="{workspace_id}"]')
+    title = card.locator("h3").inner_text().strip()
+    card.locator("[data-delete-workspace]").click()
+
+    dialog = pg.locator("#delete-workspace-dialog")
+    assert dialog.is_visible()
+    body = dialog.inner_text()
+    assert f'"{title}"' in body, f"the dialog does not quote the workspace title: {body!r}"
+    assert "This cannot be undone." in body
+
+    # Cancel leaves the workspace alone — the safe path has to work, or the dialog is a trap.
+    dialog.get_by_role("button", name="Cancel").first.click()
+    pg.wait_for_timeout(100)
+    assert card.count() == 1
+
+    # Confirming deletes and returns to the list, where the card is gone.
+    card.locator("[data-delete-workspace]").click()
+    dialog.get_by_role("button", name="Delete analysis").click()
+    pg.wait_for_load_state("networkidle")
+    assert pg.url.rstrip("/") == base_url.rstrip("/")
+    assert pg.locator(f'[data-workspace-card][data-workspace-id="{workspace_id}"]').count() == 0
+    context.close()
+
+
+def test_a_title_with_dollar_sequences_is_quoted_literally_in_the_dialog(browser, base_url):
+    """A `$&` in the title must reach the dialog unchanged (phase-2 review, minor 6).
+
+    `String.replace` gives its REPLACEMENT argument an escape syntax — `$&` re-inserts the matched
+    text, `` $` `` and `$'` the text around it, `$$` a literal `$` — so the original
+    `template.replace(/%\\(title\\)s/g, title)` turned a workspace called `My $& Analysis` into
+    "My %(title)s Analysis": the placeholder reappeared in place of the name. Not a security
+    problem, since the result is assigned with `textContent` and cannot become markup, but the
+    dialog then names the workspace differently from the card that opened it, which defeats the
+    reason §2′.3 quotes the title above a destructive button.
+
+    **Why the title is set from the test rather than through the app.** There is no rename route
+    until phase 3, so every workspace this server can create is called "My analysis". The card's
+    `data-workspace-title` is set here directly, which is precisely the input the dialog script
+    reads — so what is exercised is the substitution, which is where the defect was. The escaping
+    of the title into the DOM is a separate property and is covered by the dialog using
+    `textContent` at all.
+    """
+    url = _workspace_url(base_url)
+    workspace_id = url.rstrip("/").split("/")[-2]
+    context, pg = _list_page(browser, base_url)
+
+    tricky = "My $& $` $' $$ Analysis"
+    card = pg.locator(f'[data-workspace-card][data-workspace-id="{workspace_id}"]')
+    card.locator("[data-delete-workspace]").evaluate(
+        "(el, t) => el.dataset.workspaceTitle = t", tricky
+    )
+    card.locator("[data-delete-workspace]").click()
+
+    body = pg.locator("#delete-workspace-dialog").inner_text()
+    assert f'"{tricky}"' in body, f"the title was mangled by the substitution: {body!r}"
+    # The placeholder must not have reappeared, which is the shape the old bug took.
+    assert "%(title)s" not in body
+    context.close()
+
+
+def test_the_delete_data_dialog_says_what_it_keeps(browser, base_url):
+    """§2′.3: the data dialog must state what survives AND what does not, both truthfully.
+
+    A deletion dialog that says only what it destroys makes the user guess at the rest, which is
+    why the spec writes the kept/not-kept sentence into the copy rather than leaving it implied.
+    Reached here through a workspace that HAS data, since the button is absent otherwise.
+
+    The copy changed in the phase-2 review. It used to promise "your data sources stay chosen",
+    which is false for any slot the user had actually fetched: a fetched slot's source key and HA
+    statistic id live in `series_meta`, which is exactly what a data deletion removes. The dialog
+    now says the sources have to be chosen again, and this asserts BOTH halves — that the settings
+    are kept and that the sources are not — so a revert to the old promise fails here rather than
+    only in the catalog tests.
+
+    This test is also the real-browser check that the delete flow still works at all under the
+    same-site check added in the same review (`app/csrf.py`): the POST below is an ordinary
+    same-origin form submit from the app's own page, and a check that got the header logic wrong
+    would 403 it here.
+    """
+    url = _workspace_url(base_url)
+    workspace_id = url.rstrip("/").split("/")[-2]
+
+    # Give it a dataset the only way this out-of-process server allows: the backend_load slot
+    # route, which loads one series server-side and merges it into a dataset. It is real
+    # persistence through a real route, which is what makes the card's data variant render.
+    import json as _json
+
+    body = _json.dumps({
+        "source": "energy_charts",
+        "window": {"start": "2026-01-01T00:00:00+00:00", "end": "2026-01-03T00:00:00+00:00"},
+    }).encode()
+    req = Request(
+        f"{base_url}/w/{workspace_id}/data/slot/price_spot/load",
+        data=body, headers={"Content-Type": "application/json"}, method="POST",
+    )
+    try:
+        with urlopen(req, timeout=30) as r:
+            assert r.status == 200
+    except Exception as exc:  # the preset source is a network call; skip rather than fail on it
+        pytest.skip(f"could not load a dataset for the data-delete dialog: {exc}")
+
+    context, pg = _list_page(browser, base_url)
+    card = pg.locator(f'[data-workspace-card][data-workspace-id="{workspace_id}"]')
+    title = card.locator("h3").inner_text().strip()
+    card.locator("[data-delete-data]").click()
+
+    dialog = pg.locator("#delete-data-dialog")
+    assert dialog.is_visible()
+    body_text = dialog.inner_text()
+    assert f'"{title}"' in body_text
+    # What is kept…
+    assert "Your connection, contract and battery settings are kept." in body_text
+    # …and what is not, which the old copy claimed survived.
+    assert "choose your data sources again" in body_text
+    assert "stay chosen" not in body_text
+
+    dialog.get_by_role("button", name="Delete data").click()
+    pg.wait_for_load_state("networkidle")
+    # Back on the list, and the card is in its no-data state rather than gone.
+    card = pg.locator(f'[data-workspace-card][data-workspace-id="{workspace_id}"]')
+    assert card.count() == 1
+    assert card.get_by_text("No data loaded yet.").is_visible()
+    context.close()
+
+
+def test_the_empty_list_invites_creation_rather_than_showing_a_phantom(browser, tmp_path_factory):
+    """A FRESH installation shows the empty list, not an analysis the user never made.
+
+    This one runs its own server against its own untouched data directory, because that is the
+    only way to observe a genuinely fresh install: the module-scoped `base_url` server has had
+    workspaces created against it by every test above, so `/` there is never empty again.
+
+    It is the browser counterpart of `tests/test_workspace_list.py`'s route-level version, and it
+    exists for the reason phase 1's changelog records: the fresh-install path is exactly the one
+    seeded fixtures cannot see, and the last defect on it was invisible to the whole non-browser
+    suite.
+    """
+    port = _free_port()
+    url = f"http://127.0.0.1:{port}"
+    env = {**os.environ, "BATTERY_SIM_DATA_DIR": str(tmp_path_factory.mktemp("fresh"))}
+    server = subprocess.Popen(
+        [sys.executable, "-m", "uvicorn", "app.main:app", "--port", str(port),
+         "--log-level", "warning"],
+        cwd=REPO_ROOT, env=env,
+    )
+    try:
+        deadline = time.time() + 20
+        while time.time() < deadline:
+            try:
+                urlopen(url + "/", timeout=1)
+                break
+            except Exception:
+                time.sleep(0.2)
+        else:
+            raise RuntimeError("server did not start")
+
+        context = browser.new_context()
+        context.add_cookies([{"name": "lang", "value": "en", "url": url}])
+        pg = context.new_page()
+        pg.goto(url + "/", wait_until="networkidle")
+
+        assert pg.locator("[data-workspace-card]").count() == 0
+        assert pg.get_by_text("You have no analyses yet.").is_visible()
+        # And the invitation is a working control, not decoration.
+        pg.get_by_role("button", name="+ New analysis").first.click()
+        pg.wait_for_load_state("networkidle")
+        pg.goto(url + "/", wait_until="networkidle")
+        assert pg.locator("[data-workspace-card]").count() == 1
+        context.close()
+    finally:
+        server.terminate()
+        server.wait(timeout=10)

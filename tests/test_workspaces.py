@@ -380,12 +380,29 @@ def test_exception_escaping_a_nested_block_rolls_back_the_whole_outer_transactio
     check.close()
 
 
-def test_delete_leaves_no_rows_when_it_fails_partway(mods):
-    """`workspaces.delete` removes rows from two tables; a failure between them must undo both.
+def test_a_crash_partway_through_delete_leaves_residue_not_a_gutted_workspace(mods):
+    """`delete`'s steps are not atomic with each other, so the ORDER decides the failure mode.
 
-    This is the orphan-row shape finding 6 was about, reached by interruption rather than by a
-    query that missed rows. The `.npz` files are a separate matter and stay non-atomic by the
-    decision recorded in finding 8 — only the rows are covered here.
+    **What this used to assert, and why it was the wrong post-condition.** The previous version
+    ran under the previous ordering — data first, then the workspace row — and asserted that after
+    a crash in between, the workspace row "survives intact", calling that "the honest
+    post-condition: no half-deleted row set, and nothing orphaned". It is not honest and it is not
+    nothing orphaned: the surviving row is a card still on the user's list, still offering
+    `[ Results ]`, whose measurements have silently been destroyed. That presents as corruption of
+    a live analysis.
+
+    It also rested on a docstring claim that was false — that `delete_data`'s block nested into
+    `delete`'s into one transaction. It cannot: `delete_data` opens `dataset.connect()` and
+    `delete` opens `db.connect()`, and `_Connection._depth` is per-connection, so two connection
+    objects never nest. There were always three independent steps.
+
+    **What is asserted now.** The row goes first, so a crash leaves the inverse — the workspace is
+    gone from the index and some data rows or files may remain behind it. That residue is
+    unreachable: nothing lists the workspace, so nothing can open its series, which is the same
+    shape as the orphaned directory the `rmtree` step has always tolerated (finding I3).
+
+    Genuine atomicity is still not claimed anywhere; see `workspaces.delete` for why that trade
+    stands rather than threading one connection through both functions.
     """
     dataset, db, _, workspaces = mods
     from app.domain.simconfig import SimulationConfig
@@ -396,30 +413,31 @@ def test_delete_leaves_no_rows_when_it_fails_partway(mods):
     workspaces.migrate_local()
     db.bump_source_generation(db.WORKSPACE_ID)
 
-    real_rmtree = workspaces.shutil.rmtree
-    calls = {"n": 0}
+    # Crash at the start of the SECOND step, i.e. immediately after the workspace row's own
+    # transaction has committed. Restored by hand: monkeypatch.undo() would also revert the
+    # fixture's BATTERY_SIM_DATA_DIR setenv and send the assertions below at the real ./data.
+    real_delete_data = workspaces.delete_data
 
-    def fail_first(*args, **kwargs):
-        # Fail inside `delete_data`, after its two row deletes have run.
-        calls["n"] += 1
-        if calls["n"] == 1:
-            raise RuntimeError("crash after the row deletes")
-        return real_rmtree(*args, **kwargs)
+    def crash(*args, **kwargs):
+        raise RuntimeError("crash between the row delete and the data delete")
 
-    # Restored by hand: monkeypatch.undo() would also revert the fixture's BATTERY_SIM_DATA_DIR
-    # setenv, sending the assertions below at the real ./data.
-    workspaces.shutil.rmtree = fail_first
+    workspaces.delete_data = crash
     try:
         with pytest.raises(RuntimeError):
             workspaces.delete(db.WORKSPACE_ID)
     finally:
-        workspaces.shutil.rmtree = real_rmtree
+        workspaces.delete_data = real_delete_data
 
-    # delete_data's transaction committed (its block exited cleanly; the rmtree is outside it),
-    # so the dataset rows are gone — but the workspace row was never reached and survives intact,
-    # which is the honest post-condition: no half-deleted row set, and nothing orphaned.
-    assert workspaces.get(db.WORKSPACE_ID) is not None
-    assert db.source_generation(db.WORKSPACE_ID) == 1
+    # The workspace is gone from the index — the user's request, as far as it got.
+    assert workspaces.get(db.WORKSPACE_ID) is None
+    assert workspaces.list_summaries() == []
+    # Its data rows are still on disk, and that is the accepted residue: unreachable, because
+    # nothing lists the workspace they belong to. The inverse — a listed workspace with no data —
+    # is what the previous ordering produced and what this ordering exists to avoid.
+    with dataset.connect() as conn:
+        assert conn.execute(
+            "SELECT COUNT(*) FROM series_meta WHERE workspace_id = ?", (db.WORKSPACE_ID,)
+        ).fetchone()[0] > 0
 
 
 # ── The two new config fields ────────────────────────────────────────────────────────────────
@@ -490,3 +508,56 @@ def test_pricing_configured_is_false_without_any_document(mods):
     """No stored config at all → blocked, which is the safe direction (§2′.6)."""
     _, _, simconfig_store, _ = mods
     assert simconfig_store.is_pricing_configured() is False
+
+
+# ── The migration's check-then-act race (phase 2 review, should-fix 3) ───────────────────────
+
+def test_concurrent_migrations_insert_exactly_one_row_and_none_of_them_raise(mods):
+    """`migrate_local` is safe to run from several starting processes at once.
+
+    **The shape this guards.** Written as `SELECT COUNT(*)`, connection released, then `create()`,
+    the migration is a check-then-act race: two uvicorn workers (or two threads) starting together
+    both read an empty table and both insert `local`, and the loser gets
+    `IntegrityError: UNIQUE constraint failed: workspaces.id`. It was reproduced at this width —
+    2 failures in 6 runs — before the count and the insert were put in one transaction.
+
+    **Why it mattered more than a swallowed exception usually does.** `app/main.py`'s lifespan
+    catches it broadly and logs `workspace migration failed (ignored)`, and that message tells the
+    reader an installation may have been left unadopted. The adoption had in fact succeeded; the
+    log said otherwise, during the one startup step where a frightening log would be believed.
+
+    **Why the suite never saw it.** Both conditions are needed: an empty `workspaces` table AND
+    something on disk under `local` to adopt. Every other migration test runs single-threaded, so
+    the window is real but never entered. This one arranges a genuine pre-index directory (a saved
+    config, no workspace row) and enters it deliberately.
+
+    Two assertions, and the second is the one that would catch a "fix" that merely swallowed the
+    error: exactly ONE row exists afterwards, and exactly one call reports having inserted it.
+    """
+    import threading
+
+    _, _, simconfig_store, workspaces = mods
+    # A genuine pre-index installation: a config document under `local`, no workspaces row.
+    simconfig_store.save(simconfig_store.load("local"), "local")
+
+    errors: list[Exception] = []
+    inserted: list[bool] = []
+    barrier = threading.Barrier(16)
+
+    def run():
+        # Line the threads up so they contend, rather than serialising on thread start-up.
+        barrier.wait()
+        try:
+            inserted.append(workspaces.migrate_local())
+        except Exception as exc:  # noqa: BLE001 - the failure this test is about
+            errors.append(exc)
+
+    threads = [threading.Thread(target=run) for _ in range(16)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert errors == [], f"migrate_local raced: {errors!r}"
+    assert inserted.count(True) == 1, "more than one caller claimed to have adopted `local`"
+    assert [s.id for s in workspaces.list_summaries()] == ["local"]

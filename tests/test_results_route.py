@@ -36,7 +36,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from app.domain.frames import QUALITY_DTYPE, SeriesFrame
-from tests.conftest import seed_workspace, w
+from tests.conftest import page, seed_workspace, w
 
 # A fixed hourly window so totals are exact: 30 days × 24 h of 1 h intervals from 2026-01-01 UTC.
 _DAYS = 30
@@ -176,7 +176,7 @@ def test_index_renders_data_glance_inside_panel_1(client):
     # §2.3a: the full-coverage "Your data at a glance" figures render INSIDE panel ① — after the
     # Data-quality box, before the "Next: parameters →" CTA — not as a band between panels ① and ②.
     # (It used to be _panel_summary.html, included from index.html; that wrapper is gone.)
-    r = client.get("/")
+    r = client.get(page())
     assert r.status_code == 200
     body = r.text
     quality = body.index("Data quality")
@@ -200,8 +200,8 @@ def test_data_glance_is_translated_in_both_copies(client):
     #
     # Request English FIRST — that ordering is what reproduces it. Rendering Dutch first would
     # freeze the macro on Dutch and the Dutch assertions below would pass with the bug present.
-    assert "Your data at a glance" in client.get("/", headers={"Cookie": "lang=en"}).text
-    r = client.get("/", headers={"Cookie": "lang=nl"})
+    assert "Your data at a glance" in client.get(page(), headers={"Cookie": "lang=en"}).text
+    r = client.get(page(), headers={"Cookie": "lang=nl"})
     assert r.status_code == 200
     assert "Je gegevens in één oogopslag" in r.text  # the section title (panel ①)
     assert ">Net<" in r.text and ">Huishouden<" in r.text  # group headings from the macro body
@@ -233,7 +233,7 @@ def test_slot_info_dialog_is_at_page_level(client):
     # subtree still enters the top layer on showModal() — blocking every click on the page — but is
     # never painted. Collapsing panel ① and clicking any ⓘ in panel ③'s glance copy then froze the
     # page with no popup. It must sit at page level, outside every `.collapse`.
-    body = client.get("/").text
+    body = client.get(page()).text
     assert body.count('id="slot-info-dialog"') == 1
     dialog_at = body.index('id="slot-info-dialog"')
     # The panels live in <main>; the shared dialogs come after it. #pending-dialog is already
@@ -586,7 +586,7 @@ def test_the_money_benchmark_box_renders_from_the_shared_partial(cost_client):
     A short window (a 7-day preset over a 30-day dataset) keeps the four DP passes cheap.
     """
     client, _ = cost_client
-    r = client.get("/")
+    r = client.get(page())
     assert r.status_code == 200
     # The lazy path: the initial paint carries the money slot as a PLACEHOLDER, not a computed
     # box — the heading and the spinner, none of the figures.

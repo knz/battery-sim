@@ -1,5 +1,12 @@
 {#
-  index.html — the single-page shell for the Home Battery Simulator (specs/02-ux-wireframes.md §2.1).
+  index.html — the three-panel page for ONE workspace (specs/02-ux-wireframes.md §2.1).
+
+  It used to be the app's home screen at `GET /`. Phase 2 of the workspaces restructure moved it
+  to `GET /w/{id}/results` and gave `/` to the workspace list (workspaces.html,
+  specs/20-workspaces-ux.md §2′.2); nothing else about it changed, and phase 4 splits it into the
+  configure-data screen (§2′.5) and the results screen (§2′.6). The header therefore carries a
+  link back to the list, and no longer carries the `[workspace: local]` badge or the `[⚙]` — see
+  the header block below.
 
   Renders the header, the setup band (§2.1 — the has_pv / simulate_cost scope choices), and
   the three stacked stepper panels. Panels ① and ② are collapsed to their one-line summaries;
@@ -37,7 +44,12 @@
 
   {# ── Header ─────────────────────────────────────────────────────────────────── #}
   <header class="navbar bg-base-100 border-b border-base-300 px-4 lg:px-8">
-    <div class="flex-1">
+    <div class="flex-1 items-baseline gap-3">
+      {# Back to the list. This page is no longer the app's entry point, so without a way back the
+         only route to the other analyses is the browser's Back button (§2′.2's list is the home
+         screen). §2′.4's screens carry a "← Your analyses" breadcrumb; this is the same idea on
+         the one screen phase 2 relocated. #}
+      <a class="btn btn-ghost btn-sm px-2" href="/">{{ _('← Your analyses') }}</a>
       <span class="text-lg font-semibold">{{ _('Home Battery Simulator') }}</span>
     </div>
     <div class="flex-none items-center gap-2">
@@ -50,8 +62,10 @@
            {% if opt.code == lang.current %}aria-current="true"{% endif %}>{{ opt.label }}</a>
         {% endfor %}
       </div>
-      <span class="badge badge-ghost">{{ _('workspace: local') }}</span>
-      <button class="btn btn-ghost btn-square btn-sm" aria-label="{{ _('Settings') }}">⚙</button>
+      {# The `[workspace: local]` badge and the `[⚙]` button were removed here in phase 2 (§2′.2).
+         The badge named the single implicit workspace and has nothing left to say once the list
+         at `/` exists; the gear was never wired to anything. The header keeps the title and the
+         language toggle, on this screen and on the list. #}
     </div>
   </header>
 
