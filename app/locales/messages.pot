@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-26 21:10+0200\n"
+"POT-Creation-Date: 2026-07-26 21:36+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -91,11 +91,25 @@ msgstr[0] ""
 msgstr[1] ""
 
 #, python-format
+msgid "%(n)s value overridden"
+msgid_plural "%(n)s values overridden"
+msgstr[0] ""
+msgstr[1] ""
+
+#, python-format
 msgid "%(n)ss"
 msgstr ""
 
 #, python-format
 msgid "%(pct)s of intervals had negative reconstructed load (clamped to 0)."
+msgstr ""
+
+#, python-format
+msgid "%(phases)s × %(fuse)s A  (%(kw)s kW)"
+msgstr ""
+
+#, python-format
+msgid "%(phases)s × %(fuse)s A  (%(kw)s kW) — your stored setting"
 msgstr ""
 
 #, python-format
@@ -344,6 +358,9 @@ msgstr ""
 msgid "Connecting…"
 msgstr ""
 
+msgid "Connection"
+msgstr ""
+
 #, python-format
 msgid ""
 "Connection failed. Check the URL, and that your browser trusts the "
@@ -428,6 +445,12 @@ msgstr ""
 msgid "Delete this analysis?"
 msgstr ""
 
+msgid "Discard changes"
+msgstr ""
+
+msgid "Discard your changes?"
+msgstr ""
+
 msgid "Discharge battery to cover house load"
 msgstr ""
 
@@ -461,6 +484,9 @@ msgid "EQUIVALENT FULL CYCLES"
 msgstr ""
 
 msgid "Economic guard: never discharge at a loss"
+msgstr ""
+
+msgid "Edit analysis"
 msgstr ""
 
 msgid "Enable cost simulation"
@@ -657,6 +683,9 @@ msgstr ""
 msgid "Intervals battery was full / empty"
 msgstr ""
 
+msgid "Keep editing"
+msgstr ""
+
 msgid "Language"
 msgstr ""
 
@@ -673,6 +702,9 @@ msgstr ""
 msgid "Loading…"
 msgstr ""
 
+msgid "Location"
+msgstr ""
+
 msgid "Lost feed-in compensation"
 msgstr ""
 
@@ -683,6 +715,12 @@ msgid "Max charge power"
 msgstr ""
 
 msgid "Max discharge power"
+msgstr ""
+
+msgid "Max export"
+msgstr ""
+
+msgid "Max import"
 msgstr ""
 
 msgid "Max state of charge"
@@ -726,7 +764,13 @@ msgid ""
 "resolution."
 msgstr ""
 
+msgid "Name"
+msgstr ""
+
 msgid "Net saving"
+msgstr ""
+
+msgid "Next →"
 msgstr ""
 
 msgid "Next: parameters →"
@@ -747,7 +791,13 @@ msgstr ""
 msgid "Not connected"
 msgstr ""
 
+msgid "On your meter cabinet, or on your grid operator bill."
+msgstr ""
+
 msgid "One conversion PV→battery"
+msgstr ""
+
+msgid "Only a label, so you can tell your analyses apart."
 msgstr ""
 
 msgid ""
@@ -784,6 +834,9 @@ msgid ""
 " than the benchmark's dispatch does."
 msgstr ""
 
+msgid "Override these only if your operator has set a different limit."
+msgstr ""
+
 msgid "PARAMETERS"
 msgstr ""
 
@@ -806,6 +859,9 @@ msgid ""
 "Please tell us about your setup — inverter model, phase allocation, and "
 "whether you have per-phase sensors. It directly determines whether this "
 "lands in version 2."
+msgstr ""
+
+msgid "Postcode"
 msgstr ""
 
 msgid "Preset"
@@ -866,6 +922,9 @@ msgid "Round-trip efficiency must be above 50 and at most 100."
 msgstr ""
 
 msgid "SELF-SUFFICIENCY"
+msgstr ""
+
+msgid "Save"
 msgstr ""
 
 msgid "Secondary metrics"
@@ -1121,6 +1180,11 @@ msgid ""
 "restarts. Check that the data directory is writable."
 msgstr ""
 
+msgid ""
+"These settings could not be saved and will be lost when the app restarts."
+" Check that the data directory is writable."
+msgstr ""
+
 msgid "This answer decides whether the app reports euros as well as kWh."
 msgstr ""
 
@@ -1172,6 +1236,9 @@ msgid ""
 "it."
 msgstr ""
 
+msgid "Title"
+msgstr ""
+
 msgid "To"
 msgstr ""
 
@@ -1190,6 +1257,9 @@ msgstr ""
 msgid "Two conversions PV→battery"
 msgstr ""
 
+msgid "Type"
+msgstr ""
+
 msgid "Update"
 msgstr ""
 
@@ -1200,6 +1270,11 @@ msgid "Usable capacity"
 msgstr ""
 
 msgid "Usable capacity must be greater than zero."
+msgstr ""
+
+msgid ""
+"Used to work out sunrise and sunset at your address. Nothing is sent "
+"anywhere — the calculation is local."
 msgstr ""
 
 msgid ""
@@ -1223,6 +1298,11 @@ msgid "Where the money comes from"
 msgstr ""
 
 msgid "Yes"
+msgstr ""
+
+msgid ""
+"You have changes on this screen that have not been saved. Leaving now "
+"discards them."
 msgstr ""
 
 msgid "You have no analyses yet."
@@ -1396,6 +1476,12 @@ msgid ""
 msgstr ""
 
 msgid "as your meter recorded them"
+msgstr ""
+
+msgid "blank = derived from the connection"
+msgstr ""
+
+msgid "blank = same as import"
 msgstr ""
 
 msgid "change"
@@ -1597,6 +1683,9 @@ msgid "…if export allowed"
 msgstr ""
 
 msgid "€"
+msgstr ""
+
+msgid "← Previous"
 msgstr ""
 
 msgid "← Your analyses"

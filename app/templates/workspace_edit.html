@@ -1,0 +1,472 @@
+{#
+  workspace_edit.html — the edit-workspace screen (specs/20-workspaces-ux.md §2′.4, §2′.8).
+
+  `GET /w/{id}/edit` renders this; `POST /w/{id}/edit` validates, persists and redirects, or
+  re-renders this with the submitted values and their errors. The view-model is
+  `app/workspace_edit_view.py`; the coercion, validation and persistence layers are shared with
+  panel ② (`params_view.parse_form`, `simconfig_store.save`) and not duplicated anywhere here.
+
+  Four boxes, in §2′.4's order: Name, Location, Grid connection, Contract. Plus the footer, which
+  is §2′.8's and comes in two modes — `[ Cancel ] [ Save ]` from a card, `[ ← Previous ] [ Next → ]`
+  in the wizard — selected by `view.wizard`.
+
+  **A real full-page form, not a fragment.** Unlike `_panel_params.html` this is not swapped into
+  a running page: it POSTs, and a successful POST redirects. That is the whole reason phase 3 gave
+  this screen its own route instead of reusing `POST /params`, which returns a panel fragment for
+  an `outerHTML` swap.
+
+  ## Four rules in here that are easy to break
+
+  **The connection `<select>` must not snap.** Its options come from
+  `workspace_edit_view.connection_options`, which appends the stored combination as an extra,
+  marked, selected entry when it matches none of §2′.4's ten presets. That entry is rendered from
+  the same loop as the rest, so nothing here can drop it. Snapping a stored `1×20 A` to `1×25 A`
+  would raise `max_import_kw` by 1.15 kW without telling anyone.
+
+  **The Contract box is ALWAYS drawn and never greyed**, whatever `simulate_cost` says. §2′.4
+  states this as a deliberate exception to §2.3's Inapplicable rule: the contract is a standing
+  fact about the household rather than an input to the current run, and it is what unblocks the
+  cost toggle on the results screen (§2′.6) — greying it while cost simulation is off would make
+  the two controls mutually blocking. There is deliberately no `simulate_cost` conditional
+  anywhere below. FIXED and VARIABLE are still PENDING controls (disabled, `[?]`, feature keys from
+  `app/features.py`), exactly as panel ② renders them.
+
+  **The advanced panes are `<details>`, not conditionals.** Collapsing is a DISPLAY state and must
+  never be a reset (§2′.4): a `<details>` keeps its contents in the DOM and in the submitted form
+  body, whereas rendering them only when open would submit a collapsed pane as a screenful of
+  cleared fields — silently wiping every override the user had. Each pane's summary carries an
+  "N values overridden" count for the same section's reason: a non-default value must not be able
+  to hide behind a closed box.
+
+  **The `sections` marker must list only the controls this screen actually draws.** It is what
+  lets `params_view.parse_form` tell an unticked checkbox from an absent one, and every checkbox
+  in the parser is gated on it — so over-claiming a section CLEARS the stored value of a checkbox
+  this screen never rendered. Phase 3 shipped `value="grid pricing_advanced"`, which cleared
+  `policy.economic_guard` on every save, and the ungated `topology.approximated` branch cleared
+  that too. The marker below is `grid pricing_advanced`, and adding a name to it is only correct
+  alongside the control that name covers.
+#}
+<!doctype html>
+<html lang="{{ lang.current }}" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ _('Edit analysis') }}</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="min-h-screen bg-base-200 text-base-content">
+
+  {# One field's inline messages, under its input — the same shape and the same source
+     (`params_view.field_messages`) as panel ②'s macro of the same name. #}
+  {% macro field_messages(f) %}
+    {% for msg in f.errors %}
+    <p class="text-xs text-error" data-field-error="{{ f.name }}">{{ _(msg) }}</p>
+    {% endfor %}
+    {% for msg in f.warnings %}
+    <p class="text-xs text-warning" data-field-warning="{{ f.name }}">{{ _(msg) }}</p>
+    {% endfor %}
+  {% endmacro %}
+
+  {% macro num_field(f, label, unit='', hint='', width='w-24', label_width='w-44') %}
+  <div class="flex flex-col gap-1">
+    <div class="flex flex-wrap items-center gap-2">
+      <span class="{{ label_width }} label-text">{{ label }}</span>
+      <input type="text" inputmode="decimal" name="{{ f.name }}"
+             class="input input-bordered input-xs {{ width }} text-right{% if f.invalid %} input-error{% endif %}"
+             value="{{ f.value }}"
+             aria-label="{{ label }}"
+             {% if f.invalid %}aria-invalid="true"{% endif %} />
+      {% if unit %}<span class="text-sm text-base-content/60">{{ unit }}</span>{% endif %}
+      {% if hint %}<span class="text-xs text-base-content/50">ⓘ {{ hint }}</span>{% endif %}
+    </div>
+    {{ field_messages(f) }}
+  </div>
+  {% endmacro %}
+
+  <header class="navbar bg-base-100 border-b border-base-300 px-4 lg:px-8">
+    <div class="flex-1">
+      {# The back link. §2′.8: present on every screen in both modes, and it behaves as
+         `[ Cancel ]` on the current screen — so the dirty check guards it too (script below). #}
+      <a class="btn btn-ghost btn-sm" href="/" data-leave>{{ _('← Your analyses') }}</a>
+    </div>
+    <div class="flex-none items-center gap-2">
+      <div class="join" role="group" aria-label="{{ _('Language') }}">
+        {% for opt in lang.options %}
+        <a class="btn btn-xs join-item {% if opt.code == lang.current %}btn-active{% endif %}"
+           href="/lang/{{ opt.code }}"
+           {% if opt.code == lang.current %}aria-current="true"{% endif %}>{{ opt.label }}</a>
+        {% endfor %}
+      </div>
+    </div>
+  </header>
+
+  <main class="mx-auto flex max-w-3xl flex-col gap-4 p-4 lg:p-8">
+    <h1 class="text-xl font-semibold">{{ _('Edit analysis') }}</h1>
+
+    <form id="edit-form" method="post"
+          action="/w/{{ workspace_id | urlencode }}/edit{% if view.wizard %}?mode=wizard{% endif %}"
+          class="flex flex-col gap-4">
+      {# Which CONTROLS this render drew, echoed back so `params_view._section` can tell an
+         unticked checkbox from a control this screen never showed. A marker names a set of
+         controls, not a topic (see `_section`), and this screen must claim only what it draws:
+         `pricing_advanced` covers the one checkbox here, `pricing.dal_weekends`, so unticking
+         `+ weekends` takes effect. It must NOT claim `pricing`, which names panel ②'s
+         `policy.economic_guard` checkbox — this screen never draws that box, and claiming it
+         cleared the user's stored guard on every save. Nor `topology`, for the same reason and
+         with the same consequence for `topology.approximated`. The value is constant here, but is
+         still emitted rather than assumed, because the parser reads it. #}
+      <input type="hidden" name="sections" value="grid pricing_advanced" />
+
+      {# Blocking issues keyed to a field this screen does not draw (a battery setting, say).
+         Surfaced rather than dropped: the save refuses to happen, so something must say why. #}
+      {% if view.other_errors %}
+      <div role="alert" class="alert alert-error py-2 text-sm">
+        <span>{% for msg in view.other_errors %}{{ _(msg) }} {% endfor %}</span>
+      </div>
+      {% endif %}
+
+      {% if view.save_error %}
+      <div role="alert" class="alert alert-warning py-2 text-sm">
+        <span>{{ _('These settings could not be saved and will be lost when the app restarts. Check that the data directory is writable.') }}</span>
+      </div>
+      {% endif %}
+
+      {# ── Name ─────────────────────────────────────────────────────────────
+           The workspace title — the `workspaces` table row, not the config document. It is the
+           one field on this screen written through `workspaces.rename`. #}
+      <div class="card bg-base-100 border border-base-300">
+        <div class="card-body gap-2 p-4">
+          <h2 class="text-sm font-semibold text-base-content/70">{{ _('Name') }}</h2>
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="w-28 label-text">{{ _('Title') }}</span>
+            <input type="text" name="title" id="edit-title"
+                   class="input input-bordered input-sm w-full max-w-md"
+                   value="{{ view.title }}" aria-label="{{ _('Title') }}" />
+          </div>
+          <p class="text-xs text-base-content/50">
+            ⓘ {{ _('Only a label, so you can tell your analyses apart.') }}
+          </p>
+        </div>
+      </div>
+
+      {# ── Location ─────────────────────────────────────────────────────────
+           LIVE, not pending (§2′.4's "The zip code"): enabled, editable and persisted, even
+           though nothing reads it yet. It is deliberately NOT a pending control — pending means
+           "specified but not built" and offers a [?] to register interest, and neither fits a
+           field that works exactly as it appears and simply has no reader. The stored string is
+           kept as typed; §2′.4 leaves format validation open. #}
+      <div class="card bg-base-100 border border-base-300">
+        <div class="card-body gap-2 p-4">
+          <h2 class="text-sm font-semibold text-base-content/70">{{ _('Location') }}</h2>
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="w-28 label-text">{{ _('Postcode') }}</span>
+            <input type="text" name="postcode" id="edit-postcode"
+                   class="input input-bordered input-sm w-32"
+                   value="{{ view.postcode }}" aria-label="{{ _('Postcode') }}"
+                   placeholder="1012 AB" />
+          </div>
+          <p class="text-xs text-base-content/50">
+            ⓘ {{ _('Used to work out sunrise and sunset at your address. Nothing is sent anywhere — the calculation is local.') }}
+          </p>
+        </div>
+      </div>
+
+      {# ── Grid connection ──────────────────────────────────────────────────
+           One dropdown replacing §2.3's phases radio + free-text fuse field. Each option writes
+           BOTH `grid.phases` and `grid.fuse_a`, carried as one `"<phases>:<fuse>"` token so the
+           pair cannot disagree. See the header comment on why an off-list stored value gets its
+           own entry rather than being snapped. #}
+      <div class="card bg-base-100 border border-base-300">
+        <div class="card-body gap-3 p-4">
+          <h2 class="text-sm font-semibold text-base-content/70">{{ _('Grid connection') }}</h2>
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="w-28 label-text">{{ _('Connection') }}</span>
+            <select name="grid.connection" id="edit-connection"
+                    class="select select-bordered select-sm w-72"
+                    aria-label="{{ _('Connection') }}">
+              {% for o in view.connection_options %}
+              <option value="{{ o.value }}"{% if o.selected %} selected{% endif %}
+                      {% if o.off_list %}data-off-list="1"{% endif %}>{{ _(o.label) | interpolate(phases=o.phases, fuse=o.fuse, kw=o.kw) }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <p class="text-xs text-base-content/50">
+            ⓘ {{ _('On your meter cabinet, or on your grid operator bill.') }}
+          </p>
+          {{ field_messages(view.grid_advanced.max_import_override) }}
+
+          {# Advanced — `<details>`, so the inputs stay in the DOM and in the form body when it is
+             closed. See the header comment: conditional rendering here would submit a collapsed
+             pane as cleared fields. #}
+          <details class="rounded-box border border-base-300 p-3" data-advanced>
+            <summary class="cursor-pointer text-xs font-semibold uppercase">
+              {{ _('Advanced') }}
+              {% if view.grid_advanced.overridden %}
+              <span class="ml-2 badge badge-sm badge-warning" data-overridden-count>{{ ngettext('%(n)s value overridden', '%(n)s values overridden', view.grid_advanced.overridden) | interpolate(n=view.grid_advanced.overridden) }}</span>
+              {% endif %}
+            </summary>
+            <div class="mt-3 flex flex-col gap-2">
+              {{ num_field(view.grid_advanced.max_import_override, _('Max import'), 'kW',
+                           _('blank = derived from the connection'), 'w-24', 'w-32') }}
+              {{ num_field(view.grid_advanced.max_export, _('Max export'), 'kW',
+                           _('blank = same as import'), 'w-24', 'w-32') }}
+              <p class="text-xs text-base-content/60">
+                {{ _('Override these only if your operator has set a different limit.') }}
+              </p>
+            </div>
+          </details>
+        </div>
+      </div>
+
+      {# ── Contract ─────────────────────────────────────────────────────────
+           ALWAYS SHOWN, NEVER GREYED — whatever `simulate_cost` currently is (§2′.4, and the
+           header comment for the three reasons). There is deliberately no gate on this box.
+
+           FIXED and VARIABLE render pending: disabled radios with a [?] that opens the shared
+           #pending-dialog below, reusing app/features.py's existing keys for the same two
+           controls in panel ②. #}
+      <div class="card bg-base-100 border border-base-300">
+        <div class="card-body gap-3 p-4">
+          <h2 class="text-sm font-semibold text-base-content/70">{{ _('Contract') }}</h2>
+          <div class="flex flex-wrap items-center gap-3">
+            <span class="w-28 label-text">{{ _('Type') }}</span>
+            <button type="button" class="btn btn-ghost btn-xs btn-circle align-middle"
+                    aria-label="{{ _('About the contract types') }}"
+                    data-info-title="{{ _('Contract types') }}"
+                    data-info-body="{{ _('Dynamic — the price follows the EPEX day-ahead market and changes every hour. Fixed — one normaal and one dal rate, agreed for the term of the contract. Variable — the supplier sets the rate and revises it periodically, typically every six months; between revisions it behaves exactly like a fixed contract.') }}">ⓘ</button>
+            {% for c in view.contracts %}
+            <label class="label gap-1{% if not c.pending %} cursor-pointer{% endif %}">
+              <input type="radio" name="pricing.contract" value="{{ c.key }}" class="radio radio-sm"
+                     {% if c.selected %}checked{% endif %}{% if c.pending %} disabled{% endif %} />
+              <span class="label-text{% if c.pending %} text-base-content/50{% endif %}">{{ _(c.label) }}</span>
+              {% if c.pending %}
+              <button type="button" class="btn btn-ghost btn-xs"
+                      data-pending-name="{{ _(c.label) }}" data-feature-key="{{ c.feature_key }}">[?]</button>
+              {% endif %}
+            </label>
+            {% endfor %}
+          </div>
+
+          <details class="rounded-box border border-base-300 p-3" data-advanced>
+            <summary class="cursor-pointer text-xs font-semibold uppercase">
+              {{ _('Advanced') }}
+              {% if view.pricing_overridden %}
+              <span class="ml-2 badge badge-sm badge-warning" data-overridden-count>{{ ngettext('%(n)s value overridden', '%(n)s values overridden', view.pricing_overridden) | interpolate(n=view.pricing_overridden) }}</span>
+              {% endif %}
+            </summary>
+            <div class="mt-3 flex flex-col gap-2">
+              {% set pa = view.pricing_advanced %}
+              {{ num_field(pa['pricing.supplier_markup'], _('Supplier markup'), '€/kWh', _('excl. VAT')) }}
+              {{ num_field(pa['pricing.energy_tax_excl_vat'], _('Energy tax'), '€/kWh', _('excl. VAT — 2026 value')) }}
+              {# Stored as a fraction (0.21), shown as 21 — the conversion is `_pct_to_frac` in
+                 `params_view.FIELDS` and its inverse on the way out, shared with panel ② so the
+                 two directions cannot drift. #}
+              {{ num_field(pa['pricing.vat_rate'], _('VAT'), '%', '', 'w-16') }}
+
+              <div class="rounded-box border border-base-300 p-3">
+                <h3 class="mb-2 text-xs font-semibold uppercase">{{ _('Feed-in') }}</h3>
+                <p class="mb-2 text-xs text-base-content/60">{{ _('compensation = max(0, α × bare + β)') }}</p>
+                {{ num_field(pa['pricing.feedin_alpha'], _('α'), '', '', 'w-20') }}
+                {{ num_field(pa['pricing.feedin_beta'], _('β'), '€/kWh', '', 'w-24') }}
+                {{ num_field(pa['pricing.tlk_eur_per_kwh'], _('Terugleverkosten'), '€/kWh', _('flat, per fed-in kWh')) }}
+                <p class="mt-2 text-xs text-base-content/60">
+                  ⓘ {{ _('2027 tariffs are not yet published. These values are estimates.') }}
+                </p>
+              </div>
+
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="w-44 label-text">{{ _('Day/night window') }}</span>
+                <span class="text-sm">{{ _('dal from') }}</span>
+                <input type="text" inputmode="decimal" name="{{ pa['pricing.dal_start_hour'].name }}"
+                       class="input input-bordered input-xs w-16 text-right{% if pa['pricing.dal_start_hour'].invalid %} input-error{% endif %}"
+                       value="{{ pa['pricing.dal_start_hour'].value }}" aria-label="{{ _('dal from') }}" />
+                <span class="text-sm">{{ _('to') }}</span>
+                <input type="text" inputmode="decimal" name="{{ pa['pricing.dal_end_hour'].name }}"
+                       class="input input-bordered input-xs w-16 text-right{% if pa['pricing.dal_end_hour'].invalid %} input-error{% endif %}"
+                       value="{{ pa['pricing.dal_end_hour'].value }}" aria-label="{{ _('to') }}" />
+                <span class="text-sm text-base-content/60">{{ _('h') }}</span>
+                <label class="label cursor-pointer gap-2">
+                  <input type="checkbox" name="pricing.dal_weekends" value="1" class="checkbox checkbox-sm"
+                         {% if view.dal_weekends %}checked{% endif %} />
+                  <span class="label-text">{{ _('+ weekends') }}</span>
+                </label>
+              </div>
+              {{ field_messages(pa['pricing.dal_start_hour']) }}
+              {{ field_messages(pa['pricing.dal_end_hour']) }}
+              {{ num_field(pa['pricing.degradation_eur_per_kwh'], _('Degradation cost'), '€/kWh',
+                           _('per kWh throughput; 0 disables it')) }}
+            </div>
+          </details>
+        </div>
+      </div>
+
+      {# ── Footer (§2′.8) ───────────────────────────────────────────────────
+           Two modes, differing only here. From a card: `[ Cancel ]` (discard this screen's edits
+           and return to the list — it never deletes the workspace) and `[ Save ]`. In the wizard:
+           `[ ← Previous ]`, which on step 1 returns to the list keeping what was entered, and
+           `[ Next → ]`, which PERSISTS and advances — the wizard is not a transaction held in
+           memory, so an interrupted one leaves a usable workspace.
+
+           The left button in both modes leaves the screen, so both carry `data-leave` and are
+           guarded by the dirty check. The right button persists in both modes and is not. #}
+      <div class="flex items-center justify-between pt-2" data-footer>
+        {% if view.wizard %}
+        <a class="btn btn-ghost btn-sm" href="/" data-leave>{{ _('← Previous') }}</a>
+        <button type="submit" class="btn btn-primary btn-sm">{{ _('Next →') }}</button>
+        {% else %}
+        <a class="btn btn-ghost btn-sm" href="/" data-leave>{{ _('Cancel') }}</a>
+        <button type="submit" class="btn btn-primary btn-sm">{{ _('Save') }}</button>
+        {% endif %}
+      </div>
+    </form>
+  </main>
+
+  {# ── The unsaved-changes dialog (§2′.8). Page-level, for the same top-layer reason index.html
+       documents at its own #slot-info-dialog. `[ Keep editing ]` has the default focus: the safe
+       option is the one Enter takes. Shown only when the form is actually dirty — an
+       unconditional prompt would be noise on the common case of opening the screen to look. #}
+  <dialog id="discard-dialog" class="modal">
+    <div class="modal-box">
+      <h3 class="text-lg font-bold">{{ _('Discard your changes?') }}</h3>
+      <p class="py-3 text-sm">
+        {{ _('You have changes on this screen that have not been saved. Leaving now discards them.') }}
+      </p>
+      <div class="modal-action">
+        <form method="dialog">
+          <button class="btn btn-ghost btn-sm" autofocus>{{ _('Keep editing') }}</button>
+        </form>
+        <button type="button" id="discard-confirm" class="btn btn-error btn-sm">{{ _('Discard changes') }}</button>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>{{ _('Keep editing') }}</button></form>
+  </dialog>
+
+  {# The shared info dialog, for the ⓘ beside the contract radios. Same shape as index.html's
+     #slot-info-dialog; this screen carries its own copy because it is a separate page. #}
+  <dialog id="info-dialog" class="modal">
+    <div class="modal-box">
+      <h3 id="info-title" class="text-lg font-bold"></h3>
+      <p id="info-body" class="py-3 text-sm"></p>
+      <div class="modal-action">
+        <form method="dialog"><button class="btn btn-ghost btn-sm">{{ _('close') }}</button></form>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>{{ _('close') }}</button></form>
+  </dialog>
+
+  {# The "Not built yet" dialog — the pending affordance (§2.1), for the two unbuilt contract
+     types. Identical to index.html's; the thumbs-up POSTs to /feature-interest/{key}. #}
+  <dialog id="pending-dialog" class="modal" data-feature-key="">
+    <div class="modal-box">
+      <h3 class="text-lg font-bold">{{ _('Not built yet') }}</h3>
+      <p class="py-2">
+        <span id="pending-control-name" class="font-medium">{{ _('This control') }}</span>
+        {{ _('is part of the plan for this simulator, but it is not built yet. The app is being written one feature at a time and this one has not been reached.') }}
+      </p>
+      <p class="pb-2 text-sm text-base-content/70">
+        {{ _('If you would use it, say so. It tells us what to build next, and it is the only signal we get.') }}
+      </p>
+      <p id="pending-thanks" class="pb-2 text-sm text-success hidden">
+        {{ _('Thanks. We have recorded that you want this.') }}
+      </p>
+      <div class="modal-action">
+        <button id="pending-thumbsup" class="btn btn-primary btn-sm">{{ _('👍 I want this') }}</button>
+        <form method="dialog"><button class="btn btn-ghost btn-sm">{{ _('close') }}</button></form>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>{{ _('close') }}</button></form>
+  </dialog>
+
+  <script>
+  (function () {
+    // §2′.8's dirty check. Anything that LEAVES this screen with unsaved edits is guarded —
+    // `[ Cancel ]`, `[ ← Previous ]` and the back link, all marked `data-leave`. `[ Save ]` and
+    // `[ Next → ]` persist and are deliberately not guarded.
+    //
+    // "Dirty" is a straight comparison against the form's serialised state at load, so opening
+    // the screen and leaving without touching anything never prompts — §2′.8 is explicit that an
+    // unconditional prompt would be noise on the common case.
+    var form = document.getElementById('edit-form');
+    var dialog = document.getElementById('discard-dialog');
+    var pendingHref = null;
+
+    function snapshot() {
+      // URLSearchParams over FormData: order is the DOM's and therefore stable between calls, so
+      // string equality is a sound dirty test. Note a <details> that is merely CLOSED still
+      // contributes its inputs here, which is the same property that makes a collapsed pane
+      // round-trip rather than submit as cleared.
+      return new URLSearchParams(new FormData(form)).toString();
+    }
+    var initial = snapshot();
+
+    document.addEventListener('click', function (ev) {
+      var leave = ev.target.closest && ev.target.closest('[data-leave]');
+      if (!leave) return;
+      if (snapshot() === initial) return;  // nothing typed: leave immediately
+      ev.preventDefault();
+      pendingHref = leave.getAttribute('href');
+      dialog.showModal();
+    });
+
+    document.getElementById('discard-confirm').addEventListener('click', function () {
+      dialog.close();
+      if (pendingHref) window.location.href = pendingHref;
+    });
+  })();
+
+  (function () {
+    // The ⓘ info dialog. Delegated, same contract as index.html's `.slot-info-btn` handler:
+    // the button carries its title and body as data-* so the copy stays server-rendered and
+    // therefore translated.
+    var dialog = document.getElementById('info-dialog');
+    var title = document.getElementById('info-title');
+    var body = document.getElementById('info-body');
+    document.addEventListener('click', function (ev) {
+      var btn = ev.target.closest && ev.target.closest('[data-info-body]');
+      if (!btn) return;
+      title.textContent = btn.getAttribute('data-info-title') || '';
+      body.textContent = btn.getAttribute('data-info-body') || '';
+      dialog.showModal();
+    });
+  })();
+
+  (function () {
+    // The pending affordance (§2.1), a copy of index.html's handler for this standalone page.
+    // Keys already thumbed this session are remembered so a second click neither re-counts nor
+    // re-POSTs; the POST is fire-and-forget and its outcome never revises the acknowledgement.
+    var dialog = document.getElementById('pending-dialog');
+    var nameEl = document.getElementById('pending-control-name');
+    var thanksEl = document.getElementById('pending-thanks');
+    var thumbsBtn = document.getElementById('pending-thumbsup');
+    var labelWant = {{ _('👍 I want this') | tojson }};
+    var labelNoted = {{ _('✓ Noted') | tojson }};
+    var thumbed = new Set();
+
+    function renderState(key) {
+      var noted = thumbed.has(key);
+      thumbsBtn.textContent = noted ? labelNoted : labelWant;
+      thumbsBtn.disabled = noted;
+      thanksEl.classList.toggle('hidden', !noted);
+    }
+
+    document.addEventListener('click', function (ev) {
+      var btn = ev.target.closest && ev.target.closest('[data-pending-name]');
+      if (!btn) return;
+      nameEl.textContent = btn.getAttribute('data-pending-name') || '';
+      dialog.setAttribute('data-feature-key', btn.getAttribute('data-feature-key') || '');
+      renderState(dialog.getAttribute('data-feature-key'));
+      dialog.showModal();
+    });
+
+    thumbsBtn.addEventListener('click', function () {
+      var key = dialog.getAttribute('data-feature-key');
+      if (!key || thumbed.has(key)) return;
+      thumbed.add(key);
+      renderState(key);
+      fetch('/feature-interest/' + encodeURIComponent(key), { method: 'POST' })
+        .catch(function () { /* failures are ignored (§2.1, §5.1) */ });
+    });
+  })();
+  </script>
+</body>
+</html>

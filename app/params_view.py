@@ -302,7 +302,9 @@ def parse_form(form, base: SimulationConfig | None = None) -> SimulationConfig:
 
     Checkboxes are the exception to "absent means inherit": an unchecked checkbox is never
     submitted, so its absence is indistinguishable from the control not existing. They are read
-    only when the form declares the section they belong to, via the `sections` marker below.
+    only when the form declares the section they belong to, via the `sections` marker below —
+    and EVERY checkbox path must be gated, including `topology.approximated`, whose ungated
+    branch let the edit screen clear a deliberate user acknowledgement it never rendered.
     """
     cfg = clone(base) if base is not None else SimulationConfig()
 
@@ -377,20 +379,29 @@ def parse_form(form, base: SimulationConfig | None = None) -> SimulationConfig:
     # choice, which is precisely the reset appendix A forbids.
     if _section(form, "discharge"):
         cfg.policy.allow_grid_export = _checkbox(form, "policy.allow_grid_export")
+    # `pricing` names the guard checkbox specifically, NOT "the Pricing box" as a topic. The edit
+    # screen (§2′.4) draws a Contract box with the Advanced pane's `dal_weekends` and no guard, so
+    # one marker over both checkboxes made a truthful edit-screen submission clear the guard.
     if _section(form, "pricing"):
         cfg.policy.economic_guard = _checkbox(form, "policy.economic_guard")
-        # `dal_weekends` is inside the Pricing box's Advanced sub-box, so it lives and dies with
-        # the same section marker for the same reason.
+    # `dal_weekends` lives in the Pricing box's Advanced sub-box on panel ② and in the Contract
+    # box's Advanced pane on the edit screen. Its own marker, so each screen can claim exactly the
+    # checkboxes it drew — panel ② declares both, the edit screen only this one.
+    if _section(form, "pricing_advanced"):
         cfg.pricing.dal_weekends = _checkbox(form, "pricing.dal_weekends")
 
     # §2.5(b) check 18: the soft block. `approximated` is the record of a DELIBERATE user choice
     # (the "Continue with a 3-phase approximation" button), never derived — see `TopologyConfig`.
-    # It is cleared whenever the chosen topology is a supported one, so a user who moves back to
-    # the 3-phase inverter is no longer carrying an approximation caveat they did not earn.
-    if phase_topology_unsupported(cfg):
-        cfg.topology.approximated = _checkbox(form, "topology.approximated")
-    else:
-        cfg.topology.approximated = False
+    # Gated on the `topology` section like every other checkbox: a form that never drew the
+    # topology box (the edit screen) makes no claim about it and must leave it alone. Within a
+    # form that DID draw it, the value is cleared whenever the chosen topology is a supported one,
+    # so a user who moves back to the 3-phase inverter is no longer carrying an approximation
+    # caveat they did not earn.
+    if _section(form, "topology"):
+        if phase_topology_unsupported(cfg):
+            cfg.topology.approximated = _checkbox(form, "topology.approximated")
+        else:
+            cfg.topology.approximated = False
 
     # `_force_invariants` runs on construction, not on mutation, so re-apply it here: the fields
     # above were written directly onto the sub-objects. `validate()` would do it too, but the
@@ -400,32 +411,42 @@ def parse_form(form, base: SimulationConfig | None = None) -> SimulationConfig:
 
 
 def guard_was_submitted(form, stored: SimulationConfig) -> bool:
-    """Whether this submission drew the `economic_guard` checkbox (i.e. the Pricing box).
+    """Whether this submission drew the `economic_guard` checkbox.
 
     The persistence layer needs this to tell "the user unticked the guard" from "this build never
     showed it" — see `simconfig_store.to_dict`'s carry-forward rule. Exposed as a named query
     rather than leaving the route to spell `_section(form, "pricing")`, because what the route is
-    asserting is about the checkbox, not about a box name.
+    asserting is about the checkbox, not about a box name — and because the two are not the same
+    thing: the `pricing` marker names the GUARD checkbox, while the Pricing box's other checkbox
+    declares itself as `pricing_advanced`. A screen can draw one and not the other, and the edit
+    screen does.
 
     **Both halves are required, and the second is the server's own.** `sections` is an
-    unprotected hidden field: a client that claims it rendered the Pricing box gets the box's
-    authority over the stored `economic_guard`, and with cost simulation off — where the box is
-    never drawn — that authority is enough to clear the value appendix A says must be RETAINED.
+    unprotected hidden field: a client that claims it rendered the guard gets authority over the
+    stored `economic_guard`, and with cost simulation off — where the control is never drawn —
+    that authority is enough to clear the value appendix A says must be RETAINED.
     `stored.simulate_cost` is the server's independent answer to "could this form have drawn the
-    box at all", so the claim is believed only where it is possible. The three legitimate cases
-    are unaffected: with cost on, the box IS drawn and `sections` decides ticked from unticked;
-    with cost off it never was, and the stored value carries forward.
+    checkbox at all", so the claim is believed only where it is possible. The three legitimate
+    cases are unaffected: with cost on, panel ② DOES draw it and `sections` decides ticked from
+    unticked; with cost off it never was, and the stored value carries forward.
     """
     return _section(form, "pricing") and bool(stored.simulate_cost)
 
 
 def _section(form, name: str) -> bool:
-    """Whether the submitted form declared it rendered section `name`.
+    """Whether the submitted form declared it rendered the CONTROLS section `name` covers.
 
-    The form carries a hidden `sections` field listing the boxes it drew ("battery grid discharge
-    …"). Checkboxes need it: an unchecked box and an absent box look identical in a form body, so
-    without this marker there is no way to tell "the user unticked it" from "this build never
-    showed it", and one of those must not overwrite stored state.
+    The form carries a hidden `sections` field listing the section names it drew ("battery grid
+    discharge …"). Checkboxes need it: an unchecked box and an absent box look identical in a form
+    body, so without this marker there is no way to tell "the user unticked it" from "this build
+    never showed it", and one of those must not overwrite stored state.
+
+    A section name is a claim about WHICH CONTROLS WERE RENDERED, not about which topic the screen
+    is on. Where two screens draw overlapping but different subsets of one box, the name must be
+    split so that each screen can make a claim that is true of it — `pricing` (the economic-guard
+    checkbox) and `pricing_advanced` (`dal_weekends`) are exactly that case: panel ② draws both
+    and declares both, the edit screen draws only the latter. One name over both checkboxes made
+    the edit screen's honest marker clear the guard on every save.
     """
     raw = form.get("sections")
     if not raw:
@@ -951,18 +972,25 @@ def _pricing_view(cfg: SimulationConfig, field) -> dict:
 
 
 def _sections_for(cfg: SimulationConfig) -> list[str]:
-    """The boxes this config causes the panel to render (§2.3 "Without PV"/"Without cost").
+    """The section markers panel ② is entitled to claim for this config (§2.3 "Without PV"/
+    "Without cost").
 
     `setup` is the §2.1 band above the panel. It is not one of panel ②'s boxes, but it POSTs with
     this form (its radios have no form of their own), so it declares itself here for the same
     reason the checkboxes do — `parse_form` must be able to tell "the band was submitted and the
     user answered no" from "this submission did not carry the band at all".
+
+    The Pricing box emits TWO names, because a marker is a claim about controls rather than about
+    a box (see `_section`): `pricing` for the economic-guard checkbox and `pricing_advanced` for
+    `dal_weekends`. Panel ② draws both together, so it always emits them together and its
+    behaviour is unchanged by the split; the edit screen, which draws only `dal_weekends`, emits
+    only the second.
     """
     out = ["setup", "battery", "grid", "charge", "discharge"]
     if cfg.has_pv or cfg.battery_phases_offered:
         out.append("topology")
     if cfg.simulate_cost:
-        out.append("pricing")
+        out.extend(("pricing", "pricing_advanced"))
     return out
 
 

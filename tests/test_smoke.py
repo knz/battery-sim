@@ -693,3 +693,110 @@ def test_the_empty_list_invites_creation_rather_than_showing_a_phantom(browser, 
     finally:
         server.terminate()
         server.wait(timeout=10)
+
+
+# ── The edit-workspace screen (phase 3, §2′.4, §2′.8) ─────────────────────────────────────────
+
+def test_the_update_button_reaches_the_edit_screen_and_saves(browser, base_url):
+    """§2′.2's `[ Update ]` → §2′.4's screen → `[ Save ]` → back to the list, in a real browser.
+
+    The whole round trip through the controls a user actually touches: the card's action, the
+    title input, the connection dropdown, and the footer's `[ Save ]`. Asserted end to end rather
+    than per route because the parts a route test cannot see are the ones that break — that the
+    `<select>` posts a value the route can read back into two fields, and that a successful save
+    lands on the re-rendered list rather than on a fragment.
+    """
+    url = _workspace_url(base_url)
+    workspace_id = url.rstrip("/").split("/")[-2]
+
+    context = browser.new_context()
+    context.add_cookies([{"name": "lang", "value": "en", "url": base_url}])
+    pg = context.new_page()
+    pg.goto(base_url + "/", wait_until="networkidle")
+
+    card = pg.locator(f'[data-workspace-id="{workspace_id}"]')
+    card.get_by_role("link", name="Update").click()
+    pg.wait_for_load_state("networkidle")
+    assert "/edit" in pg.url
+
+    pg.fill("#edit-title", "Browser-named analysis")
+    pg.fill("#edit-postcode", "1012 AB")
+    pg.select_option("#edit-connection", "3:63")
+    pg.get_by_role("button", name="Save").click()
+    pg.wait_for_load_state("networkidle")
+
+    # Back on the list, with the new title and the connection badge derived from the new pair.
+    assert pg.url.rstrip("/") == base_url.rstrip("/")
+    body = pg.locator("body").inner_text()
+    assert "Browser-named analysis" in body
+    assert "3×63 A" in body
+    context.close()
+
+
+def test_cancelling_with_unsaved_changes_prompts_and_can_be_kept(browser, base_url):
+    """§2′.8: `[ Cancel ]` warns when there are unsaved changes, and `[ Keep editing ]` stays put.
+
+    The dirty check is client-side, so this is the only place it can be exercised. Both halves
+    matter and both are here: with nothing typed the button leaves IMMEDIATELY — §2′.8 is explicit
+    that an unconditional prompt would be noise on the common case of opening a screen to look at
+    it — and with something typed the dialog appears and `[ Keep editing ]` returns to the form
+    with the typing intact.
+    """
+    url = _workspace_url(base_url)
+    workspace_id = url.rstrip("/").split("/")[-2]
+
+    context = browser.new_context()
+    context.add_cookies([{"name": "lang", "value": "en", "url": base_url}])
+    pg = context.new_page()
+    pg.goto(f"{base_url}/w/{workspace_id}/edit", wait_until="networkidle")
+
+    # Nothing typed: no prompt, straight to the list.
+    pg.get_by_role("link", name="Cancel").click()
+    pg.wait_for_load_state("networkidle")
+    assert pg.url.rstrip("/") == base_url.rstrip("/")
+
+    # Something typed: the prompt appears and keeps the user on the screen.
+    pg.goto(f"{base_url}/w/{workspace_id}/edit", wait_until="networkidle")
+    pg.fill("#edit-title", "Typed but not saved")
+    pg.get_by_role("link", name="Cancel").click()
+    assert pg.locator("#discard-dialog").is_visible()
+    pg.get_by_role("button", name="Keep editing").first.click()
+    pg.wait_for_timeout(200)
+    assert "/edit" in pg.url
+    assert pg.input_value("#edit-title") == "Typed but not saved"
+    context.close()
+
+
+def test_a_collapsed_advanced_pane_still_submits_its_values(browser, base_url):
+    """§2′.4: collapsing is a DISPLAY state, never a reset — checked through a real submit.
+
+    This is the property `<details>` buys and the one a conditional render would break silently:
+    the user opens Advanced, types an import override, collapses the pane again, saves — and the
+    override must survive. Nothing but a browser can close the pane, which is why this is here as
+    well as in the route tests.
+    """
+    url = _workspace_url(base_url)
+    workspace_id = url.rstrip("/").split("/")[-2]
+
+    context = browser.new_context()
+    context.add_cookies([{"name": "lang", "value": "en", "url": base_url}])
+    pg = context.new_page()
+    pg.goto(f"{base_url}/w/{workspace_id}/edit", wait_until="networkidle")
+
+    pane = pg.locator("details[data-advanced]").first
+    pane.locator("summary").click()
+    pg.fill('input[name="grid.max_import_kw_override"]', "7.5")
+    pane.locator("summary").click()          # collapse it again
+    assert not pane.evaluate("el => el.open")
+
+    pg.get_by_role("button", name="Save").click()
+    pg.wait_for_load_state("networkidle")
+
+    pg.goto(f"{base_url}/w/{workspace_id}/edit", wait_until="networkidle")
+    assert pg.input_value('input[name="grid.max_import_kw_override"]') == "7.50"
+    # And the collapsed summary says so, so it cannot hide there unnoticed. Compared
+    # case-insensitively: the summary line carries Tailwind's `uppercase`, which is a CSS
+    # transform, so `inner_text()` reports it as the browser paints it rather than as the
+    # template wrote it.
+    assert "1 value overridden" in pg.locator("body").inner_text().lower()
+    context.close()

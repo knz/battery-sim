@@ -322,6 +322,12 @@ def rendered(request):
                 "/": client.get("/", headers=hdr),
                 # The three-panel page, which was `GET /` until phase 2 relocated it.
                 "/w/{id}/results": client.get(page(), headers=hdr),
+                # The edit-workspace screen (phase 3, §2′.4): its own page with its own prose —
+                # four box headings, five ⓘ blurbs, the footer and the discard dialog. Scanned
+                # here rather than left to phase 6 because it is a new surface whose strings
+                # nothing else looks at, and an unscanned new screen is the one this file's H13
+                # reasoning says will quietly ship in English.
+                "/w/{id}/edit": client.get(page().replace("/results", "/edit"), headers=hdr),
                 "/results": client.post(
                     w("/results"), json={"period": "last_1_year"}, headers=hdr
                 ),
@@ -343,10 +349,10 @@ def rendered(request):
     return out
 
 
-# The four surfaces scanned. `/` is the workspace LIST since phase 2, and `/w/{id}/results` is the
-# three-panel page that used to live there — both are scanned, because both carry prose and the
-# list is now the app's entry point.
-_PAGES = ["/", "/w/{id}/results", "/results", "/results/benchmark"]
+# The five surfaces scanned. `/` is the workspace LIST since phase 2, `/w/{id}/results` is the
+# three-panel page that used to live there, and `/w/{id}/edit` is phase 3's edit-workspace
+# screen — all three are scanned, because each carries prose nothing else looks at.
+_PAGES = ["/", "/w/{id}/results", "/w/{id}/edit", "/results", "/results/benchmark"]
 
 
 @pytest.mark.parametrize("scenario", SCENARIOS)
@@ -405,7 +411,16 @@ def test_the_scenarios_between_them_render_a_lot_of_prose(rendered):
             # the panel floor does not apply to it. Its own floor sits below the ~110 words one
             # card plus the two dialogs render, for the same reason as the benchmark box's: this
             # guards against the screen collapsing to nothing, not against it being brief.
-            floor = 25 if page == "/results/benchmark" else 60 if page == "/" else 200
+            # The edit screen is four boxes of controls with five ⓘ blurbs and a dialog — real
+            # prose, but not three panels of caveats. Its floor sits below the ~150 words it
+            # renders, guarding against collapse rather than asserting verbosity, for the same
+            # reason as the list's.
+            floor = (
+                25 if page == "/results/benchmark"
+                else 60 if page == "/"
+                else 100 if page == "/w/{id}/edit"
+                else 200
+            )
             assert words >= floor, (
                 f"{scenario}{page} rendered only {words} words, below the {floor}-word floor — "
                 f"the page has collapsed to an empty or error state and the English scan above "

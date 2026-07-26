@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-26 21:10+0200\n"
+"POT-Creation-Date: 2026-07-26 21:36+0200\n"
 "PO-Revision-Date: 2026-07-23 20:30+0200\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: nl\n"
@@ -106,6 +106,12 @@ msgstr[0] "%(n)s interval gemarkeerd als gat"
 msgstr[1] "%(n)s intervallen gemarkeerd als gaten"
 
 #, python-format
+msgid "%(n)s value overridden"
+msgid_plural "%(n)s values overridden"
+msgstr[0] "%(n)s waarde aangepast"
+msgstr[1] "%(n)s waarden aangepast"
+
+#, python-format
 msgid "%(n)ss"
 msgstr "%(n)ss"
 
@@ -114,6 +120,14 @@ msgid "%(pct)s of intervals had negative reconstructed load (clamped to 0)."
 msgstr ""
 "%(pct)s van de intervallen had een negatieve gereconstrueerde belasting "
 "(afgekapt op 0)."
+
+#, python-format
+msgid "%(phases)s × %(fuse)s A  (%(kw)s kW)"
+msgstr "%(phases)s × %(fuse)s A  (%(kw)s kW)"
+
+#, python-format
+msgid "%(phases)s × %(fuse)s A  (%(kw)s kW) — your stored setting"
+msgstr "%(phases)s × %(fuse)s A  (%(kw)s kW) — je opgeslagen instelling"
 
 #, python-format
 msgid "%(phases)s×%(fuse)s A"
@@ -387,6 +401,9 @@ msgstr "Bevestigen"
 msgid "Connecting…"
 msgstr "Verbinden…"
 
+msgid "Connection"
+msgstr "Aansluiting"
+
 #, python-format
 msgid ""
 "Connection failed. Check the URL, and that your browser trusts the "
@@ -476,6 +493,12 @@ msgstr "De geladen gegevens verwijderen?"
 msgid "Delete this analysis?"
 msgstr "Deze analyse verwijderen?"
 
+msgid "Discard changes"
+msgstr "Wijzigingen weggooien"
+
+msgid "Discard your changes?"
+msgstr "Je wijzigingen weggooien?"
+
 msgid "Discharge battery to cover house load"
 msgstr "Batterij ontladen om het huisverbruik te dekken"
 
@@ -515,6 +538,9 @@ msgstr "EQUIVALENTE VOLLEDIGE CYCLI"
 
 msgid "Economic guard: never discharge at a loss"
 msgstr "Economische bewaking: nooit met verlies ontladen"
+
+msgid "Edit analysis"
+msgstr "Analyse bewerken"
 
 msgid "Enable cost simulation"
 msgstr "Kostensimulatie inschakelen"
@@ -719,6 +745,9 @@ msgstr "Installatietopologie"
 msgid "Intervals battery was full / empty"
 msgstr "Intervallen batterij vol / leeg"
 
+msgid "Keep editing"
+msgstr "Verder bewerken"
+
 msgid "Language"
 msgstr "Taal"
 
@@ -735,6 +764,9 @@ msgstr "%(slot)s laden…"
 msgid "Loading…"
 msgstr "Laden…"
 
+msgid "Location"
+msgstr "Locatie"
+
 msgid "Lost feed-in compensation"
 msgstr "Gemiste terugleververgoeding"
 
@@ -746,6 +778,12 @@ msgstr "Max. laadvermogen"
 
 msgid "Max discharge power"
 msgstr "Max. ontlaadvermogen"
+
+msgid "Max export"
+msgstr "Max. teruglevering"
+
+msgid "Max import"
+msgstr "Max. afname"
 
 msgid "Max state of charge"
 msgstr "Max. laadtoestand"
@@ -793,8 +831,14 @@ msgstr ""
 "transparantieplatform van ENTSO-E op de oorspronkelijke resolutie: eerst "
 "per uur, daarna per kwartier."
 
+msgid "Name"
+msgstr "Naam"
+
 msgid "Net saving"
 msgstr "Netto besparing"
+
+msgid "Next →"
+msgstr "Volgende →"
 
 msgid "Next: parameters →"
 msgstr "Volgende: parameters →"
@@ -814,8 +858,14 @@ msgstr "Nog niet gebouwd"
 msgid "Not connected"
 msgstr "Niet verbonden"
 
+msgid "On your meter cabinet, or on your grid operator bill."
+msgstr "Op je meterkast, of op de rekening van je netbeheerder."
+
 msgid "One conversion PV→battery"
 msgstr "Eén omzetting PV→batterij"
+
+msgid "Only a label, so you can tell your analyses apart."
+msgstr "Alleen een label, zodat je je analyses uit elkaar kunt houden."
 
 msgid ""
 "Optional. A signed instantaneous-power series. If you have this sensor, "
@@ -871,6 +921,11 @@ msgstr ""
 "strategie zou in principe een hogere bijbetaling kunnen opstrijken dan de"
 " aansturing van de benchmark."
 
+msgid "Override these only if your operator has set a different limit."
+msgstr ""
+"Pas deze alleen aan als je netbeheerder een andere limiet heeft "
+"ingesteld."
+
 msgid "PARAMETERS"
 msgstr "PARAMETERS"
 
@@ -900,6 +955,9 @@ msgstr ""
 "Vertel ons over je opstelling — omvormermodel, verdeling over de fasen, "
 "en of je sensoren per fase hebt. Dat bepaalt rechtstreeks of dit in "
 "versie 2 terechtkomt."
+
+msgid "Postcode"
+msgstr "Postcode"
 
 msgid "Preset"
 msgstr "Voorinstelling"
@@ -970,6 +1028,9 @@ msgstr "Het retourrendement moet boven de 50 en ten hoogste 100 zijn."
 
 msgid "SELF-SUFFICIENCY"
 msgstr "ZELFVOORZIENING"
+
+msgid "Save"
+msgstr "Opslaan"
 
 msgid "Secondary metrics"
 msgstr "Aanvullende cijfers"
@@ -1311,6 +1372,13 @@ msgstr ""
 "Deze parameters konden niet worden opgeslagen en gaan verloren wanneer de"
 " app opnieuw start. Controleer of de datamap beschrijfbaar is."
 
+msgid ""
+"These settings could not be saved and will be lost when the app restarts."
+" Check that the data directory is writable."
+msgstr ""
+"Deze instellingen konden niet worden opgeslagen en gaan verloren zodra de "
+"app opnieuw start. Controleer of de gegevensmap beschrijfbaar is."
+
 msgid "This answer decides whether the app reports euros as well as kWh."
 msgstr "Dit antwoord bepaalt of de app naast kWh ook euro's rapporteert."
 
@@ -1388,6 +1456,9 @@ msgstr ""
 "valt” al doet. Antwoord “Ja” op “Heb je zonnepanelen?” boven in het "
 "datapaneel om hem te gebruiken."
 
+msgid "Title"
+msgstr "Titel"
+
 msgid "To"
 msgstr "Tot"
 
@@ -1406,6 +1477,9 @@ msgstr "Token"
 msgid "Two conversions PV→battery"
 msgstr "Twee omzettingen PV→batterij"
 
+msgid "Type"
+msgstr "Type"
+
 msgid "Update"
 msgstr "Aanpassen"
 
@@ -1417,6 +1491,13 @@ msgstr "Bruikbare capaciteit"
 
 msgid "Usable capacity must be greater than zero."
 msgstr "De bruikbare capaciteit moet groter dan nul zijn."
+
+msgid ""
+"Used to work out sunrise and sunset at your address. Nothing is sent "
+"anywhere — the calculation is local."
+msgstr ""
+"Wordt gebruikt om zonsopkomst en zonsondergang op je adres te bepalen. Er "
+"wordt niets verstuurd — de berekening gebeurt lokaal."
 
 msgid ""
 "Uses the shared Home Assistant connection — configure it once (the button"
@@ -1443,6 +1524,13 @@ msgstr "Waar het geld vandaan komt"
 
 msgid "Yes"
 msgstr "Ja"
+
+msgid ""
+"You have changes on this screen that have not been saved. Leaving now "
+"discards them."
+msgstr ""
+"Je hebt wijzigingen op dit scherm die niet zijn opgeslagen. Als je nu "
+"weggaat, gaan ze verloren."
 
 msgid "You have no analyses yet."
 msgstr "Je hebt nog geen analyses."
@@ -1515,8 +1603,8 @@ msgid ""
 "Your connection, contract and battery settings are kept. You will need to"
 " choose your data sources again."
 msgstr ""
-"Je aansluiting, contract en batterij-instellingen blijven bewaard. Je moet"
-" je gegevensbronnen opnieuw kiezen."
+"Je aansluiting, contract en batterij-instellingen blijven bewaard. Je "
+"moet je gegevensbronnen opnieuw kiezen."
 
 msgid "Your data at a glance"
 msgstr "Je gegevens in één oogopslag"
@@ -1713,6 +1801,12 @@ msgstr ""
 
 msgid "as your meter recorded them"
 msgstr "zoals je meter ze heeft geregistreerd"
+
+msgid "blank = derived from the connection"
+msgstr "leeg = afgeleid van de aansluiting"
+
+msgid "blank = same as import"
+msgstr "leeg = gelijk aan de afname"
 
 msgid "change"
 msgstr "wijzigen"
@@ -1917,6 +2011,9 @@ msgstr "…als teruglevering toegestaan"
 
 msgid "€"
 msgstr "€"
+
+msgid "← Previous"
+msgstr "← Vorige"
 
 msgid "← Your analyses"
 msgstr "← Je analyses"

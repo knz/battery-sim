@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-26 21:10+0200\n"
+"POT-Creation-Date: 2026-07-26 21:36+0200\n"
 "PO-Revision-Date: 2026-07-23 20:40+0200\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: en\n"
@@ -105,12 +105,26 @@ msgstr[0] "%(n)s interval flagged as gaps"
 msgstr[1] "%(n)s intervals flagged as gaps"
 
 #, python-format
+msgid "%(n)s value overridden"
+msgid_plural "%(n)s values overridden"
+msgstr[0] ""
+msgstr[1] ""
+
+#, python-format
 msgid "%(n)ss"
 msgstr "%(n)ss"
 
 #, python-format
 msgid "%(pct)s of intervals had negative reconstructed load (clamped to 0)."
 msgstr "%(pct)s of intervals had negative reconstructed load (clamped to 0)."
+
+#, python-format
+msgid "%(phases)s × %(fuse)s A  (%(kw)s kW)"
+msgstr ""
+
+#, python-format
+msgid "%(phases)s × %(fuse)s A  (%(kw)s kW) — your stored setting"
+msgstr ""
 
 #, python-format
 msgid "%(phases)s×%(fuse)s A"
@@ -383,6 +397,9 @@ msgstr "Confirm"
 msgid "Connecting…"
 msgstr "Connecting…"
 
+msgid "Connection"
+msgstr ""
+
 #, python-format
 msgid ""
 "Connection failed. Check the URL, and that your browser trusts the "
@@ -471,6 +488,12 @@ msgstr "Delete the loaded data?"
 msgid "Delete this analysis?"
 msgstr "Delete this analysis?"
 
+msgid "Discard changes"
+msgstr ""
+
+msgid "Discard your changes?"
+msgstr ""
+
 msgid "Discharge battery to cover house load"
 msgstr "Discharge battery to cover house load"
 
@@ -510,6 +533,9 @@ msgstr "EQUIVALENT FULL CYCLES"
 
 msgid "Economic guard: never discharge at a loss"
 msgstr "Economic guard: never discharge at a loss"
+
+msgid "Edit analysis"
+msgstr ""
 
 msgid "Enable cost simulation"
 msgstr "Enable cost simulation"
@@ -714,6 +740,9 @@ msgstr "Installation topology"
 msgid "Intervals battery was full / empty"
 msgstr "Intervals battery was full / empty"
 
+msgid "Keep editing"
+msgstr ""
+
 msgid "Language"
 msgstr "Language"
 
@@ -730,6 +759,9 @@ msgstr "Loading %(slot)s…"
 msgid "Loading…"
 msgstr "Loading…"
 
+msgid "Location"
+msgstr ""
+
 msgid "Lost feed-in compensation"
 msgstr ""
 
@@ -741,6 +773,12 @@ msgstr "Max charge power"
 
 msgid "Max discharge power"
 msgstr "Max discharge power"
+
+msgid "Max export"
+msgstr ""
+
+msgid "Max import"
+msgstr ""
 
 msgid "Max state of charge"
 msgstr "Max state of charge"
@@ -788,7 +826,13 @@ msgstr ""
 "transparency platform at their native hourly then quarter-hourly "
 "resolution."
 
+msgid "Name"
+msgstr ""
+
 msgid "Net saving"
+msgstr ""
+
+msgid "Next →"
 msgstr ""
 
 msgid "Next: parameters →"
@@ -809,8 +853,14 @@ msgstr "Not built yet"
 msgid "Not connected"
 msgstr "Not connected"
 
+msgid "On your meter cabinet, or on your grid operator bill."
+msgstr ""
+
 msgid "One conversion PV→battery"
 msgstr "One conversion PV→battery"
+
+msgid "Only a label, so you can tell your analyses apart."
+msgstr ""
 
 msgid ""
 "Optional. A signed instantaneous-power series. If you have this sensor, "
@@ -857,6 +907,9 @@ msgid ""
 " than the benchmark's dispatch does."
 msgstr ""
 
+msgid "Override these only if your operator has set a different limit."
+msgstr ""
+
 msgid "PARAMETERS"
 msgstr "PARAMETERS"
 
@@ -886,6 +939,9 @@ msgstr ""
 "Please tell us about your setup — inverter model, phase allocation, and "
 "whether you have per-phase sensors. It directly determines whether this "
 "lands in version 2."
+
+msgid "Postcode"
+msgstr ""
 
 msgid "Preset"
 msgstr "Preset"
@@ -954,6 +1010,9 @@ msgstr "Round-trip efficiency must be above 50 and at most 100."
 
 msgid "SELF-SUFFICIENCY"
 msgstr "SELF-SUFFICIENCY"
+
+msgid "Save"
+msgstr ""
 
 msgid "Secondary metrics"
 msgstr "Secondary metrics"
@@ -1265,6 +1324,11 @@ msgstr ""
 "These parameters could not be saved and will be lost when the app "
 "restarts. Check that the data directory is writable."
 
+msgid ""
+"These settings could not be saved and will be lost when the app restarts."
+" Check that the data directory is writable."
+msgstr ""
+
 msgid "This answer decides whether the app reports euros as well as kWh."
 msgstr "This answer decides whether the app reports euros as well as kWh."
 
@@ -1330,6 +1394,9 @@ msgstr ""
 "\"Yes\" to \"Do you have solar PV?\" at the top of the Data panel to use "
 "it."
 
+msgid "Title"
+msgstr ""
+
 msgid "To"
 msgstr "To"
 
@@ -1348,6 +1415,9 @@ msgstr "Token"
 msgid "Two conversions PV→battery"
 msgstr "Two conversions PV→battery"
 
+msgid "Type"
+msgstr ""
+
 msgid "Update"
 msgstr "Update"
 
@@ -1359,6 +1429,11 @@ msgstr "Usable capacity"
 
 msgid "Usable capacity must be greater than zero."
 msgstr "Usable capacity must be greater than zero."
+
+msgid ""
+"Used to work out sunrise and sunset at your address. Nothing is sent "
+"anywhere — the calculation is local."
+msgstr ""
 
 msgid ""
 "Uses the shared Home Assistant connection — configure it once (the button"
@@ -1384,6 +1459,11 @@ msgstr ""
 
 msgid "Yes"
 msgstr "Yes"
+
+msgid ""
+"You have changes on this screen that have not been saved. Leaving now "
+"discards them."
+msgstr ""
 
 msgid "You have no analyses yet."
 msgstr "You have no analyses yet."
@@ -1627,6 +1707,12 @@ msgstr ""
 msgid "as your meter recorded them"
 msgstr "as your meter recorded them"
 
+msgid "blank = derived from the connection"
+msgstr ""
+
+msgid "blank = same as import"
+msgstr ""
+
 msgid "change"
 msgstr "change"
 
@@ -1828,6 +1914,9 @@ msgid "…if export allowed"
 msgstr "…if export allowed"
 
 msgid "€"
+msgstr ""
+
+msgid "← Previous"
 msgstr ""
 
 msgid "← Your analyses"

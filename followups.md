@@ -677,3 +677,31 @@ unilaterally: it changes what a card says about a real dataset the user did load
 price-only workspace is a legitimate intermediate state during setup, so whether the right answer
 is the stricter flag or a third "prices only" state is a product call.
 *Origin:* `20260726-workspaces-phase2.md` (review, finding 8).
+
+**J1. `POST /w/{id}/edit`'s save-error banner overstates a partial write.**
+`simconfig_store.save` and `workspaces.rename` are two writes inside one `try`. If the config write
+succeeds and the rename raises `OSError`, the banner says the settings could not be saved — but the
+config, the connection and `pricing_configured` were all persisted, and only the title was not. The
+re-rendered page then shows the typed title beside a banner claiming nothing was stored. Reproduced
+with `rename` monkeypatched to raise; the outcome is a misleading message rather than lost data, and
+the condition (a data dir that fails between two writes) is rare. The fix is either two try blocks
+with two messages, or a banner worded as "some settings".
+*Origin:* `20260726-workspaces-phase3.md` (review, finding 4).
+
+**J2. The route documents a `mode` form field the template never emits.**
+`POST /w/{id}/edit` reads `form.get("mode")` and both the route docstring and the phase-3 changelog
+explain it as the mechanism by which wizard mode survives a validation re-render "without depending
+on the form's action URL being rebuilt". The template emits no such hidden field; the mode in fact
+survives via `action="…?mode=wizard"`, which is the mechanism the comment says it avoids depending
+on. The behaviour is correct and the branch is harmless, but the code and its explanation disagree,
+so one of them should go — either emit the hidden field or drop the fallback and the paragraph.
+*Origin:* `20260726-workspaces-phase3.md` (review, finding 5).
+
+**J3. The leakage scan sees only the edit screen's default render.**
+`tests/test_no_english_leakage.py` renders `GET /w/{id}/edit` on a default config, so the off-list
+connection label, the page-level `other_errors` alert, the save-error banner and the inline field
+errors are never scanned. All four were checked by hand in Dutch during the phase-3 review and are
+translated, so this is a coverage gap rather than a leak — but it is the kind of gap that lets a
+later edit to those paths ship English unnoticed. Worth folding into phase 6, which already owns
+extending that scan.
+*Origin:* `20260726-workspaces-phase3.md` (review, finding 6).

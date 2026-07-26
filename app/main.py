@@ -50,6 +50,15 @@ first, with `[ + New analysis ]` and the two deletions. The three-panel page tha
 `/` is now `GET /w/{id}/results` — relocated and scoped, otherwise unchanged; phase 4 splits it
 into the configure-data and results screens.
 
+**`GET`/`POST /w/{id}/edit` are the edit-workspace screen** (phase 3, §2′.4): the household's
+fixed facts — title, postcode, grid connection, contract. It is a SEPARATE route from
+`POST /params` although the two write one document, because the response shapes differ (a full
+page that redirects, against a panel fragment for a swap) and because `validate()` is
+whole-config while this screen draws four fields. What they share is the parsing and persistence
+layers — `params_view.parse_form`, `issue_message`, `simconfig_store.save` — so there is no
+second copy of the coercion table. It is also the one caller that passes
+`pricing_configured=True` (§2′.6), which is what unblocks the results screen's cost toggle.
+
 **Routes are workspace-scoped** (phase 1). Everything that reads or writes one analysis's data
 lives under `/w/{workspace_id}/…` and resolves its workspace through `deps.get_workspace`
 (specs/08-architecture.md §5.1, §5.5 invariant 2) instead of defaulting to the module constant
@@ -77,6 +86,8 @@ action on it is a plain link or an ordinary form POST.
 Routes:
     GET  /                              → the workspace list (workspaces.html)
     POST /workspaces                    → create a workspace; 303 into it
+    GET  /w/{id}/edit                   → the edit-workspace screen (workspace_edit.html, §2′.4)
+    POST /w/{id}/edit                   → validate + persist it; 303 on success
     GET  /w/{id}/results                → the three-panel page for one workspace (index.html)
     POST /w/{id}/delete                 → delete the workspace and everything in it; 303 to /
     POST /w/{id}/data/delete            → delete its measurements, keep the config; 303 to /
@@ -126,6 +137,7 @@ from app import (
     results_view,
     simconfig_store,
     summary_view,
+    workspace_edit_view,
     workspace_list_view,
     workspaces,
 )
@@ -308,6 +320,169 @@ def delete_workspace_data(
     if ws is not None:
         workspaces.delete_data(ws.id)
     return RedirectResponse("/", status_code=303)
+
+
+def _edit_page(
+    request: Request,
+    ws: deps.Workspace,
+    cfg,
+    title: str,
+    *,
+    result=None,
+    wizard: bool = False,
+    save_error: bool = False,
+) -> HTMLResponse:
+    """Render `workspace_edit.html` for `cfg`. Shared by the GET and the POST's failure path.
+
+    One renderer rather than two, so an invalid submission comes back as the same screen with the
+    user's own values in it — the property `POST /params` step 5 states, and the one that a second
+    render site would be free to drift from.
+    """
+    locale = i18n.resolve_locale(request)
+    return HTMLResponse(
+        i18n.env_for(locale).get_template("workspace_edit.html").render(
+            view=workspace_edit_view.edit_view(
+                cfg, title, result=result, wizard=wizard, save_error=save_error
+            ),
+            workspace_id=ws.id,
+            lang={
+                "current": locale,
+                "options": [{"code": c, "label": c.upper()} for c in i18n.SUPPORTED],
+            },
+        )
+    )
+
+
+@app.get("/w/{workspace_id}/edit", response_class=HTMLResponse)
+def edit_workspace(
+    request: Request,
+    ws: Annotated[deps.Workspace, Depends(deps.get_workspace)],
+    mode: str = "",
+):
+    """The edit-workspace screen: the household's fixed facts (§2′.4).
+
+    Title, postcode, grid connection and contract — what the household IS, as opposed to what is
+    being simulated about it. The title comes from the `workspaces` row and everything else from
+    the config document, which is why one route writes both and why `POST /params` does not (it
+    has no business touching the workspace row beyond `touch()`).
+
+    `?mode=wizard` selects §2′.8's wizard footer (`[ ← Previous ] [ Next → ]`) instead of the
+    card footer (`[ Cancel ] [ Save ]`). A query parameter rather than a second route: the two
+    modes render the same screen and differ only in the footer and in where a successful save
+    goes, so a second route would be a second copy of the render for two buttons.
+
+    `simconfig_store.load` never raises — an unreadable document renders appendix-A defaults, so
+    this page always renders, which is what lets a user repair a broken configuration from it.
+    """
+    cfg = simconfig_store.load(ws.id)
+    return _edit_page(request, ws, cfg, ws.title, wizard=(mode == "wizard"))
+
+
+@app.post("/w/{workspace_id}/edit", response_class=HTMLResponse)
+async def save_workspace_edit(
+    request: Request,
+    ws: Annotated[deps.Workspace, Depends(deps.get_workspace)],
+    mode: str = "",
+):
+    """Validate and persist the edit-workspace screen, then redirect (§2′.4, §2′.6, §2′.8).
+
+    **A separate route from `POST /params`, decided at the start of phase 3** (see
+    `changelog/20260726-workspaces-phase3.md`). Parsing IS shared — the candidate is built by
+    `params_view.parse_form` on top of the stored config, so every setting this screen does not
+    draw is inherited and there is no second copy of the coercion table anywhere. What is not
+    shared is the RESPONSE: `POST /params` returns a panel fragment for an `outerHTML` swap, while
+    this is a full page that redirects on success; and `validate()` is whole-config, so this
+    screen filters issues to the fields it actually draws (`workspace_edit_view.EDITED_FIELDS`)
+    and surfaces any other blocking issue at page level rather than binding it to an input that
+    does not exist.
+
+    **No same-site check, matching `POST /params`.** `app/csrf.py` draws its line at "can this
+    request destroy something the user cannot recreate", not at "is this a POST": the three routes
+    it covers create or irreversibly delete. This one is an idempotent overwrite of one local
+    workspace's title and four settings with values a forging page would be choosing blind and
+    could not read back — the same shape as `POST /params`, and the same threat followups B6
+    weighed and accepted. Adding the dependency here would be defensible, but it should be done
+    for both parameter-writing routes at once and on purpose, not drifted into on one of them.
+
+    The sequence:
+
+        1. coerce the submission (`parse_form` on the STORED config, so untouched settings
+           inherit) and read the two fields that are not in `FIELDS` — the title and the
+           connection dropdown, which writes `grid.phases` and `grid.fuse_a` as a pair;
+        2. `validate()`;
+        3. on a blocking failure, re-render THIS screen with the submitted values, so the user's
+           typing survives — never the stored config;
+        4. otherwise persist: the config through `simconfig_store.save`, the title through
+           `workspaces.rename`, then `workspaces.touch` (§2′.10) — after the write, so a save that
+           raised leaves the "last saved" badge alone;
+        5. redirect 303, to the list from a card and to the next wizard step in the wizard.
+
+    **`pricing_configured=True` on every successful save here** (§2′.6). This is the screen that
+    asks what the household pays, so saving it is what "the user has told us what they pay" means;
+    it is what unblocks the cost toggle on the results screen. It is never passed False — the
+    store's default of `None` means "carry forward", which is what makes the flag never cleared
+    automatically by any other save.
+    """
+    try:
+        form = await request.form()
+    except Exception as exc:  # an unparseable body is a client error, not a server one
+        raise HTTPException(status_code=400, detail=f"invalid form body: {exc}") from exc
+
+    wizard = mode == "wizard" or str(form.get("mode") or "") == "wizard"
+
+    stored = simconfig_store.load(ws.id)
+    candidate = params_view.parse_form(form, stored)
+
+    # The two controls that are not in `params_view.FIELDS`. The connection dropdown writes BOTH
+    # grid fields from one token; an unreadable value leaves them as they were, for the reason
+    # `parse_connection` gives.
+    if "grid.connection" in form:
+        pair = workspace_edit_view.parse_connection(form.get("grid.connection"))
+        if pair is not None:
+            candidate.grid.phases, candidate.grid.fuse_a = pair
+    if "postcode" in form:
+        # Stored as typed (§2′.4 leaves format validation open) — only the surrounding whitespace
+        # a browser's autofill tends to add is removed.
+        candidate.postcode = str(form.get("postcode") or "").strip()
+
+    # The title lives on the workspaces row, not in the config. An empty submission keeps the
+    # current title rather than storing a blank one: a card with no name is unusable on the list
+    # screen, and there is nothing on this screen the user could be trying to express by it.
+    title = str(form.get("title") or "").strip() or ws.title
+
+    result = candidate.validate()
+    if result.blocking:
+        return _edit_page(
+            request, ws, candidate, title, result=result, wizard=wizard, save_error=False
+        )
+
+    try:
+        simconfig_store.save(
+            candidate,
+            ws.id,
+            guard_submitted=params_view.guard_was_submitted(form, stored),
+            # §2′.6: set here and only here. Never False — see the docstring.
+            pricing_configured=True,
+        )
+        if title != ws.title:
+            workspaces.rename(ws.id, title)
+        # Only after something was actually stored, exactly as `POST /params` does it (§2′.10).
+        workspaces.touch(ws.id)
+    except OSError as exc:
+        # Same treatment as `POST /params`: a read-only or full data directory is a foreseeable
+        # local condition, not a server bug, and a 500 would leave the user with no explanation.
+        # The screen comes back with the submitted values and a notice saying they were not
+        # stored — and deliberately does NOT redirect, since redirecting would claim success.
+        log.warning("could not save workspace settings: %s", exc)
+        return _edit_page(
+            request, ws, candidate, title, result=result, wizard=wizard, save_error=True
+        )
+
+    # §2′.8: `[ Save ]` returns to the list; `[ Next → ]` advances a step. The wizard's step 2 is
+    # the configure-data screen, which phase 4 builds — until then it would 404, so the wizard
+    # lands on the results page for the same reason `POST /workspaces` does (see its docstring).
+    destination = f"/w/{ws.id}/results" if wizard else "/"
+    return RedirectResponse(destination, status_code=303)
 
 
 @app.get("/w/{workspace_id}/results", response_class=HTMLResponse)

@@ -115,13 +115,17 @@ def _form(**overrides) -> dict:
     return base
 
 
-# The same submission with cost simulation ON: the setup band's radio, the `setup` and `pricing`
-# section markers, and every field §2.3's Pricing box draws. This is what the rendered form
-# actually posts once the user answers "Yes" in the band, so it is what the round-trip and the
-# retention tests have to drive.
+# The same submission with cost simulation ON: the setup band's radio, the `setup`, `pricing` and
+# `pricing_advanced` section markers, and every field §2.3's Pricing box draws. This is what the
+# rendered form actually posts once the user answers "Yes" in the band, so it is what the
+# round-trip and the retention tests have to drive. Panel ② draws BOTH of the Pricing box's
+# checkboxes — the guard and `dal_weekends` — so it claims both names; the edit screen draws only
+# the second and claims only `pricing_advanced` (see `params_view._section`).
 def _cost_form(**overrides) -> dict:
     base = _form()
-    base["sections"] = "setup battery grid charge discharge topology pricing"
+    base["sections"] = (
+        "setup battery grid charge discharge topology pricing pricing_advanced"
+    )
     base["setup.simulate_cost"] = "yes"
     base.update({
         "pricing.contract": "dynamic",
@@ -139,6 +143,21 @@ def _cost_form(**overrides) -> dict:
     })
     base.update(overrides)
     return base
+
+
+def _rendered_sections(client, body=None) -> set[str]:
+    """The `sections` marker panel ② actually emits for the config `body` leaves stored.
+
+    `_form`/`_cost_form` write the marker out by hand, on purpose: several tests are ABOUT what a
+    given marker does, and scraping it would make those circular. The cost is that a hardcoded
+    marker can drift from what the panel renders — which is exactly how `_cost_form` could carry
+    `pricing` while panel ② emitted something else and nothing noticed. This reads the real one,
+    for the tests that need to compare.
+    """
+    r = client.post(w("/params"), data=body if body is not None else _cost_form())
+    m = re.search(r'name="sections" value="([^"]*)"', r.text)
+    assert m, "panel ② rendered no sections marker"
+    return set(m.group(1).split())
 
 
 def _saved_kwh(client, **body) -> float:
@@ -301,6 +320,90 @@ def test_a_forged_sections_value_cannot_clear_the_retained_guard(client):
     restored.simulate_cost = True
     simconfig_store.save(restored)
     assert simconfig_store.load().economic_guard is True
+
+
+def test_panel_two_still_unticks_the_guard_and_still_carries_it_forward(client):
+    """The split of `pricing` into `pricing` + `pricing_advanced` leaves panel ② as it was.
+
+    Phase 3's edit screen claimed `pricing` while drawing no guard checkbox, which cleared the
+    stored guard on every save; the fix moved `dal_weekends` behind its own `pricing_advanced`
+    name. Panel ② draws both checkboxes and claims both names, so both of its behaviours must be
+    bit-for-bit unchanged, and that is what fails first if the split were done by dropping a name
+    rather than adding one:
+
+      * a cost submission WITHOUT the checkbox is a user unticking it — the guard goes off;
+      * an energy-only submission never drew it — the stored tick carries forward (appendix A).
+    """
+    from app import simconfig_store
+
+    # The marker the tests below drive must be the one the panel really renders, or they would be
+    # asserting about a form no browser sends. Both names, because panel ② draws both checkboxes.
+    rendered = _rendered_sections(client)
+    assert {"pricing", "pricing_advanced"} <= rendered
+    assert rendered == set(_cost_form()["sections"].split())
+
+    client.post(w("/params"), data=_cost_form(**{"policy.economic_guard": "1"}))
+    assert simconfig_store.load().economic_guard is True
+
+    # Unticked: absent from the body, but the form still claims it drew the control.
+    client.post(w("/params"), data=_cost_form())
+    assert simconfig_store.load().policy.economic_guard is False
+
+    client.post(w("/params"), data=_cost_form(**{"policy.economic_guard": "1"}))
+    assert simconfig_store.load().economic_guard is True
+
+    energy_only = _form(sections="setup battery grid charge discharge topology",
+                        **{"setup.simulate_cost": "no"})
+    client.post(w("/params"), data=energy_only)
+    back_on = simconfig_store.load()
+    back_on.simulate_cost = True
+    simconfig_store.save(back_on)
+    assert simconfig_store.load().economic_guard is True
+
+
+def test_panel_two_still_unticks_dal_weekends(client):
+    """The other half of the split: `pricing_advanced` must actually be claimed by panel ②.
+
+    Nothing in the suite drove this before, which is how `_cost_form` could carry a `sections`
+    value the rendered panel does not emit. If `_sections_for` emitted only `pricing`, the untick
+    below would be read as "this build never drew the control" and silently ignored.
+    """
+    from app import simconfig_store
+
+    assert "pricing_advanced" in _rendered_sections(client)
+
+    client.post(w("/params"), data=_cost_form(**{"pricing.dal_weekends": "1"}))
+    assert simconfig_store.load().pricing.dal_weekends is True
+
+    body = _cost_form()
+    body.pop("pricing.dal_weekends")
+    client.post(w("/params"), data=body)
+    assert simconfig_store.load().pricing.dal_weekends is False
+
+
+def test_panel_two_still_clears_approximated_on_a_supported_topology(client):
+    """§2.5b's deliberate `else` branch, preserved by the section gate the fix added.
+
+    The gate makes the whole branch conditional on the form having DRAWN the topology box, so the
+    clearing must still happen for a form that did. A user who accepted the 3-phase approximation
+    and then moves back to a 3-phase inverter stops carrying a caveat they no longer earn.
+    """
+    from app import simconfig_store
+
+    unsupported = _form(**{"grid.phases": "3", "topology.battery_phases": "one_phase",
+                           "topology.approximated": "1"})
+    client.post(w("/params"), data=unsupported)
+    assert simconfig_store.load().topology.approximated is True
+    # The gate is only honest if panel ② really claims `topology` here — a 3-phase connection is
+    # what makes the selector, and therefore the checkbox, exist at all.
+    assert "topology" in _rendered_sections(client, unsupported)
+
+    client.post(
+        w("/params"),
+        data=_form(**{"grid.phases": "3", "topology.battery_phases": "three_phase",
+                      "topology.approximated": "1"}),
+    )
+    assert simconfig_store.load().topology.approximated is False
 
 
 def test_an_unwritable_data_dir_reports_on_the_panel_rather_than_500ing(client, monkeypatch):
