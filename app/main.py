@@ -1,9 +1,11 @@
 """FastAPI application entry point for the Home Battery Simulator.
 
 This is the web layer described in specs/08-architecture.md §5.1. In this first increment it
-does one thing: serve the single-page three-panel UI (specs/02-ux-wireframes.md) rendered
-from a *static* sample view-model (app/sample_data.py). No service layer, no domain logic,
-no persistence yet — the page shows the intended shape of the product, not real results.
+did one thing: serve a single-page three-panel UI (specs/02-ux-wireframes.md) rendered from a
+*static* sample view-model (app/sample_data.py). It has since grown a domain layer, persistence
+and — through the workspaces restructure (specs/20-workspaces-ux.md) — four screens instead of
+one. The sample view-model survives as the EMPTY STATE each screen falls back to before any data
+is loaded.
 
 The UI is bilingual (English / Dutch). Translation is server-side gettext (app/i18n.py): the
 active locale is resolved per request (cookie → Accept-Language → English) and the matching
@@ -46,9 +48,7 @@ On startup (the `lifespan` below) the app adopts the pre-index single workspace 
 left with an empty index deliberately, because the list screen expresses that state.
 
 **`GET /` is the workspace list** (phase 2, §2′.2): one card per analysis, most recently updated
-first, with `[ + New analysis ]` and the two deletions. The three-panel page that used to live at
-`/` is now `GET /w/{id}/results` — relocated and scoped, otherwise unchanged; phase 4 splits it
-into the configure-data and results screens.
+first, with `[ + New analysis ]` and the two deletions.
 
 **`GET`/`POST /w/{id}/edit` are the edit-workspace screen** (phase 3, §2′.4): the household's
 fixed facts — title, postcode, grid connection, contract. It is a SEPARATE route from
@@ -58,6 +58,21 @@ whole-config while this screen draws four fields. What they share is the parsing
 layers — `params_view.parse_form`, `issue_message`, `simconfig_store.save` — so there is no
 second copy of the coercion table. It is also the one caller that passes
 `pricing_configured=True` (§2′.6), which is what unblocks the results screen's cost toggle.
+
+**`GET /w/{id}/results` is the results screen** (phase 4.2, §2′.6). It was the three-panel page —
+the setup band plus panels ①, ② and ③ — until phase 4 split it in two. What renders now is the
+capacity-first battery box (`_panel_params.html`: usable capacity alone, then a collapsed
+"More settings" pane holding three tabs) above the results block (`_panel_results.html`), on ONE
+screen that scrolls together, which §2′.6 calls the equivalent of §3.4's "reopening panel ① or ②
+does not collapse panel ③". The screen has NO footer buttons in either mode: it is the end of both
+the card path and the wizard path, and it is left through the back link.
+
+The **cost toggle** moved into the results block here (§2′.7 dissolved the setup band). It keeps
+its name `setup.simulate_cost` and its `form="params-form"` association, so `params_view.parse_form`
+reads it exactly as before; what is new is that it is **Blocked** — greyed, disabled, with an ⓘ
+opening a dialog that links to the edit screen's Contract box — until
+`simconfig_store.is_pricing_configured` is true. `POST /w/{id}/edit` is the one write that sets that
+flag, and `index()` and `POST /w/{id}/results` are the only two reads.
 
 **`GET`/`POST /w/{id}/data` are the configure-data screen** (phase 4.1, §2′.5): panel ① promoted to
 a screen of its own — the slot roster, the source drawer, the HA connection modal, the data-quality
@@ -87,8 +102,8 @@ tab could destroy the user's analysis with one forged form POST. It is a header 
 a token, which keeps the app's no-session/no-secret property — the reasoning, and the one case it
 deliberately does not cover (`POST /w/{id}/params`), are in `app/csrf.py`.
 
-The consequence for the browser: no path may be written as a literal any more. index.html's
-`<body>` carries `data-workspace-id`, and every `fetch()` there plus the ingest WebSocket URL in
+The consequence for the browser: no path may be written as a literal any more. Each screen's
+`<body>` carries `data-workspace-id`, and every `fetch()` on it plus the ingest WebSocket URL in
 ha_fetch.js build their path from it. `localStorage`'s slot store is keyed per workspace for the
 same reason (§2′.11) — see app/static/ha_fetch.js. The LIST screen needs none of that: every
 action on it is a plain link or an ordinary form POST.
@@ -100,11 +115,11 @@ Routes:
     POST /w/{id}/edit                   → validate + persist it; 303 on success
     GET  /w/{id}/data                   → the configure-data screen (workspace_data.html, §2′.5)
     POST /w/{id}/data                   → persist has_pv / has_battery; 303 on success
-    GET  /w/{id}/results                → the three-panel page for one workspace (index.html)
+    GET  /w/{id}/results                → the results screen (workspace_results.html, §2′.6)
     POST /w/{id}/delete                 → delete the workspace and everything in it; 303 to /
     POST /w/{id}/data/delete            → delete its measurements, keep the config; 303 to /
-    POST /w/{id}/params                 → validate + persist panel ②; return the HTML fragment
-    POST /w/{id}/results                → recompute panel ③ over a window; return the fragment
+    POST /w/{id}/params                 → validate + persist the battery box; return the fragment
+    POST /w/{id}/results                → recompute the results block over a window; the fragment
     POST /w/{id}/results/benchmark      → the §6.12 perfect-foresight box (slow; lazy)
     WS   /w/{id}/data/ingest/ws         → stream browser-fetched HA rows in; persist SeriesFrames
     POST /w/{id}/data/slot/{name}/load  → load one slot from a backend_load source; merge + report
@@ -147,6 +162,7 @@ from app import (
     ingest_ws,
     interest,
     params_view,
+    results_screen_view,
     results_view,
     simconfig_store,
     summary_view,
@@ -689,31 +705,38 @@ def index(
     request: Request,
     ws: Annotated[deps.Workspace, Depends(deps.get_workspace)],
 ):
-    """The three-panel screen for one workspace, in the request's locale.
+    """The RESULTS screen for one workspace, in the request's locale (§2′.6).
 
-    **This is the old `GET /` page, relocated and scoped.** Phase 2 moved it here so `/` could
-    become the list (§2′.2); it is otherwise unchanged, and phase 4 splits it into the
-    configure-data screen (§2′.5) and the results screen (§2′.6). Until then the `[ Results ]` and
-    `[ Configure data ]` card actions both lead to parts of this one page.
+    **Phase 4.2 made this the screen §2′.6 specifies**, where before it was the whole three-panel
+    page. Panel ① went to `/w/{id}/data` in 4.1 and the setup band is dissolved (§2′.7), so what
+    renders now is two things that scroll together: the capacity-first battery box
+    (`_panel_params.html`) and the results block (`_panel_results.html`). That they are ONE screen
+    is the constraint §2′.6 is emphatic about — a capacity change and its effect have to be visible
+    at once — which is why the parameters did not get a route of their own.
 
-    The id is threaded into the page (`data-workspace-id` on `<body>`, and the roster's
-    `data-ingest-ws`) because every fragment this page fetches is scoped. It now comes from the
-    resolved `Workspace` rather than from `db.WORKSPACE_ID`, which was phase 1's last unscoped
-    read of "the workspace".
+    **No `?mode=wizard`.** §2′.6 gives this screen no footer in either mode: it is the end of both
+    the card path and the wizard path, so there is nothing for a mode to select. `POST /w/{id}/data`
+    redirects here plainly for the same reason.
+
+    `pricing_configured` is read here, and it is the only thing on this page that decides Blocked
+    from live. §2′.6 makes the EDIT screen the one write that sets it; this is the one read.
+
+    The id is threaded into the page (`data-workspace-id` on `<body>`) because every fragment this
+    page fetches is scoped.
     """
     locale = i18n.resolve_locale(request)
     workspace_id = ws.id
 
     ctx = sample_view()
-    # The browser builds every fetch path from this (index.html's `data-workspace-id`), so the
-    # single page addresses the same workspace it was rendered from.
+    # The browser builds every fetch path from this (`data-workspace-id`), so the page addresses
+    # the same workspace it was rendered from.
     ctx["workspace_id"] = workspace_id
 
-    # Panel ② (§2.3) renders from the PERSISTED parameter set — appendix-A defaults until the
-    # user submits the form, and appendix-A defaults again if the stored file is unreadable
-    # (simconfig_store.load never raises, so the page always renders). The setup band above panel
-    # ① reads has_pv / simulate_cost off the same config, so `cfg` is replaced too: it used to be
-    # the static sample dict, and leaving it would let the band and the panel disagree.
+    # The battery box (§2.3, §2′.6) renders from the PERSISTED parameter set — appendix-A defaults
+    # until the user submits the form, and appendix-A defaults again if the stored file is
+    # unreadable (simconfig_store.load never raises, so the page always renders). `cfg` carries the
+    # three answers the box's gates read; it used to be the static sample dict, and leaving it
+    # would let the gates and the values disagree.
     cfg = simconfig_store.load(workspace_id)
     ctx["params"] = params_view.params_view(cfg)
     ctx["cfg"] = {
@@ -721,28 +744,29 @@ def index(
         "has_battery": cfg.has_battery,
         "simulate_cost": cfg.simulate_cost,
     }
+    # The cost toggle's two inputs. `simulate_cost` is the checked radio; `cost_toggle_blocked` is
+    # §2′.6's Blocked state, and the two are independent — a workspace with cost simulation ON and
+    # no contract configured is reachable (the §2′.10 migration sets the flag from `simulate_cost`,
+    # but a hand-edited document need not), and it renders a checked toggle the user cannot change
+    # from here until they visit the edit screen. That is the honest rendering: the answer IS yes,
+    # and the screen that owns the precondition is one click away.
+    ctx["simulate_cost"] = cfg.simulate_cost
+    ctx["cost_toggle_blocked"] = not simconfig_store.is_pricing_configured(workspace_id)
 
-    # If a real dataset has been fetched and persisted, panel ① renders from it (specs §3.5);
-    # otherwise it keeps the static sample as the empty state. Params/results stay sample until
-    # their own increments land. A load failure falls back to the sample rather than 500ing.
+    # If a real dataset has been fetched and persisted, the results block renders from it
+    # (specs §3.5); otherwise it keeps the static sample as the empty state. A load failure falls
+    # back to the sample rather than 500ing.
     #
-    # The data summary (§2.3a) is shown ONLY once data has loaded: before the first fetch
-    # there is nothing to summarise, so it is absent (§3.4). sample_view() always carries a
-    # `data_summary`, so drop it here in the empty state and replace it with the COMPUTED figures
-    # once a dataset exists — the real §6.3/§6.11 battery-free figures over the persisted frames
-    # (app/summary_view.py), no longer the sample. data_summary_from returns None when the frames
-    # yield no simulatable grid, in which case it is omitted exactly as in the empty state.
-    has_dataset = False
+    # The data glance repeated inside the results comes from `results.data_summary`, which
+    # `results_from` computes over the selected window — NOT from the top-level `data_summary` key
+    # panel ① used, which this screen no longer renders and which is therefore left alone here.
     try:
         loaded = dataset.load_latest(workspace_id)
         if loaded is not None and loaded.frames:
-            ctx["data"] = data_view.panel_data_from(loaded)
-            ctx["data_summary"] = summary_view.data_summary_from(loaded)
-            has_dataset = ctx["data_summary"] is not None
-            # Panel ③ (§2.4): render the COMPUTED energy-savings view-model over the default
-            # window (last_1_year, coverage-anchored) instead of the static sample. Like
-            # data_summary, results_from returns None when the frames yield no simulatable grid —
-            # in that case the sample ctx["results"] stays as the empty-state fallback.
+            # The COMPUTED energy-savings view-model over the default window (last_1_year,
+            # coverage-anchored) instead of the static sample. `results_from` returns None when the
+            # frames yield no simulatable grid — in that case the sample `ctx["results"]` stays as
+            # the empty-state fallback.
             computed_results = results_view.results_from(
                 loaded, results_view.resolve_window(loaded), cfg=cfg
             )
@@ -750,16 +774,16 @@ def index(
                 ctx["results"] = computed_results
     except Exception:  # pragma: no cover - defensive: a corrupt dataset must not break the page
         pass
-    if not has_dataset:
-        ctx.pop("data_summary", None)
     ctx["lang"] = {
         "current": locale,
         "options": [{"code": c, "label": c.upper()} for c in i18n.SUPPORTED],
     }
-    # The source generation (specs §2.2): rendered so the browser can reconcile its locally-saved
-    # source customizations. Bumped only by a persisted HA fetch; 0 before the first one.
-    ctx["source_generation"] = db.source_generation(workspace_id)
-    return HTMLResponse(i18n.env_for(locale).get_template("index.html").render(**ctx))
+    ctx["view"] = results_screen_view.results_screen_view(
+        cfg, ws.title, pricing_configured=not ctx["cost_toggle_blocked"]
+    )
+    return HTMLResponse(
+        i18n.env_for(locale).get_template("workspace_results.html").render(**ctx)
+    )
 
 
 @app.post("/w/{workspace_id}/params", response_class=HTMLResponse)
@@ -792,7 +816,8 @@ async def params(
     re-rendering client-side would mean a second, JS-side copy of the label/gating/translation
     logic that `params_view` already owns; returning the rendered panel keeps ONE renderer. It is
     also the pattern already established for panel ③ (`POST /w/{id}/results` → fragment →
-    `outerHTML` swap, delegated listeners in index.html), so the browser side is three lines.
+    `outerHTML` swap, delegated listeners in workspace_results.html), so the browser side is three
+    lines.
 
     The sequence, which is §3.2's `PARAMS_CHANGED` ("Validate; persist; if valid → INPUT_CHANGED"):
 
@@ -863,6 +888,12 @@ async def params(
             "has_battery": candidate.has_battery,
             "simulate_cost": candidate.simulate_cost,
         },
+        # The "N changed from default" count on the advanced pane's summary (§2′.6). Built from the
+        # CANDIDATE, like everything else in this render: the count has to describe the values the
+        # swapped-in box is showing, and on an invalid submission those are the user's own.
+        # `title` and `pricing_configured` are not read by the fragment — the header and the cost
+        # toggle live outside it — and the defaults are what this render site can honestly supply.
+        view=results_screen_view.results_screen_view(candidate, ws.title),
     )
     return HTMLResponse(html, headers={"X-Params-Valid": "0" if result.blocking else "1"})
 
@@ -900,14 +931,26 @@ def results(
     # The SAME persisted parameter set index() and /results/benchmark read, so the three cannot
     # disagree about which battery the panel is describing. Scoped: this workspace's config, over
     # this workspace's dataset.
-    result = results_view.results_from(loaded, window, cfg=simconfig_store.load(ws.id))
+    cfg = simconfig_store.load(ws.id)
+    result = results_view.results_from(loaded, window, cfg=cfg)
     if result is None:
         raise HTTPException(status_code=409, detail="no simulatable data")
 
     # Render the fragment standalone from the request locale's environment (as index() does).
-    # The fragment reads only `results.*`, so that is the whole context.
+    #
+    # **The fragment reads four things beyond `results.*` since phase 4.2**, all because §2′.6
+    # moved the cost toggle into it: the toggle's checked state, its Blocked flag, and the
+    # workspace id the Blocked branch's link and the ⓘ dialog's destination are built from. Every
+    # one of them is re-read here rather than carried on the request, so a swap lands the toggle in
+    # the state the STORE is in — which matters, because the recompute that triggers this swap can
+    # be the one the toggle itself just caused.
     locale = i18n.resolve_locale(request)
-    html = i18n.env_for(locale).get_template("_panel_results.html").render(results=result)
+    html = i18n.env_for(locale).get_template("_panel_results.html").render(
+        results=result,
+        workspace_id=ws.id,
+        simulate_cost=cfg.simulate_cost,
+        cost_toggle_blocked=not simconfig_store.is_pricing_configured(ws.id),
+    )
     return HTMLResponse(html)
 
 

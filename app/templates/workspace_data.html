@@ -8,7 +8,7 @@
   here: the four boxes come from the same partials panel ① renders, so there is one copy of the
   roster's ids and data-* attributes — all of which are a contract with app/static/ha_fetch.js.
 
-      _data_household.html   "About your household" (titled=True here — §2′.5 gives it a box)
+      _data_household.html   "About your household" (§2′.5's titled box)
       _data_roster.html      the #slot-roster card, the [ Fetch history ] button
       _data_quality.html     Data quality — drawn only once data has loaded
       _data_glance.html      Your data at a glance — likewise
@@ -23,7 +23,7 @@
   to describe.
 
   **The two radios are `setup_haspv` / `setup_hasbattery`, NOT `setup.has_pv`.** The missing dot is
-  load-bearing — see `_data_household.html`'s header. index.html's delegated handler submits
+  load-bearing — see `_data_household.html`'s header. workspace_results.html's delegated handler submits
   `#params-form` for anything named `setup.*`, and `parse_form` reads `setup.has_pv` under a
   section gate; these two answers travel by neither route.
 
@@ -50,7 +50,7 @@
   <link rel="stylesheet" href="/static/app.css">
 </head>
 {# `data-workspace-id` is the ONE place the page states which workspace it is showing, exactly as
-   index.html does it. ha_fetch.js reads it to key its per-workspace localStorage slot store
+   the results screen does it. ha_fetch.js reads it to key its per-workspace localStorage slot store
    (§2′.11), and the dirty check below reads it for the same key. The ingest WebSocket path is not
    built from it — the roster carries that path whole in data-ingest-ws. #}
 <body class="min-h-screen bg-base-200 text-base-content"
@@ -99,7 +99,7 @@
       {# The mode also travels as a form field, so it survives a re-render that did not keep the
          query string — the same belt-and-braces phase 3 used on the edit screen. #}
       {% if view.wizard %}<input type="hidden" name="mode" value="wizard" />{% endif %}
-      {{ household_box(cfg, titled=True) }}
+      {{ household_box(cfg) }}
     </form>
 
     {# ── The slot roster (§2.2, unchanged) ──────────────────────────────────── #}
@@ -181,7 +181,7 @@
        One modal for every ⓘ .slot-info-btn on the screen: the household box's battery blurb, the
        roster's role blurbs and the glance's derived-metric blurbs. ha_fetch.js fills the title +
        body from the clicked button's data-* (already translated server-side) and calls showModal().
-       Page level, as on index.html. #}
+       Page level, as on the results screen, which carries its own copy for its own ⓘ buttons. #}
   <dialog id="slot-info-dialog" class="modal">
     <div class="modal-box">
       <h3 class="text-lg font-bold" id="slot-info-title"></h3>
@@ -195,7 +195,7 @@
 
   {# ── "Not built yet" dialog — the pending affordance (§2.1). Reached from the drawer's CSV
        option, which ha_fetch.js creates dynamically with data-feature-key="data_source_csv".
-       Identical to index.html's and workspace_edit.html's; this screen carries its own copy
+       Identical to the results and edit screens'; this screen carries its own copy
        because it is a separate page. #}
   <dialog id="pending-dialog" class="modal" data-feature-key="">
     <div class="modal-box">
@@ -329,7 +329,7 @@
 
   {# i18n strings the drawer's and fetcher's JS need at runtime (app/static/ha_fetch.js), rendered
      here so gettext extracts the msgids and the browser reads them already translated. Same set
-     and same reasoning as index.html's copy — see that file's header note on why runtime values
+     and the same reasoning the drawer's header gives for why runtime values
      travel as %(name)s placeholders in one msgid rather than as concatenated fragments. #}
 {%- set drawer_i18n = {
       "loading": _("Loading…"),
@@ -439,7 +439,7 @@
   })();
 
   (function () {
-    // The pending affordance (§2.1), a copy of index.html's handler for this standalone page.
+    // The pending affordance (§2.1), a copy of the results screen's handler for this standalone page.
     // Delegated from `document` so the drawer's dynamically-created CSV option (ha_fetch.js)
     // opens the dialog with no wiring on that side. Keys already thumbed this session are
     // remembered so a second click neither re-counts nor re-POSTs; the POST is fire-and-forget
@@ -486,7 +486,9 @@
      **This file needed no change to work here.** It gates itself on `#slot-roster` being present
      and looks everything else up by id, so including the roster partial is the whole integration:
      the drawer, the entity picker, the ⓘ dialog, `applySetupGating` (keyed on `setup_haspv` /
-     `setup_hasbattery`) and `[ Fetch history ]` all bind exactly as they do on index.html. #}
+     `setup_hasbattery`) and `[ Fetch history ]` all bind. Phase 4.2 made this the ONLY page that
+     loads it: the results screen dropped the drawer with panel ① and inlines the one delegated
+     listener it still needed (the ⓘ dialog's). #}
   <script src="/static/ha_fetch.js" defer></script>
 </body>
 </html>

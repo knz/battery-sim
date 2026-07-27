@@ -19,7 +19,7 @@
  *  2. The slot-first source-picker drawer. Each slot row (templates/_panel_data.html) has a
  *     "Choose source…" button carrying the slot name, its kind (energy/price), and its source
  *     list (data-slot-sources). A click opens the shared right-side drawer (#source-drawer in
- *     index.html) listing those sources as radios. Picking a source:
+ *     workspace_data.html) listing those sources as radios. Picking a source:
  *       * home_assistant (browser_fetch) → the drawer reveals a single entity <select>
  *         (#drawer-entity-select), populated for THIS slot from the shared connection's listing,
  *         plus a "Configure" button that opens the shared connection modal. The entity picker is
@@ -134,7 +134,7 @@
   var conn = document.getElementById("slot-roster");
   if (!conn) return;  // panel not on this page
 
-  // Which workspace this page is showing (index.html's <body data-workspace-id>). The routes are
+  // Which workspace this page is showing (workspace_data.html's <body data-workspace-id>). The routes are
   // workspace-scoped (specs/08-architecture.md §5.1); the ingest WebSocket path is rendered
   // server-side onto the roster's data-ingest-ws, so this id is needed here only to key the slot
   // store below.
@@ -156,7 +156,7 @@
   // exception covers `feature_interest` and nothing else).
   var LS_SLOTS = "ha.slots." + WORKSPACE_ID;
 
-  // The Home Assistant connection UI now lives in the #ha-config-dialog modal (index.html),
+  // The Home Assistant connection UI now lives in the #ha-config-dialog modal (workspace_data.html),
   // opened by the drawer's "Configure" button. The field IDs are unchanged, so these bindings
   // resolve exactly as before — only their host node moved from the panel card into the modal.
   var haConfigDialog = document.getElementById("ha-config-dialog");
@@ -168,7 +168,7 @@
   var fetchStatus = document.getElementById("ha-fetch-status");
   var progressEl = document.getElementById("ha-fetch-progress");
 
-  // Slot info ⓘ affordance (specs §4.1). A single #slot-info-dialog (page level, in index.html,
+  // Slot info ⓘ affordance (specs §4.1). A single #slot-info-dialog (page level, in workspace_data.html,
   // so it survives every fragment swap and serves panels ①, ② and ③ alike) serves
   // every row's ⓘ button; a delegated click reads the (server-side, already-translated) title and
   // body off the clicked .slot-info-btn's data-* and opens the modal — same shared-dialog pattern
@@ -942,7 +942,7 @@
     updateHaConfigButton();
 
     // Pending "Upload CSV" option — disabled, with the [?] affordance that opens the shared
-    // pending dialog (index.html #pending-dialog, feature key data_source_csv).
+    // pending dialog (workspace_data.html #pending-dialog, feature key data_source_csv).
     drawerList.appendChild(csvPendingOption());
   }
 
@@ -965,7 +965,7 @@
     help.type = "button";
     help.className = "btn btn-ghost btn-xs";
     help.textContent = "[?]";
-    // The shared pending dialog (index.html) binds these attributes via a delegated click
+    // The shared pending dialog (workspace_data.html) binds these attributes via a delegated click
     // listener, so this dynamically-created button opens it with no wiring here (§2.1).
     help.setAttribute("data-pending-name", t("upload_csv", "Upload CSV"));
     help.setAttribute("data-feature-key", "data_source_csv");

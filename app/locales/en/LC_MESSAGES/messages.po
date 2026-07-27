@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-26 22:44+0200\n"
+"POT-Creation-Date: 2026-07-27 12:23+0200\n"
 "PO-Revision-Date: 2026-07-23 20:40+0200\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: en\n"
@@ -87,6 +87,12 @@ msgstr "%(kwh)s throughput"
 #, python-format
 msgid "%(n)s / day"
 msgstr "%(n)s / day"
+
+#, python-format
+msgid "%(n)s changed from default"
+msgid_plural "%(n)s changed from default"
+msgstr[0] ""
+msgstr[1] ""
 
 #, python-format
 msgid "%(n)s detected and corrected"
@@ -308,9 +314,6 @@ msgstr "Battery charge"
 msgid "Battery discharge"
 msgstr "Battery discharge"
 
-msgid "Before you start"
-msgstr "Before you start"
-
 msgid "Benchmark: grid import avoided"
 msgstr "Benchmark: grid import avoided"
 
@@ -331,6 +334,9 @@ msgstr "Cannot be negative."
 
 msgid "Caveats for this run"
 msgstr "Caveats for this run"
+
+msgid "Charge & discharge"
+msgstr ""
 
 #, python-format
 msgid ""
@@ -453,9 +459,6 @@ msgstr "Custom"
 
 msgid "D"
 msgstr "D"
-
-msgid "DATA"
-msgstr "DATA"
 
 msgid "DC / hybrid"
 msgstr "DC / hybrid"
@@ -737,8 +740,8 @@ msgstr "Ingest rejected: %(reason)s"
 msgid "Initial SoC"
 msgstr "Initial SoC"
 
-msgid "Installation topology"
-msgstr "Installation topology"
+msgid "Installation"
+msgstr ""
 
 msgid "Intervals battery was full / empty"
 msgstr "Intervals battery was full / empty"
@@ -807,6 +810,9 @@ msgstr "Monthly grid import"
 msgid "Monthly savings (€)"
 msgstr ""
 
+msgid "More settings"
+msgstr ""
+
 msgid "Must be a whole number of at least 2."
 msgstr "Must be a whole number of at least 2."
 
@@ -841,9 +847,6 @@ msgstr ""
 msgid "Next →"
 msgstr ""
 
-msgid "Next: parameters →"
-msgstr "Next: parameters →"
-
 msgid "No"
 msgstr "No"
 
@@ -858,6 +861,11 @@ msgstr "Not built yet"
 
 msgid "Not connected"
 msgstr "Not connected"
+
+msgid ""
+"Nothing to configure here: without solar, and on a 1-phase connection, "
+"the arrangement is fixed."
+msgstr ""
 
 msgid "On your meter cabinet, or on your grid operator bill."
 msgstr ""
@@ -915,9 +923,6 @@ msgstr ""
 
 msgid "Override these only if your operator has set a different limit."
 msgstr ""
-
-msgid "PARAMETERS"
-msgstr "PARAMETERS"
 
 msgid "PV only"
 msgstr "PV only"
@@ -1053,6 +1058,12 @@ msgstr "Series slots"
 
 msgid "Serve house load when consumption exceeds solar"
 msgstr "Serve house load when consumption exceeds solar"
+
+msgid "Set up my contract →"
+msgstr ""
+
+msgid "Set up your contract first"
+msgstr ""
 
 msgid "Shared across all slots that use Home Assistant"
 msgstr "Shared across all slots that use Home Assistant"
@@ -1411,14 +1422,10 @@ msgstr ""
 msgid "To"
 msgstr "To"
 
-msgid "Toggle Data panel"
-msgstr "Toggle Data panel"
-
-msgid "Toggle Parameters panel"
-msgstr "Toggle Parameters panel"
-
-msgid "Toggle advanced pricing settings"
-msgstr "Toggle advanced pricing settings"
+msgid ""
+"To put a euro figure on your savings, the app needs to know what you pay "
+"for electricity — your contract type and its rates."
+msgstr ""
 
 msgid "Token"
 msgstr "Token"
@@ -1468,6 +1475,9 @@ msgstr "Where the energy comes from"
 msgid "Where the money comes from"
 msgstr ""
 
+msgid "Why is this greyed out?"
+msgstr ""
+
 msgid "Yes"
 msgstr "Yes"
 
@@ -1485,6 +1495,9 @@ msgid "You have no analyses yet."
 msgstr "You have no analyses yet."
 
 msgid "You have not loaded your data yet"
+msgstr ""
+
+msgid "You have not set those up for this analysis yet."
 msgstr ""
 
 msgid "Your analyses"
@@ -1764,9 +1777,6 @@ msgid_plural "days"
 msgstr[0] "day"
 msgstr[1] "days"
 
-msgid "days"
-msgstr "days"
-
 msgid "disabled"
 msgstr ""
 
@@ -1865,8 +1875,8 @@ msgstr "not loaded"
 msgid "not mapped"
 msgstr "not mapped"
 
-msgid "not nameplate"
-msgstr "not nameplate"
+msgid "not the nameplate figure"
+msgstr ""
 
 msgid "offered if you simulate costs"
 msgstr "offered if you simulate costs"
@@ -1893,8 +1903,8 @@ msgstr "saved %(when)s"
 msgid "saving…"
 msgstr "saving…"
 
-msgid "set by the topology selector below"
-msgstr "set by the topology selector below"
+msgid "set by the topology selector on the Installation tab"
+msgstr ""
 
 #, python-format
 msgid "simulated %(res)s · %(n)s interval"
@@ -2226,4 +2236,37 @@ msgstr "👍 I want this"
 #~ " and discharge bands, so it is "
 #~ "required whether or not you simulate "
 #~ "costs."
+
+#~ msgid "Before you start"
+#~ msgstr "Before you start"
+
+#~ msgid "DATA"
+#~ msgstr "DATA"
+
+#~ msgid "Installation topology"
+#~ msgstr "Installation topology"
+
+#~ msgid "Next: parameters →"
+#~ msgstr "Next: parameters →"
+
+#~ msgid "PARAMETERS"
+#~ msgstr "PARAMETERS"
+
+#~ msgid "Toggle Data panel"
+#~ msgstr "Toggle Data panel"
+
+#~ msgid "Toggle Parameters panel"
+#~ msgstr "Toggle Parameters panel"
+
+#~ msgid "Toggle advanced pricing settings"
+#~ msgstr "Toggle advanced pricing settings"
+
+#~ msgid "days"
+#~ msgstr "days"
+
+#~ msgid "not nameplate"
+#~ msgstr "not nameplate"
+
+#~ msgid "set by the topology selector below"
+#~ msgstr "set by the topology selector below"
 

@@ -26,7 +26,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from app import i18n
-from tests.conftest import page, seed_workspace, w
+from tests.conftest import data_page, page, seed_workspace, w
 
 
 # ── 1. The percent trap ────────────────────────────────────────────────────────────────────────
@@ -139,7 +139,10 @@ def test_concurrent_mixed_locale_renders_do_not_cross_contaminate():
 # ── 4. The drawer/fetcher JS string block ──────────────────────────────────────────────────────
 #
 # ha_fetch.js reads its user-facing strings from the #drawer-i18n JSON block rendered by
-# index.html. The block is easy to break silently in two ways, and neither shows up on the page:
+# `workspace_data.html`. That is the ONLY page rendering the block since phase 4.2: the results
+# screen dropped the drawer, the HA modal and `ha_fetch.js` along with panel ① (§2′.6), so the
+# block moved with the module that reads it. The block is easy to break silently in two ways, and
+# neither shows up on the page:
 #
 #   * a key used by the JS but absent from the block falls back to the English literal baked into
 #     the t()/ti() call site, so the UI stays in English with nothing flagged;
@@ -158,25 +161,26 @@ JS_PATH = REPO_ROOT / "app" / "static" / "ha_fetch.js"
 def _drawer_i18n(code: str) -> dict:
     """The #drawer-i18n payload as the browser would parse it, for one locale.
 
-    Goes through the real route rather than rendering index.html with a hand-built context: the
-    template's context is app/main.py's business, and duplicating it here would make this test
-    fail whenever that context grows.
+    Goes through the real route rather than rendering the template with a hand-built context: the
+    context is app/main.py's business, and duplicating it here would make this test fail whenever
+    that context grows.
 
-    The page moved to `/w/{id}/results` in phase 2 (`/` is the workspace list now), which is a
-    SCOPED route, so the workspace row has to exist before the request — `TestClient(app)` outside
-    a `with` block runs no lifespan and this module seeds nothing else. It writes into the
-    session-wide temp data dir `tests/conftest` sets up, never the developer's `./data`.
+    Reads `/w/{id}/data`, the configure-data screen — the one page that still renders the block
+    (module comment). It is a SCOPED route, so the workspace row has to exist before the request:
+    `TestClient(app)` outside a `with` block runs no lifespan and this module seeds nothing else.
+    It writes into the session-wide temp data dir `tests/conftest` sets up, never the developer's
+    `./data`.
     """
     from starlette.testclient import TestClient
 
     from app.main import app
 
     seed_workspace()
-    html = TestClient(app).get(page(), headers={"Cookie": f"lang={code}"}).text
+    html = TestClient(app).get(data_page(), headers={"Cookie": f"lang={code}"}).text
     block = re.search(
         r'<script id="drawer-i18n" type="application/json">(.*?)</script>', html, re.S
     )
-    assert block, "#drawer-i18n block missing from index.html"
+    assert block, "#drawer-i18n block missing from workspace_data.html"
     return json.loads(block.group(1))
 
 

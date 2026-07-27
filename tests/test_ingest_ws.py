@@ -13,7 +13,7 @@ import os
 
 import pytest
 
-from tests.conftest import page, seed_workspace, w
+from tests.conftest import data_page, seed_workspace, w
 
 
 @pytest.fixture()
@@ -174,25 +174,37 @@ def test_two_resolutions_are_not_differenced_together(client):
 
 
 def test_page_shows_sample_before_any_fetch(client):
-    """With no dataset, panel ① renders the static sample (empty state)."""
+    """With no dataset, the configure-data screen shows the roster and NO quality figures.
+
+    Reads `/w/{id}/data`, not the results page: phase 4.2 deleted panel ①, so the roster exists on
+    exactly one screen now (§2′.5).
+
+    **The assertion inverted in phase 4.2 and that is the specified behaviour, not a loosening.**
+    Panel ① rendered `sample_view()`'s quality box unconditionally, so this used to look for a
+    sample-only quality string ("3 gaps totalling 4.2 h") as proof the empty state was the sample
+    one. 4.1's review found that wrong on the new screen and gated the box on `has_dataset`
+    (§2′.5's "present once data has loaded"): showing sample gap figures for data the user never
+    supplied reads as a report about their own data. So the empty state is now the ABSENCE of those
+    figures, and the presence of the roster that asks for them.
+    """
     tc, main, dataset = client
-    html = tc.get(page()).text
-    # A sample-only quality string the real view-model never emits. (The sample's placeholder
-    # entity ids are no longer rendered — the HA entity is chosen in the drawer, not shown as a
-    # main-row column — so a quality-string marker is used instead.)
-    assert "3 gaps totalling 4.2 h" in html
+    html = tc.get(data_page()).text
+    assert 'id="slot-roster"' in html, "the empty state must still ask for the data"
+    # The sample's quality figures must NOT be on screen before anything is loaded.
+    assert "3 gaps totalling 4.2 h" not in html
+    assert "Data quality" not in html
 
 
 def test_page_reflects_persisted_dataset_after_ingest(client):
-    """After a WS ingest, GET / renders panel ① from the persisted dataset (specs §3.5)."""
+    """After a WS ingest, the configure-data screen renders from the persisted dataset (§3.5)."""
     tc, main, dataset = client
     with tc.websocket_connect(w("/data/ingest/ws")) as ws:
         result = _drive_valid_ingest(ws)
     assert result["type"] == "result"
 
-    html = tc.get(page()).text
-    # The real view-model's summary reports the fetched series count and grid.
-    assert "3 series" in html
+    html = tc.get(data_page()).text
+    # The quality box appears once data has loaded (§2′.5) and reports the real frames.
+    assert "Data quality" in html
     # The real granularity table uses role labels; the sample's placeholder entity ids are gone.
     assert "sensor.electricity_meter_import_t1" not in html
     # Register summary from real frames (specs §6.4 availability).
@@ -216,20 +228,22 @@ def test_fetch_bumps_source_generation(client):
     """A persisted fetch advances the source generation and reports it (specs §2.2).
 
     The generation starts at 0, becomes 1 after the first fetch, 2 after the second, and each
-    result frame carries the new value. The page (#source-generation) reflects the current value.
+    result frame carries the new value. The configure-data screen (#source-generation) reflects the
+    current value — it is the only screen that renders that node since phase 4.2, because it is the
+    only one whose JS reconciles a locally-staged mapping against it (§2′.11).
     """
     tc, main, dataset = client
     from app import db
 
     assert db.source_generation() == 0
     # Before any fetch the page renders generation 0.
-    assert '<script id="source-generation" type="application/json">0</script>' in tc.get(page()).text
+    assert '<script id="source-generation" type="application/json">0</script>' in tc.get(data_page()).text
 
     with tc.websocket_connect(w("/data/ingest/ws")) as ws:
         result = _drive_valid_ingest(ws)
     assert result["generation"] == 1
     assert db.source_generation() == 1
-    assert '<script id="source-generation" type="application/json">1</script>' in tc.get(page()).text
+    assert '<script id="source-generation" type="application/json">1</script>' in tc.get(data_page()).text
 
     # A second fetch bumps again — this is what makes another client's stored customization stale.
     with tc.websocket_connect(w("/data/ingest/ws")) as ws:

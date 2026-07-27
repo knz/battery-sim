@@ -26,13 +26,13 @@
        new window (specs §3.2 RANGE_CHANGED). The route returns this whole template's output and
        the browser swaps it in by its root #panel-results element's outerHTML.
 
-  Fragment-swap design (see the delegated listeners at the foot of index.html — NOT here):
+  Fragment-swap design (see the delegated listeners at the foot of workspace_results.html — NOT here):
     * The period/date pickers must keep working after a swap. Because a swapped-in inline <script>
       re-inserts but does NOT re-execute, the picker's click/apply handlers are DELEGATED from
-      `document` in index.html (bound once, on a part of the page that is never swapped). They key
+      `document` in workspace_results.html (bound once, on a part of the page that is never swapped). They key
       off `data-period` / #results-apply-range, so the fresh buttons work with no re-binding.
-    * The Plotly chart is drawn by a NAMED window.drawMonthlyChart() (defined in index.html) that
-      reads the fresh data from the swapped-in #monthly-data <script> node. index.html calls it on
+    * The Plotly chart is drawn by a NAMED window.drawMonthlyChart() (defined in workspace_results.html) that
+      reads the fresh data from the swapped-in #monthly-data <script> node. workspace_results.html calls it on
       initial load; the delegated fetch-handler calls it again after each swap. The inline draw is
       therefore gone from this template — only the data node and the chart container remain.
 
@@ -91,7 +91,7 @@
     {# ── Period selector + explicit date-range picker (§2.4) ───────────────
        Presets anchor to the END of data coverage (§7.4). Each button POSTs {"period": token}
        to /results; the date range POSTs {"start","end"}. Both are handled by the DELEGATED
-       listeners in index.html, so these controls survive a fragment swap without re-binding. #}
+       listeners in workspace_results.html, so these controls survive a fragment swap without re-binding. #}
     <div class="flex flex-col gap-3">
       <div class="flex flex-wrap items-center gap-3">
         <div class="join" id="results-period">
@@ -136,6 +136,66 @@
         {{ results.period }}
         {%- endif -%}
       </span>
+
+      {# ── Simulate cost savings? (§2′.6, §2′.7) ──────────────────────────────────
+           **Moved here from the setup band in phase 4.2**, which §2′.7 dissolved. It sits "inside
+           the results block, under the period selector and above the result sections — not in the
+           battery box, and not floating between the two. It reshapes the results, so it belongs to
+           them."
+
+           `#setup-simulate-cost` is kept as the id: it is the anchor target the invitation box
+           below links to, and keeping the name means one link, one target, and no id that exists
+           only to be pointed at. The control name `setup.simulate_cost` is unchanged too, so
+           `params_view.parse_form`'s `setup`-gated branch reads it exactly as before.
+
+           **It posts with the battery box's form**, via `form="params-form"` — HTML's explicit form
+           association, the same mechanism `_setup_band.html` used. That is deliberate and it is why
+           the marker still says `setup`: the answer changes which boxes the battery box draws, so
+           the response has to be the re-rendered box, and one form means one POST, one validation
+           and one swap. A separate form here would post WITHOUT the parameter fields, which
+           `parse_form` would treat as "inherit everything" — correct, but it would silently discard
+           whatever the user had typed and not yet submitted.
+
+           **Blocked, not Inapplicable, until the workspace has a contract** (§2′.6). The radios
+           carry `disabled` so a blocked toggle cannot change the stored answer, the row is dimmed
+           by `.blocked-control`, and the ⓘ opens the dialog that says how to clear the
+           precondition. Hiding the control instead "would leave a user who wants euro figures with
+           nothing to click and nothing to read".
+
+           `blocked` defaults to false so the standalone `POST /results` fragment — which re-renders
+           this panel on every range change — draws the toggle live rather than blocked when the
+           caller did not say. The route passes the real flag; see main.results(). #}
+      {% set cost_blocked = cost_toggle_blocked | default(false, true) %}
+      <div class="flex flex-wrap items-center gap-3{% if cost_blocked %} blocked-control{% endif %}"
+           id="setup-simulate-cost" {% if cost_blocked %}data-blocked="1"{% endif %}>
+        <span class="w-56 label-text cost-label">{{ _('Simulate cost savings?') }}</span>
+        <label class="label gap-1{% if not cost_blocked %} cursor-pointer{% endif %}">
+          <input type="radio" name="setup.simulate_cost" value="yes" form="params-form"
+                 class="radio radio-sm" {% if simulate_cost %}checked{% endif %}
+                 {% if cost_blocked %}disabled{% endif %} />
+          <span class="label-text">{{ _('Yes') }}</span>
+        </label>
+        <label class="label gap-1{% if not cost_blocked %} cursor-pointer{% endif %}">
+          <input type="radio" name="setup.simulate_cost" value="no" form="params-form"
+                 class="radio radio-sm" {% if not simulate_cost %}checked{% endif %}
+                 {% if cost_blocked %}disabled{% endif %} />
+          <span class="label-text">{{ _('No') }}</span>
+        </label>
+        {% if cost_blocked %}
+        {# The adjacent affordance §2.1's Blocked state requires. Its own button and its own dialog,
+           NOT the shared .slot-info-btn one: this dialog carries an ACTION — `[ Set up my contract
+           → ]`, a link to the edit screen — and the shared info dialog is a title-and-body pair
+           with only a close button. #}
+        <button type="button" class="btn btn-ghost btn-xs btn-circle align-middle"
+                id="cost-blocked-info"
+                aria-label="{{ _('Why is this greyed out?') }}">ⓘ</button>
+        {% endif %}
+      </div>
+      {% if not cost_blocked %}
+      <p class="text-xs text-base-content/60">
+        ⓘ {{ _('This answer decides whether the app reports euros as well as kWh.') }}
+      </p>
+      {% endif %}
     </div>
 
     {# ── Short-window guard box (§2.4 / §7.4) ───────────────────────────────
@@ -216,7 +276,7 @@
        gets the lazy-fetch placeholder.
 
        The placeholder carries the window request as JSON in `data-benchmark-body`, so the fetcher
-       — which lives in index.html, never in this swapped fragment — knows which window to ask for
+       — which lives in workspace_results.html, never in this swapped fragment — knows which window to ask for
        without holding any state of its own. It re-reads the attribute off the freshly-swapped node
        after every range change, so the box re-fires with the right window each time. #}
     {% if results.benchmark %}
@@ -264,7 +324,7 @@
           {# §2.4: "The Charts box gains options rather than swapping them." The kWh view is
              always offered and shown by default; the euro view appears BESIDE it only when there
              is a euro series, and the two are separate views rather than a dual axis (see the
-             draw function in index.html). The switching is delegated from `document` there, like
+             draw function in workspace_results.html). The switching is delegated from `document` there, like
              every other control in this swappable fragment. #}
           <div class="join">
             <button type="button" class="btn btn-xs join-item btn-active" data-chart-view="kwh">{{ _('Monthly grid import') }}</button>
@@ -293,9 +353,27 @@
        that silently flipped a simulation-wide toggle from the results panel would recompute the
        page out from under them. #}
     {% if not results.cost %}
-    <div class="alert bg-base-200 border border-base-300">
+    <div class="alert bg-base-200 border border-base-300" data-cost-invitation>
       <span>{{ _('Want to know what this is worth in euros?') }}</span>
+      {% if cost_blocked %}
+      {# The toggle it points at is Blocked, so a button saying "Enable cost simulation" would send
+         the reader to a control they cannot use and explain nothing. §2′.7 anticipated exactly
+         this: the invitation "needs to point at the toggle's new location, and — under §2′.6 — to
+         say something useful when the toggle it points at is blocked."
+
+         The wording states the precondition and the link goes where the precondition is met — the
+         edit screen with the Contract box in view, the SAME destination the ⓘ dialog's
+         `[ Set up my contract → ]` uses, because there is one way to clear this and two buttons
+         that both claim to lead to it would be two answers to one question.
+
+         The box is otherwise unchanged: §2′.7 holds it as it is ("stays as it is … explicitly a
+         hold rather than a conclusion"), so this is the minimum the deleted anchor forced. #}
+      <a href="/w/{{ workspace_id | urlencode }}/edit#contract" class="btn btn-primary btn-sm">
+        {{ _('Set up my contract →') }}
+      </a>
+      {% else %}
       <a href="#setup-simulate-cost" class="btn btn-primary btn-sm">{{ _('Enable cost simulation') }}</a>
+      {% endif %}
     </div>
     {% endif %}
 
@@ -393,7 +471,7 @@
   </div>
 
   {# The monthly grid-import data, embedded fresh on every (re)render so the swapped-in fragment carries
-     the new window's series. window.drawMonthlyChart() (index.html) reads THIS node and draws into
+     the new window's series. window.drawMonthlyChart() (workspace_results.html) reads THIS node and draws into
      #monthly-chart above. The axis title is translated server-side. This node lives INSIDE
      #panel-results so it is replaced together with the panel on a swap.
 

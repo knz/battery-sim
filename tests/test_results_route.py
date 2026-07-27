@@ -36,7 +36,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from app.domain.frames import QUALITY_DTYPE, SeriesFrame
-from tests.conftest import page, seed_workspace, w
+from tests.conftest import WORKSPACE_ID, page, seed_workspace, w
 
 # A fixed hourly window so totals are exact: 30 days × 24 h of 1 h intervals from 2026-01-01 UTC.
 _DAYS = 30
@@ -172,22 +172,29 @@ def test_results_data_glance_styled_like_energy_savings(client):
     assert "ENERGY SAVINGS" not in r.text
 
 
-def test_index_renders_data_glance_inside_panel_1(client):
-    # §2.3a: the full-coverage "Your data at a glance" figures render INSIDE panel ① — after the
-    # Data-quality box, before the "Next: parameters →" CTA — not as a band between panels ① and ②.
-    # (It used to be _panel_summary.html, included from index.html; that wrapper is gone.)
-    r = client.get(page())
+def test_the_data_screen_renders_the_full_coverage_glance_after_the_quality_box(client):
+    """§2.3a: the full-coverage glance sits AFTER the Data-quality box, framed as its peer.
+
+    **On `/w/{id}/data` since phase 4.2**, not on the results page. It was panel ①'s copy and this
+    test asserted its position relative to the `[ Next: parameters → ]` CTA and panel ②'s title;
+    §2′.5 replaced that CTA with a footer and §2′.6 deleted panel ①, so both landmarks are gone and
+    the ordering rule moved to the screen that still draws the two boxes.
+
+    The results page's own copy — the RANGE-CLAMPED one, `frame='divider'` — is a different
+    section with different figures and is covered by the tests below.
+    """
+    from tests.conftest import data_page
+
+    r = client.get(data_page())
     assert r.status_code == 200
     body = r.text
     quality = body.index("Data quality")
     glance = body.index("Your data at a glance")
-    cta = body.index("Next: parameters")
-    assert quality < glance < cta, "the glance section must sit between Data quality and the CTA"
-    # Panel ② must start only AFTER the CTA — i.e. the section is inside panel ①, not between the
-    # two panels. "PARAMETERS" is panel ②'s collapsed-title label.
-    assert cta < body.index("PARAMETERS")
-    # Framed as a peer of the Data-quality card (bg-base-200), not the old free-standing band.
+    assert quality < glance, "the glance must sit after the Data-quality box"
+    # Framed as a peer of the Data-quality card (bg-base-200), not a free-standing band.
     assert 'class="card bg-base-200 border border-base-300" aria-label="Your data at a glance"' in body
+    # …and it is inside the page's <main>, not appended after it with the shared dialogs.
+    assert glance < body.index("</main>")
 
 
 def test_data_glance_is_translated_in_both_copies(client):
@@ -200,17 +207,24 @@ def test_data_glance_is_translated_in_both_copies(client):
     #
     # Request English FIRST — that ordering is what reproduces it. Rendering Dutch first would
     # freeze the macro on Dutch and the Dutch assertions below would pass with the bug present.
-    assert "Your data at a glance" in client.get(page(), headers={"Cookie": "lang=en"}).text
-    r = client.get(page(), headers={"Cookie": "lang=nl"})
+    #
+    # The full-coverage copy is on `/w/{id}/data` since phase 4.2 (panel ① moved there in 4.1 and
+    # was deleted from the results page in 4.2); the range-clamped copy is still inside the results
+    # fragment. Two screens rather than two panels, but the same two render sites for one macro,
+    # which is what the regression was about.
+    from tests.conftest import data_page
+
+    assert "Your data at a glance" in client.get(data_page(), headers={"Cookie": "lang=en"}).text
+    r = client.get(data_page(), headers={"Cookie": "lang=nl"})
     assert r.status_code == 200
-    assert "Je gegevens in één oogopslag" in r.text  # the section title (panel ①)
+    assert "Je gegevens in één oogopslag" in r.text  # the section title (configure data)
     assert ">Net<" in r.text and ">Huishouden<" in r.text  # group headings from the macro body
     assert "Your data at a glance" not in r.text
     # The Grid group's "as your meter recorded them" caption is in the macro body too, so it must
     # translate in both copies like every other string there.
     assert "zoals je meter ze heeft geregistreerd" in r.text
     assert "as your meter recorded them" not in r.text
-    # The panel-③ fragment renders the same macro through a different route.
+    # The results fragment renders the same macro through a different route.
     r3 = client.post(w("/results"), json={"period": "last_1_week"}, headers={"Cookie": "lang=nl"})
     assert "Je energieverbruik in de geselecteerde periode" in r3.text
     assert ">Net<" in r3.text
@@ -475,7 +489,7 @@ def test_cost_section_absent_and_affordance_offered_when_simulate_cost_is_off(co
     client, store = cost_client
     from app.domain.simconfig import SimulationConfig
 
-    store.save(SimulationConfig())  # simulate_cost defaults to False
+    store.save(SimulationConfig(), pricing_configured=True)  # simulate_cost defaults to False
     r = client.post(w("/results"), json={"period": "last_1_week"})
     assert r.status_code == 200
     assert "Cost savings" not in r.text
@@ -483,14 +497,46 @@ def test_cost_section_absent_and_affordance_offered_when_simulate_cost_is_off(co
     assert "Where the money comes from" not in r.text
     assert "Net saving" not in r.text
     assert "Benchmark: money saved" not in r.text
-    # The affordance, and the anchor it points at — the setup band's radio, which Phase 5 wired.
+    # The affordance, and the anchor it points at. **That anchor is the reason §2′.7 flagged this
+    # box**: `#setup-simulate-cost` was an id in the setup band, which §2′.7 deleted. It is now the
+    # id of the toggle's new home INSIDE this same fragment, so the link resolves to a control on
+    # the page it is rendered on rather than to nothing.
     assert "Want to know what this is worth in euros?" in r.text
     assert "Enable cost simulation" in r.text
     assert 'href="#setup-simulate-cost"' in r.text
+    assert 'id="setup-simulate-cost"' in r.text, "the anchor must resolve to a real element"
     # The energy section is complete, not truncated: §2.4 says the panel "is complete without the
     # second half rather than looking truncated".
     assert "Energy savings" in r.text
     assert "Where the energy comes from" in r.text
+
+
+def test_the_invitation_points_at_the_contract_when_the_toggle_is_blocked(cost_client):
+    """§2′.7: the invitation must "say something useful when the toggle it points at is blocked".
+
+    The precondition (§2′.6) is `pricing_configured`, and without it the toggle is Blocked: its
+    radios are disabled, so `[ Enable cost simulation ]` would send the reader to a control they
+    cannot operate and explain nothing. The box therefore names the precondition and links to the
+    screen that clears it — the SAME destination the Blocked toggle's ⓘ dialog offers, because
+    there is one way to clear this.
+
+    §2′.7 holds the box otherwise as it is, so its question is unchanged and asserted here too.
+    """
+    client, store = cost_client
+    from app.domain.simconfig import SimulationConfig
+
+    # simulate_cost off AND no contract configured: the Blocked branch.
+    store.save(SimulationConfig(), pricing_configured=False)
+    r = client.post(w("/results"), json={"period": "last_1_week"})
+    assert r.status_code == 200
+    # The box is still there and still asks its question — §2′.7's hold.
+    assert "Want to know what this is worth in euros?" in r.text
+    # …but it does not offer a control the reader cannot use.
+    assert "Enable cost simulation" not in r.text
+    assert 'href="#setup-simulate-cost"' not in r.text
+    # It points at the screen that clears the precondition, scoped to this workspace.
+    assert f'href="/w/{WORKSPACE_ID}/edit#contract"' in r.text
+    assert "Set up my contract" in r.text
 
 
 def test_fixture_18_the_rendered_energy_half_is_unchanged_by_the_toggle(cost_client):
@@ -618,7 +664,7 @@ def test_the_benchmark_response_is_a_bare_energy_box_when_cost_is_off(client):
     """The energy path's fetch contract is unchanged by the money box existing.
 
     With cost simulation off there is no second box, so the response is `_benchmark_box.html`'s
-    output alone — no `data-slot` wrappers — which is exactly the shape index.html's handler
+    output alone — no `data-slot` wrappers — which is exactly the shape the results screen's handler
     consumed before this increment. Pinned so the two-box shape cannot become unconditional and
     silently change what an energy-only install receives.
     """
@@ -694,10 +740,17 @@ def test_the_cost_tint_marks_the_cost_section_and_not_the_energy_one(cost_client
     assert re.search(r'stat-title[^"]*cost-label"[^>]*>\s*MONEY SAVED\s*<', on)
     assert re.search(r'<div class="stat-title text-xs">\s*GRID IMPORT SAVED\s*<', on)
 
-    # Cost simulation off → the tinted section does not exist, so neither does the tint.
+    # Cost simulation off → the tinted SECTION does not exist, so nothing below the divider is
+    # tinted. The cost TOGGLE's label still is, and deliberately: §2′.6 moved that control into
+    # this fragment in phase 4.2, and it is the switch for cost simulation whether cost simulation
+    # is currently on or not — the same reasoning that tinted it in the setup band before
+    # (`test_the_setup_band_toggle_carries_the_cost_tint` in tests/test_params_route.py).
     from app.domain.simconfig import SimulationConfig
 
     store.save(SimulationConfig())
     off = client.post(w("/results"), json={"period": "last_1_week"}).text
-    assert "cost-label" not in off
+    # Exactly one tinted thing, and it is the toggle's label.
+    tinted = re.findall(r'cost-label[^>]*>\s*([^<]+?)\s*<', off)
+    assert tinted == ["Simulate cost savings?"], tinted
+    assert "cost-field" not in off      # no tinted INPUT: the Pricing box is not rendered here
     assert "Energy savings" in off      # …and the untinted half is untouched

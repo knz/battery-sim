@@ -321,7 +321,7 @@ def test_the_card_actions_are_links_not_fetches(env):
     """The three navigational actions are `<a href>`, per the plan.
 
     Pinned because the alternative is available and wrong: this repo has a hand-rolled
-    `fetch` + `outerHTML` swap layer in index.html, and reaching for it here would couple the list
+    `fetch` + `outerHTML` swap layer on the results screen, and reaching for it here would couple the list
     to machinery that exists to keep panel ② and panel ③ on screen together — a problem the list
     does not have — and would break every card action when a script fails to load.
     """
@@ -675,7 +675,7 @@ def _params_form(**overrides) -> dict:
 # ── The header (§2′.2) ───────────────────────────────────────────────────────────────────────
 
 def test_the_header_drops_the_workspace_badge_and_the_gear(env):
-    """§2′.2: both are removed, from the list AND from the relocated three-panel page.
+    """§2′.2: both are removed, from the list AND from the relocated results screen.
 
     Asserted on both screens because the badge lived on the page, not on the list — a change that
     only built a new header for the new screen would leave the old one intact and pass a
@@ -687,9 +687,18 @@ def test_the_header_drops_the_workspace_badge_and_the_gear(env):
     for html in (client.get("/").text, client.get("/w/w1/results").text):
         assert "workspace: local" not in html
         assert ">⚙<" not in html
-        # The two things the header keeps.
-        assert "Home Battery Simulator" in html
+        # The two things the header keeps: a way back or a name, and the language toggle.
         assert 'href="/lang/nl"' in html
+        assert 'href="/lang/en"' in html
+
+    # What the header CARRIES differs by screen, and phase 4.2 changed the results one. The list
+    # is the app's home and names the app; the results screen names the ANALYSIS, as §2′.6's
+    # wireframe does and as the edit and configure-data screens already did. Asserted rather than
+    # loosened away, because "the header still says something" is not a property.
+    assert "Home Battery Simulator" in client.get("/").text
+    results = client.get("/w/w1/results").text
+    assert ">Test</span>" in results, "the results header must name the analysis"
+    assert 'href="/"' in results, "…and carry the back link that is the only way to leave it"
 
 
 # ── Cross-site protection on the state-changing routes (app/csrf.py, followup B6) ─────────────

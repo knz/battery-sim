@@ -11,7 +11,7 @@
    The second path is why the extraction exists. The DP behind these numbers costs ~4.6 s on a year
    of hourly data against ~0.12 s for the rest of panel ③, so it is fetched separately and swapped
    into the `#benchmark-slot` placeholder _panel_results.html renders in its place. The fetcher
-   lives in index.html (a swapped-in <script> re-inserts but does not re-execute).
+   lives in workspace_results.html (a swapped-in <script> re-inserts but does not re-execute).
 
    The fourth "…if export allowed" row is CONDITIONAL and the condition lives in the view-model,
    not here: it is appended to `rows` only when the unconstrained DP ran and the two capture ratios

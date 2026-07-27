@@ -749,3 +749,53 @@ is filed rather than fixed. The plausible answers are to guard `[ Save ]` here t
 `[ Save ]` also commit the staged mapping; the second changes what `[ Save ]` means on this screen
 and is a product call.
 *Origin:* `20260726-workspaces-phase4.md` (review, finding 5).
+
+**L1. `RESULTS_STALE` does not dim the previous results; the app has never implemented it.**
+§2′.6 says "`RESULTS_STALE` still renders the previous results dimmed rather than blanking them"
+([§3.1](04-state-machine.md)), and the word "still" is doing work the code does not back: the
+pre-restructure `index.html` did not dim either, so nothing regressed — the spec point has simply
+never been built. What IS implemented is the other half: `#results-recalculating` is un-hidden for
+the duration of a recompute, the previous panel stays in the DOM, and a refused recompute leaves the
+last good figures alone. Grepping `_panel_results.html` and `workspace_results.html` for
+`opacity-`/`dim`/`stale` finds only the pending-chart buttons and the blocked cost toggle.
+
+Filed rather than fixed because it is a visual-design decision (how much dimming, on which elements,
+and whether it applies to a partial swap) and because §2′.6 lists it under "what is unchanged",
+where it is describing existing behaviour rather than requesting new work. `tests/test_workspace_
+results.py`'s test was renamed from `test_results_stale_dims_…` to
+`test_a_refused_recompute_keeps_…`: a green test named for the dimming read as coverage of a thing
+that does not exist.
+*Origin:* `20260726-workspaces-phase4.md` (4.2 review, finding 3).
+
+**L2. `POST /w/{id}/edit` sets `pricing_configured=True` on every successful save, not only when
+the Contract box was touched.**
+§2′.6 specifies the flag is "set true when the user saves the edit-workspace screen **having
+touched the Contract box**", and argues for a flag precisely so that "any stray edit — including one
+the user reverted — would silently unlock the toggle" cannot happen. The phase-3 implementation sets
+it unconditionally on a successful save, which is documented at `app/main.py:449-453` and was a
+deliberate simplification, but it is not what the spec says.
+
+Out of scope for 4.2, which only made the consequence visible: a user who renames their analysis, or
+who walks the wizard without ever opening the Contract box, arrives at results with the cost toggle
+live and appendix-A default rates presented as their contract. Worth deciding together with the
+Blocked-toggle question below (L3), since both turn on what "the user has told us what they pay"
+should mean.
+*Origin:* `20260726-workspaces-phase4.md` (4.2 review, noted item).
+
+**L3. A hand-crafted POST can turn cost simulation on while `pricing_configured` is false.**
+The results screen then renders a checked-but-Blocked toggle beside a fully drawn Pricing box:
+internally coherent, contradictory to read. Reproduced with a direct `POST /w/{id}/params` carrying
+`setup.simulate_cost=yes`; `simulate_cost` is stored True while `is_pricing_configured` stays False.
+
+Confirmed LATENT, not live: the rendered radios carry `disabled`, so no browser path submits them
+while blocked, and §2′.10's migration sets the flag true for anyone who already had cost simulation
+on. It is reachable by a hand-edited document or a crafted request only. The review looked for other
+entrances and found none — `parse_form`'s `setup`-gated branch is the sole writer of `simulate_cost`.
+
+Not fixed because the resolution is a product choice between three defensible answers: force cost
+off while the precondition is unmet (the config always matches the affordance, but a stored user
+answer gets overwritten by a rule); unblock the toggle whenever cost is already on (the state
+becomes self-consistent, but the precondition stops meaning anything); or hide the Pricing box while
+blocked (honest, but the box is where the user would go to satisfy the precondition). The first is
+the most defensive and the third the most confusing; L2 above probably wants deciding first.
+*Origin:* `20260726-workspaces-phase4.md` (4.2, flagged by the implementer, confirmed by review).

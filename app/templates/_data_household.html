@@ -2,12 +2,15 @@
   _data_household.html — "About your household": the has_pv / has_battery scope questions
   (specs/02-ux-wireframes.md §2.1, specs/20-workspaces-ux.md §2′.5).
 
-  Shared by panel ① (_panel_data.html, where these two questions sit at the top) and by the
-  configure-data screen (workspace_data.html), so the two render ONE copy of the markup rather
-  than two that can drift.
+  Rendered by ONE screen: the configure-data screen (workspace_data.html). It was written as a
+  shared macro in phase 4.1, when panel ① and the new screen drew the same two questions from one
+  copy; phase 4.2 deleted panel ① (§2′.6 folded what was left of the three-panel page into the
+  results screen), so the second call site and the `titled=False` branch it needed both went with
+  it. It stays a macro because that is how `workspace_data.html` calls it, and because a partial
+  with an `{% raw %}{% if %}{% endraw %}`-free body is not worth converting to an include for one line.
 
   **The control names are `setup_haspv` / `setup_hasbattery`, deliberately NOT the `setup.`
-  prefix.** That is what keeps them independent of `params-form`: index.html's delegated `change`
+  prefix.** That is what keeps them independent of `params-form`: the results screen's delegated `change`
   handler asks `#params-form` to submit for any control whose name STARTS WITH `setup.`, and
   `params_view.parse_form` reads `setup.simulate_cost` / `setup.has_pv` under the `setup` section
   marker. These two answers travel by neither route — they are committed by `[ Fetch history ]`
@@ -20,24 +23,21 @@
   keyed on these exact two names), so the user sees which series are being asked for as they
   answer. The server computes the initial hidden state, so the first paint is right with JS off.
 
-  `titled` draws §2′.5's box chrome — the heading and the card border. Panel ① passes false: as a
-  section at the top of a panel that already has a title, an extra titled box would be chrome,
-  which is the reading §2′.5 gives for the screen case being the other way round ("an untitled
-  pair of questions above a table reads as chrome; the box names what they are for").
+  §2′.5's box chrome — the heading and the card border — is unconditional now: "an untitled pair of
+  questions above a table reads as chrome; the box names what they are for".
 
   Reads `cfg.has_pv` and `cfg.has_battery` from the render context.
 #}
-{% macro household_box(cfg, titled=False) %}
-{% if titled %}
+{% macro household_box(cfg) %}
 <div class="card bg-base-100 border border-base-300">
   <div class="card-body gap-2 p-4">
     <h2 class="text-sm font-semibold text-base-content/70">{{ _('About your household') }}</h2>
-{% endif %}
 
     {# ── Scope questions (§2.1) ──────────────────────────────────────────────
        `has_pv` and `has_battery` exist to decide which SLOTS are asked for, so the answer belongs
-       next to the roster it governs. `simulate_cost` is NOT here — it shapes panels ② and ③ as
-       well, so it is not a data-step question (§2′.6 moves it into the results block). #}
+       next to the roster it governs. `simulate_cost` is NOT here — it shapes the parameters and the
+       result sections too, so it is not a data-step question, and §2′.6 puts it in the results
+       block on the other screen. #}
     <div class="flex flex-col gap-2" id="setup-scope">
       <div class="flex flex-wrap items-center gap-3">
         <span class="w-56 label-text">{{ _('Do you have solar PV?') }}</span>
@@ -77,8 +77,6 @@
       </p>
     </div>
 
-{% if titled %}
   </div>
 </div>
-{% endif %}
 {% endmacro %}

@@ -22,7 +22,7 @@
   **The three navigational actions are plain links, and only the two deletions are not.**
   `<a href>` for Results / Configure data / Update: they are navigations to other screens, so
   they are what the browser already does well — no fetch, no swap, nothing that needs the
-  hand-rolled panel-swap machinery in index.html, and they keep working without JavaScript. The
+  hand-rolled panel-swap machinery on the results screen, and they keep working without JavaScript. The
   two deletions are `<button>`s that open a page-level confirmation dialog (§2′.3); the dialog
   itself holds the POST form. They carry `data-*` so `workspaces.html`'s script can fill the
   dialog's title, body and form action from the card that was clicked — one dialog serves every

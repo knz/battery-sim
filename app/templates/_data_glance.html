@@ -25,7 +25,8 @@
   every ⓘ .slot-info-btn, and every omit-don't-zero guard is preserved exactly.
 
   Each DERIVED metric (Consumption, Self-sufficiency, Self-consumption) carries an ⓘ .slot-info-btn
-  that opens the shared #slot-info-dialog (defined at page level in index.html, wired by the delegated
+  that opens the shared #slot-info-dialog (defined at page level on whichever screen includes this,
+  wired by the delegated
   handler in ha_fetch.js). The handler is delegated from `document`, so the ⓘ buttons in the
   panel-③ copy keep working after a fragment swap of #panel-results with no re-binding.
 

@@ -469,7 +469,7 @@ def _panel_results():
 
 
 def sample_view():
-    """The full view-model consumed by templates/index.html.
+    """The full view-model each screen falls back to as its EMPTY STATE.
 
     `cfg` and `params` are NOT provided here. Both used to be sample literals (a `CONFIG` dict
     and a `_panel_params()` fixture), but main.py's index() replaces both unconditionally from

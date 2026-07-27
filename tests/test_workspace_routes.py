@@ -344,30 +344,39 @@ def test_the_three_flat_routes_are_not_scoped(two):
 
 
 def test_the_page_carries_the_workspace_id_the_browser_needs(two):
-    """`GET /w/{id}/results` must state its workspace, or every fetch on it addresses nothing.
+    """Both screens must state their workspace, or every fetch on them addresses nothing.
 
-    Both carriers are asserted: `<body data-workspace-id>` (which index.html's `wsPath` builds
-    every fetch from) and the roster's `data-ingest-ws` (the whole scoped socket path, rendered
-    server-side). They must agree — a page whose fetches and socket named different workspaces
-    would be a genuinely confusing failure.
+    Two carriers, and phase 4.2 split them between two screens rather than dropping either.
+    `<body data-workspace-id>` is what each page's `wsPath` builds its fetches from, and both
+    screens carry it. The roster's `data-ingest-ws` — the whole scoped socket path, rendered
+    server-side — went to the configure-data screen with panel ①, which is the only screen with a
+    roster and the only one that opens the socket.
+
+    They must agree with each other and with the URL: a page whose fetches and socket named
+    different workspaces would be a genuinely confusing failure.
     """
-    body = two.get(f"/w/{_A}/results").text
-    assert f'data-workspace-id="{_A}"' in body
-    assert f'data-ingest-ws="/w/{_A}/data/ingest/ws"' in body
+    results = two.get(f"/w/{_A}/results").text
+    assert f'data-workspace-id="{_A}"' in results
+    # No roster here any more, so no socket path — and nothing pointing at another workspace.
+    assert "data-ingest-ws" not in results
+
+    data = two.get(f"/w/{_A}/data").text
+    assert f'data-workspace-id="{_A}"' in data
+    assert f'data-ingest-ws="/w/{_A}/data/ingest/ws"' in data
 
 
 def test_the_params_form_posts_to_its_own_workspace(two):
     """The form's `action` must be scoped, at BOTH render sites.
 
-    This is a no-JS fallback, which is why it is easy to lose and worth a test. `index.html`'s
-    delegated handler `preventDefault()`s and refetches through `wsPath`, so a wrong `action` is
-    inert as long as that script runs — and a 404 for the "Calculate →" button and the setup-band
-    radios the moment it does not. Phase 1 shipped it flat for exactly that reason: nothing
+    This is a no-JS fallback, which is why it is easy to lose and worth a test. The results
+    screen's delegated handler `preventDefault()`s and refetches through `wsPath`, so a wrong
+    `action` is inert as long as that script runs — and a 404 for the "Calculate →" button and the
+    cost toggle the moment it does not. Phase 1 shipped it flat for exactly that reason: nothing
     exercised the attribute, and comparing the before/after render cannot show an attribute that
     should have changed and did not.
 
     Both sites are asserted because they get the id from different places: the include takes it
-    from `index()`'s context, the standalone panel-swap render from `POST /w/{id}/params`.
+    from `index()`'s context, the standalone fragment render from `POST /w/{id}/params`.
     """
     flat = 'action="/params"'
 

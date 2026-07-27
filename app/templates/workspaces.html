@@ -2,7 +2,7 @@
   workspaces.html — the workspace list, the app's home screen (specs/20-workspaces-ux.md §2′.2).
 
   `GET /` renders this. It replaces the single-page stepper as the entry point; the stepper is
-  now `GET /w/{id}/results` (index.html), which phase 4 splits into the data and results screens.
+  now `GET /w/{id}/results` (workspace_results.html), the results screen phase 4.2 shaped.
 
   Contents, in §2′.2's order: the header, the "Your analyses" heading with `[ + New analysis ]`,
   one `_workspace_card.html` per workspace (most recently updated first — the ORDER is decided by
@@ -11,15 +11,15 @@
   **The header keeps the title and the language toggle, and nothing else** (§2′.2). The
   `[workspace: local]` badge named the single implicit workspace and has nothing left to say once
   a list exists; the `[⚙]` was never wired to anything. Both are removed from this screen and
-  from index.html.
+  from the results screen.
 
   **This screen is plain navigation.** Every card action that goes somewhere is an `<a href>`, and
   the two that delete are ordinary form POSTs inside a `<dialog>`. There is no fetch, no fragment
-  swap and no use of index.html's hand-rolled `outerHTML` machinery — that machinery exists so
+  swap and no use of the results screen's hand-rolled `outerHTML` machinery — that exists so
   panel ③ can repaint without losing panel ②'s scroll position, which is a problem this screen
   does not have. The only script here fills the two shared dialogs from the clicked card.
 
-  **The two dialogs are PAGE-LEVEL, not inside a card**, for the reason index.html documents at
+  **The two dialogs are PAGE-LEVEL, not inside a card**, for the reason workspace_results.html gives at
   its own `#slot-info-dialog`: a `<dialog>` inside a subtree daisyUI gives
   `content-visibility: hidden` still enters the top layer on `showModal()` — so it blocks every
   click on the page — but is never painted, leaving the user with a frozen page and no popup.
@@ -170,7 +170,7 @@
     // that was clicked supplies the workspace id and title through `data-*`, and this fills the
     // dialog's body sentence and its form action before showModal().
     //
-    // Deliberately small and self-contained. This screen does not use index.html's fragment-swap
+    // Deliberately small and self-contained. This screen does not use the results screen's fragment-swap
     // machinery — every navigation here is a real page load and both deletions are ordinary form
     // POSTs, so the only thing script is needed for is putting the right title in the dialog.
     const copy = document.getElementById('delete-copy');

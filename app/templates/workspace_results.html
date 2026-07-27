@@ -1,44 +1,67 @@
 {#
-  index.html — the three-panel page for ONE workspace (specs/02-ux-wireframes.md §2.1).
+  workspace_results.html — the RESULTS screen (specs/20-workspaces-ux.md §2′.6).
 
-  It used to be the app's home screen at `GET /`. Phase 2 of the workspaces restructure moved it
-  to `GET /w/{id}/results` and gave `/` to the workspace list (workspaces.html,
-  specs/20-workspaces-ux.md §2′.2); nothing else about it changed, and phase 4 splits it into the
-  configure-data screen (§2′.5) and the results screen (§2′.6). The header therefore carries a
-  link back to the list, and no longer carries the `[workspace: local]` badge or the `[⚙]` — see
-  the header block below.
+  `GET /w/{id}/results` renders this. It is the end of both entry paths — the card's `[ Results ]`
+  and the wizard's step 3 — and it is left through the back link.
 
-  Renders the header, the setup band (§2.1 — the has_pv / simulate_cost scope choices), and
-  the three stacked stepper panels. Panels ① and ② are collapsed to their one-line summaries;
-  panel ③ (Results) is expanded. The "Your data at a glance" figures (§2.3a) are NOT a band here:
-  they render inside panel ① (below its data-quality box) and again inside panel ③ over the
-  selected range — both from the shared _data_glance.html macro. Content comes from the static
-  sample view-model (app/sample_data.py); nothing here is wired to feature logic yet.
+  **This file was `index.html` until phase 4.2.** It was the three-panel page: the setup band, then
+  panels ①, ② and ③. §2′.5 moved panel ① onto its own screen (phase 4.1) and §2′.6 replaced the rest
+  with two things that scroll together:
 
-  Interactivity: native collapse expand/collapse, the <dialog>-based "not built yet" modal (the
-  pending affordance), and the slot-first source-picker drawer (#source-drawer) — a shared
-  right-side panel opened by panel ①'s per-slot "Choose source…" buttons and driven by
-  ha_fetch.js. No HTMX round-trips, no simulation.
+      ┌─ Battery ───────────────────────────────────────────┐   _panel_params.html
+      │  Usable capacity [ 10.0 ] kWh   ⓘ not the nameplate │
+      │  ┌ More settings ──── N changed from default ─────┐ │
+      │  │ ( Battery ) ( Installation ) ( Charge & disch ) │ │
+      └──┴─────────────────────────────────────────────────┴─┘
+      ┌─────────────────────────────────────────────────────┐   _panel_results.html
+      │  Period: … · Simulate cost savings? ( ) Yes (•) No  │
+      │  … the energy and cost sections                     │
+      └─────────────────────────────────────────────────────┘
 
-  Workspace scoping. The data routes live under `/w/{id}/…` (specs/08-architecture.md §5.1),
-  so this page states its workspace once — `data-workspace-id` on <body> — and the scripts below
-  build every path from it via `wsPath()`. Nothing here writes a scoped path as a literal; the
-  three flat routes (/lang/{code}, /feature-interest/{key} and the page itself) are the only
-  literals left. ha_fetch.js reads the same attribute for its own scoping.
+  **The one screen is the point, and it is the constraint that shaped this file.** §2′.6 calls it
+  the equivalent of §3.4's "reopening panel ① or ② does not collapse panel ③", which that spec names
+  the single most important interaction detail in the app: the battery box and the results scroll
+  together, so a capacity change and its effect are visible at once. That is why the parameters were
+  not given a screen of their own, and it is why nothing below navigates — a parameter edit swaps
+  two fragments in place and the figures never leave the viewport.
+
+  ## What phase 4.2 deleted from this file, and what it kept
+
+  Deleted: the `_setup_band.html` include (§2′.7 dissolved the band; its one remaining control, the
+  cost toggle, is now drawn inside `_panel_results.html`), the `_panel_data.html` include (§2′.5),
+  and with panel ① the source drawer, the Home Assistant modal and `ha_fetch.js` — all of which
+  exist to configure data and now live only on `workspace_data.html`.
+
+  Kept unchanged: the pending-affordance dialog and its IIFE, and the whole panel-②/③ script block
+  below — the chart draw, the lazy benchmark fetch, `recompute()`, the `params-form` submit
+  interception, the `setup.`-prefixed change handler and the feed-in preset. Those were always this
+  half's; 4.1 established as much and moved none of them.
+
+  **`#slot-info-dialog` stayed even though the roster went.** It is not only the roster's: the
+  PV-blocked charge policies and the Pricing box's contract-types ⓘ use the same shared
+  `.slot-info-btn` affordance, and so does the glance repeated inside the results. Its delegated
+  click handler used to come from `ha_fetch.js`, which this page no longer loads — so the handler
+  is inlined below. That was the one behaviour the deletion would have taken with it silently.
+
+  Workspace scoping. The routes this page fetches live under `/w/{id}/…`
+  (specs/08-architecture.md §5.1), so the page states its workspace once — `data-workspace-id` on
+  `<body>` — and the scripts below build every path from it via `wsPath()`. Nothing here writes a
+  scoped path as a literal; `/lang/{code}` and `/feature-interest/{key}` are flat routes and are the
+  only literals left.
 #}
 <!doctype html>
 <html lang="{{ lang.current }}" data-theme="light">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ _('Home Battery Simulator') }}</title>
+  <title>{{ _('Results') }}</title>
   <link rel="stylesheet" href="/static/app.css">
 </head>
 {# `data-workspace-id` is the ONE place the page states which workspace it is showing. Every
-   fetch below and the ingest WebSocket in ha_fetch.js build their path from it — no route path
-   is written as a literal any more, because the data routes are workspace-scoped
-   (`/w/{id}/…`, specs/08-architecture.md §5.1, specs/20-workspaces-ux.md §2′.10). It also keys
-   ha_fetch.js's per-workspace localStorage slot store (§2′.11). #}
+   `fetch()` below builds its path from it — no route path is written as a literal any more,
+   because these routes are workspace-scoped (`/w/{id}/…`, specs/08-architecture.md §5.1,
+   specs/20-workspaces-ux.md §2′.10). This screen loads no `ha_fetch.js` since phase 4.2, so the
+   ingest WebSocket and the per-workspace slot store (§2′.11) read it on the data screen instead. #}
 <body class="min-h-screen bg-base-200 text-base-content"
       data-workspace-id="{{ workspace_id }}">
 
@@ -50,7 +73,9 @@
          screen). §2′.4's screens carry a "← Your analyses" breadcrumb; this is the same idea on
          the one screen phase 2 relocated. #}
       <a class="btn btn-ghost btn-sm px-2" href="/">{{ _('← Your analyses') }}</a>
-      <span class="text-lg font-semibold">{{ _('Home Battery Simulator') }}</span>
+      {# §2′.6's wireframe names the analysis in the header, as §2′.4's and §2′.5's do. Displayed
+         only: renaming is the edit screen's job and this screen posts no title field. #}
+      <span class="text-lg font-semibold">{{ view.title }}</span>
     </div>
     <div class="flex-none items-center gap-2">
       {# Language toggle: one button per supported locale; the active one is highlighted.
@@ -69,27 +94,33 @@
     </div>
   </header>
 
+  {# **NO FOOTER BUTTONS on this screen** (§2′.6): "There is nothing to cancel or save: parameter
+     edits recompute and persist as they always have (§3.5 — `PARAMS_CHANGED`, debounced). The
+     screen is left through the back link. This is the one screen where the wizard's
+     `[ Previous ] / [ Next ]` and the card's `[ Cancel ] / [ Save ]` do not apply, because it is
+     the end of both paths." There is consequently no `?mode=wizard` handling here either — the
+     wizard has nowhere further to go, so the two entry paths render the same page. #}
   <main class="mx-auto flex max-w-5xl flex-col gap-4 p-4 lg:p-8">
-    {# The setup band (§2.1) — the two shape-determining choices, above the panels. #}
-    {% include "_setup_band.html" %}
-    {% include "_panel_data.html" %}
+    {# The two halves, in one scrolling column. See the header comment on why they are one screen. #}
     {% include "_panel_params.html" %}
     {% include "_panel_results.html" %}
   </main>
 
   {# ── Slot info dialog — the shared ⓘ modal (specs §4.1, §2.3a). ──────────────────
-       One modal for every ⓘ .slot-info-btn on the page: the slot roster's role blurbs in panel ①
-       AND the derived-metric blurbs in both copies of the data glance (panel ① and panel ③).
-       ha_fetch.js fills the title + body from the clicked button's data-* (already translated
-       server-side) and calls showModal().
+       One modal for every ⓘ .slot-info-btn on THIS screen. The roster's role blurbs went to
+       `workspace_data.html` with panel ①, but three users of the affordance remain here: the
+       PV-blocked charge policies, the Pricing box's "Contract types" ⓘ, and the derived-metric
+       blurbs in the data glance repeated inside the results.
 
-       It MUST live here at page level, not inside a panel. It previously sat in
-       _panel_data.html, inside panel ①'s `.collapse-content` — which daisyUI gives
-       `content-visibility: hidden` when the panel is collapsed. A <dialog> in such a subtree
-       still enters the top layer on showModal() (so it blocks every click on the page) but is
-       never painted: the user gets no popup and a frozen page. That reproduced by collapsing
-       panel ① and clicking any ⓘ in panel ③'s glance copy. Page level has no such ancestor, so
-       the modal works regardless of which panels are open. #}
+       **Its handler is now inlined below.** It used to come from `ha_fetch.js`, which this page
+       loaded for the drawer and no longer does — the ⓘ buttons would have opened nothing, silently,
+       with no error in the console and no visible difference in the markup.
+
+       It MUST live here at page level and not inside the "More settings" pane. A `<dialog>` inside
+       a subtree with `content-visibility: hidden` — which a closed daisyUI collapse sets, and which
+       a hidden tab panel is one CSS change away from — still enters the top layer on `showModal()`
+       (so it blocks every click on the page) but is never painted: no popup, frozen page. That
+       reproduced once already, from panel ①'s collapse. #}
   <dialog id="slot-info-dialog" class="modal">
     <div class="modal-box">
       <h3 class="text-lg font-bold" id="slot-info-title"></h3>
@@ -126,178 +157,74 @@
     <form method="dialog" class="modal-backdrop"><button>{{ _('close') }}</button></form>
   </dialog>
 
-  {# ── Home Assistant connection modal (§2.2). The ONE place Home Assistant is connected, opened
-       by the "Configure" button beside the Home Assistant radio in the source drawer. The
-       connection is driven client-side by ha_fetch.js: the browser fetches statistics from the
-       user's HA directly (the token never reaches our backend, §7.5), so the URL/token inputs,
-       Test-connection, and status line are managed in JS. After a successful test the connection
-       is SHARED: every HA-source slot's entity <select> is filled from the same listing, and the
-       drawer's Configure button reflects the connected state. Keep every element ID below —
-       ha_fetch.js depends on them (#ha-base-url, #ha-token, #ha-test-btn, #ha-status). #}
-  <dialog id="ha-config-dialog" class="modal">
+  {# ── "Set up your contract first" — the Blocked cost toggle's dialog (§2′.6) ──────
+       §2′.6 draws this dialog verbatim and it is transcribed here, wording and all. It is what
+       makes the toggle BLOCKED rather than Inapplicable: "a precondition is unmet, the user can
+       clear it, and the adjacent affordance says how".
+
+       `[ Set up my contract → ]` is a LINK, not a script action — "navigates to the workspace's
+       edit screen with the Contract box in view; returning finds the toggle live". The `#contract`
+       fragment is the anchor `workspace_edit.html` carries on its Contract box.
+
+       Rendered unconditionally rather than only when blocked: it costs nothing, and the alternative
+       is a dialog whose existence depends on the same flag as the button that opens it, which is
+       two places for one condition. The button is what is conditional. #}
+  <dialog id="cost-blocked-dialog" class="modal">
     <div class="modal-box">
-      <div class="flex flex-wrap items-baseline justify-between gap-2">
-        <h3 class="text-lg font-bold">{{ _('Home Assistant connection') }}</h3>
-        <span class="text-xs text-base-content/50">{{ _('Shared across all slots that use Home Assistant') }}</span>
-      </div>
-      <div class="flex flex-col gap-3 py-3">
-        <label class="form-control">
-          <span class="label-text mb-1">{{ _('Base URL') }}</span>
-          <input type="text" id="ha-base-url" class="input input-bordered input-sm"
-                 placeholder="https://homeassistant.local:8123" />
-        </label>
-        <label class="form-control">
-          <span class="label-text mb-1">{{ _('Token') }}</span>
-          <input type="password" id="ha-token" class="input input-bordered input-sm"
-                 autocomplete="off" placeholder="{{ _('long-lived access token') }}" />
-          <span class="label-text-alt mt-1 text-base-content/50">
-            {{ _('Stays in your browser. It is sent only to your Home Assistant, never to this app.') }}
-          </span>
-        </label>
-        <div class="flex flex-wrap items-center justify-between gap-2">
-          <span class="text-sm text-base-content/60" id="ha-status">{{ _('Not connected') }}</span>
-          <button type="button" class="btn btn-outline btn-sm" id="ha-test-btn">{{ _('Test connection') }}</button>
-        </div>
-      </div>
+      <h3 class="text-lg font-bold">{{ _('Set up your contract first') }}</h3>
+      <p class="py-2 text-sm">
+        {{ _('To put a euro figure on your savings, the app needs to know what you pay for electricity — your contract type and its rates.') }}
+      </p>
+      <p class="pb-2 text-sm">
+        {{ _('You have not set those up for this analysis yet.') }}
+      </p>
       <div class="modal-action">
+        <a class="btn btn-primary btn-sm" href="/w/{{ workspace_id | urlencode }}/edit#contract">
+          {{ _('Set up my contract →') }}
+        </a>
         <form method="dialog"><button class="btn btn-ghost btn-sm">{{ _('close') }}</button></form>
       </div>
     </div>
     <form method="dialog" class="modal-backdrop"><button>{{ _('close') }}</button></form>
   </dialog>
 
-  {# ── Source-picker drawer (§2.2 slot-first). A single right-side panel, shared by every slot
-       row's "Choose source…" button. Opened by ha_fetch.js, which fills #drawer-slot-title and
-       #drawer-source-list for the clicked slot. Hidden by default (aria-hidden + off-canvas);
-       closable via the ✕ control, the backdrop, and Escape. The source options and the CSV
-       pending option are rendered into #drawer-source-list by JS from the row's data-* payload;
-       the pending [?] reuses the shared #pending-dialog above (data-feature-key="data_source_csv").
-       When the selected source is Home Assistant, the drawer also reveals a single entity
-       (statistic id) <select> (#drawer-entity-select), populated per slot from the shared
-       connection's listing.
-
-       Staged-then-confirm: the drawer is transactional. Selecting a source or an entity only
-       STAGES a drawer-local draft (ha_fetch.js) — nothing reaches the committed per-slot state or
-       the row label until the user presses #drawer-confirm. Confirm commits: for a Home Assistant
-       slot it writes the chosen source + entity into committed state and updates the row label;
-       for a backend source (#drawer-backend-status shows progress) it runs the load and reloads.
-       #drawer-cancel — like ✕ / backdrop / Escape — discards the draft and leaves the committed
-       state untouched. Static chrome strings are translated here; per-source label/blurb text
-       arrives pre-translated in the row payload. #}
-  <div id="source-drawer" class="fixed inset-0 z-40 hidden" aria-hidden="true">
-    <div id="source-drawer-backdrop" class="absolute inset-0 bg-black/40"></div>
-    <aside class="absolute right-0 top-0 h-full w-full max-w-md bg-base-100 shadow-xl
-                  border-l border-base-300 overflow-y-auto"
-           role="dialog" aria-modal="true" aria-labelledby="drawer-slot-title" tabindex="-1">
-      <div class="flex flex-col gap-4 p-5">
-        <div class="flex items-start justify-between gap-2">
-          <div>
-            <h2 class="text-base font-semibold">{{ _('Choose a source') }}</h2>
-            <p id="drawer-slot-title" class="text-sm text-base-content/60"></p>
-          </div>
-          <button type="button" id="drawer-close" class="btn btn-ghost btn-sm btn-square"
-                  aria-label="{{ _('Close') }}">✕</button>
-        </div>
-
-        {# The source options for the current slot, rendered by ha_fetch.js. #}
-        <div id="drawer-source-list" class="flex flex-col gap-2"></div>
-
-        {# Home Assistant entity picker — shown by JS only when the selected source is Home
-           Assistant. The single <select> is (re)populated per slot when the drawer opens or the
-           HA radio is picked: energy statistic ids for energy slots, mean ids for price slots,
-           from the shared connection's listing (ha_fetch.js). Until the connection is tested it
-           shows a disabled hint; the note below points at the connection card. The chosen id is
-           kept in per-slot JS state, not in this DOM node. #}
-        <div id="drawer-ha-entity" class="hidden flex-col gap-1">
-          <label class="form-control">
-            <span class="label-text mb-1">{{ _('Entity') }}</span>
-            <select id="drawer-entity-select" class="select select-bordered select-sm font-mono w-full"
-                    aria-label="{{ _('Entity') }}">
-              <option value="">{{ _('— none —') }}</option>
-            </select>
-          </label>
-        </div>
-
-        {# Notes shown depending on the selected option's kind (toggled by JS). #}
-        <p id="drawer-ha-note" class="text-xs text-base-content/60 hidden">
-          {{ _('Uses the shared Home Assistant connection — configure it once (the button above), then fetch history for all Home Assistant slots together.') }}
-        </p>
-        {# Backend-source status line (shown only for a backend_load source; carries the
-           load-in-progress / error text). The action itself is the shared Confirm button below. #}
-        <div id="drawer-backend-action" class="hidden flex-col gap-2">
-          <span id="drawer-backend-status" class="text-sm text-base-content/60"></span>
-        </div>
-
-        {# Transactional footer (§2.2, staged-then-confirm). Nothing the drawer stages is committed
-           until Confirm is pressed: for a Home Assistant slot it writes the chosen source + entity
-           into committed state and updates the row label; for a backend source it runs the load and
-           reloads. Cancel (like ✕ / backdrop / Escape) discards the staged draft and leaves the
-           committed state untouched. #}
-        <div class="mt-2 flex items-center justify-end gap-2">
-          <button type="button" id="drawer-cancel" class="btn btn-ghost btn-sm">
-            {{ _('Cancel') }}
-          </button>
-          <button type="button" id="drawer-confirm" class="btn btn-primary btn-sm" disabled>
-            {{ _('Confirm') }}
-          </button>
-        </div>
-      </div>
-    </aside>
-  </div>
-
-  {# The source generation (specs §2.2): the browser tags each locally-saved source customization
-     with this, and on reload keeps its local choice only while this is unchanged, yielding to the
-     server once a fetch (here or on another client in the same workspace) has advanced it. Bumped
-     only by a persisted HA fetch; 0 before the first one. #}
-  <script id="source-generation" type="application/json">{{ source_generation | default(0) | tojson }}</script>
-
-  {# i18n strings the drawer's and fetcher's JS need at runtime (app/static/ha_fetch.js),
-     rendered here so gettext extracts the msgids and the browser reads them already translated.
-
-     Bound via {% raw %}{% set %}{% endraw %} rather than written inline in the tojson call purely for readability —
-     the list is long enough that an inline dict literal buries the <script> tag. Babel extracts
-     either form.
-
-     Strings carrying runtime values keep the whole sentence in one msgid with %(name)s
-     placeholders; ha_fetch.js's ti() substitutes them, mirroring the server-side
-     `_('…') | interpolate(…)` split. Concatenating translated fragments instead would fix English
-     word order into every language — the Dutch "%(slot)s ophalen" puts the value first, which
-     fragment concatenation could not express. A literal % is safe here: app/i18n.py installs
-     gettext with newstyle=False, so nothing printf-formats a translated result. #}
-{%- set drawer_i18n = {
-      "loading": _("Loading…"),
-      "load_failed": _("Could not load. Please try again."),
-      "loaded_ok": _("Loaded. Reloading…"),
-      "pending_hint": _("Not built yet"),
-      "upload_csv": _("Upload CSV"),
-      "choose_entity": _("choose entity…"),
-      "connect_first": _("Configure the connection first"),
-      "ha_source": _("Home Assistant"),
-      "choose_source": _("Choose source…"),
-      "none": _("— none —"),
-      "configure": _("Configure…"),
-      "ha_connected": _("✓ Connected"),
-      "connecting": _("Connecting…"),
-      "need_url_token": _("Enter a base URL and token first."),
-      "connected_counts": _("✓ Connected · %(energy)s energy + %(price)s measurement statistics"),
-      "failed_reason": _("✗ %(reason)s"),
-      "ws_open_failed": _("Could not open a WebSocket to %(url)s."),
-      "ws_connect_failed": _("Connection failed. Check the URL, and that your browser trusts the certificate (open %(url)s once to accept it)."),
-      "ws_closed": _("connection closed"),
-      "ha_token_rejected": _("Home Assistant rejected the token."),
-      "ha_error": _("HA error"),
-      "need_source": _("Choose a source for at least one slot first."),
-      "need_ha_connection": _("Configure the Home Assistant connection first."),
-      "fetching_slot": _("Fetching %(slot)s (%(n)s/%(total)s)…"),
-      "loading_slot": _("Loading %(slot)s…"),
-      "imported_series": _("✓ Imported %(count)s series. Reloading…"),
-      "ingest_unreachable": _("Could not reach the app's ingest endpoint."),
-      "ingest_rejected": _("Ingest rejected: %(reason)s"),
-      "ingest_closed_early": _("Ingest connection closed early.")
-  } -%}
-  <script id="drawer-i18n" type="application/json">{{ drawer_i18n | tojson }}</script>
-
   <script>
+    // The shared ⓘ info dialog (specs §4.1). Delegated from `document`, so the buttons inside the
+    // two swappable fragments keep working after every swap with no re-binding.
+    //
+    // **This handler used to live in ha_fetch.js**, which this screen loaded for the source drawer
+    // and stopped loading in phase 4.2 when panel ① moved out. The buttons that remain here — the
+    // PV-blocked charge policies, the Pricing box's contract-types ⓘ, the glance's derived-metric
+    // blurbs — would otherwise have gone quiet without any visible change to the markup. Copied
+    // rather than kept by loading a data-fetching module for one listener.
+    (function () {
+      var dialog = document.getElementById('slot-info-dialog');
+      var titleEl = document.getElementById('slot-info-title');
+      var bodyEl = document.getElementById('slot-info-body');
+      if (!dialog || !titleEl || !bodyEl) return;
+      document.addEventListener('click', function (ev) {
+        var btn = ev.target.closest && ev.target.closest('.slot-info-btn');
+        if (!btn) return;
+        // Already translated server-side; assigned as TEXT, never as markup.
+        titleEl.textContent = btn.getAttribute('data-info-title') || '';
+        bodyEl.textContent = btn.getAttribute('data-info-body') || '';
+        dialog.showModal();
+      });
+    })();
+
+    // The Blocked cost toggle's ⓘ (§2′.6). Delegated for the same reason: the button lives inside
+    // #panel-results, which every range change replaces, so a direct binding would survive exactly
+    // one recompute. The dialog itself is at page level and is never swapped.
+    (function () {
+      var dialog = document.getElementById('cost-blocked-dialog');
+      if (!dialog) return;
+      document.addEventListener('click', function (ev) {
+        var btn = ev.target.closest && ev.target.closest('#cost-blocked-info');
+        if (!btn) return;
+        dialog.showModal();
+      });
+    })();
+
     // The pending affordance (§2.1, §5.1). A [?] button opens the shared dialog for its
     // control; the thumbs-up POSTs to /feature-interest/{key} and acknowledges in place. Keys
     // already thumbed this session are remembered so reopening shows "✓ Noted" and a second
@@ -319,8 +246,8 @@
         thanksEl.classList.toggle('hidden', !noted);
       }
 
-      // Delegated so [?] buttons added after load (the drawer's dynamically-created CSV option,
-      // ha_fetch.js) open the dialog too, without any wiring on that side.
+      // Delegated from `document`, so a [?] inside either swappable fragment opens the dialog
+      // after every swap with no re-binding.
       document.addEventListener('click', function (ev) {
         var btn = ev.target.closest && ev.target.closest('[data-pending-name]');
         if (!btn) return;
@@ -346,11 +273,17 @@
      swappable #panel-results, so it stays available across a fragment swap of panel ③. #}
   <script src="/static/vendor/plotly.min.js"></script>
   <script>
-    // Panel ③ results picker + monthly chart (specs/02-ux-wireframes.md §2.4, §3.2).
+    // The results block's picker and chart, and the battery box's form (specs §2.4, §2.3, §3.2).
+    //
+    // **Unchanged by phase 4.2 apart from its comments.** 4.1 established that this IIFE was
+    // almost entirely panel-②/③ — the chart draw, the lazy benchmark fetch, `recompute`, the
+    // `params-form` submit interception, the `setup.`-prefixed change handler and the feed-in
+    // preset — and moved none of it. It came here with the rest of the file, and the two panels it
+    // drives are now the two halves of one screen rather than two of three stepper panels.
     //
     // Fragment-swap model: POST /w/{id}/results returns the whole _panel_results.html output; we
     // swap it in by replacing #panel-results' outerHTML. A swapped-in inline <script> re-inserts
-    // but does NOT re-execute, so ALL of panel ③'s behaviour must live here — in index.html, on a
+    // but does NOT re-execute, so ALL of the results block's behaviour must live here — on a
     // part of the page that is never swapped — and reach into the panel via DELEGATED listeners on
     // `document` plus a named chart-draw function. This binds ONCE; the fresh buttons/inputs work
     // with no re-binding after every swap.
@@ -425,7 +358,7 @@
       // (#benchmark-slot, with a "⟳ computing…" line) carrying the window request in
       // data-benchmark-body, and this fetches POST /results/benchmark to fill it in.
       //
-      // This function lives HERE, in index.html, and not in the fragment — a swapped-in <script>
+      // This function lives HERE, on the never-swapped page, and not in the fragment — a swapped-in <script>
       // re-inserts but does NOT re-execute, so anything inside #panel-results would run once and
       // never again. It is called on initial load and from recompute()'s success path, so the box
       // re-fires after every panel-③ range-change swap. It holds no state: the window comes off
@@ -600,6 +533,45 @@
       // `X-Params-Valid` carries that decision so we do not have to parse the returned HTML.
       var paramsInFlight = false;
 
+      // ── The advanced pane's display state across a swap (§2′.6) ─────────────────────────────
+      //
+      // `POST /w/{id}/params` answers with a FRESH render of the battery box: its `<details>` has
+      // no `open` attribute and its tab strip has `checked` on Battery, because those are the
+      // defaults the template writes and the server has no idea what the user had open. Swapping
+      // that in verbatim closed the pane and reset the tab on every submit.
+      //
+      // These two functions are the whole fix, and they are deliberately narrow: they carry ONLY
+      // which pane is open and which tab is selected. Nothing else is preserved, because
+      // everything else in the box is a stored value and the response is the authority on those —
+      // re-applying a field from the old DOM would be the browser overruling the server about what
+      // is on disk, which is exactly the bug class this file's swap model exists to avoid.
+      function readPaneState() {
+        var pane = document.getElementById('params-advanced');
+        var tab = document.querySelector('#panel-params input[name="params-tab"]:checked');
+        return {
+          open: !!(pane && pane.open),
+          tab: tab ? tab.id : null
+        };
+      }
+
+      function applyPaneState(state) {
+        if (!state) return;
+        var pane = document.getElementById('params-advanced');
+        // The SERVER'S choice wins when it force-opened the pane. An invalid render marks the
+        // offending tab and opens the pane over it (see _panel_params.html), and re-applying the
+        // pre-submit display state would close it again — hiding the very errors the response was
+        // sent to report, which is the defect this guard exists for. A valid render never carries
+        // the marker, so the ordinary case still restores what the user had open.
+        var forced = !!document.querySelector('#panel-params [data-hidden-errors]');
+        if (pane && !forced) pane.open = state.open;
+        if (forced || !state.tab) return;
+        var tab = document.getElementById(state.tab);
+        // Guarded: a tab can legitimately vanish between renders — the Installation panel is
+        // always there, but a future gate could drop one, and `checked = true` on null throws and
+        // would take the rest of the swap's success path with it.
+        if (tab) tab.checked = true;
+      }
+
       // The window panel ③ is currently showing, as a POST /results body. Read off the benchmark
       // placeholder, which already carries exactly that (data-benchmark-body); falling back to the
       // default preset when the placeholder is absent (no dataset, or the sample view-model).
@@ -631,8 +603,21 @@
           .then(function (html) {
             var panel = document.getElementById('panel-params');
             if (!panel) return;
+            // Carry the pane's DISPLAY state across the swap (§2′.6). The response is a fresh
+            // render, so its `<details>` comes back closed and its tab strip back on Battery — and
+            // without this the pane snapped shut on every Calculate, hiding the very field the user
+            // had just edited. §2′.6 says the pane "preserves state and does not reset on collapse";
+            // resetting it on a swap the user did not ask for is the same failure with a worse
+            // trigger, and it is the local form of §3.4's "reopening panel ① or ② does not collapse
+            // panel ③".
+            //
+            // Read BEFORE the swap and re-applied after, because the nodes it describes are the
+            // ones being replaced. Both are pure display state — no value travels this way; the
+            // values are in the response, which is the server's answer about what is stored.
+            var paneState = readPaneState();
             panel.outerHTML = html;
-            if (!valid) return;   // nothing persisted; panel ③ still reflects the stored config
+            applyPaneState(paneState);
+            if (!valid) return;   // nothing persisted; the results still reflect the stored config
             var body = currentResultsBody();
             if (body) recompute(body);
           })
@@ -644,15 +629,28 @@
           });
       });
 
-      // The setup band's radios (§2.1) carry form="params-form", so they are part of panel ②'s
-      // submission — but a radio does not submit its form by being clicked. This asks the form to
-      // submit whenever one changes, which runs the delegated handler above: POST /params, swap
-      // the panel, and (on a valid submission) refresh panel ③.
+      // The cost toggle (§2′.6, §2′.7). `setup.simulate_cost` carries form="params-form", so it
+      // is part of the battery box's submission even though it is drawn inside the results block
+      // below — but a radio does not submit its form by being clicked. This asks the form to submit
+      // whenever one changes, which runs the delegated handler above: POST /params, swap the box,
+      // and (on a valid submission) refresh the results.
+      //
+      // **The handler is unchanged by the toggle's move, and that is the point.** It was written
+      // for the setup band's `setup.`-prefixed radios and matches on the PREFIX rather than on the
+      // band, so a control that keeps its name keeps its behaviour wherever it is drawn. The band
+      // held two such controls; `setup.has_pv` went to the configure-data screen, where it is named
+      // `setup_haspv` and travels by a different commit point (§2′.5), so this now fires for
+      // exactly one control.
+      //
+      // A BLOCKED toggle never reaches this: its radios carry `disabled`, so the browser fires no
+      // change event and submits no value. Deliberate belt-and-braces — the server would honour a
+      // hand-crafted POST, and §2′.6 makes the edit screen the only place the precondition is
+      // cleared, so the disabled attribute is what keeps the two consistent from this side.
       //
       // `requestSubmit`, NOT `submit()`: the latter bypasses the submit event entirely, so the
       // handler above would never see it and the browser would navigate away from the page.
-      // Delegated from document like everything else here, because the band is not swapped but
-      // the form it targets is — binding to the form directly would break on the first swap.
+      // Delegated from document like everything else here, because the control lives inside a
+      // fragment that IS swapped, and so does the form it targets.
       document.addEventListener('change', function (ev) {
         var el = ev.target;
         if (!el || !el.name || el.name.indexOf('setup.') !== 0) return;
@@ -685,9 +683,5 @@
     })();
   </script>
 
-  {# Browser-side Home Assistant fetch (specs/06-home-assistant-ingestion.md). The token stays
-     in the browser and is sent only to the user's own HA; fetched rows stream to the backend
-     over WS /data/ingest/ws (§7.5). #}
-  <script src="/static/ha_fetch.js" defer></script>
 </body>
 </html>

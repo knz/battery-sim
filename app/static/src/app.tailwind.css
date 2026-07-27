@@ -65,6 +65,64 @@
   }
 }
 
+/* ── CSS-only tabs for the "More settings" pane (specs/20-workspaces-ux.md §2′.6) ──────────
+   Unlayered, for the same reason the cost tint below is: `.tab-panel` has to beat daisyUI's own
+   `.tab` / `.tabs` rules, which Tailwind nests in a layer declared after ours, and a layered
+   block here would lose whatever its specificity.
+
+   **Why CSS and not script.** Every tab's inputs must stay in the DOM and in the submitted form
+   body whichever tab is showing — a JS-swapped or conditionally-rendered tab would post the two
+   the user did not open as CLEARED fields, which is the same data-loss shape as rendering a
+   collapsed `<details>` conditionally. `display:none` does not exclude a control from a form
+   body (only `disabled` does), so hiding by CSS is safe where removing is not.
+
+   The mechanism is a radio group (`name="params-tab"`) whose three inputs sit before the panels,
+   with a general-sibling selector matching the panel whose `data-tab-panel` names the checked
+   radio. The radios carry no dotted path, so `params_view.parse_form` never reads them. */
+.tab-radio {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+  width: 0;
+  height: 0;
+}
+.tab-panel {
+  display: none;
+}
+.tabs-group:has(#params-tab-battery:checked) .tab-panel[data-tab-panel='battery'],
+.tabs-group:has(#params-tab-installation:checked) .tab-panel[data-tab-panel='installation'],
+.tabs-group:has(#params-tab-dispatch:checked) .tab-panel[data-tab-panel='dispatch'] {
+  display: flex;
+}
+/* The active tab's label. daisyUI's `.tab-active` is applied by class in its own examples; here
+   the state lives on the radio, so the label is styled from it. */
+.tabs-group:has(#params-tab-battery:checked) .tab[data-tab='battery'],
+.tabs-group:has(#params-tab-installation:checked) .tab[data-tab='installation'],
+.tabs-group:has(#params-tab-dispatch:checked) .tab[data-tab='dispatch'] {
+  border-bottom-color: var(--color-primary);
+  color: var(--color-primary);
+  font-weight: 600;
+}
+/* Keyboard focus has to be visible: the radio itself is off-screen, so the ring goes on its
+   label. Without this the tab strip is operable by keyboard but gives no sign of where it is. */
+.tab-radio:focus-visible + .tab {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* ── The Blocked cost toggle (specs/20-workspaces-ux.md §2′.6, §2.1's four states) ─────────
+   Blocked is "greyed, with an adjacent affordance saying how to clear the precondition" — the
+   control is still on screen and its ⓘ is still clickable, which is the whole point of Blocked
+   rather than Inapplicable. The radios themselves carry `disabled` (so they cannot be submitted
+   and cannot change the stored answer from a screen that cannot honour it); this dims the labels
+   around them so the state reads without inspecting an attribute. */
+.blocked-control {
+  opacity: 0.55;
+}
+.blocked-control label {
+  cursor: not-allowed;
+}
+
 /* The cost tint lives in @layer utilities, NOT @layer components, and that is load-bearing.
    daisyUI sets `.input`'s border and `.stat-title`'s color in ITS utilities layer, and a later
    layer wins over an earlier one no matter how specific the earlier selector is. Written as

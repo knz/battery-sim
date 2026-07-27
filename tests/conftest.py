@@ -93,14 +93,26 @@ def w(suffix: str = "") -> str:
 
 
 def page(workspace_id: str = WORKSPACE_ID) -> str:
-    """The URL of the three-panel page for `workspace_id` (phase 2: `GET /w/{id}/results`).
+    """The URL of the RESULTS screen for `workspace_id` (`GET /w/{id}/results`).
 
-    Named for what the tests want — "the page" — rather than for where it currently lives, since
-    `/` was that URL until phase 2 and phase 4 splits this screen into two. GET and POST on
-    `/w/{id}/results` are different routes: the GET renders the whole page, the POST returns just
-    the panel-③ fragment.
+    Named for what the tests wanted — "the page" — when it was the app's one screen at `/`. Phase 2
+    moved it here and phase 4 split it: what this URL renders is now the battery box and the results
+    (§2′.6), and everything about configuring data is at `data_page()` below.
+
+    GET and POST on `/w/{id}/results` are different routes: the GET renders the whole screen, the
+    POST returns just the results fragment.
     """
     return f"/w/{workspace_id}/results"
+
+
+def data_page(workspace_id: str = WORKSPACE_ID) -> str:
+    """The URL of the CONFIGURE-DATA screen for `workspace_id` (`GET /w/{id}/data`, §2′.5).
+
+    The other half of what `page()` used to render. The slot roster, the source drawer, the HA
+    connection modal, the data-quality box and the glance are all here and only here since phase
+    4.2 deleted panel ①, so a test about any of those asks for this URL.
+    """
+    return f"/w/{workspace_id}/data"
 
 
 def seed_workspace(workspace_id: str = WORKSPACE_ID, title: str = "Test workspace") -> str:

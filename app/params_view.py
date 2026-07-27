@@ -361,12 +361,19 @@ def parse_form(form, base: SimulationConfig | None = None) -> SimulationConfig:
             TlkMode, form.get("pricing.tlk_mode"), cfg.pricing.tlk_mode
         )
 
-    # ── The setup band (§2.1). Two run-wide scope answers that live ABOVE panel ② but post with
-    # it, because they decide which of panel ②'s boxes exist at all — `simulate_cost` draws or
-    # removes the whole Pricing box and the economic guard, `has_pv` gates the charge policies and
-    # the topology selector. Read through the same `sections` marker as the checkboxes: they are
-    # radio groups, so an absent value means the band was not part of this submission (a partial
-    # POST, or a test's minimal form) rather than "the user answered no".
+    # ── The run-wide scope answers. They live OUTSIDE the parameter boxes but post with them,
+    # because they decide which of those boxes exist at all — `simulate_cost` draws or removes the
+    # whole Pricing box and the economic guard, `has_pv` gates the charge policies and the topology
+    # selector. Read through the same `sections` marker as the checkboxes: they are radio groups,
+    # so an absent value means the group was not part of this submission (a partial POST, or a
+    # test's minimal form) rather than "the user answered no".
+    #
+    # They were §2.1's setup band until phase 4.2 dissolved it (§2′.7). `simulate_cost` is now drawn
+    # inside the results block and still posts here, unchanged in name and in form association;
+    # `has_pv` went to the configure-data screen under the name `setup_haspv` and reaches this
+    # function on NO path any more — its branch is dead as things stand and is kept rather than
+    # removed, because the name is still what a `setup.`-prefixed submission would use and deleting
+    # it would make a future re-introduction silently do nothing. See `_sections_for`.
     if _section(form, "setup"):
         if "setup.simulate_cost" in form:
             cfg.simulate_cost = _yes(form.get("setup.simulate_cost"))
@@ -704,7 +711,7 @@ _CONTRACT_FEATURE_KEYS: dict[Contract, str] = {
 # §6.5's (α, β) presets, offered as a select that FILLS the two fields rather than replacing them.
 # Both halves matter: the presets are what §6.5 tabulates and what a user recognises, and the raw
 # fields are what appendix A stores and what a user with a non-standard contract needs. The select
-# is client-side only (a tiny inline handler in index.html writes the two inputs), so there is no
+# is client-side only (a tiny inline handler on the results screen writes the two inputs), so no
 # fifth stored value and nothing to keep in sync on the server — the config carries α and β,
 # exactly as `PricingConfig` declares them, and a preset is only ever a way of typing them.
 #
@@ -894,6 +901,20 @@ def params_view(
         "other_errors": [
             issue_message(i) for i in result.errors if i.field not in _RENDERED_FIELDS
         ],
+        # Blocking errors keyed to a field the ADVANCED PANE draws, as (label, message) pairs.
+        #
+        # §2′.6's pane and its three tabs added two new ways for an input to be off-screen, and a
+        # per-field message attached to a hidden input is `display: none` — the run refuses to
+        # proceed and the screen cannot say why. Before 4.2 the panel force-opened itself on an
+        # invalid render (`{% if not params.valid %}checked{% endif %}` on its collapse toggle),
+        # which is the compensation the reshape dropped. The pane reopening is half the answer;
+        # this list is the other half, because reopening still leaves an error on a tab the user
+        # is not looking at. Empty whenever nothing blocks, so the alert renders only when it has
+        # something to say.
+        "hidden_errors": _hidden_errors(result),
+        # The tab holding the first blocking error, so the render can select it instead of
+        # defaulting to Battery. None when nothing blocks or the error is outside the pane.
+        "error_tab": _error_tab(result),
         # Valid, but not written to disk — see the docstring.
         "save_error": bool(save_error),
     }
@@ -971,14 +992,87 @@ def _pricing_view(cfg: SimulationConfig, field) -> dict:
     }
 
 
+def _hidden_errors(result) -> list[str]:
+    """Blocking error messages for fields the advanced pane draws.
+
+    Rendered in an alert ABOVE the pane, which is the only place on this screen guaranteed to be
+    visible: the pane can be collapsed and two of its three tabs are always hidden, so the inline
+    message beside the offending input may be `display: none`. See `params_view`'s `hidden_errors`
+    key for why 4.2 needs this and the pre-reshape panel did not.
+
+    Messages only, no field labels. The labels are translated literals in the template, next to the
+    inputs they name (`num_field(b.max_charge, _('Max charge power'), 'kW')`), and lifting copies of
+    them into Python would be a second set of msgids for one set of labels — free to drift, and the
+    kind of duplication that ends with a field renamed in one place. What locates the error instead
+    is `error_tab`, which reopens the pane on the tab holding it; the message then sits beside its
+    own labelled input.
+
+    Only BLOCKING issues. A warning (the band-overlap notice) does not stop the run, and repeating
+    it outside the pane would put a second copy of the same sentence on screen for a config that is
+    about to be simulated anyway.
+    """
+    if not result.blocking:
+        return []
+    seen: set[str] = set()
+    out: list[str] = []
+    for issue in result.errors:
+        if issue.field not in _ADVANCED_FIELDS:
+            continue
+        msg = issue_message(issue)
+        # Two checks can key the same field (min_soc_pct fails both the window and the range test),
+        # and the same sentence twice in one alert reads as a rendering bug.
+        if msg not in seen:
+            seen.add(msg)
+            out.append(msg)
+    return out
+
+
+def _error_tab(result) -> str | None:
+    """Which pane tab holds the first blocking error, or None.
+
+    Lets an invalid render select the offending tab rather than Battery, so reopening the pane
+    lands on the field that is actually wrong. `None` means nothing blocks, or the only blocking
+    issues are outside the pane (the capacity, or a non-field-bound check) — in both cases the
+    default selection is correct and the template leaves it alone.
+    """
+    if not result.blocking:
+        return None
+    for issue in result.errors:
+        tab = _FIELD_TABS.get(issue.field)
+        if tab is not None:
+            return tab
+    return None
+
+
 def _sections_for(cfg: SimulationConfig) -> list[str]:
     """The section markers panel ② is entitled to claim for this config (§2.3 "Without PV"/
     "Without cost").
 
-    `setup` is the §2.1 band above the panel. It is not one of panel ②'s boxes, but it POSTs with
-    this form (its radios have no form of their own), so it declares itself here for the same
-    reason the checkboxes do — `parse_form` must be able to tell "the band was submitted and the
-    user answered no" from "this submission did not carry the band at all".
+    `setup` names ONE control now: `setup.simulate_cost`, the cost toggle. It has never been one of
+    the battery box's own fields — it posts with this form because it has no form of its own
+    (`form="params-form"`, HTML's explicit association) — and it declares itself here for the same
+    reason the checkboxes do: `parse_form` must be able to tell "the toggle was submitted and the
+    user answered no" from "this submission did not carry the toggle at all".
+
+    **The toggle moved and the marker did not, deliberately.** §2′.7 dissolved the §2.1 band and
+    §2′.6 put the toggle inside the results block instead; it kept its name, its form association
+    and its section, so nothing in this module changed. A marker is a claim about which CONTROLS
+    were rendered, and the control this one names is still rendered by the same submission — just
+    lower down the page.
+
+    **`setup` also gates `setup.has_pv`, which the results screen does NOT draw**, and that is
+    worth stating rather than leaving to be discovered. §2′.7 moved `has_pv` to the configure-data
+    screen, where it is named `setup_haspv` and is committed by that screen's own writer — so no
+    form reaching `parse_form` carries `setup.has_pv` any more, and the results screen's `setup`
+    marker over-claims it in the letter of the rule.
+
+    It is nonetheless safe, and the reason is structural rather than incidental: `has_pv` is a
+    RADIO GROUP, so its branch is guarded by `"setup.has_pv" in form` and an absent group inherits
+    the stored answer. The marker only ever grants permission to READ a value that is present. The
+    defect the doctrine exists to prevent is the checkbox one, where absence is indistinguishable
+    from unticked and the marker decides between them; a radio has no such ambiguity. Splitting
+    `setup` in two would therefore buy nothing and would leave one screen emitting a marker no
+    parser branch reads.
 
     The Pricing box emits TWO names, because a marker is a claim about controls rather than about
     a box (see `_section`): `pricing` for the economic-guard checkbox and `pricing_advanced` for
@@ -1002,3 +1096,18 @@ def _enum_value(value):
 # Every dotted path the form draws an input for. An issue keyed outside this set has no input to
 # attach to, so `params_view` surfaces it at panel level instead of dropping it.
 _RENDERED_FIELDS = frozenset(path for _, path, _fn in FIELDS)
+
+# Which of those paths live INSIDE §2′.6's advanced pane, and which tab draws each.
+#
+# Derived from `results_screen_view.ADVANCED_PATHS` rather than re-listed, so the pane's contents
+# are described in exactly one place: a field moved between tabs there moves here too, and a field
+# added to a tab cannot be forgotten here. The import is local to avoid a cycle — `results_screen_view`
+# imports nothing from this module, and keeping it that way is what makes the direction safe.
+def _advanced_tabs() -> dict[str, str]:
+    from app.results_screen_view import ADVANCED_PATHS
+
+    return {path: tab for tab, paths in ADVANCED_PATHS.items() for path in paths}
+
+
+_FIELD_TABS: dict[str, str] = _advanced_tabs()
+_ADVANCED_FIELDS = frozenset(_FIELD_TABS) & _RENDERED_FIELDS

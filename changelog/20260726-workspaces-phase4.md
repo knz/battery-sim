@@ -274,6 +274,24 @@ False and a stored True survives; a failing save returns 200 with the notice rat
 untranslated and 0 fuzzy for `nl`. The `en` catalog gains the new msgids as empty msgstrs, which is
 that catalog's existing convention (an empty English msgstr falls back to the msgid).
 
+## 4.2 — findings from reading the code before starting
+
+**The setup band's deletion has one concrete dangling reference.** §2′.7 flags it and it is real:
+`_panel_results.html:298`'s invitation box (`"Want to know what this is worth in euros?"`) links to
+`href="#setup-simulate-cost"`, an id that exists only in `_setup_band.html:47`. Deleting the band
+leaves a link to nothing. §2′.7 says the invitation "stays as it is" and is explicitly a hold rather
+than a conclusion — so the anchor is repointed at the toggle's new home, and the box must say
+something useful when that toggle is Blocked, but the box itself is not redesigned here.
+
+**`simulate_cost` keeps gating a control on a different screen.** It moves to results, but still
+gates the `price_spot_min` / `price_spot_max` roster rows on configure-data. 4.1 already reworded
+the legend away from "the answers in the setup band above"; the cross-screen gating itself is
+unchanged and must keep working.
+
+**Sizes, for scope.** `_panel_params.html` is 538 lines, `_panel_results.html` 416, `index.html` 693
+(including the ~320-line IIFE, which 4.1 established is almost entirely panel-②/③ and therefore
+belongs to this half), `params_view.py` 1004. This is the largest single piece of the restructure.
+
 ## Review findings and fixes
 
 An adversarial review found seven items, none blocking. Four were fixed here, two filed, one was
@@ -347,24 +365,353 @@ ids, the no-JS fallback submits and every link and form action resolves, all fou
 branches, injection via a crafted `mode` or a `<script>` title, `simulate_cost` row-gating parity
 with panel ①, fresh install, and every mutation the changelog claims.
 
+## 4.2 — what was built
+
+`GET /w/{id}/results` is §2′.6's screen: the capacity-first battery box above the results block, on
+one page. Panel ①, the setup band and the three-panel layout are gone.
+
+- **`app/templates/_panel_params.html` reshaped in place**, keeping `id="panel-params"` and
+  `id="params-form"` — both are contracts with `POST /w/{id}/params` and the swap handler. Usable
+  capacity alone up front with its ⓘ, then a `<details id="params-advanced">` whose summary carries
+  the "N changed from default" badge, holding three tabs.
+- **`app/templates/index.html` → `workspace_results.html`** (a `git mv`, so the diff shows the
+  edits rather than a delete-plus-add).
+- **`app/results_screen_view.py` — new.** The title, the Blocked flag, and `ADVANCED_PATHS` /
+  `advanced_changed_count`.
+- **`app/templates/_setup_band.html` and `_panel_data.html` deleted**, and
+  `_data_household.html`'s `titled=False` branch with them, as 4.1 said they should be.
+
+### The tab order, and where the two boxes §2′.6 does not place ended up
+
+§2′.6 names three tabs and assigns §2.3's boxes 3, 4 and 5. It does not say where §2.3's box 2
+(Grid connection) or the Pricing box go, and both had to land somewhere.
+
+**Grid connection went on the Battery tab.** The fuse rating and phase count set `max_import_kw`,
+which §6.8 step 6 clamps every interval against — they are the battery's operating envelope, so
+they sit with the other limits. Installation was the alternative and was rejected because §2′.6
+gives that tab to the ILLUSTRATED selectors specifically, for a reason about width.
+
+**The Pricing box went on Charge & discharge**, below the overlap warning. It prices the bands two
+cards above it. A fourth tab would contradict the tab list §2′.6 draws; putting it on Battery would
+separate the rates from the bands they evaluate.
+
+Neither is what the spec asked for, because the spec did not ask. Both are recorded as fills rather
+than transcriptions.
+
+### The tabs are radios plus CSS, and that is a data-loss decision
+
+A JS-swapped or conditionally-rendered tab would submit the two tabs the user did not open as
+CLEARED fields — the same defect as rendering a collapsed `<details>` conditionally, with a
+different trigger. `display:none` does not exclude a control from a form body (only `disabled`
+does), so hiding by CSS is safe where removing is not.
+
+The mechanism is three `name="params-tab"` radios before the panels and a `:has(…:checked)` rule in
+`app.tailwind.css`. The radios carry no dotted path, so `parse_form` never sees them. The rules are
+UNLAYERED for the reason the cost tint already documents: Tailwind nests daisyUI's rules in a layer
+declared after ours, and a layered block loses whatever its specificity.
+
+### `Installation` on a 1-phase household without PV says so, rather than being blank
+
+§2.3 says that box "empties entirely" there and tells the caller not to render it. A tab cannot be
+dropped — a strip with a dead third entry is worse than an empty panel — so the panel states the
+reason instead. A new msgid, and a fill rather than a transcription.
+
+### The cost toggle: what moved and what deliberately did not
+
+`setup.simulate_cost` kept its NAME, its `form="params-form"` association and its `setup` section
+marker. Only its position in the document changed. That is why `params_view` needed no behavioural
+change and why the `setup.`-prefixed `change` handler works unmodified: it matches on the prefix,
+not on the band.
+
+**Blocked is enforced by `disabled` on the radios, and only from the client side.** The route has no
+check of its own, deliberately: §2′.6 makes the edit screen the one place the precondition is
+cleared, and a second gate here would put the rule in two places. A hand-crafted POST is therefore
+honoured — see the open item below.
+
+`cost_toggle_blocked` defaults to false in the template so a caller that omits it draws a live
+toggle; both real callers pass the flag, and `POST /w/{id}/results` re-reads it per request because
+the recompute that triggers a swap can be the one the toggle itself just caused.
+
+### The dangling anchor, and the one thing the invitation box had to gain
+
+`#setup-simulate-cost` was kept as the toggle's id, so §2.4's invitation links to a control on the
+page that renders the link. When the toggle is Blocked the box swaps its button for
+`[ Set up my contract → ]` pointing at `/w/{id}/edit#contract` — the same destination the ⓘ dialog
+offers, because there is one way to clear this and two buttons claiming to lead there would be two
+answers to one question. §2′.7's hold was honoured otherwise: the question is unchanged.
+
+**`workspace_edit.html` gained `id="contract"` on its Contract box.** §2′.6 says the dialog
+"navigates to the workspace's edit screen with the Contract box in view", and that anchor did not
+exist — the link would have resolved to the top of the screen with the box below the fold, passing
+any `href` check.
+
+## 4.2 — the `sections` marker, traced
+
+The brief asked for each claim to be named explicitly. Re-derived by rendering the screen against
+every config shape that changes which checkboxes it draws:
+
+| shape | `sections` | checkboxes drawn |
+|---|---|---|
+| appendix-A defaults | `setup battery grid charge discharge topology` | `allow_grid_export` |
+| cost on | + `pricing pricing_advanced` | + `economic_guard`, `dal_weekends` |
+| no PV, 1-phase | `setup battery grid charge discharge` (no `topology`) | `allow_grid_export` |
+| 3-phase, unsupported topology | `… topology` | + `topology.approximated` |
+
+- **`policy.allow_grid_export` / `discharge`** — always drawn, always claimed.
+- **`policy.economic_guard` / `pricing`** — drawn iff `cfg.simulate_cost`; claimed iff the same.
+  `guard_was_submitted` additionally requires the SERVER's `stored.simulate_cost`, so a client that
+  claims `pricing` with cost off gets no authority over the stored guard.
+- **`pricing.dal_weekends` / `pricing_advanced`** — drawn and claimed together with the box.
+- **`topology.approximated` / `topology`** — the one asymmetry, and it is correct. `topology` is
+  claimed whenever the topology BOX is drawn, but the checkbox exists only while the selected phase
+  topology is unsupported. `parse_form` handles the gap on purpose: inside a form that drew the box
+  it sets `approximated = False` for a supported topology, "so a user who moves back to the 3-phase
+  inverter is no longer carrying an approximation caveat they did not earn". Pinned in both
+  directions rather than exempted.
+- **`setup.simulate_cost` / `setup`** — drawn (in the results block) and claimed.
+- **`setup.has_pv` / `setup`** — NOT drawn, and the marker over-claims it in the letter of the rule.
+
+That last one was examined rather than waved past. It is safe for a structural reason: `has_pv` is a
+RADIO GROUP, so its branch is guarded by `"setup.has_pv" in form` and an absent group inherits. The
+marker only ever grants permission to READ a value that is present; the defect it exists to prevent
+is the checkbox one, where absence is indistinguishable from unticked. Splitting `setup` in two
+would buy nothing and would leave one screen emitting a marker no parser branch reads.
+`_sections_for`'s docstring now says all of this, and `parse_form`'s `setup.has_pv` branch is
+recorded as dead-but-kept.
+
+## 4.2 — obstacles and defects found
+
+**The advanced pane snapped shut on every `[ Calculate → ]`.** A real defect, found by driving the
+screen in Chromium and invisible to every non-browser test. `POST /w/{id}/params` answers with a
+fresh render whose `<details>` has no `open` attribute and whose tab strip has `checked` on Battery
+— those are the template's defaults and the server cannot know better. Swapping that in verbatim
+closed the pane and reset the tab, hiding the field the user had just edited. §2′.6 says the pane
+"preserves state and does not reset on collapse"; resetting it on a swap the user did not ask for is
+the same failure with a worse trigger. Fixed with `readPaneState` / `applyPaneState` around the
+swap, carrying ONLY which pane is open and which tab is selected — no value travels that way, since
+the response is the authority on what is stored. Pinned by a Playwright test, and by the mutation
+that removes the two calls.
+
+**A mutation the suite could not catch.** Switching `ADVANCED_PATHS`'s `policy.economic_guard` to
+the forced `economic_guard` property left all 1131 tests green. The count would then drop when cost
+simulation went off even though the stored answer was retained. Closed with a unit test on the view
+model — and the finding is that it could NOT be closed through the route: `simconfig_store.load`
+lifts the retained guard back into `policy` only when `simulate_cost` is on, so the divergent state
+is unreachable from the store today. The difference is latent rather than live, and the test says so.
+
+**Two route tests were pinning §2.3's collapsed summary line**, which §2′.6 removed with the panel
+it summarised. `params_view.summary_line` still exists and is still covered by
+`tests/test_params_view.py`; nothing renders it. Both tests were re-aimed at the input VALUES, which
+is the stronger property anyway — it is what the user sees and what the next submission sends. The
+summary's disappearance is a real loss of a compact readout and is recorded as such, not as a
+tidy-up.
+
+**Test-side casualties of the split, all repointed rather than weakened.** `test_i18n.py`'s
+`#drawer-i18n` block, three `test_ingest_ws.py` page assertions, and two `test_results_route.py`
+glance tests were reading panel ①'s content off `/w/{id}/results`. They now read `/w/{id}/data`,
+via a new `tests/conftest.py:data_page()` beside `page()`. One of them INVERTED and that is the
+specified behaviour, not a loosening: `test_page_shows_sample_before_any_fetch` looked for a
+sample-only quality string as proof of the empty state, and 4.1's review gated the quality box on
+`has_dataset` precisely so those figures do NOT appear for data the user never supplied.
+
+**`test_the_cost_tint_actually_renders` had to grow a step.** It turned cost simulation on through
+the setup band's radio; that radio is now Blocked on a fresh workspace. Rather than writing a config
+file, it now drives both steps — asserts the toggle is disabled, opens the ⓘ, saves the edit screen,
+returns and finds it live. That is a stronger test than the one it replaced: it proves the
+precondition is real rather than decorative.
+
+**An active-tab assertion that could not fail.** The first version compared the selected tab's text
+COLOUR against an unselected one's. daisyUI's `.tabs-bordered` already tints a checked tab, so
+deleting our own rules left it green. Re-aimed at the underline and the font weight, which are what
+those rules contribute, and re-checked against the same mutation.
+
+**`git checkout` on a mutated file destroyed the rewritten template once.** The mutation loop used
+`git checkout <file>` to revert, which for a file whose new content was never staged reverts to the
+PRE-4.2 version rather than to the working copy. `_panel_params.html` had to be rewritten. The rest
+of the loop used a scratchpad backup instead. Recorded because the failure is silent — the tests go
+green again, against the old file.
+
+## 4.2 — verification
+
+**Suite: 1131 passed, 2 skipped** (baseline **1087 passed, 2 skipped**, measured on this tree before
+starting). 44 added: 41 in `tests/test_workspace_results.py`, 2 Playwright, and 1 net from the
+leakage scan. The only skips remain `tests/test_ha_live.py`'s two, confirmed with `-rs`.
+
+**Playwright: 37 passed** (35 before). Ten pre-existing browser tests had to be repointed at the
+configure-data screen or re-aimed at what replaced panel ①; none was weakened to pass, and each
+change is a screen moving rather than an assertion softening.
+
+**Every assertion was mutation-checked — 27 mutations, all caught, two only after a test was added
+or fixed.** Both sides of a template/parser contract were mutated together where one existed.
+
+| mutation | caught by |
+|---|---|
+| capacity moved inside the pane | 1 |
+| Installation tab rendered only when selected | 6 |
+| pane contents rendered only when open | 13 |
+| Battery not the default tab | 1 |
+| overlap warning back inside the discharge card | 2 |
+| `cost_toggle_blocked` hardcoded false | 4 |
+| Blocked HIDES the toggle (Inapplicable) | 4 |
+| Blocked radios not `disabled` | 2 |
+| `#contract` anchor removed from the edit screen | 2 |
+| invitation keeps the old anchor when blocked | 2 |
+| a footer added to the screen | 1 |
+| `sections` over-claims `pricing` | 3 |
+| `sections` drops `setup` — marker AND parser gate together | 2 |
+| `advanced_changed` counts the capacity — path list AND template | 1 |
+| `advanced_changed` reads the FORCED economic guard | **nothing — see Obstacles** (now 1) |
+| `POST /results` forgets the toggle's state | 1 |
+| `POST /params` redirects instead of returning a fragment | 3 |
+| header shows the app name, not the analysis | 2 |
+| `params-form` action flattened to `/params` | 2 |
+| Installation empty state renders blank | 1 |
+| blocked dialog's link drops `#contract` | 3 |
+| count badge always says "1" | 1 |
+| tab labels lose their `for=` | 1 |
+| pane-state carry-over removed (the real defect) | 2 browser tests |
+| `.tab-panel` shows every panel | 1 browser test |
+| the SVGs squeezed to 48px | 1 browser test |
+| active-tab styling removed | **nothing until the assertion was re-aimed** (now 1) |
+
+**Driven in Chromium and looked at, not only asserted on.** The tabbed pane works: exactly one panel
+visible at a time with all three in the DOM, panels 884px wide at a 1280px viewport, and the
+illustrated selector — three frames deep at pane → tab → card — renders its SVGs at 398×265 (PV) and
+248×165 (phases), against the ~250px the chooser needs. No horizontal overflow, no console errors.
+That was the item the plan flagged as needing a real look, and it survives the nesting.
+
+**Rendered against a real temp data dir and read**, in four config shapes and both locales. Present:
+`#panel-params` with the capacity outside the pane, the three tabs with Battery checked, the
+`sections` marker, `#panel-results` with `#setup-simulate-cost` under the period selector, the
+Blocked dialog, `#slot-info-dialog` and `#pending-dialog` at page level. Absent, checked outside
+comments and script bodies: `#slot-roster`, `#setup-band`, `#source-drawer`, `#ha-config-dialog`,
+`#source-generation`, `#drawer-i18n`, `data-ingest-ws`, `setup_haspv`, `ha_fetch.js`, the ① and ②
+badges, `Next: parameters`, `PARAMETERS` and `data-footer`. No duplicate ids in the real markup.
+Every link and form action resolves, and every fragment link resolves to an id on the page it points
+at — including `#contract` on the edit screen, verified by fetching that page.
+
+**Fresh install driven end to end in a browser**: `[ + New analysis ]` → the results screen, capacity
+visible, results rendered, toggle Blocked, no console errors. **The no-JS path** was driven with
+JavaScript disabled: `[ Calculate → ]` posts to the scoped `/w/{id}/params` and returns the
+re-rendered box.
+
+**Both locales rendered and read.** Dutch is complete on this screen; the catalog check reports 0
+untranslated and 0 fuzzy for `nl`. 12 new msgids, all translated; the obsolete `#~` block grew from
+230 to 262 entries and lost none. The `en` catalog gains the msgids as empty msgstrs, which is that
+catalog's convention.
+
+**`app/static/app.css` regenerated** — `npm run build:css`, and this time the output really changed:
+the CSS-only tab rules and `.blocked-control` are new, and both were confirmed present in the
+minified bundle and load-bearing by mutation.
+
+## 4.2 — review findings and fixes
+
+An adversarial review found one BLOCKING defect and two minor ones. All three were fixed; three
+further items it raised were filed rather than decided.
+
+**BLOCKING, fixed — a blocking validation error inside the advanced pane was invisible.** The
+pre-4.2 panel compensated for exactly this hazard: `git show HEAD:app/templates/_panel_params.html`
+line 77 carried `{% if not params.valid %}checked{% endif %}` on its collapse toggle, so the panel
+**force-opened itself whenever the run was invalid** and an error could never hide behind a closed
+box. The reshape replaced that collapse with a `<details>` plus three tabs — two new ways for an
+input to be off-screen — and dropped the compensation. `applyPaneState` then made it worse by
+re-applying the user's pre-submit display state, deliberately re-closing the pane over the errors the
+response had just added.
+
+Reproduced directly: a `POST /params` with `battery.max_charge_kw=-5` answers `X-Params-Valid: 0`,
+the message "Must be greater than zero." is present in the DOM, and the `<details>` renders with no
+`open` attribute — so the message is `display: none`. The config is not persisted (`result.blocking`
+skips the save), and the results below still show figures computed from a config the user did not
+submit. What the user sees is `✕ needs attention` and nothing else: no field, no message, no red
+input. The review reproduced the same thing in Chromium in two sub-cases (collapsed pane, and an
+error on a non-active tab).
+
+**Why 41 route tests and 37 browser tests missed it.** Every assertion checks that a message is
+RENDERED — a substring on the HTML — which stays true while it is hidden. No test submitted an
+invalid value from a browser; the one browser test that drives the pane
+(`test_the_advanced_pane_survives_a_parameter_swap`) drives only the valid path. This is the "quality
+box that vanished exactly when needed" shape from 4.1, with the same trigger: a container that hides
+content, where the hiding is correct in the normal case.
+
+The fix is the pair the review identified, because either half alone leaves a gap:
+
+- `params_view` gains `hidden_errors` (blocking messages for fields the pane draws, de-duplicated)
+  and `error_tab` (which tab holds the first one). Both derive their field→tab map from
+  `results_screen_view.ADVANCED_PATHS`, so the pane's contents stay described in one place.
+- The template renders `hidden_errors` in an alert **outside** the pane, forces the `<details>`
+  `open` when it is non-empty, and gives the offending tab the `checked` attribute instead of
+  Battery. Reopening alone would still land on one tab while the error sat on another.
+- `applyPaneState` detects the server's force-open (`[data-hidden-errors]`) and honours it rather
+  than restoring the pre-submit state. A valid render never carries the marker, so the ordinary
+  swap-preservation behaviour is untouched.
+
+`hidden_errors` carries messages only, not field labels: the labels are translated literals beside
+their inputs in the template, and copying them into Python would be a second set of msgids free to
+drift. `error_tab` is what locates the error; the message then sits beside its own labelled input.
+
+Five regression tests, four route and one browser. Confirmed discriminating by mutation: reverting
+the template fails three of the four route tests, and reverting **both sides** — the template's
+force-open and the `applyPaneState` guard — fails the browser test with the defect's own signature
+(`assert False is True` on `details.open`). The fourth route test pins the opposite direction (a
+valid submission must leave the pane closed) and correctly passes either way.
+
+**minor, fixed — the tab strip's ARIA was an incomplete hybrid.** `role="tablist"` and three
+`role="tab"`s, but no `role="tabpanel"`, no `aria-controls`, and no `aria-selected` — nothing could
+update the last, since the selected state lives on an off-screen radio. `role="tab"` on a `<label>`
+also overrides its native label role, so the annotation cost a screen reader the one thing the markup
+had right. Keyboard operation was never affected (it rides the native radio group, verified in
+Chromium). Removed rather than completed: unannotated, the radios announce as a labelled group of
+three and the selection is real state rather than an attribute something must remember to maintain.
+
+**minor, fixed — a test named for behaviour that does not exist.**
+`test_results_stale_dims_the_previous_figures_rather_than_blanking_them` pinned the spinner and the
+4xx contract, which its docstring said honestly, but nothing in the app dims anything. Renamed to
+`test_a_refused_recompute_keeps_…` and the gap recorded in the docstring and in `followups.md` L1 —
+a green test named for `RESULTS_STALE` dimming reads as coverage of a thing that was never built.
+Confirmed **not** a 4.2 regression: the pre-restructure page had no dimming either, so §2′.6's
+"still renders … dimmed" describes something that has never been true.
+
+**Filed, not decided** — `followups.md` L1 (the dimming gap above), **L2** (`POST /w/{id}/edit` sets
+`pricing_configured` on every successful save, not only when the Contract box was touched — a phase-3
+decision that §2′.6's own rationale argues against, and which 4.2 merely made visible), and **L3**
+(the known-latent contradictory state: a hand-crafted POST turning cost on while the flag is false).
+L3 was confirmed latent — the rendered radios carry `disabled`, no browser path reaches it, and the
+review found no other entrance. All three turn on what "the user has told us what they pay" should
+mean, and L2 probably wants deciding first.
+
+The review also confirmed clean, with reproductions: the `_panel_params.html` reshape lost nothing
+(a rendered control-set diff across 12 config shapes shows only the two unnamed collapse checkboxes
+correctly replaced by `<details>`); all three tabs' inputs stay in the DOM and in the form body; the
+`sections` marker matches the drawn checkboxes across all 24 config shapes; the deletions leave no
+live reference; the JS move resolves every id it looks up; and the pane-state fix survives validation
+failures, rapid successive swaps, and a tab vanishing mid-swap.
+
 ## Current status
 
-**4.1 complete.** `GET`/`POST /w/{id}/data` are live, `[ Configure data ]` on a card reaches a real
-screen, and no card action 404s any more. The wizard's step-1 `[ Next → ]` now points at step 2
-instead of skipping to the results page. Suite: **1087 passed, 2 skipped** (35 Playwright), up from
-1023 at phase 3.
+**Phase 4 complete.** All four screens of the restructure exist: the list (§2′.2), edit (§2′.4),
+configure data (§2′.5) and results (§2′.6). The wizard walks edit → data → results and stops there,
+which is where §2′.6 says it ends. Suite: **1136 passed, 2 skipped** (37 Playwright), up from 1087
+at 4.1 and 1023 at phase 3.
 
-Carried forward, none decided here:
+Open, and none decided here:
 
-- **4.2 is untouched and is the remaining work**: the capacity-first battery box, the tabbed
-  advanced pane, and the cost toggle moving into the results block (Blocked until
-  `pricing_configured`, which phase 3 made real). Panel ① and the setup band are 4.2's to delete —
-  `_panel_data.html` keeps its `[ Next: parameters → ]` CTA until then, deliberately.
-- **The shared partials are now the integration point with `ha_fetch.js`.** When 4.2 deletes
-  panel ①, `_data_household.html`'s `titled=False` branch and `_panel_data.html` itself become dead
-  and should go with it.
-- **The dirty warning is browser-local.** A mapping staged in another browser is invisible to it.
-  That is inherent to where §2′.11 puts the state, not a shortcut taken here, but it is the kind of
-  thing worth stating before someone reports it as a bug.
-- **The same-site question** for the three parameter-writing routes remains open as phase 3 left
-  it: revisit all three together or not at all.
+- **A Blocked toggle is a client-side guard only.** A hand-crafted POST turns cost simulation on
+  with `pricing_configured` still false, and the screen then renders a checked-but-Blocked toggle
+  beside a drawn Pricing box — coherent (the user can set rates; they still have not committed a
+  contract) but contradictory to read. The §2′.10 migration sets the flag from `simulate_cost`, so
+  a migrated user never lands there; a hand-edited document could. Fixing it means deciding which
+  of three things wins — force cost off, unblock the toggle, or hide the Pricing box — and that is
+  a product call, not a bug fix. Left as it is, and stated. Confirmed latent by the review (the
+  rendered radios carry `disabled`, and no other entrance exists); filed with its trade-offs as
+  `followups.md` **L3**, alongside **L2**, which probably wants deciding first.
+- **§2.3's collapsed summary line is no longer rendered anywhere.** `summary_line` still computes
+  the whole run in one line and is still tested; §2′.6's wireframe replaced it with the pane's
+  count and does not offer it a home. Worth revisiting if the count proves too thin.
+- **A parameter edit still needs `[ Calculate → ]`.** §3.5 calls `PARAMS_CHANGED` "debounced" and
+  the app has never implemented a debounce — only `setup.`-prefixed controls auto-submit. Confirmed
+  unchanged from before 4.2 (the handler is byte-identical). Now more visible, because §2′.6's whole
+  argument is that a capacity change and its effect are visible at once, and today that costs a
+  click.
+- **The same-site question** for the three parameter-writing routes remains open as phases 3 and 4.1
+  left it: revisit all three together or not at all.
+- **`followups.md` K1 and K2** from 4.1 are untouched.

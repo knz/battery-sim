@@ -96,14 +96,39 @@ def _workspace_url(base_url) -> str:
         return r.url
 
 
+def _select_tab(pg, tab: str):
+    """Switch §2′.6's "More settings" pane to `tab` the way a user does — by clicking its label.
+
+    The radio itself is deliberately off-screen (`.tab-radio` is `opacity:0; position:absolute`, so
+    the tab strip is the `<label>`s), and Playwright refuses to click an invisible control. Going
+    through the label is both what the user does and what proves the label/radio pairing works —
+    `check(force=True)` on the radio would pass even with the `for=` attribute wrong.
+    """
+    pg.locator(f'label.tab[data-tab="{tab}"]').click()
+    assert pg.locator(f"#params-tab-{tab}").is_checked(), f"clicking the {tab} label did not select it"
+
+
+def _ws_path(workspace_url: str) -> str:
+    """`/w/<id>` from a `…/w/<id>/results` URL, so the sibling screens can be reached from it."""
+    return "/w/" + workspace_url.rstrip("/").split("/")[-2]
+
+
 def _open(browser, base_url, lang, url=None):
-    """Open the three-panel page in a pinned language (cookie), panels expanded."""
+    """Open a screen in a pinned language (cookie), with every collapsible expanded.
+
+    The expand loop covers both idioms the app uses, because phase 4.2 changed which one the
+    results screen carries: daisyUI `.collapse` sections (the configure-data screen's, and the
+    results screen's until 4.2) and `<details data-advanced>` panes (§2′.6's "More settings", and
+    §2′.4's advanced panes). A test that could not see inside the pane would pass on a screen whose
+    pane never opens.
+    """
     context = browser.new_context()
     context.add_cookies([{"name": "lang", "value": lang, "url": base_url}])
     pg = context.new_page()
     pg.goto(url or _workspace_url(base_url), wait_until="networkidle")
     for cb in pg.locator("section.collapse > input[type=checkbox]").all():
         cb.check()
+    pg.evaluate("document.querySelectorAll('details[data-advanced]').forEach(d => d.open = true)")
     return pg
 
 
@@ -125,11 +150,51 @@ def page_nl(browser, base_url, workspace_url):
     return _open(browser, base_url, "nl", workspace_url)
 
 
-def test_three_panels_present(page):
+@pytest.fixture(scope="module")
+def data_page_en(browser, base_url, workspace_url):
+    """The CONFIGURE-DATA screen for the module's workspace, in English.
+
+    Phase 4.2 deleted panel ①, so the roster, the source drawer, the HA modal and the two scope
+    radios exist on this screen and nowhere else (§2′.5). The tests that drive them take this
+    fixture instead of `page`; the same module-scoped workspace, so they still share state with the
+    rest of the file exactly as they did when both halves were one page.
+    """
+    return _open(browser, base_url, "en", base_url + _ws_path(workspace_url) + "/data")
+
+
+@pytest.fixture(scope="module")
+def data_page_nl(browser, base_url, workspace_url):
+    return _open(browser, base_url, "nl", base_url + _ws_path(workspace_url) + "/data")
+
+
+def test_the_results_screen_shows_the_battery_box_and_the_results_together(page):
+    """§2′.6, and the constraint it is emphatic about: ONE screen, scrolling together.
+
+    **This asserted the three stepper panels ("DATA / PARAMETERS / RESULTS") until phase 4.2.**
+    §2′.5 moved panel ① to its own screen and §2′.6 replaced the other two with a capacity-first
+    battery box above the results block — so the three labels are gone and the property worth
+    pinning is the one that replaced them: the capacity input and the results are in the same
+    document, both visible without navigating.
+
+    §2′.6 calls this "the equivalent of §3.4's 'reopening panel ① or ② does not collapse panel ③'",
+    which §3.4 names the single most important interaction detail in the app.
+    """
     body = page.locator("body").inner_text()
-    assert "DATA" in body
-    assert "PARAMETERS" in body
     assert "RESULTS" in body
+    assert "Usable capacity" in body
+    # Both halves on one page, in this order, and both real elements.
+    assert page.locator("#panel-params").count() == 1
+    assert page.locator("#panel-results").count() == 1
+    assert page.locator('input[name="battery.usable_capacity_kwh"]').is_visible()
+    assert page.get_by_text("ENERGY SAVINGS").count() >= 1
+    # Panel ① and the setup band are NOT here — they are the configure-data screen's (§2′.5).
+    assert page.locator("#slot-roster").count() == 0
+    assert page.locator("#setup-band").count() == 0
+    assert "PARAMETERS" not in body and "DATA" not in body
+    # No footer buttons (§2′.6): the screen is left through the back link.
+    assert page.locator("[data-footer]").count() == 0
+    assert page.get_by_role("button", name="Save").count() == 0
+    assert page.get_by_role("link", name="Cancel").count() == 0
 
 
 def test_energy_section_present(page):
@@ -146,86 +211,302 @@ def test_cost_section_absent(page):
     assert page.get_by_text("Energy tax", exact=True).count() == 0
 
 
-def test_solar_row_present(page):
-    # has_pv is on: the solar sensor row and the PV-coupling selector are shown.
-    # VISIBILITY, not presence: gated rows are now rendered-and-hidden so the setup radios can
-    # re-gate them client-side, so a `.count()` assertion would pass even with the row hidden.
-    assert page.locator('.slot-row[data-slot-row="solar_production"]').is_visible()
-    assert page.get_by_text("How is your PV connected to the battery?").count() >= 1
+def test_solar_row_present(data_page_en, page):
+    """has_pv is on: the solar row is on the DATA screen, the PV selector on the RESULTS one.
+
+    The pair used to sit on one page and phase 4.2 split them, so this now spans both screens —
+    which is worth keeping as one test: they are two renderings of one answer, and a gate that
+    stopped agreeing between them would be exactly the confusion §2′.7 warns about.
+
+    VISIBILITY, not presence, for the row: gated rows are rendered-and-hidden so the radios can
+    re-gate them client-side, so a `.count()` assertion would pass even with the row hidden.
+    """
+    assert data_page_en.locator('.slot-row[data-slot-row="solar_production"]').is_visible()
+    # The illustrated selector is inside §2′.6's collapsible pane, on the Installation tab.
+    _select_tab(page, "installation")
+    assert page.get_by_text("How is your PV connected to the battery?").is_visible()
 
 
-def test_existing_battery_rows_are_hidden_until_declared(page):
+def test_existing_battery_rows_are_hidden_until_declared(data_page_en):
     # has_battery defaults off, so the two existing-battery slots are gated out of the roster.
     for slot in ("battery_charge", "battery_discharge"):
-        assert not page.locator(f'.slot-row[data-slot-row="{slot}"]').is_visible()
+        assert not data_page_en.locator(f'.slot-row[data-slot-row="{slot}"]').is_visible()
 
 
-def test_the_setup_toggles_re_gate_the_roster_live(page):
+def test_the_setup_toggles_re_gate_the_roster_live(data_page_en):
     """The regression this whole change exists for: the toggles must actually DO something.
 
     They were previously inert — no form, no handler, no route — so clicking one changed nothing
     and the radio snapped back on the next render. Here the roster must re-gate immediately,
     client-side, with no round-trip (the answers are persisted later, by the fetch button).
     """
-    solar = page.locator('.slot-row[data-slot-row="solar_production"]')
-    charge = page.locator('.slot-row[data-slot-row="battery_charge"]')
+    pg = data_page_en
+    solar = pg.locator('.slot-row[data-slot-row="solar_production"]')
+    charge = pg.locator('.slot-row[data-slot-row="battery_charge"]')
 
     assert solar.is_visible() and not charge.is_visible()
 
     # "No" to PV hides the solar row; "Yes" to an existing battery reveals its two slots.
-    page.locator('input[name="setup_haspv"][value="0"]').check()
-    page.locator('input[name="setup_hasbattery"][value="1"]').check()
+    pg.locator('input[name="setup_haspv"][value="0"]').check()
+    pg.locator('input[name="setup_hasbattery"][value="1"]').check()
     assert not solar.is_visible(), "answering No to PV must hide the solar slot"
     assert charge.is_visible(), "declaring a battery must reveal its slots"
 
     # Toggling back restores both — the answers gate the view, they do not destroy state.
-    page.locator('input[name="setup_haspv"][value="1"]').check()
-    page.locator('input[name="setup_hasbattery"][value="0"]').check()
+    pg.locator('input[name="setup_haspv"][value="1"]').check()
+    pg.locator('input[name="setup_hasbattery"][value="0"]').check()
     assert solar.is_visible()
     assert not charge.is_visible()
 
 
-def test_slot_info_affordance(page):
+def test_slot_info_affordance(data_page_en):
     # The two corroboration slots (Grid power, House load) carry an `info` blurb, so the demo
     # renders an ⓘ button next to each. Clicking one fills and opens the shared #slot-info-dialog.
     #
-    # Counted over VISIBLE buttons only. The setup band's "Do you already have a battery?" ⓘ uses
-    # the same shared affordance, and the two existing-battery slots carry blurbs of their own —
-    # but those rows are gated out while has_battery is false (the appendix-A default this demo
+    # On the CONFIGURE-DATA screen since phase 4.2, which is where the roster lives now (§2′.5).
+    #
+    # Counted over VISIBLE buttons only. The household box's "Do you already have a battery?" ⓘ
+    # uses the same shared affordance, and the two existing-battery slots carry blurbs of their own
+    # — but those rows are gated out while has_battery is false (the appendix-A default this demo
     # runs with), so they are rendered-but-hidden and must not be counted here.
-    visible_info_btns = page.locator("#slot-roster .slot-info-btn:visible")
+    visible_info_btns = data_page_en.locator("#slot-roster .slot-info-btn:visible")
     assert visible_info_btns.count() == 2  # exactly the two visible rows with a blurb
-    page.get_by_role("button", name="About House load").click()
-    dialog = page.locator("#slot-info-dialog")
+    data_page_en.get_by_role("button", name="About House load").click()
+    dialog = data_page_en.locator("#slot-info-dialog")
     assert dialog.get_by_text("House load", exact=True).is_visible()
     assert "reconstructs household load" in dialog.locator("#slot-info-body").inner_text()
-    page.keyboard.press("Escape")
+    data_page_en.keyboard.press("Escape")
 
 
-def test_slot_info_dialog_works_when_panel_1_is_collapsed(page):
-    # Regression: the shared #slot-info-dialog used to live inside panel ①'s `.collapse-content`,
-    # which daisyUI gives `content-visibility: hidden` when collapsed. showModal() then still put
-    # the dialog in the top layer — blocking every click on the page — but the browser never
-    # painted it: no popup, frozen page. Reported against panel ③'s glance ⓘ with panel ① closed;
-    # panel ①'s own roster ⓘ reproduces it identically, and works in the empty state this server
-    # runs. Assert the dialog actually becomes VISIBLE (not merely `open`) with panel ① collapsed.
-    toggle = page.locator('input[aria-label="Toggle Data panel"]')
-    toggle.check()  # expand to reach the roster's ⓘ button
-    btn = page.get_by_role("button", name="About House load")
+def test_the_info_dialog_paints_when_opened_from_inside_the_collapsed_advanced_pane(browser, base_url):
+    """Regression, re-aimed at the collapsible §2′.6 introduced.
+
+    The shared #slot-info-dialog used to live inside panel ①'s `.collapse-content`, which daisyUI
+    gives `content-visibility: hidden` when collapsed. `showModal()` then still put the dialog in
+    the top layer — blocking every click on the page — but the browser never painted it: no popup,
+    frozen page.
+
+    Panel ① is gone, but the shape is not: this screen's "More settings" pane and its three tab
+    panels are the collapsibles that could bury the dialog now, and the ⓘ buttons that open it are
+    INSIDE them (the contract-types ⓘ, the PV-blocked charge policies). So this drives it from
+    there and asserts the dialog is PAINTED, not merely `open`.
+
+    **It also covers a handler that phase 4.2 nearly lost.** The delegated `.slot-info-btn` click
+    listener came from `ha_fetch.js`, which this screen stopped loading with the drawer; it is
+    inlined in `workspace_results.html` now. Without it the dialog would never open at all, with
+    nothing in the markup or the console to say so.
+    """
+    # Its OWN workspace and context: it turns PV off, which is what puts an ⓘ inside the pane at
+    # all (the PV-requiring charge policies render disabled, each with a blurb), and the
+    # module-scoped `page` fixture's workspace must not be left in that state.
+    url = _workspace_url(base_url)
+    workspace_id = url.rstrip("/").split("/")[-2]
+    context = browser.new_context()
+    context.add_cookies([{"name": "lang", "value": "en", "url": base_url}])
+    pg = context.new_page()
+
+    # Answer "no PV" on the configure-data screen and save it, so the results screen renders the
+    # disabled charge policies with their ⓘ blurbs. Through the real controls, not a config write.
+    pg.goto(f"{base_url}/w/{workspace_id}/data", wait_until="networkidle")
+    pg.locator('input[name="setup_haspv"][value="0"]').check()
+    pg.get_by_role("button", name="Save").click()
+    pg.wait_for_load_state("networkidle")
+
+    pg.goto(f"{base_url}/w/{workspace_id}/results", wait_until="networkidle")
+    pg.evaluate("document.getElementById('params-advanced').open = true")
+    _select_tab(pg, "dispatch")
+    btn = pg.locator("#panel-params .slot-info-btn").first
+    assert btn.count() >= 1, "no ⓘ inside the pane to drive this with"
     btn.scroll_into_view_if_needed()
-    toggle.uncheck()  # collapse panel ① again; the delegated handler still fires
-    page.evaluate("document.querySelector('.slot-info-btn').click()")
-    dialog = page.locator("#slot-info-dialog")
-    assert dialog.evaluate("d => d.open") is True
-    # The real assertion: painted, not just open. This was False with the dialog inside the panel.
+    # Collapse the pane around the button, then fire the click through the delegated handler.
+    pg.evaluate("document.getElementById('params-advanced').open = false")
+    pg.evaluate("document.querySelector('#panel-params .slot-info-btn').click()")
+    dialog = pg.locator("#slot-info-dialog")
+    assert dialog.evaluate("d => d.open") is True, "the delegated ⓘ handler did not fire"
+    # The real assertion: painted, not just open.
     assert dialog.is_visible()
     assert dialog.evaluate(
-        "d => !d.closest('.collapse-content')"
-    ), "the dialog must not live inside a collapse, or it is hidden when the panel is closed"
-    page.keyboard.press("Escape")
-    # The `page` fixture is module-scoped: restore panel ① to expanded, the state the other tests
-    # in this file expect (several click controls inside it).
-    toggle.check()
+        "d => !d.closest('.collapse-content') && !d.closest('details')"
+    ), "the dialog must not live inside a collapsible, or it is hidden when that one is closed"
+    # It is FILLED, not an empty shell — the handler copies the button's data-* across.
+    assert dialog.locator("#slot-info-title").inner_text().strip() != ""
+    assert dialog.locator("#slot-info-body").inner_text().strip() != ""
+    context.close()
+
+
+def test_the_advanced_pane_survives_a_parameter_swap(browser, base_url):
+    """§2′.6: the pane "preserves state and does not reset on collapse" — and not on a SWAP either.
+
+    **This was a real defect, found by driving the screen rather than by any assertion on markup.**
+    `POST /w/{id}/params` answers with a fresh render of the battery box, whose `<details>` has no
+    `open` attribute and whose tab strip has `checked` on Battery — those are the template's
+    defaults and the server has no idea what the user had open. Swapping that in verbatim closed
+    the pane and reset the tab on every `[ Calculate → ]`, hiding the very field the user had just
+    edited. The fix carries the two display bits across the swap (`readPaneState` /
+    `applyPaneState` in `workspace_results.html`).
+
+    It belongs in a browser because both halves of it are browser state: `details.open` is a
+    property no server render can observe, and the swap only happens under the delegated fetch
+    handler. Every non-browser test in the suite was green with the defect present.
+
+    Its own workspace and context, since it persists a parameter.
+    """
+    url = _workspace_url(base_url)
+    workspace_id = url.rstrip("/").split("/")[-2]
+    context = browser.new_context()
+    context.add_cookies([{"name": "lang", "value": "en", "url": base_url}])
+    pg = context.new_page()
+    pg.goto(f"{base_url}/w/{workspace_id}/results", wait_until="networkidle")
+
+    pg.locator("summary", has_text="More settings").click()
+    _select_tab(pg, "dispatch")
+    assert pg.evaluate("document.getElementById('params-advanced').open") is True
+    band = pg.locator('input[name="policy.band_c"]')
+    assert band.is_visible(), "the field under test is not on screen to begin with"
+
+    band.fill("0.33")
+    pg.get_by_role("button", name="Calculate").click()
+    pg.wait_for_timeout(1500)
+
+    assert pg.evaluate("document.getElementById('params-advanced').open") is True, (
+        "the pane closed on the swap, hiding the field the user had just edited"
+    )
+    assert pg.locator("#params-tab-dispatch").is_checked(), "the tab reset on the swap"
+    assert pg.locator('input[name="policy.band_c"]').is_visible()
+    # The value really was persisted — otherwise this would be testing a swap that did nothing.
+    assert pg.locator('input[name="policy.band_c"]').input_value() == "0.330"
+
+    # A RESULTS-only swap (a period change) must not disturb it either: that fragment is a
+    # different element, and a handler that reset the pane on any fetch would fail here.
+    pg.locator("[data-period='last_1_week']").click()
+    pg.wait_for_timeout(1000)
+    assert pg.evaluate("document.getElementById('params-advanced').open") is True
+    assert pg.locator("#params-tab-dispatch").is_checked()
+    context.close()
+
+
+def test_a_blocking_error_is_visible_after_a_swap(browser, base_url):
+    """A blocking error inside the pane must be READABLE, not merely present in the DOM.
+
+    **The defect this pins shipped past 41 route tests and 37 browser tests.** Those assert that a
+    validation message is RENDERED — a substring check on the HTML — which stays true when the
+    message is inside a collapsed `<details>` or on one of the two tabs that are not showing, where
+    it is `display: none`. What the user saw was "✕ needs attention" and nothing else: no field, no
+    message, no red input, while the config went unpersisted and the results below kept showing
+    figures computed from a config they had not submitted.
+
+    Two mechanisms had to fail together for that, and both are checked here: the server render must
+    force the pane open on the offending tab, and `applyPaneState` must not re-close it while
+    restoring the user's pre-submit display state.
+
+    It belongs in a browser for the reason the sibling test above gives — `display: none` and
+    `details.open` are browser state. `is_visible()` is the whole point; a substring assertion here
+    would reproduce the blind spot rather than close it.
+    """
+    url = _workspace_url(base_url)
+    workspace_id = url.rstrip("/").split("/")[-2]
+    context = browser.new_context()
+    context.add_cookies([{"name": "lang", "value": "en", "url": base_url}])
+    pg = context.new_page()
+    pg.goto(f"{base_url}/w/{workspace_id}/results", wait_until="networkidle")
+
+    # Put a bad value into a pane field, then CLOSE the pane before submitting — the state the
+    # swap handler would otherwise faithfully restore over the error.
+    pg.locator("summary", has_text="More settings").click()
+    _select_tab(pg, "battery")
+    pg.locator('input[name="battery.max_charge_kw"]').fill("-5")
+    pg.locator("summary", has_text="More settings").click()
+    assert pg.evaluate("document.getElementById('params-advanced').open") is False
+
+    pg.get_by_role("button", name="Calculate").click()
+    pg.wait_for_timeout(1500)
+
+    assert pg.evaluate("document.getElementById('params-advanced').open") is True, (
+        "the pane stayed closed over a blocking error the user cannot otherwise read"
+    )
+    alert = pg.locator("[data-hidden-errors]")
+    assert alert.is_visible(), "the blocking message is in the DOM but not on screen"
+    assert "greater than zero" in alert.inner_text()
+    # And the inline message beside the labelled input is reachable too, on the right tab.
+    assert pg.locator("#params-tab-battery").is_checked()
+    assert pg.locator('input[name="battery.max_charge_kw"]').is_visible()
+    context.close()
+
+
+def test_the_tabbed_pane_shows_one_panel_at_a_time_and_gives_the_svgs_their_width(browser, base_url):
+    """§2′.6's reason for tabs, checked in a real browser at a real width.
+
+    Two things no markup assertion can answer, and the plan flagged the second by name:
+
+      * exactly one panel is VISIBLE at a time while all three are in the DOM — the CSS rule is
+        what makes the tabs work, and `.tab-panel { display:none }` losing its `:has()` selector
+        would show all three stacked with every test still green;
+      * the illustrated topology selector, three frames deep (pane → tab → card), still gets the
+        width it needs. §2′.6 gave Installation its own tab precisely because "that selector … needs
+        width and does not survive being nested that far", so a rendering where the SVGs came out a
+        few dozen pixels wide would satisfy the spec's letter and defeat its purpose.
+
+    Its own workspace, set to a 3-phase connection so the battery-phase selector renders too.
+    """
+    url = _workspace_url(base_url)
+    workspace_id = url.rstrip("/").split("/")[-2]
+    context = browser.new_context(viewport={"width": 1280, "height": 900})
+    context.add_cookies([{"name": "lang", "value": "en", "url": base_url}])
+    pg = context.new_page()
+
+    # 3-phase through the real control, so the battery-phase selector is offered.
+    pg.goto(f"{base_url}/w/{workspace_id}/results", wait_until="networkidle")
+    pg.locator("summary", has_text="More settings").click()
+    pg.locator('input[name="grid.phases"][value="3"]').check()
+    pg.locator('input[name="grid.fuse_a"]').fill("25")
+    pg.get_by_role("button", name="Calculate").click()
+    pg.wait_for_timeout(1500)
+
+    for tab in ("battery", "installation", "dispatch"):
+        _select_tab(pg, tab)
+        shown = [t for t in ("battery", "installation", "dispatch")
+                 if pg.locator(f'[data-tab-panel="{t}"]').is_visible()]
+        assert shown == [tab], f"selecting {tab} shows {shown}"
+        # …while all three are still in the DOM, which is what keeps their inputs submittable.
+        assert pg.locator("[data-tab-panel]").count() == 3
+
+    _select_tab(pg, "installation")
+    cards = pg.locator('[data-tab-panel="installation"] .radio-card')
+    assert cards.count() == 5, f"expected 2 PV + 3 phase cards, got {cards.count()}"
+    for i in range(cards.count()):
+        svg = cards.nth(i).locator("svg").first.bounding_box()
+        assert svg["width"] >= 200, f"card {i}'s illustration is only {svg['width']:.0f}px wide"
+        assert svg["height"] >= 100, f"card {i}'s illustration is only {svg['height']:.0f}px tall"
+
+    # …and nothing overflows the page sideways at this width.
+    assert pg.evaluate("document.body.scrollWidth") <= pg.evaluate("document.body.clientWidth")
+
+    # The active tab is visibly distinguished. The state lives on an off-screen radio, so this is
+    # entirely down to the `:has(...:checked)` rules in app.tailwind.css — without them the strip
+    # would look inert whichever tab was selected.
+    #
+    # Asserted on the BORDER and the WEIGHT, not on the colour. daisyUI's own `.tabs-bordered`
+    # already tints a checked tab's text, so a colour comparison passes with our rules deleted —
+    # which it was, until removing them left this test green. The underline and the bolding are
+    # the signals those rules actually contribute.
+    _select_tab(pg, "dispatch")
+    active = pg.locator('label.tab[data-tab="dispatch"]')
+    inactive = pg.locator('label.tab[data-tab="battery"]')
+
+    def style(loc, prop):
+        return loc.evaluate("e => getComputedStyle(e)['%s']" % prop)
+
+    assert style(active, "borderBottomColor") != style(inactive, "borderBottomColor"), (
+        "the selected tab has no underline distinguishing it from an unselected one"
+    )
+    # …and the underline is actually painted, not merely a different transparent value.
+    assert "rgba(0, 0, 0, 0)" not in style(active, "borderBottomColor"), style(
+        active, "borderBottomColor"
+    )
+    assert float(style(active, "fontWeight")) > float(style(inactive, "fontWeight")), (
+        f"{style(active, 'fontWeight')} vs {style(inactive, 'fontWeight')}"
+    )
+    context.close()
 
 
 def test_ha_fetch_scopes_its_slot_store_per_workspace(browser, base_url):
@@ -242,21 +523,21 @@ def test_ha_fetch_scopes_its_slot_store_per_workspace(browser, base_url):
     write to the same entry.
     """
     url = _workspace_url(base_url)
-    # `/w/<id>/results` — the id is what the scoped localStorage key is built from, so it is read
-    # off the URL rather than assumed to be `local` (workspaces get generated ids since phase 2).
+    # The id is what the scoped localStorage key is built from, so it is read off the URL rather
+    # than assumed to be `local` (workspaces get generated ids since phase 2).
     workspace_id = url.rstrip("/").split("/")[-2]
     scoped_key = f"ha.slots.{workspace_id}"
+    # The CONFIGURE-DATA screen: `ha_fetch.js` gates itself on `#slot-roster` and phase 4.2 left
+    # that roster on exactly one screen (§2′.5), so this is now the only page the module runs on.
+    data_url = f"{base_url}/w/{workspace_id}/data"
 
     context = browser.new_context()
     pg = context.new_page()
     # Seed the pre-workspaces global key, as an upgraded installation's browser would hold it, then
     # load the page so the module runs against it.
-    pg.goto(url, wait_until="networkidle")
+    pg.goto(data_url, wait_until="networkidle")
     pg.evaluate("localStorage.setItem('ha.slots', JSON.stringify({gen: 0, slots: {a: 1}}))")
     pg.reload(wait_until="networkidle")
-    # Panels render collapsed; the roster's buttons are not clickable until panel ① is open.
-    for cb in pg.locator("section.collapse > input[type=checkbox]").all():
-        cb.check()
 
     # The legacy key is gone, and NOT copied into the workspace key: a mapping staged before the
     # upgrade must not come back looking deliberately staged in this workspace.
@@ -280,13 +561,14 @@ def test_ha_fetch_scopes_its_slot_store_per_workspace(browser, base_url):
     context.close()
 
 
-def test_data_summary_absent_in_empty_state(page):
-    # The data summary (§2.3a) renders INSIDE panel ①, below the data-quality box, but only once
-    # data has loaded. The smoke server runs against a throwaway data dir with no persisted
-    # dataset (the empty state), so it must be absent — main.py drops `data_summary` from the
-    # context when no dataset exists (§3.4). Its placement is covered in test_results_route.py,
-    # which has a dataset to render.
+def test_data_summary_absent_in_empty_state(page, data_page_en):
+    # The full-coverage data summary (§2.3a) renders on the configure-data screen below the
+    # data-quality box, but only once data has loaded. The smoke server runs against a throwaway
+    # data dir with no persisted dataset (the empty state), so it must be absent on BOTH screens —
+    # the data screen gates it on `has_dataset`, and the results screen renders only the
+    # range-clamped copy, which needs a simulatable window it does not have either.
     assert page.get_by_text("Your data at a glance", exact=True).count() == 0
+    assert data_page_en.get_by_text("Your data at a glance", exact=True).count() == 0
 
 
 def test_pending_dialog_opens(page):
@@ -295,18 +577,30 @@ def test_pending_dialog_opens(page):
     page.keyboard.press("Escape")
 
 
-def test_new_pending_controls_marked(page):
+def test_new_pending_controls_marked(page, data_page_en):
     # "Upload CSV" is a pending source radio that lives inside the source-picker drawer
     # (moved there when panel ① went slot-first, 0594e34); open a slot's drawer to reveal it.
     # ha_fetch.js renders it as name="drawer-source", disabled, with feature key data_source_csv.
-    page.locator(".slot-source-btn").first.click()
-    assert page.locator("input[name=drawer-source][disabled]").count() >= 1  # Upload CSV radio
-    page.keyboard.press("Escape")  # Escape discards and closes the drawer (leaves no committed state)
-    # The setup band's "Simulate cost savings?" is NO LONGER pending — the cost path is built, the
-    # radios POST, and the key is retired in app/features.py. Both answers are live controls.
-    assert page.locator("input[name='setup.simulate_cost'][disabled]").count() == 0
+    # On the configure-data screen since phase 4.2 — that is where the drawer is now (§2′.5).
+    data_page_en.locator(".slot-source-btn").first.click()
+    assert data_page_en.locator("input[name=drawer-source][disabled]").count() >= 1
+    data_page_en.keyboard.press("Escape")  # discards and closes, leaving no committed state
+
+    # "Simulate cost savings?" is NOT a pending control and never becomes one: the cost path is
+    # built, the radios POST, and the key is retired in app/features.py.
     assert page.locator("[data-feature-key=simulate_cost]").count() == 0
-    # Panel ③'s two unbuilt chart tabs are still pending, and are on the page unconditionally.
+    # It IS disabled here, and the distinction matters. §2′.6 makes it **Blocked** — a real control
+    # whose precondition (`pricing_configured`) is unmet — not Pending, which means "specified but
+    # not built" and offers a [?] to register interest. This throwaway server has no contract
+    # configured, so Blocked is the expected state, and the two are told apart by what sits beside
+    # the control: an ⓘ that says how to clear the precondition, never a [?].
+    toggle = page.locator("input[name='setup.simulate_cost']")
+    assert toggle.count() == 2
+    assert page.locator("input[name='setup.simulate_cost'][disabled]").count() == 2
+    assert page.locator("#cost-blocked-info").count() == 1
+    assert page.locator("#setup-simulate-cost [data-pending-name]").count() == 0
+
+    # The two unbuilt chart tabs are still pending, and are on the page unconditionally.
     assert page.locator("[data-feature-key=chart_soc_price]").count() >= 1
     assert page.locator("[data-feature-key=chart_energy_flows]").count() >= 1
 
@@ -362,14 +656,25 @@ def test_chart_rendered(page):
 
 # ── Bilingual ────────────────────────────────────────────────────────────────
 
-def test_dutch_renders(page_nl):
+def test_dutch_renders(page_nl, data_page_nl):
     # Known Dutch translations appear when the lang cookie is 'nl'.
     body = page_nl.locator("body").inner_text()
     assert "ENERGIEBESPARING" in body          # ENERGY SAVINGS
     assert "BESPAARDE NETAFNAME" in body        # GRID IMPORT SAVED
-    assert "Datakwaliteit" in body              # Data quality
-    # And the English headline is gone from the results tiles.
+    # §2′.6's own strings, so this covers the phase-4.2 msgids and not only inherited ones.
+    assert "Meer instellingen" in body         # More settings
+    assert "Laden & ontladen" in body          # Charge & discharge
+    assert "Kostenbesparing simuleren?" in body or "Simuleer kostenbesparing?" in body
+    # And the English headlines are gone from the results.
     assert page_nl.get_by_text("GRID IMPORT SAVED", exact=True).count() == 0
+    assert page_nl.get_by_text("More settings", exact=True).count() == 0
+
+    # "Datakwaliteit" is the configure-data screen's since phase 4.2 (§2′.5), and it needs a
+    # dataset — this throwaway server has none, so the ROSTER's Dutch chrome is what is asserted
+    # instead. Kept in this test rather than dropped: the point is that both screens translate.
+    data_body = data_page_nl.locator("body").inner_text()
+    assert "Gegevens instellen" in data_body or "Data instellen" in data_body \
+        or "Over je huishouden" in data_body, data_body[:400]
 
 
 def test_language_toggle_present(page):
@@ -397,7 +702,7 @@ def test_lang_route_sets_cookie(base_url):
     assert "lang=nl" in cookie
 
 
-def test_the_cost_tint_actually_renders_and_is_not_merely_a_class_name(page):
+def test_the_cost_tint_actually_renders_and_is_not_merely_a_class_name(page, base_url):
     """The cost tint has to survive daisyUI's cascade, which class assertions cannot tell you.
 
     Asserted in a real browser on COMPUTED colour, because the first version of this feature
@@ -413,14 +718,41 @@ def test_the_cost_tint_actually_renders_and_is_not_merely_a_class_name(page):
     """
     # The smoke fixture runs on an isolated empty data dir, so `simulate_cost` is at its
     # appendix-A default of false and no cost control exists yet. Turn it on through the real
-    # control — the setup band's radio, wired in Phase 5 — rather than by writing a config file,
-    # so this also exercises the path a user takes to reach these fields at all.
-    page.locator("#setup-band input[name='setup.simulate_cost'][value='yes']").check()
-    # The POST swaps panel ② in re-collapsed, so re-expand before measuring — a computed style
-    # on a `display:none` subtree is not what the reader sees.
+    # controls, not by writing a config file, so this exercises the path a user takes to reach
+    # these fields at all — and since phase 4.2 that path has TWO steps, which is the whole point
+    # of §2′.6's Blocked state:
+    #
+    #   1. the toggle starts Blocked (no contract configured), so it cannot be clicked;
+    #   2. saving the edit screen sets `pricing_configured`, and only then is it live.
+    #
+    # Driving both is what proves the precondition is real rather than decorative. The first
+    # assertion would fail against a toggle that was merely styled grey.
+    blocked_yes = page.locator("#setup-simulate-cost input[value='yes']")
+    assert blocked_yes.is_disabled(), "the cost toggle must be Blocked without a contract"
+    # The ⓘ beside it opens the dialog that says how to clear the precondition (§2′.6).
+    page.locator("#cost-blocked-info").click()
+    dialog = page.locator("#cost-blocked-dialog")
+    assert dialog.is_visible()
+    assert dialog.get_by_role("link", name="Set up my contract").is_visible()
+    page.keyboard.press("Escape")
+
+    # Clear the precondition through the real route: `[ Save ]` on the edit screen is the one write
+    # that sets the flag (§2′.6).
+    workspace_id = page.url.rstrip("/").split("/")[-2]
+    page.goto(f"{base_url}/w/{workspace_id}/edit", wait_until="networkidle")
+    page.get_by_role("button", name="Save").click()
+    page.wait_for_load_state("networkidle")
+    page.goto(f"{base_url}/w/{workspace_id}/results", wait_until="networkidle")
+
+    # Now it is live, and turning it on draws the Pricing box.
+    yes = page.locator("#setup-simulate-cost input[value='yes']")
+    assert not yes.is_disabled(), "saving the contract must unblock the toggle"
+    yes.check()
+    # The POST swaps the box in with the pane closed, so re-open before measuring — a computed
+    # style on a `display:none` subtree is not what the reader sees.
     page.wait_for_selector("input.cost-field", state="attached", timeout=10000)
-    for cb in page.locator("section.collapse > input[type=checkbox]").all():
-        cb.check()
+    page.evaluate("document.querySelectorAll('details[data-advanced]').forEach(d => d.open = true)")
+    _select_tab(page, "dispatch")
     page.wait_for_selector("input.cost-field", timeout=10000)
 
     tinted_input = page.locator("input.cost-field").first
@@ -433,9 +765,9 @@ def test_the_cost_tint_actually_renders_and_is_not_merely_a_class_name(page):
     )
 
     # A tinted heading must differ from an untinted one, and an untinted one must NOT pick the
-    # tint up — otherwise the marking distinguishes nothing. The MONEY SAVED tile lives in panel
-    # ③ and needs a simulated dataset, which this fixture has no data for; panel ②'s Pricing
-    # heading is on screen and exercises the same rule against the same override risk.
+    # tint up — otherwise the marking distinguishes nothing. The MONEY SAVED tile needs a
+    # simulated dataset, which this fixture has no data for; the Pricing box's heading is on
+    # screen and exercises the same rule against the same override risk.
     plain_h3 = page.locator("h3.text-base-content\\/70").first
     cost_h3 = page.locator("h3.cost-label").first
     assert cost_h3.evaluate("e => getComputedStyle(e).color") != plain_h3.evaluate(
@@ -479,8 +811,10 @@ def test_the_list_creates_a_workspace_and_navigates_into_it(browser, base_url):
     import re as _re
 
     assert _re.search(r"/w/[0-9a-f]{32}/results$", pg.url), pg.url
-    # The three-panel page, not an error document.
-    assert "PARAMETERS" in pg.locator("body").inner_text()
+    # The results screen, not an error document. "PARAMETERS" until phase 4.2, which replaced
+    # panel ② with §2′.6's capacity-first battery box — so the marker is the box's own field.
+    body = pg.locator("body").inner_text()
+    assert "Usable capacity" in body and "RESULTS" in body, body[:300]
 
     pg.goto(base_url + "/", wait_until="networkidle")
     assert pg.locator("[data-workspace-card]").count() == before + 1

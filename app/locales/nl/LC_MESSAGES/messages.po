@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-26 22:44+0200\n"
+"POT-Creation-Date: 2026-07-27 12:23+0200\n"
 "PO-Revision-Date: 2026-07-23 20:30+0200\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: nl\n"
@@ -88,6 +88,12 @@ msgstr "%(kwh)s doorzet"
 #, python-format
 msgid "%(n)s / day"
 msgstr "%(n)s / dag"
+
+#, python-format
+msgid "%(n)s changed from default"
+msgid_plural "%(n)s changed from default"
+msgstr[0] "%(n)s afwijkend van de standaard"
+msgstr[1] "%(n)s afwijkend van de standaard"
 
 #, python-format
 msgid "%(n)s detected and corrected"
@@ -314,9 +320,6 @@ msgstr "Batterij laden"
 msgid "Battery discharge"
 msgstr "Batterij ontladen"
 
-msgid "Before you start"
-msgstr "Voordat je begint"
-
 msgid "Benchmark: grid import avoided"
 msgstr "Benchmark: vermeden netafname"
 
@@ -337,6 +340,9 @@ msgstr "Mag niet negatief zijn."
 
 msgid "Caveats for this run"
 msgstr "Kanttekeningen bij deze berekening"
+
+msgid "Charge & discharge"
+msgstr "Laden & ontladen"
 
 #, python-format
 msgid ""
@@ -457,9 +463,6 @@ msgstr "Aangepast"
 
 msgid "D"
 msgstr "D"
-
-msgid "DATA"
-msgstr "DATA"
 
 msgid "DC / hybrid"
 msgstr "DC / hybride"
@@ -742,8 +745,8 @@ msgstr "Invoer geweigerd: %(reason)s"
 msgid "Initial SoC"
 msgstr "Begin-laadtoestand"
 
-msgid "Installation topology"
-msgstr "Installatietopologie"
+msgid "Installation"
+msgstr "Installatie"
 
 msgid "Intervals battery was full / empty"
 msgstr "Intervallen batterij vol / leeg"
@@ -812,6 +815,9 @@ msgstr "Netafname per maand"
 msgid "Monthly savings (€)"
 msgstr "Besparing per maand (€)"
 
+msgid "More settings"
+msgstr "Meer instellingen"
+
 msgid "Must be a whole number of at least 2."
 msgstr "Moet een geheel getal van minstens 2 zijn."
 
@@ -846,9 +852,6 @@ msgstr "Netto besparing"
 msgid "Next →"
 msgstr "Volgende →"
 
-msgid "Next: parameters →"
-msgstr "Volgende: parameters →"
-
 msgid "No"
 msgstr "Nee"
 
@@ -863,6 +866,13 @@ msgstr "Nog niet gebouwd"
 
 msgid "Not connected"
 msgstr "Niet verbonden"
+
+msgid ""
+"Nothing to configure here: without solar, and on a 1-phase connection, "
+"the arrangement is fixed."
+msgstr ""
+"Hier valt niets in te stellen: zonder zonnepanelen en op een 1-fase "
+"aansluiting ligt de opstelling vast."
 
 msgid "On your meter cabinet, or on your grid operator bill."
 msgstr "Op je meterkast, of op de rekening van je netbeheerder."
@@ -929,9 +939,6 @@ msgstr ""
 
 msgid "Override these only if your operator has set a different limit."
 msgstr "Pas deze alleen aan als je netbeheerder een andere limiet heeft ingesteld."
-
-msgid "PARAMETERS"
-msgstr "PARAMETERS"
 
 msgid "PV only"
 msgstr "alleen met PV"
@@ -1070,6 +1077,12 @@ msgstr "Reeksplaatsen"
 
 msgid "Serve house load when consumption exceeds solar"
 msgstr "Huisverbruik dekken wanneer het verbruik de opwek overtreft"
+
+msgid "Set up my contract →"
+msgstr "Mijn contract instellen →"
+
+msgid "Set up your contract first"
+msgstr "Stel eerst je contract in"
 
 msgid "Shared across all slots that use Home Assistant"
 msgstr "Gedeeld door alle plaatsen die Home Assistant gebruiken"
@@ -1357,8 +1370,8 @@ msgid ""
 "These answers could not be saved and will be lost when the app restarts. "
 "Check that the data directory is writable."
 msgstr ""
-"Deze antwoorden konden niet worden opgeslagen en gaan verloren als de app "
-"opnieuw wordt gestart. Controleer of de datamap schrijfbaar is."
+"Deze antwoorden konden niet worden opgeslagen en gaan verloren als de app"
+" opnieuw wordt gestart. Controleer of de datamap schrijfbaar is."
 
 msgid ""
 "These answers decide which series are asked for below. They are saved "
@@ -1473,14 +1486,12 @@ msgstr "Titel"
 msgid "To"
 msgstr "Tot"
 
-msgid "Toggle Data panel"
-msgstr "Datapaneel in-/uitklappen"
-
-msgid "Toggle Parameters panel"
-msgstr "Parameterpaneel in-/uitklappen"
-
-msgid "Toggle advanced pricing settings"
-msgstr "Geavanceerde tariefinstellingen tonen of verbergen"
+msgid ""
+"To put a euro figure on your savings, the app needs to know what you pay "
+"for electricity — your contract type and its rates."
+msgstr ""
+"Om je besparing in euro’s uit te drukken, moet de app weten wat je voor "
+"stroom betaalt — je contractvorm en de bijbehorende tarieven."
 
 msgid "Token"
 msgstr "Token"
@@ -1533,6 +1544,9 @@ msgstr "Waar de energie vandaan komt"
 msgid "Where the money comes from"
 msgstr "Waar het geld vandaan komt"
 
+msgid "Why is this greyed out?"
+msgstr "Waarom is dit grijs?"
+
 msgid "Yes"
 msgstr "Ja"
 
@@ -1540,9 +1554,9 @@ msgid ""
 "You changed where some of your data comes from, but have not fetched it. "
 "Your results will still be based on the data loaded earlier."
 msgstr ""
-"Je hebt gewijzigd waar een deel van je data vandaan komt, maar je hebt het "
-"niet opgehaald. Je resultaten zijn nog steeds gebaseerd op de eerder geladen "
-"data."
+"Je hebt gewijzigd waar een deel van je data vandaan komt, maar je hebt "
+"het niet opgehaald. Je resultaten zijn nog steeds gebaseerd op de eerder "
+"geladen data."
 
 msgid ""
 "You have changes on this screen that have not been saved. Leaving now "
@@ -1556,6 +1570,9 @@ msgstr "Je hebt nog geen analyses."
 
 msgid "You have not loaded your data yet"
 msgstr "Je hebt je data nog niet geladen"
+
+msgid "You have not set those up for this analysis yet."
+msgstr "Die heb je voor deze analyse nog niet ingesteld."
 
 msgid "Your analyses"
 msgstr "Je analyses"
@@ -1862,9 +1879,6 @@ msgid_plural "days"
 msgstr[0] "dag"
 msgstr[1] "dagen"
 
-msgid "days"
-msgstr "dagen"
-
 msgid "disabled"
 msgstr "uitgeschakeld"
 
@@ -1964,8 +1978,8 @@ msgstr "niet geladen"
 msgid "not mapped"
 msgstr "niet toegewezen"
 
-msgid "not nameplate"
-msgstr "niet de nominale waarde"
+msgid "not the nameplate figure"
+msgstr "niet de waarde op het typeplaatje"
 
 msgid "offered if you simulate costs"
 msgstr "aangeboden als je kosten simuleert"
@@ -1992,8 +2006,8 @@ msgstr "opgeslagen %(when)s"
 msgid "saving…"
 msgstr "opslaan…"
 
-msgid "set by the topology selector below"
-msgstr "ingesteld door de topologiekeuze hieronder"
+msgid "set by the topology selector on the Installation tab"
+msgstr "ingesteld met de topologiekiezer op het tabblad Installatie"
 
 #, python-format
 msgid "simulated %(res)s · %(n)s interval"
@@ -2293,20 +2307,25 @@ msgstr "👍 Ik wil dit"
 #~ " it is required whether or not "
 #~ "you simulate costs."
 #~ msgstr ""
-"● = vereist.  ○ = optioneel.  ◐ = alleen vereist als je zonnepanelen hebt.  "
-"◒ = alleen aangeboden als je kosten simuleert (prijsspreiding binnen het uur). "
-"Welke rijen verschijnen volgt uit de antwoorden hierboven. De spotprijs stuurt "
-"de laad- en ontlaadbanden aan en is dus vereist, of je nu kosten simuleert of "
-"niet."
 #~ "● = vereist.  ○ = optioneel.  ◐"
 #~ " = alleen vereist als je zonnepanelen"
 #~ " hebt.  ◒ = alleen aangeboden als "
 #~ "je kosten simuleert (prijsspreiding binnen "
-#~ "het uur). Beide antwoorden komen uit "
-#~ "de instelbalk hierboven. De spotprijs "
-#~ "stuurt de laad- en ontlaadbanden aan "
-#~ "en is dus vereist, of je nu "
-#~ "kosten simuleert of niet."
+#~ "het uur). Welke rijen verschijnen volgt"
+#~ " uit de antwoorden hierboven. De "
+#~ "spotprijs stuurt de laad- en "
+#~ "ontlaadbanden aan en is dus vereist, "
+#~ "of je nu kosten simuleert of "
+#~ "niet.● = vereist.  ○ = optioneel.  "
+#~ "◐ = alleen vereist als je "
+#~ "zonnepanelen hebt.  ◒ = alleen "
+#~ "aangeboden als je kosten simuleert "
+#~ "(prijsspreiding binnen het uur). Beide "
+#~ "antwoorden komen uit de instelbalk "
+#~ "hierboven. De spotprijs stuurt de laad-"
+#~ " en ontlaadbanden aan en is dus "
+#~ "vereist, of je nu kosten simuleert "
+#~ "of niet."
 
 #~ msgid ""
 #~ "The configuration is kept — your "
@@ -2343,4 +2362,37 @@ msgstr "👍 Ik wil dit"
 #~ "de laad- en ontlaadbanden aan en "
 #~ "is dus verplicht, of je nu kosten"
 #~ " simuleert of niet."
+
+#~ msgid "Before you start"
+#~ msgstr "Voordat je begint"
+
+#~ msgid "DATA"
+#~ msgstr "DATA"
+
+#~ msgid "Installation topology"
+#~ msgstr "Installatietopologie"
+
+#~ msgid "Next: parameters →"
+#~ msgstr "Volgende: parameters →"
+
+#~ msgid "PARAMETERS"
+#~ msgstr "PARAMETERS"
+
+#~ msgid "Toggle Data panel"
+#~ msgstr "Datapaneel in-/uitklappen"
+
+#~ msgid "Toggle Parameters panel"
+#~ msgstr "Parameterpaneel in-/uitklappen"
+
+#~ msgid "Toggle advanced pricing settings"
+#~ msgstr "Geavanceerde tariefinstellingen tonen of verbergen"
+
+#~ msgid "days"
+#~ msgstr "dagen"
+
+#~ msgid "not nameplate"
+#~ msgstr "niet de nominale waarde"
+
+#~ msgid "set by the topology selector below"
+#~ msgstr "ingesteld door de topologiekeuze hieronder"
 

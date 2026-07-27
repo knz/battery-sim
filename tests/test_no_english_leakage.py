@@ -356,9 +356,11 @@ def rendered(request):
     return out
 
 
-# The five surfaces scanned. `/` is the workspace LIST since phase 2, `/w/{id}/results` is the
-# three-panel page that used to live there, and `/w/{id}/edit` is phase 3's edit-workspace
-# screen — all three are scanned, because each carries prose nothing else looks at.
+# The six surfaces scanned. Since the workspaces restructure these are four SCREENS plus two
+# fragments: `/` is the list, `/w/{id}/results` is §2′.6's results screen (the battery box and the
+# results, which phase 4.2 made of what was left of the three-panel page), `/w/{id}/edit` is
+# §2′.4's, and `/w/{id}/data` is §2′.5's. All are scanned, because each carries prose nothing else
+# looks at — and the phase-4 split moved a lot of prose between the first two.
 _PAGES = [
     "/", "/w/{id}/results", "/w/{id}/edit", "/w/{id}/data",
     "/results", "/results/benchmark",
@@ -426,8 +428,11 @@ def test_the_scenarios_between_them_render_a_lot_of_prose(rendered):
             # renders, guarding against collapse rather than asserting verbosity, for the same
             # reason as the list's.
             # The configure-data screen carries the roster, the drawer's chrome, the HA modal and
-            # three dialogs, so it is prose-rich even in the empty state (~300 words there, more
-            # once the quality box and the glance appear). Its floor sits at the panel level.
+            # three dialogs, so it is prose-rich even in the empty state (~390 words there, more
+            # once the quality box and the glance appear). The RESULTS screen lost panel ① in phase
+            # 4.2 and gained §2′.6's own copy — the tab labels, the Blocked dialog, the "not the
+            # nameplate figure" hint — and still renders ~570 words in the empty state. Both take
+            # the same floor, which guards against collapse rather than asserting verbosity.
             floor = (
                 25 if page == "/results/benchmark"
                 else 60 if page == "/"
@@ -449,13 +454,15 @@ def test_the_scenarios_between_them_render_a_lot_of_prose(rendered):
 # Markers are short and structural (a heading, a label, a distinctive clause) rather than whole
 # sentences, so ordinary copy edits do not break the guard. Each names the branch it stands for.
 _SCENARIO_MARKERS = {
-    # cost simulation on → the euro half of panel ③ and the spot-price slots. The waterfall
-    # heading, not "Kostenbesparing": that is a SUBSTRING of the setup band's "Kostenbesparing
-    # simuleren?", which renders whether cost simulation is on or off, so it would match a
+    # cost simulation on → the euro half of the results and the spot-price slots. The waterfall
+    # heading, not "Kostenbesparing": that is a SUBSTRING of the cost toggle's "Kostenbesparing
+    # simuleren?", which renders whether cost simulation is on or off (it moved from the setup band
+    # into the results block in phase 4.2, and is still drawn either way), so it would match a
     # scenario that had quietly lost its euro section entirely.
     "full": ["Waar het geld vandaan komt", "Spotprijs"],
-    # PV asked and answered — the setup band question renders either way, so the marker for the
-    # cost-OFF branch is the pricing box being ABSENT, checked separately below.
+    # PV asked and answered. The question is on the configure-data screen (§2′.7), and renders
+    # either way, so the marker for the cost-OFF branch is the Pricing box being ABSENT — checked
+    # separately below.
     "bare": ["Heb je zonnepanelen?"],
     # the reconstruction clamped hard → the unreliable-load warning and the clamp figure
     "unreliable_nopv": ["niet betrouwbaar", "afgekapt"],
@@ -478,9 +485,9 @@ def test_each_scenario_still_surfaces_its_boxes(rendered):
     scan above keeps passing while quietly covering less. This is the check that fails instead.
     """
     for scenario, markers in _SCENARIO_MARKERS.items():
-        # The panel markers live on the three-panel page and the two fragments, not on the list —
-        # the list carries no panel at all. Joining all four is still right: a marker only has to
-        # appear SOMEWHERE, and including the list costs nothing.
+        # The markers live on the results and configure-data screens and the two fragments, not on
+        # the list — the list carries none of those boxes. Joining all six is still right: a marker
+        # only has to appear SOMEWHERE, and including the list costs nothing.
         blob = " ".join(rendered[scenario][p] for p in _PAGES)
         for marker in markers:
             assert marker in blob, (

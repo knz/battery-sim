@@ -225,7 +225,13 @@
            FIXED and VARIABLE render pending: disabled radios with a [?] that opens the shared
            #pending-dialog below, reusing app/features.py's existing keys for the same two
            controls in panel ②. #}
-      <div class="card bg-base-100 border border-base-300">
+      {# `id="contract"` is a LINK TARGET, not styling. §2′.6 says the Blocked cost toggle's dialog
+         "navigates to the workspace's edit screen with the Contract box in view", and the results
+         screen's `[ Set up my contract → ]` — both in that dialog and in the invitation box beside
+         the energy section — links to `/w/{id}/edit#contract`. Removing the id does not break the
+         link, it just lands the user at the top of the screen with the box below the fold, which is
+         precisely the "in view" the spec asks for and would be a silent regression. #}
+      <div class="card bg-base-100 border border-base-300" id="contract">
         <div class="card-body gap-3 p-4">
           <h2 class="text-sm font-semibold text-base-content/70">{{ _('Contract') }}</h2>
           <div class="flex flex-wrap items-center gap-3">
@@ -321,7 +327,7 @@
     </form>
   </main>
 
-  {# ── The unsaved-changes dialog (§2′.8). Page-level, for the same top-layer reason index.html
+  {# ── The unsaved-changes dialog (§2′.8). Page-level, for the same top-layer reason workspace_results.html
        documents at its own #slot-info-dialog. `[ Keep editing ]` has the default focus: the safe
        option is the one Enter takes. Shown only when the form is actually dirty — an
        unconditional prompt would be noise on the common case of opening the screen to look. #}
@@ -341,7 +347,7 @@
     <form method="dialog" class="modal-backdrop"><button>{{ _('Keep editing') }}</button></form>
   </dialog>
 
-  {# The shared info dialog, for the ⓘ beside the contract radios. Same shape as index.html's
+  {# The shared info dialog, for the ⓘ beside the contract radios. Same shape as workspace_results.html's
      #slot-info-dialog; this screen carries its own copy because it is a separate page. #}
   <dialog id="info-dialog" class="modal">
     <div class="modal-box">
@@ -355,7 +361,7 @@
   </dialog>
 
   {# The "Not built yet" dialog — the pending affordance (§2.1), for the two unbuilt contract
-     types. Identical to index.html's; the thumbs-up POSTs to /feature-interest/{key}. #}
+     types. Identical to workspace_results.html's; the thumbs-up POSTs to /feature-interest/{key}. #}
   <dialog id="pending-dialog" class="modal" data-feature-key="">
     <div class="modal-box">
       <h3 class="text-lg font-bold">{{ _('Not built yet') }}</h3>
@@ -415,7 +421,7 @@
   })();
 
   (function () {
-    // The ⓘ info dialog. Delegated, same contract as index.html's `.slot-info-btn` handler:
+    // The ⓘ info dialog. Delegated, same contract as workspace_results.html's `.slot-info-btn` handler:
     // the button carries its title and body as data-* so the copy stays server-rendered and
     // therefore translated.
     var dialog = document.getElementById('info-dialog');
@@ -431,7 +437,7 @@
   })();
 
   (function () {
-    // The pending affordance (§2.1), a copy of index.html's handler for this standalone page.
+    // The pending affordance (§2.1), a copy of workspace_results.html's handler for this standalone page.
     // Keys already thumbed this session are remembered so a second click neither re-counts nor
     // re-POSTs; the POST is fire-and-forget and its outcome never revises the acknowledgement.
     var dialog = document.getElementById('pending-dialog');

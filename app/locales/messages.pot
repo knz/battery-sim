@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-26 22:44+0200\n"
+"POT-Creation-Date: 2026-07-27 12:23+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -73,6 +73,12 @@ msgstr ""
 #, python-format
 msgid "%(n)s / day"
 msgstr ""
+
+#, python-format
+msgid "%(n)s changed from default"
+msgid_plural "%(n)s changed from default"
+msgstr[0] ""
+msgstr[1] ""
 
 #, python-format
 msgid "%(n)s detected and corrected"
@@ -275,9 +281,6 @@ msgstr ""
 msgid "Battery discharge"
 msgstr ""
 
-msgid "Before you start"
-msgstr ""
-
 msgid "Benchmark: grid import avoided"
 msgstr ""
 
@@ -297,6 +300,9 @@ msgid "Cannot be negative."
 msgstr ""
 
 msgid "Caveats for this run"
+msgstr ""
+
+msgid "Charge & discharge"
 msgstr ""
 
 #, python-format
@@ -411,9 +417,6 @@ msgid "Custom"
 msgstr ""
 
 msgid "D"
-msgstr ""
-
-msgid "DATA"
 msgstr ""
 
 msgid "DC / hybrid"
@@ -680,7 +683,7 @@ msgstr ""
 msgid "Initial SoC"
 msgstr ""
 
-msgid "Installation topology"
+msgid "Installation"
 msgstr ""
 
 msgid "Intervals battery was full / empty"
@@ -750,6 +753,9 @@ msgstr ""
 msgid "Monthly savings (€)"
 msgstr ""
 
+msgid "More settings"
+msgstr ""
+
 msgid "Must be a whole number of at least 2."
 msgstr ""
 
@@ -779,9 +785,6 @@ msgstr ""
 msgid "Next →"
 msgstr ""
 
-msgid "Next: parameters →"
-msgstr ""
-
 msgid "No"
 msgstr ""
 
@@ -795,6 +798,11 @@ msgid "Not built yet"
 msgstr ""
 
 msgid "Not connected"
+msgstr ""
+
+msgid ""
+"Nothing to configure here: without solar, and on a 1-phase connection, "
+"the arrangement is fixed."
 msgstr ""
 
 msgid "On your meter cabinet, or on your grid operator bill."
@@ -841,9 +849,6 @@ msgid ""
 msgstr ""
 
 msgid "Override these only if your operator has set a different limit."
-msgstr ""
-
-msgid "PARAMETERS"
 msgstr ""
 
 msgid "PV only"
@@ -960,6 +965,12 @@ msgid "Series slots"
 msgstr ""
 
 msgid "Serve house load when consumption exceeds solar"
+msgstr ""
+
+msgid "Set up my contract →"
+msgstr ""
+
+msgid "Set up your contract first"
 msgstr ""
 
 msgid "Shared across all slots that use Home Assistant"
@@ -1253,13 +1264,9 @@ msgstr ""
 msgid "To"
 msgstr ""
 
-msgid "Toggle Data panel"
-msgstr ""
-
-msgid "Toggle Parameters panel"
-msgstr ""
-
-msgid "Toggle advanced pricing settings"
+msgid ""
+"To put a euro figure on your savings, the app needs to know what you pay "
+"for electricity — your contract type and its rates."
 msgstr ""
 
 msgid "Token"
@@ -1308,6 +1315,9 @@ msgstr ""
 msgid "Where the money comes from"
 msgstr ""
 
+msgid "Why is this greyed out?"
+msgstr ""
+
 msgid "Yes"
 msgstr ""
 
@@ -1325,6 +1335,9 @@ msgid "You have no analyses yet."
 msgstr ""
 
 msgid "You have not loaded your data yet"
+msgstr ""
+
+msgid "You have not set those up for this analysis yet."
 msgstr ""
 
 msgid "Your analyses"
@@ -1535,9 +1548,6 @@ msgid_plural "days"
 msgstr[0] ""
 msgstr[1] ""
 
-msgid "days"
-msgstr ""
-
 msgid "disabled"
 msgstr ""
 
@@ -1634,7 +1644,7 @@ msgstr ""
 msgid "not mapped"
 msgstr ""
 
-msgid "not nameplate"
+msgid "not the nameplate figure"
 msgstr ""
 
 msgid "offered if you simulate costs"
@@ -1662,7 +1672,7 @@ msgstr ""
 msgid "saving…"
 msgstr ""
 
-msgid "set by the topology selector below"
+msgid "set by the topology selector on the Installation tab"
 msgstr ""
 
 #, python-format

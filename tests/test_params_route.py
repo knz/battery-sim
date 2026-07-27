@@ -193,10 +193,24 @@ def test_a_valid_submission_persists_and_returns_the_panel(client):
     assert simconfig_store.load().battery.usable_capacity_kwh == 20
 
 
-def test_the_summary_line_in_the_response_reflects_the_submission(client):
+def test_the_response_renders_the_submitted_values_back(client):
+    """The swapped-in box shows what was just submitted, in the inputs the user will read next.
+
+    **This pinned §2.3's collapsed summary line until phase 4.2** ("20.0 kWh · 7.0/5.0 kW · …"),
+    which §2′.6 removed along with the collapsed panel it summarised: the battery box is not a
+    stepper panel any more, it is a heading, one visible field and a pane whose summary carries the
+    "N changed from default" count instead. `params_view.summary_line` still exists and is still
+    covered in `tests/test_params_view.py`; nothing renders it.
+
+    Pinned on the input VALUES rather than on a readout, which is the stronger property anyway: it
+    is what the user sees and what the next submission would send.
+    """
     r = client.post(w("/params"), data=_form(**{"battery.usable_capacity_kwh": "20",
                                              "battery.max_charge_kw": "7"}))
-    assert "20.0 kWh · 7.0/5.0 kW" in r.text
+    assert 'name="battery.usable_capacity_kwh"' in r.text
+    assert re.search(r'name="battery\.usable_capacity_kwh"[^>]*value="20\.0"', r.text, re.S) or \
+        re.search(r'value="20\.0"[^>]*name="battery\.usable_capacity_kwh"', r.text, re.S)
+    assert re.search(r'name="battery\.max_charge_kw"[^>]*value="7\.0"', r.text, re.S)
 
 
 def test_a_stored_config_is_rendered_on_the_next_page_load(client):
@@ -462,7 +476,11 @@ def test_a_corrupt_stored_config_still_renders_the_page(client):
     simconfig_store.config_path().write_text("{ truncated", encoding="utf-8")
     rendered_page = client.get(page())
     assert rendered_page.status_code == 200
-    assert "10.0 kWh · 5.0/5.0 kW · 90%" in rendered_page.text     # appendix-A defaults
+    # Appendix-A defaults, read off the fields themselves. This asserted the collapsed summary line
+    # ("10.0 kWh · 5.0/5.0 kW · 90%") until §2′.6 removed it with the collapsed panel.
+    assert re.search(r'name="battery\.usable_capacity_kwh"[^>]*value="10\.0"', rendered_page.text)
+    assert re.search(r'name="battery\.max_charge_kw"[^>]*value="5\.0"', rendered_page.text)
+    assert re.search(r'name="battery\.roundtrip_efficiency"[^>]*value="90"', rendered_page.text)
 
 
 # ── §2.5(b) / §7.3 check 18 — the soft block ─────────────────────────────────────────────────
@@ -742,18 +760,27 @@ def test_the_contract_help_affordance_uses_the_shared_dialog(client):
         assert phrase in body.group(1)
 
 
-def test_the_summary_line_names_the_contract_or_energy_only(client):
-    """§2.1's final clause, through the route so the rendered line is what is asserted."""
+def test_the_cost_mode_shows_as_the_pricing_box_appearing_and_disappearing(client):
+    """The rendered box, through the route — §2.3's "Without cost simulation" over the wire.
+
+    **This asserted §2.1's collapsed summary clause until phase 4.2** ("· dynamic" / "· energy
+    only"), which §2′.6 removed with the collapsed panel. `params_view.summary_line` still computes
+    that clause and `tests/test_params_view.py` still covers it; what the PAGE says about the cost
+    mode is now the box being drawn or not, which is the thing the user acts on.
+    """
     on = client.post(w("/params"), data=_cost_form())
-    assert "· dynamic</span>" in on.text or "· dynamic" in on.text
+    assert re.search(r'<h[1-4][^>]*cost-label[^>]*>\s*Pricing\s*</h[1-4]>', on.text)
+    assert 'name="pricing.contract"' in on.text
 
     off = client.post(
         w("/params"),
         data=_form(sections="setup battery grid charge discharge topology",
                    **{"setup.simulate_cost": "no"}),
     )
-    assert "· energy only" in off.text
-    assert "· dynamic" not in off.text
+    assert "Pricing" not in off.text
+    assert 'name="pricing.contract"' not in off.text
+    # The dispatch bands STAY: they change which kWh move, not what a kWh is worth (§2.3).
+    assert 'name="policy.band_a"' in off.text
 
 
 def test_pricing_values_survive_turning_cost_simulation_off_and_on(client):
@@ -828,14 +855,22 @@ def test_the_cost_tint_marks_the_pricing_box_and_only_the_pricing_box(client):
 
     # The headings: Pricing is tinted, Battery and Grid connection are not — and all three are
     # still present as words, which is what a reader who cannot see the hue relies on.
-    assert re.search(r'<h3[^>]*cost-label[^>]*>\s*Pricing\s*</h3>', on)
+    #
+    # The heading LEVEL is deliberately not pinned. §2′.6 made "Battery" the box's own title (an
+    # <h2>) while "Grid connection" became a sub-box legend inside a tab (an <h3>); what this test
+    # is about is the tint, and pinning `<h3>` would make it fail on a restyle that changed
+    # nothing it cares about.
+    assert re.search(r'<h[1-4][^>]*cost-label[^>]*>\s*Pricing\s*</h[1-4]>', on)
     for plain in ("Battery", "Grid connection"):
-        assert re.search(r'<h3(?![^>]*cost-label)[^>]*>\s*%s\s*</h3>' % plain, on), plain
+        assert re.search(r'<h[1-4](?![^>]*cost-label)[^>]*>\s*%s\s*</h[1-4]>' % plain, on), plain
 
     # The sub-box legends and the Advanced summary inside the Pricing box.
     for legend in ("Dynamic", "Feed-in"):
         assert re.search(r'<h4[^>]*cost-label[^>]*>\s*%s\s*</h4>' % legend, on), legend
-    assert re.search(r'collapse-title[^"]*cost-label[^>]*>\s*Advanced\s*<', on)
+    # The Pricing box's own Advanced pane. A `<summary>` since §2′.6 (it now nests inside two
+    # other collapsibles and a daisyUI `collapse` there uses `content-visibility`); the tint is on
+    # the same element either way.
+    assert re.search(r'<summary[^>]*cost-label[^>]*>\s*Advanced\s*</summary>', on)
 
     # With cost simulation OFF the panel carries no tint at all: the boxes it marks are gone.
     assert "cost-label" not in off
