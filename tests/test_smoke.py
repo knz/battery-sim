@@ -11,6 +11,14 @@ counter route (specs/08-architecture.md §5.1) upserts once per key and 404s an 
 The server runs against a throwaway data directory so the counter DB and the generated
 config.toml never touch the working tree.
 
+Phase 5's wizard adds three here (specs/20-workspaces-ux.md §2′.8): the walk from step 1 to step
+3, and two that genuinely need a browser. The first is the Blocked `[ Next → ]` on step 2 —
+markup alone cannot establish that a Blocked control READS as blocked, since phase 4 shipped a
+message present in the DOM and invisible on the page, so that test asserts a real bounding box,
+computed opacity, and that a click does not advance. The second is the escape from the blocked
+state (review finding R1), which depends on `applySetupGating` hiding the solar roster row and so
+cannot be reproduced at route level at all.
+
 One test here is about the BROWSER's storage rather than the page's markup:
 `test_ha_fetch_scopes_its_slot_store_per_workspace` pins that `ha_fetch.js` keys its slot store
 per workspace and discards the pre-workspaces global `ha.slots`
@@ -35,6 +43,12 @@ from playwright.sync_api import sync_playwright
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
+# The data directory the server subprocess was started with. Set by the `base_url` fixture, and
+# read by `_seed_reconstructable_dataset` — the one place a test has to write a file the running
+# server will read back. Declared here so the name exists before that fixture runs rather than
+# appearing out of nowhere as a module attribute.
+_SERVER_DATA_DIR: str | None = None
+
 
 def _free_port() -> int:
     with socket.socket() as s:
@@ -43,11 +57,15 @@ def _free_port() -> int:
 
 
 @pytest.fixture(scope="module")
-def base_url(tmp_path_factory):
+def base_url(tmp_path_factory, request):
     port = _free_port()
     url = f"http://127.0.0.1:{port}"
     # Isolate the counter DB + generated config.toml in a temp dir, not the repo's ./data.
-    env = {**os.environ, "BATTERY_SIM_DATA_DIR": str(tmp_path_factory.mktemp("data"))}
+    data_dir = tmp_path_factory.mktemp("data")
+    # Published on the module so `server_data_dir` can hand it to a test that needs to put a
+    # dataset where the server will find it. See that fixture for why that is worth doing.
+    request.module._SERVER_DATA_DIR = str(data_dir)
+    env = {**os.environ, "BATTERY_SIM_DATA_DIR": str(data_dir)}
     server = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "app.main:app", "--port", str(port), "--log-level", "warning"],
         cwd=REPO_ROOT,
@@ -89,11 +107,20 @@ def _workspace_url(base_url) -> str:
     Module-scoped via the fixtures that call it, so the whole file shares ONE workspace: several
     tests here mutate state (the setup-band radios persist, the thumbs-up upserts), and they
     already shared one before phase 2 gave that workspace an id.
+
+    **The results URL is DERIVED, not read off the redirect.** Since phase 5 the create route
+    redirects into the wizard's step 1 (`/w/{id}/edit?mode=wizard`, §2′.8), and roughly thirty tests
+    below use this helper's return value as "the results page". Returning the redirect's own
+    destination would silently move all of them onto a different screen. The destination itself is
+    a behaviour with its own test — `test_the_list_creates_a_workspace_and_navigates_into_it` —
+    rather than something this helper should be implicitly asserting.
     """
     req = Request(base_url + "/workspaces", data=b"", method="POST")
     with urlopen(req) as r:
-        # urllib follows the 303, so the final URL is the destination the route redirected to.
-        return r.url
+        # urllib follows the 303, so the final URL is where the route sent the browser. Every
+        # per-workspace URL carries the id in the same position, so the id survives the change.
+        workspace_id = r.url.split("?")[0].rstrip("/").split("/")[-2]
+    return f"{base_url}/w/{workspace_id}/results"
 
 
 def _select_tab(pg, tab: str):
@@ -796,11 +823,17 @@ def _list_page(browser, base_url):
     return context, pg
 
 
-def test_the_list_creates_a_workspace_and_navigates_into_it(browser, base_url):
-    """`[ + New analysis ]` is a real form POST that lands on the new workspace's page.
+def test_the_list_creates_a_workspace_and_starts_the_wizard(browser, base_url):
+    """`[ + New analysis ]` is a real form POST that lands on step 1 of §2′.8's wizard.
 
     Driven end to end because the button, the route, the redirect and the destination are four
     separate things and a route test only sees the middle two.
+
+    Phase 5 changed the destination from the results screen — which for a workspace created a
+    moment ago is empty and says nothing about what to do next — to the edit screen in wizard mode.
+    So this asserts the wizard is genuinely RUNNING, not merely that the edit screen rendered: the
+    step indicator and the `[ Next → ]` footer are what distinguish the two, and landing on
+    `/edit` without the mode would look identical to a URL check.
     """
     context, pg = _list_page(browser, base_url)
     before = pg.locator("[data-workspace-card]").count()
@@ -810,11 +843,13 @@ def test_the_list_creates_a_workspace_and_navigates_into_it(browser, base_url):
 
     import re as _re
 
-    assert _re.search(r"/w/[0-9a-f]{32}/results$", pg.url), pg.url
-    # The results screen, not an error document. "PARAMETERS" until phase 4.2, which replaced
-    # panel ② with §2′.6's capacity-first battery box — so the marker is the box's own field.
+    assert _re.search(r"/w/[0-9a-f]{32}/edit\?mode=wizard$", pg.url), pg.url
+    # Step 1, in the wizard: the edit screen's own field, the indicator, and the wizard footer.
     body = pg.locator("body").inner_text()
-    assert "Usable capacity" in body and "RESULTS" in body, body[:300]
+    assert "Grid connection" in body, body[:300]
+    assert pg.locator("[data-wizard-step]").is_visible()
+    assert "Step 1 of 3" in pg.locator("[data-wizard-step]").inner_text()
+    assert pg.get_by_role("button", name="Next").is_visible()
 
     pg.goto(base_url + "/", wait_until="networkidle")
     assert pg.locator("[data-workspace-card]").count() == before + 1
@@ -1337,12 +1372,121 @@ def test_the_source_drawer_opens_on_the_configure_data_screen(browser, base_url)
     context.close()
 
 
+def _seed_reconstructable_dataset(workspace_id: str, *, has_pv: bool = False) -> None:
+    """Put grid import + export T1 where the running server will find them (§2′.8's gate).
+
+    Written in-process, into the SAME data directory the server subprocess was given, because the
+    two agree on it through `BATTERY_SIM_DATA_DIR` and `config.data_dir()` resolves it per call.
+    There is no browser path that produces a grid meter — a real fetch needs a Home Assistant — so
+    the alternative would be leaving the far side of the gate untested in a browser entirely.
+
+    T1 only, deliberately, and with no PV or battery series: this is exactly the minimum the gate
+    accepts (D2), so a test that walks through on it is also asserting that minimum is enough.
+
+    The two household answers are stored here as well, and that is not incidental. The gate is
+    evaluated SERVER-SIDE at render, so flipping the radios in the browser does not unblock the
+    button — the block only lifts on the next render, which is the POST's re-render or a reload.
+    Appendix A defaults `has_pv` to true, so a workspace with import and export alone is blocked on
+    the missing solar series until someone says there is no array.
+
+    `has_pv` is therefore a PARAMETER rather than always false, and the two settings are two
+    different fixtures: false gives a dataset that satisfies the gate under the stored answers (the
+    walk-through test), true gives one that does not (the trap test — blocked on the solar series
+    and on nothing else, which is the state review finding R1 is about). Hardcoding it false is why
+    no test entered the trap before.
+    """
+    import numpy as np
+
+    os.environ["BATTERY_SIM_DATA_DIR"] = _SERVER_DATA_DIR
+    from app import dataset, simconfig_store
+    from app.domain.frames import QUALITY_DTYPE, SeriesFrame
+    from datetime import datetime, timezone
+
+    cfg = simconfig_store.load(workspace_id)
+    cfg.has_pv = has_pv
+    cfg.has_battery = False
+    simconfig_store.save(simconfig_store.clone(cfg), workspace_id)
+
+    n = 48
+    idx = (
+        np.arange(n).astype("timedelta64[s]") * 3600 + np.datetime64("2026-01-01T00:00:00")
+    ).astype("datetime64[s]")
+
+    def frame(name, value):
+        return SeriesFrame(
+            name, "energy", 3600, idx, np.full(n, value), np.zeros(n, dtype=QUALITY_DTYPE)
+        )
+
+    dataset.save_dataset(
+        [frame("grid_import_t1", 2.0), frame("grid_export_t1", 0.5)],
+        (datetime(2026, 1, 1, tzinfo=timezone.utc),
+         datetime(2026, 1, 3, tzinfo=timezone.utc)),
+        "test", [], None, workspace_id,
+    )
+
+
 def test_the_wizard_footer_walks_edit_to_data_to_results(browser, base_url):
-    """§2′.8's wizard chain, now that step 2 exists.
+    """§2′.8's wizard chain, now that step 2 exists and its `[ Next → ]` is gated.
 
     Phase 3 had to send `[ Next → ]` from step 1 straight to the results page because the
     configure-data screen did not exist. This walks the real sequence and is what would catch that
     temporary destination being left behind.
+
+    Phase 5's gate is why the dataset is seeded before the walk: without it step 2's `[ Next → ]`
+    is correctly Blocked and the walk cannot finish. The blocked case is its own test below.
+    """
+    url = _workspace_url(base_url)
+    workspace_id = url.rstrip("/").split("/")[-2]
+    _seed_reconstructable_dataset(workspace_id)
+
+    context = browser.new_context()
+    context.add_cookies([{"name": "lang", "value": "en", "url": base_url}])
+    pg = context.new_page()
+    pg.goto(f"{base_url}/w/{workspace_id}/edit?mode=wizard", wait_until="networkidle")
+    # Step 1 says which step it is (§2′.8's indicator, D4).
+    assert "Step 1 of 3" in pg.locator("[data-wizard-step]").inner_text()
+
+    pg.get_by_role("button", name="Next").click()
+    pg.wait_for_load_state("networkidle")
+    assert "/data" in pg.url, f"step 1's Next should reach configure data, got {pg.url}"
+    assert "mode=wizard" in pg.url, "the wizard mode must survive the step"
+    assert "Step 2 of 3" in pg.locator("[data-wizard-step]").inner_text()
+
+    # Step 2's Previous goes BACK to step 1, still in wizard mode.
+    pg.get_by_role("link", name="Previous").click()
+    pg.wait_for_load_state("networkidle")
+    assert "/edit" in pg.url and "mode=wizard" in pg.url, pg.url
+
+    # Forward again. The household answers submitted by step 2 are "no PV, no battery", which with
+    # the seeded import/export pair is exactly the gate's minimum — so `[ Next → ]` is live.
+    pg.get_by_role("button", name="Next").click()
+    pg.wait_for_load_state("networkidle")
+    pg.locator('input[name="setup_haspv"][value="0"]').check()
+    pg.locator('input[name="setup_hasbattery"][value="0"]').check()
+    pg.get_by_role("button", name="Next").click()
+    pg.wait_for_load_state("networkidle")
+    assert "/results" in pg.url, f"step 2's Next should reach results, got {pg.url}"
+    # Step 3 has no wizard mode and no indicator (§2′.6: no footer, no mode).
+    assert pg.locator("[data-wizard-step]").count() == 0
+    context.close()
+
+
+def test_the_blocked_next_states_its_reason_and_does_not_advance(browser, base_url):
+    """§2′.8's gate, as a user sees it — which markup alone cannot establish.
+
+    Phase 4 shipped a defect where a message was present in the DOM and invisible on the page, so
+    a `<span>` full of the right words is not evidence that the Blocked state READS as blocked.
+    Asserted here: the button is still on screen (not hidden — Blocked, not Inapplicable), the
+    reason naming the missing series is legible at full strength and has a real bounding box, and
+    clicking `[ Next → ]` does NOT reach the results screen.
+
+    **The button is deliberately clickable** (review finding R1). It used to be `disabled` and the
+    click was asserted to be a no-op; that turned out to trap the user — see
+    `test_the_wizard_escapes_the_blocked_step_by_answering_no` below. The refusal now comes from
+    the server, which re-renders step 2, so the user stays on the screen that says why rather than
+    from a browser that swallows the click.
+
+    The workspace is fresh, so nothing is loaded and every applicable slot is missing.
     """
     url = _workspace_url(base_url)
     workspace_id = url.rstrip("/").split("/")[-2]
@@ -1350,22 +1494,88 @@ def test_the_wizard_footer_walks_edit_to_data_to_results(browser, base_url):
     context = browser.new_context()
     context.add_cookies([{"name": "lang", "value": "en", "url": base_url}])
     pg = context.new_page()
-    pg.goto(f"{base_url}/w/{workspace_id}/edit?mode=wizard", wait_until="networkidle")
+    pg.goto(f"{base_url}/w/{workspace_id}/data?mode=wizard", wait_until="networkidle")
 
-    pg.get_by_role("button", name="Next").click()
-    pg.wait_for_load_state("networkidle")
-    assert "/data" in pg.url, f"step 1's Next should reach configure data, got {pg.url}"
-    assert "mode=wizard" in pg.url, "the wizard mode must survive the step"
+    nxt = pg.get_by_role("button", name="Next")
+    # Present and visible — Blocked, not Inapplicable. A hidden button is the wrong rendering.
+    assert nxt.is_visible(), "the Blocked [ Next → ] must stay on screen"
+    assert not nxt.is_disabled(), "the Blocked [ Next → ] must stay clickable (finding R1)"
 
-    # Step 2's Previous goes BACK to step 1, still in wizard mode.
-    pg.get_by_role("link", name="Previous").click()
-    pg.wait_for_load_state("networkidle")
-    assert "/edit" in pg.url and "mode=wizard" in pg.url, pg.url
+    reason = pg.locator("[data-next-blocked-reason]")
+    assert reason.is_visible(), "the reason must be on the page, not merely in the DOM"
+    text = reason.inner_text()
+    assert "Grid import T1" in text and "Grid export T1" in text, text
+    # It has a real height — the phase-4 defect was an element present, sized zero and unreadable.
+    box = reason.bounding_box()
+    assert box is not None and box["height"] > 5, box
 
-    # Forward again, then step 2's Next ends the wizard on the results screen.
-    pg.get_by_role("button", name="Next").click()
+    # Not dimmed: the reason is the whole of the Blocked rendering now, so nothing here fades it.
+    live = pg.evaluate(
+        "() => getComputedStyle(document.querySelector('[data-next-blocked-reason]')).opacity"
+    )
+    assert float(live) > 0.9, f"the reason must NOT be dimmed (opacity {live})"
+    assert pg.locator("[data-next-blocked] .blocked-control").count() == 0
+
+    # Clicking submits, and the SERVER refuses: step 2 again, still blocked, never the results.
+    nxt.click()
     pg.wait_for_load_state("networkidle")
-    pg.get_by_role("button", name="Next").click()
+    assert "/data" in pg.url, f"a blocked [ Next → ] must not advance, got {pg.url}"
+    assert "/results" not in pg.url
+    assert pg.locator("[data-next-blocked]").count() == 1, "still blocked, and still says why"
+    context.close()
+
+
+def test_the_wizard_escapes_the_blocked_step_by_answering_no(browser, base_url):
+    """Review finding R1: the exact trap, walked end to end, and its exit.
+
+    Only reachable through a browser, because it depends on `applySetupGating` running: the
+    JavaScript hides the solar roster row the moment the radio flips, so the page stops asking for
+    the series the footer is still blocked on. With a `disabled` `[ Next → ]` that state had no
+    in-page exit at all — that button is the only submitter of the form the radio lives in,
+    `[ Fetch history ]` is itself disabled with nothing staged, and `[ ← Previous ]` is a link that
+    discards the answer and returns to the identical trap. Measured in Chromium at that point:
+    `next_disabled=True`, solar row hidden, `fetch_disabled=True`.
+
+    The path: a dataset of import + export T1 only, with `has_pv` left at appendix A's default of
+    true, so step 2 renders blocked on the solar series alone. Flip the radio to No, click
+    `[ Next → ]`, and the user must get out — the answer persisted and the block gone.
+    """
+    url = _workspace_url(base_url)
+    workspace_id = url.rstrip("/").split("/")[-2]
+    _seed_reconstructable_dataset(workspace_id, has_pv=True)
+
+    context = browser.new_context()
+    context.add_cookies([{"name": "lang", "value": "en", "url": base_url}])
+    pg = context.new_page()
+    pg.goto(f"{base_url}/w/{workspace_id}/data?mode=wizard", wait_until="networkidle")
+
+    # The trap's entry state: blocked on solar and nothing else, because import and export ARE
+    # loaded. This is the assertion that keeps the test honest — a workspace blocked on everything
+    # would not exercise the "answer that clears it" half.
+    reason = pg.locator("[data-next-blocked-reason]").inner_text()
+    assert "Solar production" in reason, reason
+    assert "Grid import T1" not in reason, f"import is loaded and must not be named: {reason}"
+    # And the escape hatch D8 claimed does not exist: nothing is staged, so a fetch is impossible.
+    assert pg.locator("#ha-fetch-btn").is_disabled(), (
+        "the precondition for the trap: [ Fetch history ] offers no way out either"
+    )
+
+    # The user does the obvious thing.
+    pg.locator('input[name="setup_haspv"][value="0"]').check()
+    # The roster stops asking for solar immediately (`applySetupGating`), which is the disagreement
+    # the old D8 shrugged off — and, with a disabled button, the point of no return.
+    pg.wait_for_timeout(100)
+
+    nxt = pg.get_by_role("button", name="Next")
+    assert not nxt.is_disabled(), "the answer that clears the block must be submittable"
+    nxt.click()
     pg.wait_for_load_state("networkidle")
-    assert "/results" in pg.url, f"step 2's Next should reach results, got {pg.url}"
+
+    # Out. The gate is met under the answer just given, so the wizard advances to step 3.
+    assert "/results" in pg.url, f"the user must escape the blocked step, got {pg.url}"
+
+    # And the answer stuck: back on step 2, no block, and the radio remembers "no".
+    pg.goto(f"{base_url}/w/{workspace_id}/data?mode=wizard", wait_until="networkidle")
+    assert pg.locator("[data-next-blocked]").count() == 0, "the block must be gone"
+    assert pg.locator('input[name="setup_haspv"][value="0"]').is_checked()
     context.close()

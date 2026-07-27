@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-27 12:23+0200\n"
+"POT-Creation-Date: 2026-07-27 16:41+0200\n"
 "PO-Revision-Date: 2026-07-23 20:30+0200\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: nl\n"
@@ -235,6 +235,10 @@ msgstr "Over de contractvormen"
 
 msgid "About your household"
 msgstr "Over je huishouden"
+
+#, python-format
+msgid "Add %(series)s to continue."
+msgstr "Voeg %(series)s toe om verder te gaan."
 
 msgid "Advanced"
 msgstr "Geavanceerd"
@@ -1186,6 +1190,10 @@ msgid ""
 msgstr ""
 "Blijft in je browser. Wordt alleen naar je Home Assistant gestuurd, nooit"
 " naar deze app."
+
+#, python-format
+msgid "Step %(n)s of %(total)s"
+msgstr "Stap %(n)s van %(total)s"
 
 msgid "Supplier markup"
 msgstr "Opslag leverancier"

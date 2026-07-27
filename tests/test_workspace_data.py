@@ -28,6 +28,21 @@ that the move could silently break:
     they are absent in the empty state is as important as asserting they appear with a dataset:
     both directions are the specified behaviour.
 
+Phase 5 added the last two groups: **§2′.8's step-2 gate** and the step indicator. The gate blocks
+the wizard's `[ Next → ]` until §6.3's load reconstruction is computable, and three things about it
+are worth stating up front, because each is a way the tests could look right and prove nothing.
+
+  * **Every conditional role is driven in BOTH directions.** A test that only checks solar is
+    required when `has_pv` would pass against an implementation that required it always — which
+    would block every PV-less household permanently. So each of the four conditional cases has its
+    negative twin.
+  * **T2 is asserted NOT to block.** §2′.8's parenthetical reads as if all four registers were
+    required; the code requires T1 only, deliberately (D2), and a single-tariff household has no T2
+    meter. This is the most likely thing in the phase to be "fixed" back into a defect.
+  * **The gate is checked server-side too, and that half is driven by a crafted POST.** A
+    `disabled` attribute is a rendering, not a guarantee; followup L3 is this project's live example
+    of one being walked past.
+
 Every regex below is scoped to a real element (an id, a `name=`, a `data-footer` wrapper) rather
 than to prose, because this page also carries ~200 lines of inline script and comments whose text
 mentions most of the things being asserted. Phase 3 shipped two tests that passed against a script
@@ -461,19 +476,26 @@ def test_the_answers_round_trip_through_the_post(env):
 
 
 def test_a_card_save_returns_to_the_list_and_the_wizard_advances(env):
-    """§2′.8: `[ Save ]` persists and returns to the list; `[ Next → ]` persists and advances."""
+    """§2′.8: `[ Save ]` persists and returns to the list; `[ Next → ]` persists and advances.
+
+    The dataset and the two "no" answers are what make the wizard half REACHABLE: phase 5's gate
+    refuses the advance until the house load is reconstructable, so without them this asserts the
+    gate rather than the advance. `_seed_dataset` supplies grid import and export T1; declaring no
+    PV and no battery is what makes those two the whole requirement.
+    """
     client, mod = env
     _seed(mod)
+    _seed_dataset(mod)
 
     resp = client.post(
-        "/w/w1/data", data={"setup_haspv": "1", "setup_hasbattery": "0"},
+        "/w/w1/data", data={"setup_haspv": "0", "setup_hasbattery": "0"},
         follow_redirects=False,
     )
     assert resp.status_code == 303
     assert resp.headers["location"] == "/"
 
     resp = client.post(
-        "/w/w1/data?mode=wizard", data={"setup_haspv": "1", "setup_hasbattery": "0"},
+        "/w/w1/data?mode=wizard", data={"setup_haspv": "0", "setup_hasbattery": "0"},
         follow_redirects=False,
     )
     assert resp.status_code == 303
@@ -868,3 +890,555 @@ def test_the_dirty_check_reads_the_generation_tagged_store(env):
     html = client.get("/w/w1/data").text
     assert "'ha.slots.' + WORKSPACE_ID" in html
     assert "obj.gen !== serverGen()" in html
+
+
+# ── §2′.8's step-2 gate: `[ Next → ]` is Blocked until the house load is reconstructable ───────
+#
+# The condition is `data_screen_view.load_gate` and it is checked twice on purpose: once to draw
+# the button, once inside the POST. Both halves are driven here, and each missing-series case is
+# its own test rather than a parametrised sweep, because they fail for different reasons — the
+# has_pv / has_battery cases are about a role being CONDITIONALLY required, and getting one of
+# those backwards would leave a user permanently blocked by a series they were never asked for.
+#
+# The most likely thing here to regress is T2. §2′.8's parenthetical reads as if it required all
+# four registers; the code requires T1 only (D2), a single-tariff household has no T2 at all, and
+# the T2 tests below are what stop a well-meaning "the spec says both" edit from locking those
+# users out.
+
+
+def _blocked_reason(html: str) -> str:
+    """The Blocked button's adjacent reason. Fails if there is none.
+
+    Scoped to `data-next-blocked-reason` rather than searched for as prose, for this file's usual
+    reason: the page carries ~200 lines of script and comments, and phase 3 shipped two tests that
+    passed against a comment.
+    """
+    m = re.search(
+        r"<span[^>]*data-next-blocked-reason>(.*?)</span>", html, re.S
+    )
+    assert m is not None, "no Blocked reason beside [ Next → ]"
+    return m.group(1)
+
+
+def _is_blocked(html: str) -> bool:
+    """Whether the footer drew the Blocked `[ Next → ]`, by its wrapper's marker attribute."""
+    return "data-next-blocked" in _footer(html)
+
+
+def _next_button(html: str) -> str:
+    """The `[ Next → ]` submit button's tag, so its attributes can be asserted on it specifically.
+
+    It must never carry `disabled`, in either branch — see
+    `test_the_blocked_next_button_is_still_clickable` for why that is the point rather than an
+    omission.
+    """
+    footer = _footer(html)
+    m = re.search(r"<button[^>]*>\s*Next[^<]*</button>", footer, re.S)
+    assert m is not None, f"no [ Next → ] button in the footer: {footer}"
+    return m.group(0)
+
+
+def _full_dataset(mod, workspace_id: str = "w1", extra=()) -> None:
+    """Import + export T1, plus whatever `extra` series the case under test needs."""
+    frames = [_energy("grid_import_t1", 2.0), _energy("grid_export_t1", 0.5)]
+    frames += [_energy(name, 0.5) for name in extra]
+    mod["dataset"].save_dataset(frames, _WIN, "test", [], None, workspace_id)
+
+
+def _answers(mod, *, has_pv: bool, has_battery: bool, workspace_id: str = "w1") -> None:
+    cfg = mod["simconfig_store"].load(workspace_id)
+    cfg.has_pv = has_pv
+    cfg.has_battery = has_battery
+    _store(mod, cfg, workspace_id)
+
+
+def test_the_gate_is_met_with_import_and_export_and_no_pv_or_battery(env):
+    """The minimum §6.3 needs from a household with neither an array nor a battery.
+
+    Two series, and `[ Next → ]` is live: no `data-next-blocked` wrapper, no `disabled`, no reason.
+    """
+    client, mod = env
+    _seed(mod)
+    _answers(mod, has_pv=False, has_battery=False)
+    _full_dataset(mod)
+
+    html = client.get("/w/w1/data?mode=wizard").text
+    assert not _is_blocked(html)
+    assert "disabled" not in _next_button(html)
+
+
+def test_no_dataset_at_all_blocks_and_names_every_applicable_series(env):
+    """The empty state. Nothing loaded is not "some of it is missing" — all of it is.
+
+    The message names each applicable slot rather than saying "load data first", per §2′.8: the
+    roster that would fix it is directly above, so the sentence and the table are read together.
+    """
+    client, mod = env
+    _seed(mod)
+    _answers(mod, has_pv=True, has_battery=True)
+
+    html = client.get("/w/w1/data?mode=wizard").text
+    assert _is_blocked(html)
+    reason = _blocked_reason(html)
+    for label in (
+        "Grid import T1", "Grid export T1", "Solar production",
+        "Battery charge", "Battery discharge",
+    ):
+        assert label in reason, f"{label} not named in {reason!r}"
+
+
+def test_the_blocked_next_button_is_still_clickable(env):
+    """Review finding R1: a `disabled` `[ Next → ]` here was a trap with no in-page exit.
+
+    That button is the ONLY submitter of `#data-form`, and the `has_pv` / `has_battery` radios live
+    inside that form. On the commonest first run — appendix A defaults `has_pv` on, the household
+    has no array, the fetch produces import + export alone — step 2 renders blocked on the solar
+    series. The user answers "no, I have no solar", `applySetupGating` hides the solar roster row,
+    and a disabled button refuses to submit the very answer that clears the block. `[ Fetch
+    history ]` is disabled too with nothing staged, and `[ ← Previous ]` is a plain link that
+    discards the answer, so the round trip returns to the identical trap.
+
+    So the block is stated, not enforced, in the rendering: no `disabled` and no `.blocked-control`
+    dim (a dimmed-but-clickable control contradicts §2.1's meaning of the dim). The reason beside
+    it is what carries the Blocked state, and `POST /w/{id}/data` is the enforcement — it persists
+    the answers first, then re-renders step 2, which is exactly what springs the trap.
+
+    The browser-level counterpart is `test_the_wizard_escapes_the_blocked_step_by_answering_no`
+    in `tests/test_smoke.py`; this one pins the markup that makes it possible.
+    """
+    client, mod = env
+    _seed(mod)
+    _answers(mod, has_pv=True, has_battery=True)   # nothing loaded: every slot is missing
+
+    html = client.get("/w/w1/data?mode=wizard").text
+    assert _is_blocked(html), "the precondition: this case must be the blocked branch"
+    assert "disabled" not in _next_button(html)
+    # And the dim is gone with it, so the affordance does not say "unusable" while being usable.
+    assert "blocked-control" not in _footer(html)
+    # The reason still has to be there — §2.1 requires the block to remain explained.
+    assert "Solar production" in _blocked_reason(html)
+
+
+def test_a_missing_grid_import_blocks_and_names_it(env):
+    client, mod = env
+    _seed(mod)
+    _answers(mod, has_pv=False, has_battery=False)
+    mod["dataset"].save_dataset(
+        [_energy("grid_export_t1", 0.5)], _WIN, "test", [], None, "w1"
+    )
+
+    html = client.get("/w/w1/data?mode=wizard").text
+    assert _is_blocked(html)
+    reason = _blocked_reason(html)
+    assert "Grid import T1" in reason
+    assert "Grid export T1" not in reason, "a series that IS loaded must not be named"
+
+
+def test_a_missing_grid_export_blocks_and_names_it(env):
+    """Export as well as import: §6.3 is `imp − exp + …`, so a one-sided meter is not enough."""
+    client, mod = env
+    _seed(mod)
+    _answers(mod, has_pv=False, has_battery=False)
+    mod["dataset"].save_dataset(
+        [_energy("grid_import_t1", 2.0)], _WIN, "test", [], None, "w1"
+    )
+
+    html = client.get("/w/w1/data?mode=wizard").text
+    assert _is_blocked(html)
+    reason = _blocked_reason(html)
+    assert "Grid export T1" in reason
+    assert "Grid import T1" not in reason
+
+
+def test_a_declared_array_with_no_solar_series_blocks(env):
+    """§2′.8: without it the reconstruction attributes PV output to a house that is not there.
+
+    That is check 7's negative-load symptom (§7.3), which is why the array's series is required
+    rather than merely useful.
+    """
+    client, mod = env
+    _seed(mod)
+    _answers(mod, has_pv=True, has_battery=False)
+    _full_dataset(mod)
+
+    html = client.get("/w/w1/data?mode=wizard").text
+    assert _is_blocked(html)
+    assert "Solar production" in _blocked_reason(html)
+
+
+def test_a_declared_array_with_its_solar_series_passes(env):
+    """The other direction, so the test above cannot pass by requiring solar unconditionally."""
+    client, mod = env
+    _seed(mod)
+    _answers(mod, has_pv=True, has_battery=False)
+    _full_dataset(mod, extra=("solar_production",))
+
+    assert not _is_blocked(client.get("/w/w1/data?mode=wizard").text)
+
+
+def test_no_declared_array_does_not_require_a_solar_series(env):
+    """A household with no array has nothing to attribute, so there is nothing to require.
+
+    Getting this backwards would block every PV-less household forever behind a message naming a
+    sensor they do not have.
+    """
+    client, mod = env
+    _seed(mod)
+    _answers(mod, has_pv=False, has_battery=False)
+    _full_dataset(mod)
+
+    html = client.get("/w/w1/data?mode=wizard").text
+    assert not _is_blocked(html)
+
+
+def test_a_declared_battery_needs_both_of_its_series(env):
+    """Charge AND discharge — §6.3 subtracts one and adds the other, so one alone is half a term."""
+    client, mod = env
+    _seed(mod)
+    _answers(mod, has_pv=False, has_battery=True)
+
+    _full_dataset(mod)
+    reason = _blocked_reason(client.get("/w/w1/data?mode=wizard").text)
+    assert "Battery charge" in reason and "Battery discharge" in reason
+
+    # Only one of the pair: still blocked, and only the absent one is named.
+    _full_dataset(mod, extra=("battery_charge",))
+    html = client.get("/w/w1/data?mode=wizard").text
+    assert _is_blocked(html)
+    reason = _blocked_reason(html)
+    assert "Battery discharge" in reason
+    assert "Battery charge" not in reason
+
+    # Both: live.
+    _full_dataset(mod, extra=("battery_charge", "battery_discharge"))
+    assert not _is_blocked(client.get("/w/w1/data?mode=wizard").text)
+
+
+def test_no_declared_battery_does_not_require_the_battery_series(env):
+    """The counterpart of the PV case, and the same failure if inverted."""
+    client, mod = env
+    _seed(mod)
+    _answers(mod, has_pv=False, has_battery=False)
+    _full_dataset(mod)
+
+    assert not _is_blocked(client.get("/w/w1/data?mode=wizard").text)
+
+
+def test_an_absent_t2_register_pair_does_NOT_block(env):
+    """D2, and the single most likely thing in this phase to regress.
+
+    §2′.8's parenthetical — "both T1/T2 register pairs" — reads as if four registers were required.
+    Three places in the code say otherwise and they are right: `series_vocab.SERIES_SLOTS` marks
+    both T2 slots "optional", `reconcile._combined` folds the registers so an absent T2 contributes
+    zero, and `workspaces._data_facts` gates the card badge on T1 with the note that T1's presence
+    answers whether the role is filled. A single-tariff household HAS no T2 meter, so requiring it
+    would lock those users out of the wizard behind a message naming a series they cannot supply.
+
+    Asserted twice over: the gate passes, and neither T2 label appears anywhere in the footer.
+    """
+    client, mod = env
+    _seed(mod)
+    _answers(mod, has_pv=False, has_battery=False)
+    _full_dataset(mod)   # T1 only, deliberately
+
+    html = client.get("/w/w1/data?mode=wizard").text
+    assert not _is_blocked(html), "T1-only must satisfy the gate"
+    footer = _footer(html)
+    assert "Grid import T2" not in footer
+    assert "Grid export T2" not in footer
+
+
+def test_a_missing_spot_price_does_NOT_block(env):
+    """§2′.8 says so directly: the gate is "a lower bar than a full run".
+
+    The spot price is needed for dispatch, not for load, and step 3 renders the battery-free glance
+    from load alone. A workspace can therefore pass this gate and still be unable to simulate —
+    which is the results screen's problem to state in context, not the wizard's to pre-empt.
+    """
+    client, mod = env
+    _seed(mod)
+    _answers(mod, has_pv=False, has_battery=False)
+    _full_dataset(mod)
+    assert "price_spot" not in {"grid_import_t1", "grid_export_t1"}
+
+    html = client.get("/w/w1/data?mode=wizard").text
+    assert not _is_blocked(html)
+    assert "Spot price" not in _footer(html)
+
+
+def test_there_is_no_minimum_duration(env):
+    """§2′.8: "the gate is about which series exist, not how long they run".
+
+    Three hours of data advances. §2.4's short-window box already caveats what a brief window
+    distorts, so a duration rule here would duplicate that judgement with less context.
+    """
+    client, mod = env
+    _seed(mod)
+    _answers(mod, has_pv=False, has_battery=False)
+    mod["dataset"].save_dataset(
+        [_energy("grid_import_t1", 2.0, n=3), _energy("grid_export_t1", 0.5, n=3)],
+        (datetime(2026, 1, 1, tzinfo=timezone.utc),
+         datetime(2026, 1, 1, 3, tzinfo=timezone.utc)),
+        "test", [], None, "w1",
+    )
+
+    assert not _is_blocked(client.get("/w/w1/data?mode=wizard").text)
+
+
+# ── The gate is a WIZARD gate: the card path is untouched ─────────────────────────────────────
+
+
+def test_the_card_footer_is_never_blocked(env):
+    """§2′.8 blocks the wizard's forward step, not `[ Save ]`.
+
+    `[ Save ]` persists two booleans and returns to the list; greying it because the dataset is
+    incomplete would refuse a save that has nothing to do with the dataset — and would leave a user
+    who came from a card unable to record "yes, I have solar", which is the very answer that makes
+    the roster ask for the series they are missing.
+    """
+    client, mod = env
+    _seed(mod)
+    _answers(mod, has_pv=True, has_battery=True)   # nothing loaded: the gate is unmet
+
+    footer = _footer(client.get("/w/w1/data").text)
+    assert "data-next-blocked" not in footer
+    assert not re.search(r"<button[^>]*disabled", footer)
+    assert "Save" in footer
+
+    # And the view-model says so too, not just the template. The rendered assertion above is
+    # currently satisfied twice over — the Blocked branch is nested inside the wizard branch — so
+    # dropping `and wizard` from the view-model leaves it green. Asserted here so the flag itself
+    # carries the rule, and a template that ever drew the block outside the wizard branch could not
+    # do so from a card.
+    from app.data_screen_view import data_screen_view as build
+
+    cfg = mod["simconfig_store"].load("w1")
+    assert build(cfg, "t", wizard=False, missing_for_load=["grid_import_t1"])["next_blocked"] is False
+    assert build(cfg, "t", wizard=True, missing_for_load=["grid_import_t1"])["next_blocked"] is True
+
+
+def test_a_card_save_still_redirects_to_the_list_with_the_gate_unmet(env):
+    """The behavioural half: the card path's POST is not gated either."""
+    client, mod = env
+    _seed(mod)
+    _answers(mod, has_pv=True, has_battery=True)
+
+    resp = client.post(
+        "/w/w1/data", data={"setup_haspv": "1", "setup_hasbattery": "1"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/"
+
+
+def test_the_step_indicator_is_absent_outside_the_wizard(env):
+    """D4: the indicator says which step of THREE this is, which is meaningless from a card."""
+    client, mod = env
+    _seed(mod)
+    assert "data-wizard-step" not in client.get("/w/w1/data").text
+
+
+def test_the_step_indicator_says_step_2_of_3_in_the_wizard(env):
+    """§2′.8's suggested indicator, taken up (D4). Step 2, because this is the middle screen."""
+    client, mod = env
+    _seed(mod)
+    html = client.get("/w/w1/data?mode=wizard").text
+    m = re.search(r"<span[^>]*data-wizard-step>(.*?)</span>", html, re.S)
+    assert m is not None, "no step indicator on the wizard's step 2"
+    assert "Step 2 of 3" in m.group(1)
+
+
+# ── The server-side half: `disabled` is a rendering, not a guarantee ──────────────────────────
+
+
+def test_a_crafted_wizard_post_cannot_walk_past_the_gate(env):
+    """D3, and the reason it exists: followup L3 is this project's live example.
+
+    There, a hand-made `POST /w/{id}/params` walks past a `disabled` cost toggle into a state no
+    affordance offers. The same shape is available here — the wizard's `[ Next → ]` is a plain form
+    submit, and nothing but the attribute stops a request that omits it. So the route re-checks the
+    condition and re-renders step 2 instead of redirecting.
+    """
+    client, mod = env
+    _seed(mod)
+    _answers(mod, has_pv=True, has_battery=False)
+    _full_dataset(mod)   # import + export, but the declared array's series is missing
+
+    resp = client.post(
+        "/w/w1/data?mode=wizard",
+        data={"setup_haspv": "1", "setup_hasbattery": "0", "mode": "wizard"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 200, "the advance must be refused, not granted"
+    assert "location" not in resp.headers
+    # It re-rendered STEP 2, in wizard mode, with the block and its reason — not a bare error.
+    assert 'id="slot-roster"' in resp.text
+    assert _is_blocked(resp.text)
+    assert "Solar production" in _blocked_reason(resp.text)
+
+
+def test_the_refused_advance_still_persisted_the_answers(env):
+    """§2′.8 makes `[ Next → ]` a save that also advances; refusing the advance is not a rollback.
+
+    A user who flips "yes, I have solar" and is then told the solar series is missing has had their
+    answer recorded — which is what makes the roster below the message ask for that series.
+    """
+    client, mod = env
+    _seed(mod)
+    _answers(mod, has_pv=False, has_battery=False)
+    _full_dataset(mod)
+
+    resp = client.post(
+        "/w/w1/data?mode=wizard",
+        data={"setup_haspv": "1", "setup_hasbattery": "0", "mode": "wizard"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 200
+    assert mod["simconfig_store"].load("w1").has_pv is True
+
+
+def test_the_guard_reads_the_ANSWERS_JUST_SUBMITTED_not_the_stored_ones(env):
+    """The ordering the route depends on: persist, then gate.
+
+    Gating on the pre-POST config would let a user who has just declared an array advance past a
+    check that still thought they had none — the advance and the answer would disagree, and step 3
+    would be computed for a household the config no longer describes.
+    """
+    client, mod = env
+    _seed(mod)
+    _answers(mod, has_pv=False, has_battery=False)
+    _full_dataset(mod)
+    # Stored answers alone would pass the gate. The submission is what must decide.
+    assert not _is_blocked(client.get("/w/w1/data?mode=wizard").text)
+
+    resp = client.post(
+        "/w/w1/data?mode=wizard",
+        data={"setup_haspv": "0", "setup_hasbattery": "1", "mode": "wizard"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 200
+    reason = _blocked_reason(resp.text)
+    assert "Battery charge" in reason and "Battery discharge" in reason
+
+
+def test_a_wizard_post_with_the_gate_met_advances(env):
+    """The positive path through the same guard, so it cannot pass by refusing everything."""
+    client, mod = env
+    _seed(mod)
+    _answers(mod, has_pv=True, has_battery=False)
+    _full_dataset(mod, extra=("solar_production",))
+
+    resp = client.post(
+        "/w/w1/data?mode=wizard",
+        data={"setup_haspv": "1", "setup_hasbattery": "0", "mode": "wizard"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/w/w1/results"
+
+
+# ── The gate and the card's DataFacts must not disagree (D1) ──────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "loaded",
+    [
+        (),
+        ("grid_import_t1",),
+        ("grid_export_t1",),
+        ("grid_import_t1", "grid_export_t1"),
+        ("grid_import_t1", "solar_production"),
+        ("grid_import_t1", "grid_export_t1", "solar_production"),
+        ("grid_import_t1", "grid_export_t1", "grid_import_t2", "grid_export_t2"),
+    ],
+)
+@pytest.mark.parametrize("has_pv", [True, False])
+def test_the_gate_and_the_cards_data_facts_agree_on_their_shared_roles(env, loaded, has_pv):
+    """D1's cheap guard against two implementations of one predicate drifting apart.
+
+    `workspaces._data_facts` answers the same question from SQLite metadata for the §2′.2 card
+    badges; the gate answers it from the loaded frames. Reuse was rejected — `DataFacts` has no
+    existing-battery fields and its one consumer does not want them, and it would mean a second
+    query for facts the data screen already holds — so the duplication is deliberate and this is
+    what stops it drifting. The THREE roles they share are grid import, grid export and PV.
+
+    **What this does NOT cover, having been measured.** Making the gate demand the T2 registers —
+    the D2 regression — leaves this test green, because T2 is not one of the three shared roles and
+    a missing T2 does not change the answer for any of them. `test_an_absent_t2_register_pair_does
+    _NOT_block` is the only thing standing there. Recorded so a future reader does not mistake this
+    for wider coverage than it has.
+    """
+    client, mod = env
+    _seed(mod)
+    _answers(mod, has_pv=has_pv, has_battery=False)
+    if loaded:
+        mod["dataset"].save_dataset(
+            [_energy(name, 1.0) for name in loaded], _WIN, "test", [], None, "w1"
+        )
+
+    from app import data_screen_view
+
+    missing = data_screen_view.load_gate(set(loaded), has_pv=has_pv, has_battery=False)
+    facts = [s for s in mod["workspaces"].list_summaries() if s.id == "w1"][0].data
+
+    # `DataFacts.loaded` false means every other field is meaningless and left at its default
+    # (its own docstring), so the comparison is only defined when something is loaded.
+    if not facts.loaded:
+        assert not loaded
+        return
+
+    assert facts.grid_consumption is ("grid_import_t1" not in missing)
+    assert facts.grid_production is ("grid_export_t1" not in missing)
+    # `pv_production` folds in the applicability the gate expresses by not requiring the role.
+    assert facts.pv_production is (has_pv and "solar_production" not in missing)
+    assert facts.pv_applicable is has_pv
+
+
+def test_the_blocked_reason_is_dutch_on_a_dutch_page(env):
+    """The whole sentence AND the series names, both translated.
+
+    The names are the point: they come from the view-model as English `ROLE_LABEL` msgids and the
+    template translates each with `_()`, the same way `_data_roster.html` renders `_(row.role)`.
+    Pre-translating them in Python would format them before the request's locale is known, and
+    joining them into the sentence in Python would make it a fragment concatenation — this test is
+    what would catch either, because in English both mistakes are invisible.
+    """
+    client, mod = env
+    _seed(mod)
+    _answers(mod, has_pv=True, has_battery=False)
+
+    reason = _blocked_reason(
+        client.get("/w/w1/data?mode=wizard", headers={"Cookie": "lang=nl"}).text
+    )
+    assert "Solar production" not in reason, f"an English role label leaked: {reason!r}"
+    assert "to continue" not in reason, f"the English sentence leaked: {reason!r}"
+    # The catalog's own Dutch for `solar_production`, read from the compiled translation rather
+    # than written out here, so this cannot drift from what the roster shows.
+    from app.i18n import env_for
+
+    assert env_for("nl").globals["gettext"]("Solar production") in reason, reason
+
+
+def test_the_named_series_use_the_same_strings_as_the_roster_rows(env):
+    """§2′.8's point: "the user is looking at the roster that would fix it".
+
+    A message that named "PV output" beside a roster row saying "Solar production" would send the
+    user looking for a row that is not there. The labels come from the one `ROLE_LABEL` table, and
+    this drives both renderings to check they still do.
+    """
+    from app.data_view import ROLE_LABEL
+
+    client, mod = env
+    _seed(mod)
+    _answers(mod, has_pv=True, has_battery=True)
+
+    html = client.get("/w/w1/data?mode=wizard").text
+    reason = _blocked_reason(html)
+    roster = re.search(r'<table.*?</table>', html, re.S)
+    assert roster is not None, "no roster table to compare against"
+
+    for role in ("grid_import_t1", "grid_export_t1", "solar_production",
+                 "battery_charge", "battery_discharge"):
+        label = ROLE_LABEL[role]
+        assert label in reason, f"{label} not named in the block reason"
+        assert label in roster.group(0), f"{label} is not the roster's word for {role}"

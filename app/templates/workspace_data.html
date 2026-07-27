@@ -36,6 +36,13 @@
   **The dirty check reads `localStorage`, not the form.** §2′.8: "changed" here means a slot
   mapping staged but not yet fetched, and explicitly NOT the two radios. See the script at the
   bottom.
+
+  **`[ Next → ]` states the block, and the SERVER enforces it** (§2′.8, and §2.1's Blocked state).
+  The condition is `data_screen_view.load_gate`, evaluated by the route over the loaded frames;
+  `view.next_blocked` and `view.missing_labels` are what reaches here. The button itself stays
+  live — see the footer's own comment for why a `disabled` one was a trap — and `POST
+  /w/{id}/data` re-checks the same condition, which is the only enforcement there has ever
+  genuinely been (followup L3).
 #}
 {% from "_data_glance.html" import data_glance with context %}
 {% from "_data_household.html" import household_box with context %}
@@ -77,7 +84,23 @@
   </header>
 
   <main class="mx-auto flex max-w-3xl flex-col gap-4 p-4 lg:p-8">
-    <h1 class="text-xl font-semibold">{{ _('Configure data') }}</h1>
+    {# The screen title, with §2′.8's optional step indicator beside it in wizard mode.
+       Suggested rather than specified, and taken up: without it the wizard is indistinguishable
+       from the card path except by two button labels, so a user on step 2 has no way to know a
+       step 3 follows. Plain text rather than a clickable stepper — the steps are not freely
+       navigable (this one is gated), and a stepper whose steps cannot be clicked would be several
+       new affordance states to specify for something the spec calls a suggestion.
+
+       One msgid with two holes, not a literal per step: two literals would sit in the catalog as
+       unrelated entries a translator could word differently. #}
+    <div class="flex items-baseline gap-3">
+      <h1 class="text-xl font-semibold">{{ _('Configure data') }}</h1>
+      {% if view.wizard %}
+      <span class="text-sm text-base-content/60" data-wizard-step>
+        {{ _('Step %(n)s of %(total)s') | interpolate(n=2, total=3) }}
+      </span>
+      {% endif %}
+    </div>
 
     {% if view.save_error %}
     {# The two answers did not reach the disk. Surfaced rather than swallowed: the underlying
@@ -141,12 +164,67 @@
          the footer sit below the roster while the form wraps only the household box.
 
          The left button leaves the screen in both modes, so both carry `data-leave` and are guarded
-         by the dirty check. The right button persists and is not. #}
-    <div class="flex items-center justify-between pt-2" data-footer>
+         by the dirty check. The right button persists and is not.
+
+         **`[ Next → ]` says why the wizard cannot advance, and stays clickable** (§2′.8). Blocked
+         per §2.1, not hidden: the button stays where it is with the reason beside it, naming the
+         missing series rather than saying "load data first", because the roster that would fix it
+         is on the screen above — and naming them with the same msgids the roster rows use, so the
+         sentence and the table cannot word a slot differently.
+
+         **It does NOT carry `disabled`, and that is a fix, not an oversight.** It did, and the
+         result was a trap the user could not get out of. This button is the ONLY submitter of
+         `#data-form`, and the `has_pv` / `has_battery` radios live inside that form. So on the
+         most common first run — appendix A defaults `has_pv` on; the household has no array; the
+         fetched dataset is import + export alone — step 2 rendered blocked on the solar series,
+         the user answered "no, I have no solar", `applySetupGating` hid the solar roster row, and
+         the footer still refused to submit the very answer that would clear the block. There was
+         no in-page way out: `[ Fetch history ]` is itself disabled with nothing staged, and
+         `[ ← Previous ]` is a plain link that discards the radio answer and returns to the same
+         trap. See `changelog/20260726-workspaces-phase5.md`, review finding R1 and the revised D8.
+
+         Keeping it live is not a workaround. `POST /w/{id}/data` persists the household answers
+         FIRST and only then re-checks the gate, re-rendering step 2 when it is unmet — so a click
+         from a genuinely-blocked state records the answers and redraws this screen with a freshly
+         computed message. That is the correct outcome in both directions, and it is exactly what
+         springs the trap.
+
+         The rejected alternative was making `applySetupGating` re-evaluate the footer in the
+         browser. That is a second implementation of `load_gate` in JavaScript — the duplication
+         D1 rejected — and unlike the `DataFacts` overlap it could not be cross-tested against the
+         Python one, so it could drift silently.
+
+         **No `.blocked-control` either.** That class is an opacity dim, and a dimmed-but-clickable
+         control is a contradiction: §2.1's dim means "you cannot use this yet", which is now false
+         of the button. Stacked on daisyUI's `btn:disabled` it also made the label quite faint
+         (review note M3). The reason text beside it is what carries the blocked meaning — which is
+         what §2.1 asks for anyway, since the greying is only ever the signal that adjacent text
+         explains. The `data-next-blocked` wrapper and the reason marker stay: the state is real
+         and still worth naming in the DOM. #}
+    <div class="flex items-center justify-between gap-4 pt-2" data-footer>
       {% if view.wizard %}
       <a class="btn btn-ghost btn-sm" href="/w/{{ workspace_id | urlencode }}/edit?mode=wizard"
          data-leave>{{ _('← Previous') }}</a>
+      {% if view.next_blocked %}
+      {# Nothing here is dimmed. The reason is the whole of the Blocked rendering now, so it is
+         drawn at full strength rather than as a faint aside. #}
+      <div class="flex flex-wrap items-baseline justify-end gap-2" data-next-blocked>
+        {# The names are joined here rather than in Python, and each goes through `_()` the way
+           `_data_roster.html` translates the same label (`_(row.role)`): the view-model carries
+           the English msgid, the template translates it. Building the list server-side would
+           either hand the template pre-translated text — formatted before the request's locale is
+           known — or make the sentence a concatenation of fragments, which is exactly what the
+           project's msgid rule forbids. #}
+        <span class="text-xs text-base-content" data-next-blocked-reason>
+          {%- set names = [] -%}
+          {%- for label in view.missing_labels -%}{{- names.append(_(label)) or "" -}}{%- endfor -%}
+          {{ _('Add %(series)s to continue.') | interpolate(series=names | join(', ')) }}
+        </span>
+        <button type="submit" form="data-form" class="btn btn-primary btn-sm">{{ _('Next →') }}</button>
+      </div>
+      {% else %}
       <button type="submit" form="data-form" class="btn btn-primary btn-sm">{{ _('Next →') }}</button>
+      {% endif %}
       {% else %}
       <a class="btn btn-ghost btn-sm" href="/" data-leave>{{ _('Cancel') }}</a>
       <button type="submit" form="data-form" class="btn btn-primary btn-sm">{{ _('Save') }}</button>

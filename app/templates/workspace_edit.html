@@ -101,7 +101,17 @@
   </header>
 
   <main class="mx-auto flex max-w-3xl flex-col gap-4 p-4 lg:p-8">
-    <h1 class="text-xl font-semibold">{{ _('Edit analysis') }}</h1>
+    {# The screen title, with §2′.8's optional step indicator beside it in wizard mode. Suggested
+       rather than specified, and taken up — see `workspace_data.html`'s copy of this block for the
+       reasoning, and note the msgid is deliberately the SAME one there, with a different `n`. #}
+    <div class="flex items-baseline gap-3">
+      <h1 class="text-xl font-semibold">{{ _('Edit analysis') }}</h1>
+      {% if view.wizard %}
+      <span class="text-sm text-base-content/60" data-wizard-step>
+        {{ _('Step %(n)s of %(total)s') | interpolate(n=1, total=3) }}
+      </span>
+      {% endif %}
+    </div>
 
     <form id="edit-form" method="post"
           action="/w/{{ workspace_id | urlencode }}/edit{% if view.wizard %}?mode=wizard{% endif %}"

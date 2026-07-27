@@ -53,13 +53,86 @@ a fetch is the only thing that bumps the generation and it re-renders the slot s
 afterwards. So the check lives in the template's script, not here, and this module contributes
 nothing to it beyond the fact that the screen renders `source_generation` at all.
 
+## The wizard's step-2 gate
+
+§2′.8 blocks `[ Next → ]` here until §6.3's load reconstruction — `load = imp − exp + pv +
+batt_dis − batt_chg` — is computable, and the blocked button NAMES the missing series rather than
+saying "load data first", because the user is looking at the roster that would fix it.
+
+`load_gate` is that condition and nothing else. It is a pure function over the set of series names
+in the loaded dataset, so the route supplies the names and this module decides — the no-I/O rule,
+and the reason the answer is available to the POST route too, which needs it with nothing rendered.
+
 Main items:
-    data_screen_view(cfg, title, *, wizard, save_error)   the dict `workspace_data.html` renders.
+    LOAD_GATE_ROLES                                       the roles the gate can require, in
+                                                          roster order.
+    load_gate(names, *, has_pv, has_battery)              the missing role names, in roster order.
+    data_screen_view(cfg, title, *, wizard, save_error, missing_for_load)
+                                                          the dict `workspace_data.html` renders.
 """
 
 from __future__ import annotations
 
+from app.data_view import ROLE_LABEL
 from app.domain.simconfig import SimulationConfig
+
+# The roles §2′.8's gate can require, in the order the roster draws them, so a message naming
+# several reads in the same order as the table beside it.
+#
+# **T1 only, and T2 deliberately absent.** §2′.8's parenthetical says "both T1/T2 register pairs",
+# but the code disagrees in three places and the code is right: `series_vocab.SERIES_SLOTS` marks
+# the T2 registers "optional"; `reconcile._combined` folds the two registers so an absent T2
+# contributes zero and the reconstruction succeeds on T1 alone; and `workspaces._data_facts` gates
+# the §2′.2 card badge on T1 with the note that "T1 is §4.1's required slot of each pair, so its
+# presence answers 'is this role filled'". A single-tariff household HAS no T2 register, so
+# requiring it would lock those users out of the wizard permanently behind a message naming a
+# series they cannot supply — the opposite of the gate's purpose. Filed as a spec-wording
+# correction; see `changelog/20260726-workspaces-phase5.md` D2.
+#
+# `price_spot` is deliberately absent for a different reason: §2′.8 says so directly. The spot
+# price is needed for dispatch but not for LOAD, and the gate is "a lower bar than a full run" —
+# step 3 can render the battery-free glance from load alone, and a missing price is something the
+# results screen states in context.
+LOAD_GATE_ROLES: tuple[str, ...] = (
+    "grid_import_t1",
+    "grid_export_t1",
+    "solar_production",
+    "battery_charge",
+    "battery_discharge",
+)
+
+
+def load_gate(
+    names: set[str] | frozenset[str],
+    *,
+    has_pv: bool,
+    has_battery: bool,
+) -> list[str]:
+    """The series §2′.8's gate wants and this dataset does not have, in roster order.
+
+    An empty list means `[ Next → ]` is live. Anything else is the Blocked reason, and the caller
+    renders each name through `ROLE_LABEL` so the message and the roster word a slot identically.
+
+    `names` is the set of series in the LOADED dataset (D1) — the frames the data screen already
+    holds, not `workspaces.DataFacts`, which reads the same question back out of SQLite and does
+    not cover the two existing-battery slots. The two must not disagree about the three roles they
+    share; a test pins that they do not.
+
+    The PV and battery slots are required only when the household declared them. This is not
+    leniency: without the declared PV series the reconstruction attributes the array's output to a
+    house that does not exist, which is check 7's negative-load symptom (§7.3). A household that
+    says it has no array has nothing to attribute, so there is nothing to require.
+
+    There is deliberately no duration test and no window test. §2′.8: "the gate is about which
+    series exist, not how long they run" — §2.4's short-window box already caveats a brief window,
+    and duplicating that judgement here would turn away a user legitimately checking a week.
+    """
+    required = {"grid_import_t1", "grid_export_t1"}
+    if has_pv:
+        required.add("solar_production")
+    if has_battery:
+        required.update(("battery_charge", "battery_discharge"))
+    return [role for role in LOAD_GATE_ROLES if role in required and role not in names]
 
 
 def data_screen_view(
@@ -68,6 +141,7 @@ def data_screen_view(
     *,
     wizard: bool = False,
     save_error: bool = False,
+    missing_for_load: list[str] | None = None,
 ) -> dict:
     """The dict `workspace_data.html` renders (§2′.5). Pure presentation — no I/O, no mutation.
 
@@ -91,7 +165,17 @@ def data_screen_view(
     There is deliberately no `valid` key and no issue list. This screen draws no numeric input and
     no enum the user can put out of range: two booleans cannot fail `validate()`, so there is
     nothing for a blocking-issue path to report and no re-render-with-errors branch to build.
+
+    `missing_for_load` is `load_gate`'s answer — the route computes it, because the gate reads a
+    loaded dataset and this module does no I/O. It becomes `next_blocked` and `missing_labels`, the
+    two keys the footer renders.
+
+    **`next_blocked` is false outside the wizard even when series are missing.** §2′.8 blocks the
+    wizard's forward step, not `[ Save ]`: the card path's save persists two booleans and returns
+    to the list, and greying it because the dataset is incomplete would refuse a save that has
+    nothing to do with the dataset. The `and wizard` here is what keeps the two paths separate.
     """
+    missing = list(missing_for_load or ())
     # Deliberately NOT echoing the two answers: the household box reads `cfg.has_pv` /
     # `cfg.has_battery` off the shared `cfg` context key, exactly as panel ① does, so putting them
     # here too would be a second source for one pair of answers.
@@ -99,4 +183,8 @@ def data_screen_view(
         "title": title,
         "wizard": bool(wizard),
         "save_error": bool(save_error),
+        "next_blocked": bool(wizard and missing),
+        # The msgids, not translated text: the template runs each through `_()`, so the message
+        # and the roster row for the same slot come out of the same catalog entry.
+        "missing_labels": [ROLE_LABEL[role] for role in missing],
     }

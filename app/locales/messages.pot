@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-27 12:23+0200\n"
+"POT-Creation-Date: 2026-07-27 16:41+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -212,6 +212,10 @@ msgid "About the contract types"
 msgstr ""
 
 msgid "About your household"
+msgstr ""
+
+#, python-format
+msgid "Add %(series)s to continue."
 msgstr ""
 
 msgid "Advanced"
@@ -1058,6 +1062,10 @@ msgstr ""
 msgid ""
 "Stays in your browser. It is sent only to your Home Assistant, never to "
 "this app."
+msgstr ""
+
+#, python-format
+msgid "Step %(n)s of %(total)s"
 msgstr ""
 
 msgid "Supplier markup"

@@ -84,6 +84,17 @@ which would mean choosing a `sections` marker for a form that draws no checkbox.
 reason `app/static/ha_fetch.js` needed no change: that file gates on `#slot-roster` and resolves
 everything else by id, so it runs unmodified on the new screen.
 
+**The wizard is a MODE on those screens, not a fourth screen** (phase 5, §2′.8). `POST /workspaces`
+redirects into `/w/{id}/edit?mode=wizard` and `?mode=wizard` threads through both edit and data,
+selecting the `[ ← Previous ] [ Next → ]` footer and a "Step n of 3" label beside the title. The
+results screen has no mode: it is the end of both paths. Step 2's `[ Next → ]` is **Blocked** until
+the house load is reconstructable — grid import/export T1, solar if `has_pv`, the existing
+battery's two series if `has_battery` — with the missing slots named. The condition is
+`data_screen_view.load_gate`, evaluated over the loaded frames. The split is that the CLIENT
+explains and the SERVER enforces: the rendered button stays clickable and says what is missing,
+and `POST /w/{id}/data` persists the household answers then re-checks the gate, re-rendering step
+2 instead of advancing when it is unmet.
+
 **Routes are workspace-scoped** (phase 1). Everything that reads or writes one analysis's data
 lives under `/w/{workspace_id}/…` and resolves its workspace through `deps.get_workspace`
 (specs/08-architecture.md §5.1, §5.5 invariant 2) instead of defaulting to the module constant
@@ -271,20 +282,19 @@ def create_workspace():
     list with analyses they never made — noise rather than damage, unlike the two deletions, but
     prevented by the same one-line dependency, so there is no reason to leave it open.
 
-    **Where it redirects, and why that is temporary.** §2′.2 sends `[ + New analysis ]` into the
-    three-step wizard, which phase 5 builds. Until it exists this redirects to
-    `/w/{id}/results` — the only per-workspace screen phase 2 has, and the one the old single page
-    became, so the new workspace lands somewhere that renders its (appendix-A default)
-    configuration and invites a data load. The alternatives were worse: staying on the list would
-    make the button look like it had done nothing beyond adding a card, and pointing at
-    `/w/{id}/edit` or `/w/{id}/data` would 404 until phases 3 and 4 land.
+    **Where it redirects.** §2′.2 sends `[ + New analysis ]` into §2′.8's three-step wizard, so the
+    destination is step 1 — the edit screen in wizard mode. Not the results screen: a workspace
+    created a moment ago has appendix-A defaults and no data, so results would be an empty screen
+    with no indication of what to do next, and the wizard exists precisely to walk that user
+    through the two screens that fill it in. The mode travels as a query parameter rather than as
+    session state, so the wizard is a property of the URL and a reload of step 1 stays step 1.
 
     The title is `workspaces.DEFAULT_TITLE`, untranslated for the reason stated there: it is
     written to the database once and a stored string cannot follow the user's later language
-    toggle. The user renames it on the edit screen (§2′.4), which phase 3 builds.
+    toggle. The user renames it on step 1, which is the first field there (§2′.4).
     """
     workspace_id = workspaces.create(workspaces.DEFAULT_TITLE)
-    return RedirectResponse(f"/w/{workspace_id}/results", status_code=303)
+    return RedirectResponse(f"/w/{workspace_id}/edit?mode=wizard", status_code=303)
 
 
 @app.post("/w/{workspace_id}/delete", dependencies=[Depends(csrf.require_same_site)])
@@ -564,10 +574,15 @@ def _data_page(
     # empty state would come to show figures for data the user never supplied.
     has_dataset = False
     summary = None
+    # The series the loaded dataset actually holds, for §2′.8's step-2 gate. Empty when nothing
+    # loaded and empty when the load FAILED, which is the right answer in both cases: a page that
+    # could not read the dataset cannot claim the house load is reconstructable from it.
+    series_names: set[str] = set()
     try:
         loaded = dataset.load_latest(ws.id)
         if loaded is not None and loaded.frames:
             has_dataset = True
+            series_names = {f.name for f in loaded.frames}
             ctx["data"] = data_view.panel_data_from(loaded)
             summary = summary_view.data_summary_from(loaded)
     except Exception:  # pragma: no cover - defensive: a corrupt dataset must not break the page
@@ -588,7 +603,17 @@ def _data_page(
     # `data_summary`, which gates only the glance.
     ctx["has_dataset"] = has_dataset
     ctx["view"] = data_screen_view.data_screen_view(
-        cfg, ws.title, wizard=wizard, save_error=save_error
+        cfg,
+        ws.title,
+        wizard=wizard,
+        save_error=save_error,
+        # §2′.8's gate, derived from the frames just loaded rather than from
+        # `workspaces.DataFacts`: the frames are already in hand, and `DataFacts` answers only
+        # three of the five roles (it has no existing-battery fields, and its one consumer — the
+        # §2′.2 card — does not want them). See D1.
+        missing_for_load=data_screen_view.load_gate(
+            series_names, has_pv=bool(cfg.has_pv), has_battery=bool(cfg.has_battery)
+        ),
     )
     return HTMLResponse(
         i18n.env_for(locale).get_template("workspace_data.html").render(**ctx)
@@ -692,6 +717,39 @@ async def save_configure_data(
     # guarantee the code did not have, which is the shape of thing this project keeps finding.
     if has_pv is not None or has_battery is not None:
         workspaces.touch(ws.id)
+
+    # §2′.8's step-2 gate. This is the ONLY enforcement of it — the rendered `[ Next → ]` stays
+    # clickable and merely says what is missing, because a `disabled` one trapped the user on the
+    # commonest first run (review finding R1 in `changelog/20260726-workspaces-phase5.md`: that
+    # button is the only submitter of the form the `has_pv` radio lives in, so blocking it blocked
+    # the answer that would clear the block). Server-side was always where the guarantee had to
+    # live in any case — followup L3 is this project's live example of a crafted POST walking past
+    # a `disabled` attribute into a state no affordance offers. Re-rendering step 2 is the honest
+    # answer: the advance did not happen, so the user stays on the screen that says why, with a
+    # freshly computed message.
+    #
+    # The answers above are persisted FIRST, and since the fix that ordering is load-bearing rather
+    # than merely considerate. §2′.8 makes `[ Next → ]` a save that also advances, and refusing the
+    # advance is not a reason to discard the save. It is also what springs the trap: the `cfg`
+    # reloaded below sees the answers this request just wrote, so a user who says "no, I have no
+    # solar" and clicks Next has that recorded and the gate re-evaluated against it — the click
+    # that could not advance is the click that makes the next one able to.
+    #
+    # Only in the wizard. The card path's `[ Save ]` goes to the list and is not gated: §2′.8
+    # blocks the wizard's forward step, and a save of two booleans has nothing to do with whether
+    # the dataset is complete.
+    if wizard:
+        cfg = simconfig_store.load(ws.id)
+        loaded = None
+        try:
+            loaded = dataset.load_latest(ws.id)
+        except Exception:  # pragma: no cover - defensive, as in `_data_page`
+            loaded = None
+        names = {f.name for f in loaded.frames} if loaded is not None else set()
+        if data_screen_view.load_gate(
+            names, has_pv=bool(cfg.has_pv), has_battery=bool(cfg.has_battery)
+        ):
+            return _data_page(request, ws, wizard=True)
 
     # §2′.8: `[ Save ]` returns to the list; `[ Next → ]` advances to step 3, the results screen,
     # which is where the wizard ends (§2′.6 — that screen has no footer and is the end of both

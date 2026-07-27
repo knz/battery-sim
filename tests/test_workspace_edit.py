@@ -772,3 +772,64 @@ def test_a_stored_topology_approximation_survives_a_save_from_this_screen(env):
     )
     assert r.status_code == 303
     assert mod["simconfig_store"].load("w1").topology.approximated is True
+
+
+# ── §2′.8's step indicator (D4) ───────────────────────────────────────────────────────────────
+
+
+def test_the_step_indicator_is_absent_outside_the_wizard(env):
+    """"Step 1 of 3" is meaningless from a card: there are no other steps to be one of."""
+    client, mod = env
+    _seed(mod)
+    assert "data-wizard-step" not in client.get("/w/w1/edit").text
+
+
+def test_the_step_indicator_says_step_1_of_3_in_the_wizard(env):
+    """§2′.8 leaves the indicator optional; D4 takes it up.
+
+    Without it the wizard is indistinguishable from the card path except by two button labels, so
+    a user has no way to know how much is still ahead. Asserted inside the `data-wizard-step`
+    element rather than as page text — this screen also carries an inline script.
+    """
+    client, mod = env
+    _seed(mod)
+    html = client.get("/w/w1/edit?mode=wizard").text
+    m = re.search(r"<span[^>]*data-wizard-step>(.*?)</span>", html, re.S)
+    assert m is not None, "no step indicator on the wizard's step 1"
+    assert "Step 1 of 3" in m.group(1)
+
+
+def test_the_step_indicator_sits_beside_the_screen_title(env):
+    """§2′.8 places it "beside the screen title", so it must be in that heading row.
+
+    Asserted as adjacency to the <h1> rather than as mere presence: an indicator rendered anywhere
+    on the page would satisfy the test above while reading as an unattached fragment.
+    """
+    client, mod = env
+    _seed(mod)
+    html = client.get("/w/w1/edit?mode=wizard").text
+    m = re.search(r"<h1[^>]*>.*?</h1>\s*(.*?)</div>", html, re.S)
+    assert m is not None
+    assert "data-wizard-step" in m.group(1)
+
+
+def test_the_two_screens_use_the_same_indicator_msgid_with_a_different_number(env):
+    """One catalog entry with two holes, not a literal per step (D7).
+
+    Two literals would sit in the catalog as unrelated entries, so a translator could word "Step 1
+    of 3" and "Step 2 of 3" differently, and a fourth step would need a catalog change rather than
+    a template change. Driven in DUTCH, because that is where a second msgid — or a missing
+    translation — is visible at all; in English an untranslated string is indistinguishable from a
+    translated one.
+    """
+    client, mod = env
+    _seed(mod)
+    step1 = client.get("/w/w1/edit?mode=wizard", headers={"Cookie": "lang=nl"}).text
+    step2 = client.get("/w/w1/data?mode=wizard", headers={"Cookie": "lang=nl"}).text
+
+    one = re.search(r"<span[^>]*data-wizard-step>(.*?)</span>", step1, re.S).group(1).strip()
+    two = re.search(r"<span[^>]*data-wizard-step>(.*?)</span>", step2, re.S).group(1).strip()
+    assert "Step" not in one, f"the Dutch page leaked the English msgid: {one!r}"
+    assert "Step" not in two, f"the Dutch page leaked the English msgid: {two!r}"
+    # Same wording, differing only in the step number — which is what one msgid buys.
+    assert one.replace("1", "#") == two.replace("2", "#"), (one, two)

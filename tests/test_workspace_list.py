@@ -346,22 +346,29 @@ def test_the_card_actions_are_links_not_fetches(env):
 # ── Creating (§2′.2's [ + New analysis ]) ────────────────────────────────────────────────────
 
 def test_creating_a_workspace_redirects_into_it(env):
-    """`POST /workspaces` creates and 303s into the new workspace.
+    """`POST /workspaces` creates and 303s into step 1 of §2′.8's wizard.
 
-    Where it redirects is temporary — §2′.2 sends this button into phase 5's wizard, and until
-    that exists it goes to the only per-workspace screen phase 2 has. What is NOT temporary is
-    the shape: a POST that writes, then a redirect, so a reload of the destination does not create
-    a second workspace.
+    Two properties, and both matter. The shape: a POST that writes, then a redirect, so a reload of
+    the destination does not create a second workspace. And the destination: `[ + New analysis ]`
+    starts the WIZARD, so it is the edit screen in wizard mode — not the results screen, which for
+    a workspace created a moment ago is empty and says nothing about what to do next. Phase 5
+    changed this; the route documented it as a placeholder until then.
+
+    The mode is asserted because it is what makes the destination the wizard rather than a bare
+    edit screen: without it the user lands on step 1 with a `[ Cancel ] [ Save ]` footer and there
+    is no wizard at all.
     """
     client, mod = env
     r = client.post("/workspaces", follow_redirects=False)
     assert r.status_code == 303
 
     location = r.headers["location"]
-    assert re.fullmatch(r"/w/[0-9a-f]{32}/results", location), location
+    assert re.fullmatch(r"/w/[0-9a-f]{32}/edit\?mode=wizard", location), location
     # The row exists and the destination renders, rather than 404ing from `deps.get_workspace`.
     assert len(mod["workspaces"].list_summaries()) == 1
     assert client.get(location).status_code == 200
+    # And it really rendered the wizard: step 1's footer, not the card path's.
+    assert "Next" in client.get(location).text
 
 
 def test_each_create_makes_a_separate_workspace(env):
