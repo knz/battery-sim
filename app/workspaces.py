@@ -15,22 +15,26 @@ about the DATASET (grid consumption / grid production / PV production loaded, th
 window, the size). `WorkspaceSummary` is that card and nothing more, so the route stays thin.
 
 The dataset facts are read from SQLite metadata alone — the `datasets` and `series_meta` rows —
-and never from the `.npz` arrays. A list of N cards must not load N datasets off disk; the
-metadata already records every fact the card states, with one honest caveat:
+and never from the `.npz` arrays. A list of N cards must not load N datasets off disk, and the
+metadata records every fact the card states.
 
-  * **The interval count is derived, not counted, and can be plainly wrong.** It is
-    `window / grid_resolution`, where the grid resolution is taken to be the coarsest native
-    resolution among the energy series, computed here from the stored `resolution_s` columns.
-    §6.2's actual rule (`normalize.choose_grid`) restricts that maximum to the series that COVER
-    the window, and coverage lives in the frames rather than in the metadata, so this cannot
-    apply it. A short auxiliary series therefore drags the reported grid coarser and the count
-    down with it — a 900 s grid series over a two-day window plus a three-hour 3600 s solar
-    series reports 3600 s and 48 intervals where the results screen resolves 900 s and 192, with
-    no gaps and nothing irregular involved. The results screen's count is also different in kind:
-    it reconciles the real indices over a resolved window. The card is not the place to read an
-    exact interval count from, and it costs one query instead of N dataset loads, which is why
-    the trade stands. If it turns out to mislead, the fix is an `n_intervals` column written at
-    save time, not an npz read per card.
+The run's SIZE — the grid resolution and the interval count — is metadata only because it is
+written there deliberately. `dataset.save_dataset` computes it with `normalize.grid_facts`, which
+is the same function the results screen's `grid_report` is built on, and stores it on the
+`datasets` row; this module reads it back. It is a cache of something derivable from the frames,
+and it exists because deriving it HERE, from `series_meta` alone, was wrong in two ways
+(followup I2, closed):
+
+  * The count divided the stored FETCH window, but a run covers only the energy series' coverage
+    intersection. A three-hour auxiliary series beside a two-day meter series put 48 on the card
+    where the run has 3.
+  * The grid was `max(resolution_s)` with no `covers()` test, so an EMPTY energy series carrying
+    a coarse resolution reported a coarser grid than §6.2 selects.
+
+Persisting it rather than teaching this module to redo the computation is the point: there is one
+implementation of "how big is this run", so the card and the results screen cannot drift again.
+Rows written before the columns existed hold NULL and fall back to the old derivation — see
+`_data_facts`, which is also where that fallback's remaining wrongness is stated.
 
 The config badges DO load the config document (`simconfig_store.load`), which is a single small
 JSON read per workspace with no arrays in it — cheap enough that the alternative (denormalising
@@ -126,9 +130,14 @@ class DataFacts:
     applicable" rather than "not loaded", because a deliberate configuration is not a missing
     input (§2′.2).
 
-    `intervals` is DERIVED from `window` and `resolution_s`, not counted — see the module
-    comment. `resolution_s` is None when no covering energy series records a resolution, and
-    `intervals` is then None too rather than guessed.
+    `resolution_s` and `intervals` are the run's size as `normalize.grid_facts` computed it from
+    the frames when the dataset was saved, read back from the `datasets` row — the same pair the
+    results screen shows, not a second derivation of it (followup I2). Both are None when no
+    energy series covers the window: there is no grid, so a count would be an invention.
+
+    Note `intervals` is NOT `window` divided by `resolution_s`. It is measured over the effective
+    window — the energy coverage intersection — which is usually narrower than the advertised
+    `window` this card also shows. A reader who divides the two will not get `intervals` back.
     """
 
     loaded: bool = False
@@ -265,13 +274,13 @@ def touch(workspace_id: str) -> None:
 def _data_facts(conn, workspace_id: str, has_pv: bool) -> DataFacts:
     """The five §2′.2 dataset facts from SQLite metadata alone (module comment).
 
-    Reads the latest dataset's window and its series_meta rows. `loaded` is false when there is
-    no dataset, and also when the dataset carries no series — a dataset row with nothing under
-    it is not something a user can get a result from, so the card should say so rather than show
-    a coverage window over an empty set.
+    Reads the latest dataset's window, its stored run size, and its series_meta rows. `loaded` is
+    false when there is no dataset, and also when the dataset carries no series — a dataset row
+    with nothing under it is not something a user can get a result from, so the card should say so
+    rather than show a coverage window over an empty set.
     """
     row = conn.execute(
-        """SELECT id, window_start, window_end FROM datasets
+        """SELECT id, window_start, window_end, grid_s, n_intervals FROM datasets
            WHERE workspace_id = ? ORDER BY id DESC LIMIT 1""",
         (workspace_id,),
     ).fetchone()
@@ -279,6 +288,7 @@ def _data_facts(conn, workspace_id: str, has_pv: bool) -> DataFacts:
         return DataFacts(pv_applicable=has_pv)
 
     dataset_id, w_start, w_end = int(row[0]), row[1], row[2]
+    stored_grid_s, stored_intervals = row[3], row[4]
     metas = conn.execute(
         "SELECT name, kind, resolution_s FROM series_meta WHERE dataset_id = ?",
         (dataset_id,),
@@ -289,19 +299,32 @@ def _data_facts(conn, workspace_id: str, has_pv: bool) -> DataFacts:
     names = {m[0] for m in metas}
     window = (_parse(w_start), _parse(w_end))
 
-    # §6.2's simulation grid: the COARSEST native resolution among the energy series — a finer
-    # grid would have to invent a within-interval profile for the coarser series and is
-    # forbidden. `choose_grid` applies a `covers(window)` test this cannot: coverage lives in the
-    # frames, not in the metadata. The consequence is that a short series can pull the reported
-    # grid coarser here than the results screen computes; both remain honest about resolution,
-    # and the card is not the place a user reads an exact interval count from.
-    resolutions = [m[2] for m in metas if m[1] == "energy" and m[2] is not None]
-    resolution_s = max(resolutions) if resolutions else None
-
-    intervals = None
-    if resolution_s:
-        span = (window[1] - window[0]).total_seconds()
-        intervals = max(int(span // resolution_s), 0)
+    # §6.2's simulation grid and its interval count, as `normalize.grid_facts` computed them from
+    # the frames at save time (app/dataset.py). Read back rather than re-derived: this function
+    # has metadata, not frames, and the derivation metadata alone supports was wrong in two
+    # separate ways (followup I2, closed) —
+    #
+    #   * it divided the stored FETCH window, where the run covers only the energy series'
+    #     coverage intersection: a three-hour auxiliary series next to a two-day meter series put
+    #     48 on the card against a true 3; and
+    #   * its `max(resolution_s)` had no `covers()` test, so an EMPTY energy series carrying a
+    #     coarse resolution reported a coarser grid than the run uses.
+    #
+    # `grid_s` is NULL only on rows written before the columns existed, and the fallback below is
+    # that old derivation, kept so an existing local DB keeps its card line until its next load.
+    # It is still wrong in the two ways above; it is not worth a frame read per card to improve a
+    # transient state, and a new dataset never lands here.
+    if stored_grid_s is not None:
+        resolution_s, intervals = int(stored_grid_s), (
+            int(stored_intervals) if stored_intervals is not None else None
+        )
+    else:
+        resolutions = [m[2] for m in metas if m[1] == "energy" and m[2] is not None]
+        resolution_s = max(resolutions) if resolutions else None
+        intervals = None
+        if resolution_s:
+            span = (window[1] - window[0]).total_seconds()
+            intervals = max(int(span // resolution_s), 0)
 
     return DataFacts(
         loaded=True,

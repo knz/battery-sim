@@ -594,13 +594,31 @@ in `tests/test_slot_load.py`.
 *Origin:* `20260726-workspaces-phase0.md` finding 9.
 
 **I2. The card's interval count is derived, and can be plainly wrong rather than approximate.**
-`workspaces._data_facts` computes `window / resolution` from `series_meta`, using `max(resolutions)`
-without `choose_grid`'s `covers(window)` filter — so a short auxiliary series drags the reported
-grid coarser. Measured: a 900 s grid series over a two-day window plus a three-hour 3600 s solar
-series reports 3600 s / 48 intervals instead of 900 s / 192. Deliberate, to keep a list of N cards
-from loading N datasets. If it misleads in practice, the fix is a persisted `n_intervals` column on
-`datasets`, not an npz read per card.
+~~`workspaces._data_facts` computes `window / resolution` from `series_meta`, using
+`max(resolutions)` without `choose_grid`'s `covers(window)` filter — so a short auxiliary series
+drags the reported grid coarser. Measured: a 900 s grid series over a two-day window plus a
+three-hour 3600 s solar series reports 3600 s / 48 intervals instead of 900 s / 192.~~ **DONE.**
+
+The symptom was real and the fixture reproduces, but **the diagnosis above was wrong** — recorded
+because it was quoted forward twice before anyone re-ran it. On that fixture the results screen
+resolves **3600 s / 3**, not 900 s / 192: `grid_report` clips to `effective_window` (the energy
+coverage intersection) BEFORE selecting the grid, and once the window is the three-hour overlap the
+solar series does cover it, so 3600 s is correct and the card's *resolution* was right all along.
+The divergence there is entirely the window — stored fetch bounds vs. effective — and the count
+alone (48 vs 3).
+
+The `covers()` filter named above does cause a divergence, but only in one shape found by probing:
+an **empty** energy series carrying a coarse `resolution_s`, which `effective_window` skips and
+`choose_grid` drops but an unfiltered `max()` keeps — 3600 s / 48 against a true 900 s / 192.
+
+Closed as the entry suggested, with `grid_s` and `n_intervals` columns on `datasets` written at
+save time and no npz read per card. Both save paths write them; `upsert_series` reads its sibling
+frames back to recompute, since merging one series can change the size of the whole dataset. The
+part that actually closes it is `normalize.grid_facts`, extracted from `grid_report` so both the
+card and the results screen call one implementation rather than agreeing by inspection. Rows
+predating the columns fall back to the old derivation, so no existing workspace loses its card line.
 *Origin:* `20260726-workspaces-phase0.md` finding 5.
+*Closed by:* `20260728-persist-interval-count.md`.
 
 **I3. `delete` is not atomic across SQLite and the filesystem.** Rows are deleted, then the
 directory is removed with `ignore_errors=True`. A crash between the two, or an unwritable directory,

@@ -76,8 +76,10 @@
         {% if card.data.coverage or card.data.size %}
         <div class="mt-2 flex flex-col gap-0.5 text-base-content/70">
           {% if card.data.coverage %}<span>{{ card.data.coverage }}</span>{% endif %}
-          {# Interval count + simulation grid. Derived from stored metadata rather than counted —
-             see workspaces._data_facts and followup I2 for how far it can be off. #}
+          {# Interval count + simulation grid: the run's real size, computed from the frames at
+             save time and stored on the dataset row (workspaces._data_facts, followup I2). The
+             count is measured over the effective window, so it is NOT the coverage line above
+             divided by the grid — the two lines are not meant to reconcile by arithmetic. #}
           {% if card.data.size %}<span>{{ msg(card.data.size) }}</span>{% endif %}
         </div>
         {% endif %}

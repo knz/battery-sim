@@ -10,8 +10,15 @@ Two homes, mirroring §5.1:
     holding the frame's index/values/quality (and price min/max). Chosen over Parquet to avoid
     a pandas dependency for this increment; the on-disk shape is an implementation detail behind
     load_frames(). Path derives from workspace_id with traversal rejected (§5.5 invariant 4).
-  * **SQLite** — a `datasets` row (window, source, fetched_at) and one `series_meta` row per
-    series (name, kind, resolution_s, path). Reuses app/db.py's connection/data-dir plumbing.
+  * **SQLite** — a `datasets` row (window, source, fetched_at, and the run's size) and one
+    `series_meta` row per series (name, kind, resolution_s, path). Reuses app/db.py's
+    connection/data-dir plumbing.
+
+The run's size — `normalize.grid_facts`' `(grid_s, n_intervals)` — is computed at write time, by
+both save paths, and stored on the `datasets` row. It is derivable from the frames, so persisting
+it is a cache; it exists because the workspace card renders it for a LIST of workspaces and has
+only metadata to work from, and deriving it from `series_meta` alone got it wrong (followup I2).
+Rows written before the columns existed hold NULL and readers fall back to that old derivation.
 
 Multi-user readiness (§5.5): every row carries workspace_id; there is one workspace for now
 (db.WORKSPACE_ID). No module-level mutable state.
@@ -49,6 +56,7 @@ import numpy as np
 
 from app import config, db
 from app.domain.frames import QUALITY_DTYPE, SeriesFrame
+from app.domain.normalize import grid_facts
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS datasets (
@@ -58,7 +66,9 @@ CREATE TABLE IF NOT EXISTS datasets (
     window_start  TEXT    NOT NULL,
     window_end    TEXT    NOT NULL,
     fetched_at    TEXT    NOT NULL,
-    warnings_json TEXT    NOT NULL DEFAULT '[]'
+    warnings_json TEXT    NOT NULL DEFAULT '[]',
+    grid_s        INTEGER,
+    n_intervals   INTEGER
 );
 CREATE TABLE IF NOT EXISTS series_meta (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -97,11 +107,10 @@ class LoadedDataset:
     series_sources: dict[str, str]
 
 
-# Columns added to series_meta after its first release. `CREATE TABLE IF NOT EXISTS` never
-# alters an existing table, so a DB created before these columns existed needs them added. This
-# is a minimal forward migration for a pre-release app (no data to preserve across shapes, but a
-# stale local DB should not crash). Each entry is (column, type); adding an existing column is a
-# no-op we swallow.
+# Columns added to a table after its first release. `CREATE TABLE IF NOT EXISTS` never alters an
+# existing table, so a DB created before these columns existed needs them added. This is a minimal
+# forward migration for a pre-release app (no data to preserve across shapes, but a stale local DB
+# should not crash). Each entry is (column, type); adding an existing column is a no-op we swallow.
 _SERIES_META_ADDED_COLUMNS = (
     ("fine_resolution_s", "INTEGER"),
     ("fine_start", "TEXT"),
@@ -114,6 +123,17 @@ _SERIES_META_ADDED_COLUMNS = (
     # The HA statistic id a series was fetched from (specs §2.2), so a fetched HA slot can render
     # its entity after a reload. NULL for non-HA sources and for pre-stat_id rows.
     ("stat_id", "TEXT"),
+)
+
+# The same, for `datasets`. Both hold what `normalize.grid_facts` returns for this dataset: the
+# simulation grid and the interval count over the effective window (specs §6.2). Persisted rather
+# than re-derived because the workspace card has metadata but not frames, and deriving the pair
+# from metadata alone got both wrong — followup I2, and `grid_facts`' docstring for the two ways.
+# NULL on rows written before these columns existed; `workspaces._data_facts` falls back to the
+# old derivation for those, so an existing local DB keeps its card line until the next load.
+_DATASETS_ADDED_COLUMNS = (
+    ("grid_s", "INTEGER"),
+    ("n_intervals", "INTEGER"),
 )
 
 
@@ -148,11 +168,15 @@ def connect():
 
 
 def _migrate(conn) -> None:
-    """Add any series_meta columns missing from an older local DB (idempotent)."""
-    existing = {r[1] for r in conn.execute("PRAGMA table_info(series_meta)").fetchall()}
-    for column, coltype in _SERIES_META_ADDED_COLUMNS:
-        if column not in existing:
-            conn.execute(f"ALTER TABLE series_meta ADD COLUMN {column} {coltype}")
+    """Add any columns missing from an older local DB, in both tables (idempotent)."""
+    for table, added in (
+        ("series_meta", _SERIES_META_ADDED_COLUMNS),
+        ("datasets", _DATASETS_ADDED_COLUMNS),
+    ):
+        existing = {r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        for column, coltype in added:
+            if column not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {coltype}")
 
 
 def _series_dir(workspace_id: str) -> Path:
@@ -249,6 +273,10 @@ def save_dataset(
     which the existing WS ingest path passes) falls back to the dataset-level `source_type` — so
     the single-source ingest path keeps working unchanged while a mixed-source dataset records
     where each series came from.
+
+    The run's SIZE — `normalize.grid_facts`' grid and interval count — is computed here, where the
+    frames are in hand, and stored on the row. The workspace card reads it back rather than
+    re-deriving it from `series_meta` (followup I2).
     """
     import json
 
@@ -257,11 +285,14 @@ def save_dataset(
     for f in frames:
         _save_frame(_frame_path(workspace_id, f.name), f)
 
+    grid_s, n_intervals = grid_facts(frames, window)
+
     with _connect() as conn:
         cur = conn.execute(
             """INSERT INTO datasets
-               (workspace_id, source_type, window_start, window_end, fetched_at, warnings_json)
-               VALUES (?, ?, ?, ?, ?, ?)""",
+               (workspace_id, source_type, window_start, window_end, fetched_at, warnings_json,
+                grid_s, n_intervals)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 workspace_id,
                 source_type,
@@ -269,6 +300,8 @@ def save_dataset(
                 window[1].isoformat(),
                 now,
                 json.dumps(warnings),
+                grid_s,
+                n_intervals,
             ),
         )
         dataset_id = cur.lastrowid
@@ -309,6 +342,13 @@ def upsert_series(
     per-series coverage that the simulation grid uses is recomputed from the frames' own indices
     at read time (normalize.grid_report, specs §6.2), so a slightly wide window here is harmless.
 
+    **The run's size is recomputed, which costs a read.** `grid_s` / `n_intervals` describe the
+    whole dataset, and merging one series can change both — a short series narrows the coverage
+    intersection the interval count is measured over. So this path reads the sibling `.npz` files
+    back (`_restore_frames`) and recomputes from the merged set, rather than from `frame` alone.
+    That is a handful of small file reads on an action that already did network I/O, and it buys
+    a card that is right immediately after a single-slot load instead of only after a full one.
+
     **Atomicity, and its limit.** The SQL below runs in one transaction (`db.connect`'s `with`
     block): the DELETE of the existing series_meta row and the INSERT of its replacement either
     both land or neither does. That matters because they are a replace — without the rollback, an
@@ -338,11 +378,16 @@ def upsert_series(
             if win is None:
                 win = (datetime.fromtimestamp(0, timezone.utc),) * 2
             now = datetime.now(timezone.utc).isoformat()
+            grid_s, n_intervals = grid_facts([frame], win)
             cur = conn.execute(
                 """INSERT INTO datasets
-                   (workspace_id, source_type, window_start, window_end, fetched_at, warnings_json)
-                   VALUES (?, ?, ?, ?, ?, '[]')""",
-                (workspace_id, source_key, win[0].isoformat(), win[1].isoformat(), now),
+                   (workspace_id, source_type, window_start, window_end, fetched_at,
+                    warnings_json, grid_s, n_intervals)
+                   VALUES (?, ?, ?, ?, ?, '[]', ?, ?)""",
+                (
+                    workspace_id, source_key, win[0].isoformat(), win[1].isoformat(), now,
+                    grid_s, n_intervals,
+                ),
             )
             dataset_id = int(cur.lastrowid)
             _insert_series_meta(conn, dataset_id, workspace_id, frame, source_key)
@@ -356,14 +401,15 @@ def upsert_series(
         )
         _insert_series_meta(conn, dataset_id, workspace_id, frame, source_key)
 
+        final_window = (_as_utc(datetime.fromisoformat(w_start)),
+                        _as_utc(datetime.fromisoformat(w_end)))
         if window is not None:
             # Widen the dataset window to the union of the stored window and the loaded window.
             # Both sides are normalised to tz-aware UTC before comparison: a window stored by an
             # older build (or a naive caller) could be naive, and min()/max() across a naive and
             # an aware datetime raises TypeError. The pipeline holds UTC (specs §4.4), so a naive
             # stored instant is read as UTC.
-            cur_start = _as_utc(datetime.fromisoformat(w_start))
-            cur_end = _as_utc(datetime.fromisoformat(w_end))
+            cur_start, cur_end = final_window
             new_start = min(cur_start, _as_utc(window[0]))
             new_end = max(cur_end, _as_utc(window[1]))
             if (new_start, new_end) != (cur_start, cur_end):
@@ -371,30 +417,45 @@ def upsert_series(
                     "UPDATE datasets SET window_start = ?, window_end = ? WHERE id = ?",
                     (new_start.isoformat(), new_end.isoformat(), dataset_id),
                 )
+            final_window = (new_start, new_end)
+
+        # Recompute the run's size over the FINAL window, from the merged set of frames — the
+        # sibling series read back from disk plus the one just written. Doing it from `frame`
+        # alone would report the size of a one-series dataset; skipping it would leave the row
+        # claiming the size it had before this series changed the coverage intersection. This is
+        # the read the merge path pays for correctness (the alternative was invalidating the
+        # count, which would blank the card until the next full load).
+        siblings, _ = _restore_frames(conn, dataset_id)
+        _store_grid_facts(conn, dataset_id, siblings, final_window)
         return dataset_id
 
 
-def load_latest(workspace_id: str = db.WORKSPACE_ID) -> LoadedDataset | None:
-    """Restore the most recent dataset for a workspace, or None if there is none (specs §3.5)."""
-    import json
+def _restore_frames(
+    conn, dataset_id: int, dataset_source_type: str | None = None
+) -> tuple[list[SeriesFrame], dict[str, str]]:
+    """Every series of `dataset_id` read back from its `.npz`, plus per-series provenance.
 
-    with _connect() as conn:
-        row = conn.execute(
-            """SELECT id, source_type, window_start, window_end, fetched_at, warnings_json
-               FROM datasets WHERE workspace_id = ? ORDER BY id DESC LIMIT 1""",
-            (workspace_id,),
-        ).fetchone()
-        if row is None:
-            return None
-        dataset_id, source_type, w_start, w_end, fetched_at, warnings_json = row
-        metas = conn.execute(
-            """SELECT name, kind, resolution_s, path, fine_resolution_s, fine_start, fine_end,
-                      source_type, stat_id
-               FROM series_meta WHERE dataset_id = ?""",
-            (dataset_id,),
-        ).fetchall()
+    Shared by `load_latest` (restoring a dataset for the app) and `upsert_series` (reading the
+    SIBLING series so it can recompute the run's size after a merge — the merge path holds one
+    frame and must not overwrite the size using it alone).
 
-    frames = []
+    A series whose `.npz` has gone missing is SKIPPED rather than raised on: the row/file split is
+    not atomic (followup I3), and a dataset that lost one file should still restore the rest.
+    `series_sources` falls back to `dataset_source_type` for rows written before per-series
+    provenance existed (specs §2.2). Callers that do not need provenance leave it None, and a
+    series with no source on either level is then OMITTED from the mapping rather than recorded
+    as None. That omission is unreachable from `load_latest` — `datasets.source_type` is NOT NULL,
+    so its fallback always resolves — which is what keeps this refactor behaviour-preserving for
+    the one caller that reads the mapping.
+    """
+    metas = conn.execute(
+        """SELECT name, kind, resolution_s, path, fine_resolution_s, fine_start, fine_end,
+                  source_type, stat_id
+           FROM series_meta WHERE dataset_id = ?""",
+        (dataset_id,),
+    ).fetchall()
+
+    frames: list[SeriesFrame] = []
     series_sources: dict[str, str] = {}
     for name, kind, resolution_s, path, fine_res, fine_start, fine_end, s_source, stat_id in metas:
         p = Path(path)
@@ -410,9 +471,36 @@ def load_latest(workspace_id: str = db.WORKSPACE_ID) -> LoadedDataset | None:
             # can render a fetched HA slot's entity. None for non-HA sources / pre-stat_id rows.
             frame.stat_id = stat_id
             frames.append(frame)
-            # Per-series provenance, falling back to the dataset-level source for rows written
-            # before per-series source_type existed (specs §2.2).
-            series_sources[name] = s_source if s_source is not None else source_type
+            source = s_source if s_source is not None else dataset_source_type
+            if source is not None:
+                series_sources[name] = source
+    return frames, series_sources
+
+
+def _store_grid_facts(conn, dataset_id: int, frames: list[SeriesFrame], window) -> None:
+    """Recompute the run's size for `frames` over `window` and write it onto the dataset row."""
+    grid_s, n_intervals = grid_facts(frames, window)
+    conn.execute(
+        "UPDATE datasets SET grid_s = ?, n_intervals = ? WHERE id = ?",
+        (grid_s, n_intervals, dataset_id),
+    )
+
+
+def load_latest(workspace_id: str = db.WORKSPACE_ID) -> LoadedDataset | None:
+    """Restore the most recent dataset for a workspace, or None if there is none (specs §3.5)."""
+    import json
+
+    with _connect() as conn:
+        row = conn.execute(
+            """SELECT id, source_type, window_start, window_end, fetched_at, warnings_json
+               FROM datasets WHERE workspace_id = ? ORDER BY id DESC LIMIT 1""",
+            (workspace_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        dataset_id, source_type, w_start, w_end, fetched_at, warnings_json = row
+        frames, series_sources = _restore_frames(conn, int(dataset_id), source_type)
+
     return LoadedDataset(
         id=int(dataset_id),
         source_type=source_type,

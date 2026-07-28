@@ -11,6 +11,7 @@ from the same rule the simulation will later use, not a second copy of it.
 
 Main items:
     choose_grid(frames, window)         coarsest covering energy resolution (specs §6.2).
+    grid_facts(frames, window)          (grid_s, intervals) — the run's size, for the card too.
     reconciliation(frame, grid_s)       "exact" | "held" | "averaged" | "undefined".
     PRICE_GRANULARITY_LOST_FACTOR       downsample factor at/above which the ⚠ is raised (§6.2, 3b).
     grid_report(frames, window)         the panel-① granularity/grid view-model.
@@ -77,6 +78,38 @@ def choose_grid(frames: list[SeriesFrame], window: tuple[datetime, datetime]) ->
     return max(resolutions)
 
 
+def grid_facts(
+    frames: list[SeriesFrame], window: tuple[datetime, datetime]
+) -> tuple[int | None, int | None]:
+    """The run's size: `(grid_s, intervals)` over the effective window (specs §6.2).
+
+    The three steps every caller needs together — narrow to `effective_window`, pick the grid on
+    THAT window, count intervals in it. `grid_report` is the panel-① view built on top; this is
+    the same answer without the per-series table, for callers that only need the size.
+
+    It exists because the size was being derived twice. The workspace card
+    (`workspaces._data_facts`) could not call `grid_report` — it has SQLite metadata, not frames —
+    so it re-derived the pair from the stored window and an unfiltered `max(resolution_s)`, and
+    the two answers diverged in both of the ways this function's two steps prevent:
+
+      * **The window.** The stored window is the advertised *fetch* bounds; the run covers the
+        energy series' coverage intersection. A three-hour auxiliary energy series alongside a
+        two-day meter series makes those differ by a factor of 16 — measured, followup I2.
+      * **The grid.** `choose_grid`'s `covers()` test drops a series that spans nothing, which an
+        unfiltered `max()` over `series_meta` keeps — so an EMPTY energy series carrying a coarse
+        resolution pulled the reported grid coarser than the run's.
+
+    The card now persists what this returns at save time (`dataset.save_dataset`) instead of
+    re-deriving it, so there is one implementation of "how big is this run" rather than two.
+
+    Both elements are None when no energy series covers the window — `choose_grid` returning None
+    is "nothing simulatable here", and a count against no grid would be an invention.
+    """
+    window = effective_window(frames, window)
+    grid_s = choose_grid(frames, window)
+    return grid_s, _interval_count(window, grid_s)
+
+
 def reconciliation(frame: SeriesFrame, grid_s: int | None) -> Reconciliation:
     """How `frame` reconciles onto the grid (specs §6.2 table).
 
@@ -130,10 +163,12 @@ def grid_report(frames: list[SeriesFrame], window: tuple[datetime, datetime]) ->
 
     Grid selection runs against the *effective* window (the data's actual coverage overlap),
     not the raw requested bounds, so hourly meter data whose coverage ends an interval short of
-    a wall-clock `now` still yields an hourly grid rather than an undefined one.
+    a wall-clock `now` still yields an hourly grid rather than an undefined one. The grid and the
+    count come from `grid_facts`, which the workspace card also persists through — the two views
+    of "how big is this run" are the same computation, not two that agree by inspection.
     """
     window = effective_window(frames, window)
-    grid_s = choose_grid(frames, window)
+    grid_s, intervals = grid_facts(frames, window)
     series = []
     for f in frames:
         recon = reconciliation(f, grid_s)
@@ -148,7 +183,7 @@ def grid_report(frames: list[SeriesFrame], window: tuple[datetime, datetime]) ->
         )
     return {
         "grid_s": grid_s,
-        "intervals": _interval_count(window, grid_s),
+        "intervals": intervals,
         # The window grid selection actually ran on (data coverage overlap, §6.2), which the
         # panel-① coverage line and day count should reflect rather than the raw fetch bounds.
         "window": {"start": window[0].isoformat(), "end": window[1].isoformat()},

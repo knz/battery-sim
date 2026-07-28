@@ -161,9 +161,10 @@ def _data(summary: WorkspaceSummary) -> dict:
         # English. Both mechanisms already exist for panel ①'s box; this reuses them rather than
         # inventing a third.
         #
-        # `intervals` is None when no covering energy series recorded a resolution — see
-        # `workspaces._data_facts`, and followup I2 on how far it can be off — in which case the
-        # line is omitted rather than guessed at.
+        # `intervals` is None when no energy series covers the window — there is no grid, so the
+        # line is omitted rather than guessed at. Both numbers are the run's real size, stored at
+        # save time by `normalize.grid_facts`; note the count is measured over the effective
+        # window and is NOT this card's coverage span divided by the resolution (followup I2).
         "size": (
             None
             if facts.intervals is None

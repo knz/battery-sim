@@ -256,8 +256,8 @@ def workspace_list(request: Request):
 
     Cheap by construction: `list_summaries` reads the dataset facts from SQLite metadata alone,
     never from the `.npz` arrays, so a list of N cards is one query plus N small JSON config reads
-    rather than N dataset loads. The one honest caveat — a derived interval count that a short
-    auxiliary series can drag off — is in `workspaces._data_facts` and followup I2.
+    rather than N dataset loads. The run size that used to be derived (and wrong) here is now
+    computed at save time and stored on the dataset row — `workspaces._data_facts`, followup I2.
     """
     locale = i18n.resolve_locale(request)
     return HTMLResponse(

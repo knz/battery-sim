@@ -1394,6 +1394,225 @@ def test_the_gate_and_the_cards_data_facts_agree_on_their_shared_roles(env, load
     assert facts.pv_applicable is has_pv
 
 
+# ── The card's run size is the results screen's run size (followup I2) ───────────────────────
+
+
+def _res_energy(name: str, res_s: int, n: int, start: str = "2026-01-01T00:00:00") -> SeriesFrame:
+    """An energy series at an ARBITRARY resolution — `_energy` is fixed hourly.
+
+    The I2 cases turn on two energy series at DIFFERENT resolutions covering different spans, so
+    they need both knobs. Flat values: nothing here reads them.
+    """
+    idx = (
+        np.arange(n).astype("timedelta64[s]") * res_s + np.datetime64(start)
+    ).astype("datetime64[s]")
+    return SeriesFrame(
+        name, "energy", res_s, idx, np.full(n, 1.0), np.zeros(n, dtype=QUALITY_DTYPE)
+    )
+
+
+def _card_facts(mod, workspace_id: str = "w1"):
+    return [s for s in mod["workspaces"].list_summaries() if s.id == workspace_id][0].data
+
+
+# Each case is (label, frames, requested window). The assertion is the same for all of them and
+# is the point of the group: whatever `normalize.grid_report` says the run's grid and interval
+# count are, the card says the same. The first two are the shapes that were MEASURED wrong before
+# the size was persisted (followup I2); the rest guard the ordinary cases against a fix that
+# only works for the pathological ones.
+_SIZE_CASES = [
+    (
+        # I2's own fixture. The stored window is two days, but the three-hour solar series cuts
+        # the effective window to three hours — so the run is 3 intervals where dividing the
+        # stored window by the resolution said 48.
+        "a short auxiliary series narrows the window",
+        [
+            _res_energy("grid_import_t1", 900, 192),
+            _res_energy("solar_production", 3600, 3),
+        ],
+        (datetime(2026, 1, 1, tzinfo=timezone.utc), datetime(2026, 1, 3, tzinfo=timezone.utc)),
+    ),
+    (
+        # The other measured divergence, and the one I2 named as the cause: an EMPTY energy
+        # series carries a coarse `resolution_s` into `max()` but covers nothing, so
+        # `choose_grid` drops it and an unfiltered metadata read did not.
+        "an empty energy series does not coarsen the grid",
+        [
+            _res_energy("grid_import_t1", 900, 192),
+            _res_energy("solar_production", 3600, 0),
+        ],
+        (datetime(2026, 1, 1, tzinfo=timezone.utc), datetime(2026, 1, 3, tzinfo=timezone.utc)),
+    ),
+    (
+        "two series at the same resolution over the same span",
+        [_res_energy("grid_import_t1", 900, 192), _res_energy("grid_export_t1", 900, 192)],
+        (datetime(2026, 1, 1, tzinfo=timezone.utc), datetime(2026, 1, 3, tzinfo=timezone.utc)),
+    ),
+    (
+        "a coarser series that still covers the whole window sets the grid",
+        [_res_energy("grid_import_t1", 900, 192), _res_energy("solar_production", 3600, 48)],
+        (datetime(2026, 1, 1, tzinfo=timezone.utc), datetime(2026, 1, 3, tzinfo=timezone.utc)),
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "frames,window", [c[1:] for c in _SIZE_CASES], ids=[c[0] for c in _SIZE_CASES]
+)
+def test_the_card_reports_the_same_run_size_as_the_results_screen(env, frames, window):
+    """Followup I2: two derivations of "how big is this run" that disagreed.
+
+    The card used to compute the pair from `series_meta` alone — the stored window divided by an
+    unfiltered `max(resolution_s)` — because it has metadata and not frames. That is wrong in the
+    two ways the first two cases pin. `dataset.save_dataset` now stores what `normalize.grid_facts`
+    returns and the card reads it back, so this asserts the two agree rather than asserting a
+    hard-coded number: a change to §6.2's grid rule should move both sides together, and a test
+    against a literal would then fail for the wrong reason.
+
+    The count is asserted NOT to be the naive derivation as well, on the cases where those differ.
+    Without that, an implementation that reverted to dividing the stored window would still pass
+    the agreement check on the ordinary cases and this group would be worth much less.
+    """
+    client, mod = env
+    _seed(mod)
+    _answers(mod, has_pv=True, has_battery=False)
+    mod["dataset"].save_dataset(list(frames), window, "test", [], None, "w1")
+
+    from app.domain import normalize
+
+    report = normalize.grid_report(list(frames), window)
+    facts = _card_facts(mod)
+
+    assert facts.resolution_s == report["grid_s"]
+    assert facts.intervals == report["intervals"]
+
+
+def test_the_interval_count_is_not_the_stored_window_divided_by_the_resolution(env):
+    """The specific defect, stated as its own assertion so the fix cannot silently revert.
+
+    On I2's fixture the naive derivation gives 48 and the run is 3. The test above would catch a
+    revert too, but only by comparing two numbers that both moved; this names the wrong answer.
+    """
+    client, mod = env
+    _seed(mod)
+    _answers(mod, has_pv=True, has_battery=False)
+    window = (datetime(2026, 1, 1, tzinfo=timezone.utc),
+              datetime(2026, 1, 3, tzinfo=timezone.utc))
+    mod["dataset"].save_dataset(
+        [_res_energy("grid_import_t1", 900, 192), _res_energy("solar_production", 3600, 3)],
+        window, "test", [], None, "w1",
+    )
+
+    facts = _card_facts(mod)
+    naive = int((window[1] - window[0]).total_seconds() // facts.resolution_s)
+    assert naive == 48, "the fixture no longer reproduces I2's divergence"
+    assert facts.intervals == 3, facts.intervals
+
+
+def test_merging_one_series_updates_the_stored_run_size(env):
+    """`upsert_series` holds ONE frame, and the size is a property of the whole dataset.
+
+    A spot price attached to an existing energy dataset (§4.3, the slot-first merge) must not
+    leave the row describing the dataset as it was, nor recompute the size from the incoming
+    series alone — which for a price series would mean no energy coverage at all. So that path
+    reads the siblings back and recomputes over the merged set.
+
+    Driven with an ENERGY series, because a price series does not participate in the grid and
+    would leave the size unchanged whether the recompute happened or not — a case that passes for
+    both implementations proves nothing.
+    """
+    client, mod = env
+    _seed(mod)
+    _answers(mod, has_pv=True, has_battery=False)
+    window = (datetime(2026, 1, 1, tzinfo=timezone.utc),
+              datetime(2026, 1, 3, tzinfo=timezone.utc))
+    mod["dataset"].save_dataset(
+        [_res_energy("grid_import_t1", 900, 192)], window, "test", [], None, "w1"
+    )
+    before = _card_facts(mod)
+    assert before.intervals == 192, before.intervals
+
+    # A three-hour solar series narrows the coverage intersection the count is measured over.
+    mod["dataset"].upsert_series(
+        _res_energy("solar_production", 3600, 3), "test", window, "w1"
+    )
+
+    from app.domain import normalize
+
+    merged = [_res_energy("grid_import_t1", 900, 192), _res_energy("solar_production", 3600, 3)]
+    report = normalize.grid_report(merged, window)
+    after = _card_facts(mod)
+    assert after.resolution_s == report["grid_s"]
+    assert after.intervals == report["intervals"]
+    assert after.intervals != before.intervals, "the merge did not update the stored size"
+
+
+def test_a_row_written_before_the_columns_existed_falls_back_to_the_old_derivation(env):
+    """An existing local DB keeps its card line rather than losing the count (the chosen policy).
+
+    Simulated by NULLing the two columns on a saved dataset, which is exactly the state
+    `_migrate`'s `ALTER TABLE` leaves a pre-existing row in. The fallback is the old derivation,
+    so it reproduces the old (wrong) 48 — asserted deliberately: the policy is "no regression for
+    rows we cannot recompute without reading frames", not "right everywhere". A new load
+    overwrites it with the real value, which the first assertion's `before` state pins.
+    """
+    client, mod = env
+    _seed(mod)
+    _answers(mod, has_pv=True, has_battery=False)
+    window = (datetime(2026, 1, 1, tzinfo=timezone.utc),
+              datetime(2026, 1, 3, tzinfo=timezone.utc))
+    mod["dataset"].save_dataset(
+        [_res_energy("grid_import_t1", 900, 192), _res_energy("solar_production", 3600, 3)],
+        window, "test", [], None, "w1",
+    )
+    assert _card_facts(mod).intervals == 3
+
+    with mod["dataset"].connect() as conn:
+        conn.execute("UPDATE datasets SET grid_s = NULL, n_intervals = NULL")
+
+    facts = _card_facts(mod)
+    assert facts.resolution_s == 3600, "the fallback should still report a resolution"
+    assert facts.intervals == 48, "the fallback is the old derivation, wrong and non-blank"
+
+
+def test_the_migration_adds_the_columns_to_a_pre_existing_datasets_table(env):
+    """`CREATE TABLE IF NOT EXISTS` never alters a table, so the ALTER path has to work.
+
+    `datasets` had no migration list before this change — only `series_meta` did — so this pins
+    the half of `_migrate` that is new. The old table is built by hand at the pre-change shape;
+    `connect()` must then bring it forward and a save must succeed against it.
+    """
+    client, mod = env
+    from app import db
+
+    with db.connect() as conn:
+        conn.execute("DROP TABLE IF EXISTS datasets")
+        conn.execute(
+            """CREATE TABLE datasets (
+                   id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                   workspace_id  TEXT    NOT NULL,
+                   source_type   TEXT    NOT NULL,
+                   window_start  TEXT    NOT NULL,
+                   window_end    TEXT    NOT NULL,
+                   fetched_at    TEXT    NOT NULL,
+                   warnings_json TEXT    NOT NULL DEFAULT '[]'
+               )"""
+        )
+
+    with mod["dataset"].connect() as conn:
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(datasets)").fetchall()}
+    assert {"grid_s", "n_intervals"} <= cols, cols
+
+    _seed(mod)
+    _answers(mod, has_pv=False, has_battery=False)
+    mod["dataset"].save_dataset(
+        [_res_energy("grid_import_t1", 900, 192)],
+        (datetime(2026, 1, 1, tzinfo=timezone.utc), datetime(2026, 1, 3, tzinfo=timezone.utc)),
+        "test", [], None, "w1",
+    )
+    assert _card_facts(mod).intervals == 192
+
+
 def test_the_blocked_reason_is_dutch_on_a_dutch_page(env):
     """The whole sentence AND the series names, both translated.
 
