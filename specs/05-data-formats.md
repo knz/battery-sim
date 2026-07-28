@@ -38,7 +38,7 @@ its own series name.
 fills the `_t1` slots and leaves `_t2` empty.
 
 ² Required exactly when the household declares solar PV in the setup band
-([§2.1](02-ux-wireframes.md#the-setup-band), `cfg.has_pv`). The slot is present in the data
+([§2.1](02-ux-wireframes.md#21-overall-layout), `cfg.has_pv`). The slot is present in the data
 step only under that declaration ([§2.2](02-ux-wireframes.md#22-panel--data-input-expanded)).
 A household without PV omits it, and the simulator treats production as zero throughout.
 Supplying the series while declaring no PV, or declaring PV without supplying it, is a
@@ -59,14 +59,14 @@ register is reported as a probable installation or export problem rather than ac
 silently — see [§6.4](09-ingest-algorithms.md#64-tariff-registers--availability-identification-and-use).
 
 ⁵ Never required. The min/max slots are *offered* in the data step only when the household
-enables cost simulation in the setup band ([§2.1](02-ux-wireframes.md#the-setup-band),
+enables cost simulation on the results screen ([§2′.7](20-workspaces-ux.md#27-where-the-setup-bands-questions-went),
 `cfg.simulate_cost`), since the bracketing they feed qualifies a euro figure and has no
 meaning in an energy-only run. With cost simulation off the slots are absent from the data
 step; with it on they appear as optional. Supplying them is always optional even then.
 
 ⁶ Never required. The two existing-battery slots are *offered* in the data step only when the
 household declares an existing battery in the setup band
-([§2.1](02-ux-wireframes.md#the-setup-band), `cfg.has_battery`); with the answer off they are
+([§2.1](02-ux-wireframes.md#21-overall-layout), `cfg.has_battery`); with the answer off they are
 absent from the roster, with it on they appear as optional. They exist solely so
 [§6.3](09-ingest-algorithms.md#63-household-load-reconstruction) can strip a battery the
 household already owns from the reconstructed load. They say nothing about the battery being

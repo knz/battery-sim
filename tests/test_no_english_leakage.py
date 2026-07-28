@@ -15,6 +15,14 @@ Scope note. `GET /` renders panel ③ from the sample view-model, which understa
 the live figures come from `POST /results` and `POST /results/benchmark`, and those are where the
 runtime strings are built. All three are exercised here for that reason.
 
+Second scope note (`followups.md` J3). The scenario renders below are all DEFAULT renders: a
+stored dataset and a stored config, fetched with GET (or a valid POST). A screen's error and
+edge states — an off-list connection, a blocking submission, a failed write, a blocked wizard
+step — carry prose that no default render reaches, so the scan saw none of it. Those are covered
+by `_ERROR_RENDERS` further down, which is a separate axis from the scenarios: the strings depend
+on the SUBMISSION and on a small forced config, not on which dataset is stored, so running them
+once is the whole coverage rather than once per scenario.
+
 The allowlist is the point of maintenance: when this test fails, the fix is normally to translate
 the string, and only occasionally to add a token here. Adding a whole sentence to the allowlist
 defeats the test.
@@ -144,6 +152,26 @@ def _visible_text(html: str) -> str:
     html = re.sub(r"<style.*?</style>", " ", html, flags=re.S)
     html = re.sub(r"<[^>]+>", " ", html)
     return re.sub(r"[ \t]+", " ", html)
+
+
+def _english_offenders(text: str) -> list[tuple[list[str], str]]:
+    """Lines that read as English prose, as (markers, line) pairs.
+
+    Extracted from `test_no_english_prose_survives_on_a_dutch_page` when the error-state renders
+    below became a third caller. The threshold is one shared rule on purpose: three copies of it
+    would be three thresholds, free to drift apart, and a surface scanned under a looser rule than
+    the others is a gap that looks like coverage.
+    """
+    offenders = []
+    for line in text.split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        words = [w for w in re.findall(r"[A-Za-z]+", line.lower()) if w not in ALLOWED_TOKENS]
+        hits = [w for w in words if w in ENGLISH_MARKERS]
+        if len(hits) >= 2:
+            offenders.append((sorted(set(hits)), line[:160]))
+    return offenders
 
 
 def _frames_and_config(scenario: str):
@@ -384,15 +412,7 @@ def test_no_english_prose_survives_on_a_dutch_page(rendered, scenario, page):
     Two or more closed-class English markers in one line is the threshold — one can be a Dutch
     homograph ("in", "over", "was"), but two together is a sentence someone forgot to translate.
     """
-    offenders = []
-    for line in rendered[scenario][page].split("\n"):
-        line = line.strip()
-        if not line:
-            continue
-        words = [w for w in re.findall(r"[A-Za-z]+", line.lower()) if w not in ALLOWED_TOKENS]
-        hits = [w for w in words if w in ENGLISH_MARKERS]
-        if len(hits) >= 2:
-            offenders.append((sorted(set(hits)), line[:160]))
+    offenders = _english_offenders(rendered[scenario][page])
     assert not offenders, (
         f"untranslated English prose on a Dutch page ({scenario}{page}):\n"
         + "\n".join(f"  {h}: {t}" for h, t in offenders)
@@ -641,18 +661,264 @@ def test_validation_messages_are_dutch(code, tmp_path, monkeypatch):
     r = client.post(w("/params"), data=_params_form(**_ISSUE_TRIGGERS[code]),
                     headers={"Cookie": "lang=nl"})
     assert r.status_code in (200, 422), f"{code}: POST /params returned {r.status_code}"
-    text = _visible_text(r.text)
 
-    offenders = []
-    for line in text.split("\n"):
-        line = line.strip()
-        if not line:
-            continue
-        words = [w for w in re.findall(r"[A-Za-z]+", line.lower()) if w not in ALLOWED_TOKENS]
-        hits = [w for w in words if w in ENGLISH_MARKERS]
-        if len(hits) >= 2:
-            offenders.append((sorted(set(hits)), line[:160]))
+    offenders = _english_offenders(_visible_text(r.text))
     assert not offenders, (
         f"untranslated English in the panel-② error state for {code!r}:\n"
         + "\n".join(f"  {h}: {t}" for h, t in offenders)
     )
+
+
+# ── The error and edge states (`followups.md` J3) ─────────────────────────────────────────────
+#
+# Everything above renders a screen in its ORDINARY state: a stored config, a stored dataset,
+# fetched with GET. Several surfaces only exist on the way OUT of a bad submission or an
+# unusual stored value, and none of them were being scanned:
+#
+#   * the edit screen's off-list connection label — the extra `<select>` entry §2′.4 emits when
+#     the stored phases/fuse pair matches no preset, marked in its own words;
+#   * the edit screen's INLINE field errors — `field()`'s `errors` list, beside the input;
+#   * the edit screen's page-level `other_errors` alert — a blocking issue keyed outside
+#     `EDITED_FIELDS`, which this screen has no input for and so surfaces at page level;
+#   * both screens' `save_error` banner — the config validated but could not be written;
+#   * panel ②'s `hidden_errors` alert (phase 4.2) — a blocking error for a field inside the
+#     advanced pane, lifted out of the pane because the pane may be closed;
+#   * the wizard's blocked step-2 reason (phase 5) — "Add %(series)s to continue." interpolating
+#     a JOINED list of translated role labels, which is the shape that leaks most easily: the
+#     sentence is translated, the names are translated, and the join is done in the template.
+#
+# **This is a separate axis from the scenarios above, not another page in `_PAGES`.** What these
+# renders say depends on the SUBMISSION and on a small forced config, not on which dataset is
+# stored — so running each once is the whole of the coverage, while running them across all seven
+# scenarios would multiply the cost by seven for the same strings. They are rendered in one
+# fixture for the same reason `rendered` exists: one data dir, one reload chain, one pass.
+#
+# `save_error` is reached by making `simconfig_store.save` (resp. the data screen's write) raise
+# `OSError`. That is the real trigger — a read-only or full data directory — and there is no other
+# way in: the routes catch nothing else, so a test that faked the flag would be asserting on the
+# view-model rather than on the route that sets it.
+
+
+def _edit_form(**over) -> dict:
+    """A complete edit-screen submission, valid unless an override breaks it.
+
+    Duplicated from `tests/test_workspace_edit.py::_form` rather than imported: that helper is
+    pinned there against the rendered markup by its own test, and importing it would couple this
+    file to a fixture whose contract is about a different property. The overlap is a form body,
+    which is data, not behaviour.
+    """
+    body = {
+        "sections": "grid pricing_advanced",
+        "title": "Ons huis",
+        "postcode": "",
+        "grid.connection": "1:25",
+        "grid.max_import_kw_override": "",
+        "grid.max_export_kw": "",
+        "pricing.contract": "dynamic",
+        "pricing.supplier_markup": "0.0205",
+        "pricing.energy_tax_excl_vat": "0.09161",
+        "pricing.vat_rate": "21",
+        "pricing.feedin_alpha": "0.50",
+        "pricing.feedin_beta": "0.0000",
+        "pricing.tlk_eur_per_kwh": "0.0400",
+        "pricing.dal_start_hour": "23",
+        "pricing.dal_end_hour": "7",
+        "pricing.degradation_eur_per_kwh": "0.0000",
+    }
+    body.update(over)
+    return body
+
+
+# What each error render must actually put on the page, as a Dutch marker. Same role as
+# `_SCENARIO_MARKERS`: without it, a route that stopped taking the branch — a check removed, a
+# banner made conditional — would leave the scan below passing against an ordinary render and
+# quietly covering nothing, which is H13's failure mode in yet another form.
+#
+# Markers are short and structural, and each names the branch it stands for.
+_ERROR_MARKERS = {
+    # §2′.4's extra `<select>` entry for a stored pair matching no preset. The marker is the
+    # words that MARK it as off-list, not the figures — a preset row renders figures too.
+    "edit_off_list_connection": ["je opgeslagen instelling"],
+    # `field()`'s inline `errors`, beside the input that carries them.
+    "edit_inline_field_error": ["Voer een getal in"],
+    # A blocking issue keyed outside `EDITED_FIELDS`, surfaced at page level.
+    "edit_other_errors": ["bruikbare capaciteit"],
+    # The edit screen's write-failed banner.
+    "edit_save_error": ["Deze instellingen konden niet worden opgeslagen"],
+    # The configure-data screen's write-failed banner (same condition, its own copy).
+    "data_save_error": ["Deze antwoorden konden niet worden opgeslagen"],
+    # Phase 4.2's alert ABOVE the advanced pane, for a blocking error drawn inside it.
+    "results_hidden_errors": ["laadvermogen", "groter dan nul"],
+    # Phase 5's blocked step 2, whose sentence interpolates a joined list of role labels.
+    "data_blocked_next": ["om verder te gaan", "Netafname T1"],
+}
+
+
+@pytest.fixture(scope="module")
+def error_renders():
+    """Each error/edge state rendered in Dutch, as visible text. {name: text}.
+
+    Module-scoped and built in one pass for the same reason `rendered` is: the reload chain and
+    the seeding are the cost, and the two scan tests below are parametrized over the result.
+    """
+    out: dict[str, str] = {}
+    hdr = {"Cookie": "lang=nl"}
+    prev = os.environ.get("BATTERY_SIM_DATA_DIR")
+
+    with tempfile.TemporaryDirectory() as root:
+        os.environ["BATTERY_SIM_DATA_DIR"] = root
+
+        import app.config as config
+        importlib.reload(config)
+        import app.db as db
+        importlib.reload(db)
+        import app.dataset as dataset
+        importlib.reload(dataset)
+        import app.simconfig_store as simconfig_store
+        importlib.reload(simconfig_store)
+        import app.workspaces as workspaces
+        importlib.reload(workspaces)
+
+        seed_workspace(title="Ons huis")
+
+        from app.domain.simconfig import SimulationConfig
+
+        import app.main as main
+        importlib.reload(main)
+        client = TestClient(main.app)
+
+        edit_url = page().replace("/results", "/edit")
+        data_url = page().replace("/results", "/data")
+
+        def visible(r, name: str) -> str:
+            assert r.status_code == 200, (
+                f"{name}: got {r.status_code}, so this error state was not rendered and the scan "
+                f"below covers nothing. A 303 here means the route SUCCEEDED — the condition this "
+                f"render depends on is no longer being reached."
+            )
+            return _visible_text(r.text)
+
+        # 1. Off-list connection. A 1×20 A pair is not among §2′.4's ten presets, so the dropdown
+        #    grows its own marked entry. Reached through the STORED config, not a submission —
+        #    `parse_connection` only accepts listed values, so this state cannot be posted into.
+        cfg = SimulationConfig()
+        cfg.grid.phases = 1
+        cfg.grid.fuse_a = 20.0
+        simconfig_store.save(cfg)
+        out["edit_off_list_connection"] = visible(
+            client.get(edit_url, headers=hdr), "edit_off_list_connection"
+        )
+
+        # 2. An inline field error: an unparseable override on a field this screen DOES draw, so
+        #    the message lands beside the input rather than at page level.
+        simconfig_store.save(SimulationConfig())
+        out["edit_inline_field_error"] = visible(
+            client.post(
+                edit_url,
+                data=_edit_form(**{"grid.max_import_kw_override": "abc"}),
+                headers=hdr,
+            ),
+            "edit_inline_field_error",
+        )
+
+        # 3. `other_errors`: a blocking issue on a field this screen has NO input for. Forced
+        #    through the stored config — the capacity is inherited, not submitted, so a valid
+        #    submission still comes back blocked, which is exactly the case the alert exists for.
+        cfg = SimulationConfig()
+        cfg.battery.usable_capacity_kwh = 0.0
+        simconfig_store.save(cfg)
+        out["edit_other_errors"] = visible(
+            client.post(edit_url, data=_edit_form(), headers=hdr), "edit_other_errors"
+        )
+        simconfig_store.save(SimulationConfig())
+
+        # 4/5. Both save-error banners. The config validates and the write then fails, which is
+        #      the only way either route sets the flag.
+        def _raise(*a, **kw):
+            raise OSError("read-only data directory")
+
+        real_save = main.simconfig_store.save
+        try:
+            main.simconfig_store.save = _raise
+            out["edit_save_error"] = visible(
+                client.post(edit_url, data=_edit_form(), headers=hdr), "edit_save_error"
+            )
+            out["data_save_error"] = visible(
+                client.post(
+                    data_url,
+                    data={"setup_haspv": "1", "setup_hasbattery": "0"},
+                    headers=hdr,
+                ),
+                "data_save_error",
+            )
+        finally:
+            main.simconfig_store.save = real_save
+
+        # 6. Phase 4.2's `hidden_errors`. A blocking error on an ADVANCED-pane field, whose inline
+        #    message may sit inside a closed `<details>` — so it is repeated in an alert above.
+        #    Posted to panel ②, which is the screen that draws that pane.
+        out["results_hidden_errors"] = visible(
+            client.post(
+                w("/params"),
+                data=_params_form(**{"battery.max_charge_kw": "0"}),
+                headers=hdr,
+            ),
+            "results_hidden_errors",
+        )
+
+        # 7. Phase 5's blocked step 2. No dataset was ever saved under this data dir, so every
+        #    applicable slot is missing and the reason names all of them — including the joined,
+        #    interpolated list of translated role labels.
+        out["data_blocked_next"] = visible(
+            client.get(f"{data_url}?mode=wizard", headers=hdr), "data_blocked_next"
+        )
+
+    if prev is None:
+        os.environ.pop("BATTERY_SIM_DATA_DIR", None)
+    else:
+        os.environ["BATTERY_SIM_DATA_DIR"] = prev
+    return out
+
+
+_ERROR_RENDERS = sorted(_ERROR_MARKERS)
+
+
+@pytest.mark.parametrize("name", _ERROR_RENDERS)
+def test_no_forbidden_english_fragment_in_an_error_state(error_renders, name):
+    """The named-regression check, applied to the error states J3 found unscanned."""
+    text = error_renders[name]
+    found = sorted({f for f in FORBIDDEN_FRAGMENTS if f in text})
+    assert not found, f"{name} still renders English fragments in Dutch: {found}"
+
+
+@pytest.mark.parametrize("name", _ERROR_RENDERS)
+def test_no_english_prose_survives_in_an_error_state(error_renders, name):
+    """The open-ended check, on the same states — same threshold as the default renders.
+
+    This is J3's actual point. All seven surfaces below were hand-checked in Dutch when they were
+    built and were translated then, so this is not expected to find a live leak; it exists so that
+    a later edit to one of these paths cannot ship English unnoticed, which a scan that only ever
+    sees default renders would allow.
+    """
+    offenders = _english_offenders(error_renders[name])
+    assert not offenders, (
+        f"untranslated English prose in the {name!r} error state:\n"
+        + "\n".join(f"  {h}: {t}" for h, t in offenders)
+    )
+
+
+@pytest.mark.parametrize("name", _ERROR_RENDERS)
+def test_each_error_render_still_reaches_its_branch(error_renders, name):
+    """Every error render must still put the surface it was built for on the page.
+
+    Without this the scan above passes against an ordinary render that took the success path — a
+    check removed, a banner made conditional, a route that started redirecting. The `status_code`
+    assertion in the fixture catches a redirect; this catches the subtler case where the render
+    happened and the branch inside it did not.
+    """
+    text = error_renders[name]
+    for marker in _ERROR_MARKERS[name]:
+        assert marker in text, (
+            f"the {name!r} render no longer contains {marker!r}, so the surface it exists to "
+            f"scan is not being reached"
+        )

@@ -800,6 +800,71 @@ def test_the_cost_tint_actually_renders_and_is_not_merely_a_class_name(page, bas
     )
 
 
+def test_the_blocked_cost_toggle_reads_as_blocked_and_its_way_out_resolves(browser, base_url):
+    """§2′.6's Blocked cost toggle, as a user SEES it, and the link that clears it.
+
+    `test_the_cost_tint_actually_renders_and_is_not_merely_a_class_name` above already drives the
+    Blocked→live transition, but it asserts the blocked half through `is_disabled()` alone — an
+    ATTRIBUTE. §2.1's Blocked state is "greyed, with an adjacent affordance saying how to clear the
+    precondition", and neither half of that is an attribute:
+
+      * the greying is `.blocked-control { opacity: 0.55 }`, which is exactly the kind of rule this
+        file has already watched fail silently. The tint next to it in `app.tailwind.css` parsed,
+        shipped and rendered nothing because daisyUI restated the same property in a later cascade
+        layer, while every class-name assertion passed. `.blocked-control` compiles unlayered today
+        and so should win, but "should win" is what was believed about the tint too, so the dim is
+        measured on COMPUTED opacity rather than inferred from the class being present.
+      * the affordance is a LINK to the edit screen's Contract box. The test above asserts it is
+        visible; visible is not the same as working. A dialog whose only action is a dead link
+        leaves the user exactly where §2′.6 says they must not be — able to see that something
+        blocks them and unable to reach what clears it. So it is followed, and the destination is
+        asserted to be the Contract box on the edit screen.
+
+    Its own workspace and its own context: `pricing_configured` is a stored flag and the module's
+    shared workspace has it SET by the time the tint test has run, so this would otherwise pass or
+    fail depending on test order.
+    """
+    url = _workspace_url(base_url)
+    workspace_id = url.rstrip("/").split("/")[-2]
+
+    context = browser.new_context()
+    context.add_cookies([{"name": "lang", "value": "en", "url": base_url}])
+    pg = context.new_page()
+    pg.goto(url, wait_until="networkidle")
+
+    row = pg.locator("#setup-simulate-cost")
+    # Blocked, not Inapplicable: still on screen. Hiding it is the wrong rendering.
+    assert row.is_visible(), "the Blocked cost toggle must stay on screen"
+    assert row.get_attribute("data-blocked") == "1", "this workspace should have no contract yet"
+    assert pg.locator("#setup-simulate-cost input[value='yes']").is_disabled()
+
+    # Dimmed, measured rather than assumed. The comparison is against a sibling label on the same
+    # screen, so this does not pin the specific opacity — a design choice — only that the row
+    # renders FAINTER than untinted copy, which is what "greyed" means to a reader.
+    dim = float(row.evaluate("e => getComputedStyle(e).opacity"))
+    assert 0.2 < dim < 0.9, (
+        f"the Blocked row renders at opacity {dim} — .blocked-control is not taking effect, most "
+        "likely overridden by a later cascade layer (the hazard the cost tint hit)"
+    )
+
+    # The affordance, followed. `[ Set up my contract → ]` must land on the edit screen with the
+    # Contract box in view — the `#contract` anchor §2′.6 names.
+    pg.locator("#cost-blocked-info").click()
+    dialog = pg.locator("#cost-blocked-dialog")
+    assert dialog.is_visible()
+    link = dialog.get_by_role("link", name="Set up my contract")
+    assert link.is_visible()
+    link.click()
+    pg.wait_for_load_state("networkidle")
+    assert f"/w/{workspace_id}/edit" in pg.url, f"the way out must reach the edit screen: {pg.url}"
+    assert pg.url.endswith("#contract"), f"and land on the Contract box: {pg.url}"
+    # The anchor is real, not just a fragment in a URL — a dead anchor scrolls nowhere.
+    target = pg.locator("#contract")
+    assert target.count() == 1, "the edit screen has no #contract anchor to land on"
+    assert target.is_visible()
+    context.close()
+
+
 # ── The workspace list (specs/20-workspaces-ux.md §2′.2, §2′.3) ──────────────────────────────
 #
 # Phase 2's new screen, driven in a real browser rather than only through route tests. The reason

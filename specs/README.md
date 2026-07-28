@@ -81,9 +81,9 @@ These apply to every file in this package and are not restated in full elsewhere
 | File | Contents | Primary audience |
 |---|---|---|
 | [01-product-brief.md](01-product-brief.md) | Purpose, target user, regulatory regime, scope, success criteria, design principles | Everyone |
-| [02-ux-wireframes.md](02-ux-wireframes.md) | Overall layout, the four availability states, and the three panels: data, parameters, results | Frontend |
+| [02-ux-wireframes.md](02-ux-wireframes.md) | The availability states and the pending affordance; the box-level contents of the data, parameter and results surfaces. §2.1's layout is superseded by 20 | Frontend |
 | [03-topology-selector.md](03-topology-selector.md) | Illustrated PV-coupling and battery-phase selectors, soft block, SVG asset requirements | Frontend |
-| [04-state-machine.md](04-state-machine.md) | Session states, events, run identity, panel focus, persistence points | Frontend + backend |
+| [04-state-machine.md](04-state-machine.md) | Session states (per workspace), events, run identity, what must stay visible together, persistence points | Frontend + backend |
 | [05-data-formats.md](05-data-formats.md) | The series vocabulary, the per-series CSV file format, `kind` semantics, per-slot validation | Backend, integrators |
 | [06-home-assistant-ingestion.md](06-home-assistant-ingestion.md) | WebSocket statistics API, fetch strategy, which columns exist per `state_class` | Backend |
 | [07-internal-representation.md](07-internal-representation.md) | `SeriesFrame`, `SimulationFrame`, result JSON, per-interval CSV export | Backend |
@@ -99,7 +99,7 @@ These apply to every file in this package and are not restated in full elsewhere
 | [17-open-questions.md](17-open-questions.md) | Decisions still owed by the product owner | Product owner |
 | [18-dutch-electricity-background.md](18-dutch-electricity-background.md) | Domain background: what the meter measures, how the bill is built, salderen and the 2027 regime, what is still unknown | Everyone; essential if the Dutch regime is unfamiliar |
 | [19-prototype-experiments.md](19-prototype-experiments.md) | Measurements to run once a prototype exists: which parameters, policies and diagnostics actually change the answer | Product owner, backend |
-| [20-workspaces-ux.md](20-workspaces-ux.md) | **Draft.** Multi-workspace restructure: the workspace list, the three per-workspace screens, the new-analysis wizard. Supersedes §2.1's single-page stepper; §2.2–§2.4's box contents are unchanged | Frontend, product owner |
+| [20-workspaces-ux.md](20-workspaces-ux.md) | Screen structure: the workspace list, the three per-workspace screens, the new-analysis wizard. Supersedes §2.1's single-page stepper and its setup band; §2.2–§2.4's box contents are unchanged | Frontend, product owner |
 | [appendix-a-defaults.md](appendix-a-defaults.md) | Every default parameter value with its rationale | Everyone |
 | [appendix-b-glossary.md](appendix-b-glossary.md) | Dutch energy terminology and abbreviations | Everyone |
 | [implementation-progress.md](implementation-progress.md) | Living build record: which controls are pending and their feature keys (not a spec) | Implementers |
@@ -116,6 +116,7 @@ headings because the text cross-references them heavily. Use this table to resol
 |---|---|---|
 | §1 | Product brief | [01-product-brief.md](01-product-brief.md) |
 | §2.1–2.4 | UX wireframes | [02-ux-wireframes.md](02-ux-wireframes.md) |
+| §2′.1–2′.11 | Workspaces — screen structure | [20-workspaces-ux.md](20-workspaces-ux.md) |
 | §2.5 | Topology selector | [03-topology-selector.md](03-topology-selector.md) |
 | §3 | Application state machine | [04-state-machine.md](04-state-machine.md) |
 | §4.1–4.2 | CSV formats | [05-data-formats.md](05-data-formats.md) |

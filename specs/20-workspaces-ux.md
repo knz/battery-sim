@@ -3,13 +3,21 @@
 > **Purpose:** the multi-workspace restructure of the UI: the workspace list, the three
 > per-workspace screens, and the flows between them.
 > **Audience:** frontend, with a backend note at the end.
-> **Status:** **draft for iteration.** This proposes a replacement for
-> [§2.1](02-ux-wireframes.md#21-overall-layout)'s single-page stepper. Everything §2.2–§2.4
-> says about the *contents* of the data, parameter and results surfaces still holds and is
-> referenced rather than restated; what changes is how those surfaces are reached, and which
-> of them a given control lives on.
+> **Status:** **specification.** This section supersedes
+> [§2.1](02-ux-wireframes.md#21-overall-layout)'s single-page stepper and its setup band,
+> which §2.1 now defers to rather than describing. Everything §2.2–§2.4 says about the
+> *contents* of the data, parameter and results surfaces still holds and is referenced
+> rather than restated; what changes is how those surfaces are reached, and which of them a
+> given control lives on.
 > **Read with:** [02-ux-wireframes.md](02-ux-wireframes.md) for the box-level detail of each
 > surface, [04-state-machine.md](04-state-machine.md) for the session states this reorganises.
+
+This document was written as a proposal and adopted as written. The §2′.N numbering is kept
+rather than folded into §2's sequence because it is cited by section number from 35 places in
+`app/` and `tests/`, which a renumber would all have to follow. A secondary consideration: the
+prime is stripped from generated anchors, so a merged file would carry two families of sections
+sharing `22-`/`24-` prefixes and differing only by title. That is a readability cost, not a
+collision — checked against the real headings, every anchor stays distinct.
 
 **Nothing in this document changes any computation or the data model.** The simulation core,
 the pricing package, the metrics and the persisted `SimulationConfig` are untouched. The
@@ -48,7 +56,7 @@ A workspace owns:
 the screens they shape: `has_pv` and `has_battery` decide panel ①'s slot roster and stay with
 it; `simulate_cost` decides which result sections exist and moves to the results screen. The
 rule is proximity — each shape question sits on the surface it reshapes, where the user can
-see the effect of flipping it. See [§2′.7](#2′7-where-the-setup-bands-questions-went).
+see the effect of flipping it. See [§2′.7](#27-where-the-setup-bands-questions-went).
 
 ---
 
@@ -113,7 +121,7 @@ updated first**.
 Three, in fixed order, derived from the config — never typed:
 
 - **Connection** — `phases × fuse_a` rendered `1×25 A`, `3×63 A`. From `GridConfig`; the same
-  two fields the dropdown in [§2′.4](#2′4-edit-workspace) sets.
+  two fields the dropdown in [§2′.4](#24-edit-workspace) sets.
 - **Contract** — `DYNAMIC`, `VARIABLE` or `FIXED`, the enum value verbatim. §2.3's rule that
   "label and enum do not diverge" applies here too.
 - **Last saved** — the config document's `updated_at`, in Europe/Amsterdam.
@@ -158,9 +166,9 @@ different facts and the card should not report a deliberate configuration as a m
 
 | Button | Leads to | Present when |
 |---|---|---|
-| `[ Results ]` | [§2′.6](#2′6-results) | data is loaded |
-| `[ Configure data ]` | [§2′.5](#2′5-configure-data) | always |
-| `[ Update ]` | [§2′.4](#2′4-edit-workspace) | always |
+| `[ Results ]` | [§2′.6](#26-results) | data is loaded |
+| `[ Configure data ]` | [§2′.5](#25-configure-data) | always |
+| `[ Update ]` | [§2′.4](#24-edit-workspace) | always |
 | `[ Delete data ]` | modal, then stays on the list | data is loaded |
 | `[ 🗑 ]` (delete analysis) | modal, then stays on the list | always |
 
@@ -225,7 +233,7 @@ Rules for both:
 - **No "don't ask again".** Both are irreversible and neither is frequent enough for the
   prompt to become friction.
 - After confirming, the user stays on the list, which re-renders. Deleting data leaves the
-  card in the no-data state shown as the third card in [§2′.2](#2′2-the-workspace-list--the-apps-home-screen).
+  card in the no-data state shown as the third card in [§2′.2](#22-the-workspace-list--the-apps-home-screen).
 
 **"Delete data" keeps the configuration, and does NOT keep a fetched slot's source mapping.**
 The two halves of that sentence are the honest statement of what the operation does, and the
@@ -363,7 +371,7 @@ its collapsed summary line, so a user cannot leave a non-default override hidden
 ### What is *not* on this screen
 
 `simulate_cost` is not here, even though the Contract box exists only to produce euros. The
-toggle lives on the results screen ([§2′.7](#2′7-where-the-setup-bands-questions-went)). The
+toggle lives on the results screen ([§2′.7](#27-where-the-setup-bands-questions-went)). The
 consequence is deliberate but worth stating: **the Contract box is always shown here**, even
 for a workspace currently reporting energy only, because this screen describes the household's
 contract as a fact about the household, not as an input to the current run.
@@ -454,7 +462,7 @@ Two changes from §2.2:
   chrome; the box names what they are for. Their behaviour is unchanged — they still re-derive
   the roster in place ([§3.2](04-state-machine.md)) and are still committed with the fetch.
 - **The `[ Next: parameters → ]` CTA is replaced** by the footer described in
-  [§2′.8](#2′8-the-footer-and-the-two-entry-points).
+  [§2′.8](#28-the-footer-and-the-two-entry-points).
 
 The source drawer stays a right-side overlay over this screen, with its transactional
 Confirm/Cancel semantics untouched.
@@ -535,7 +543,7 @@ policies, bands). Putting one field in front of a collapsed pane means the commo
 nothing is removed from the user who wants it.
 
 **The advanced pane preserves state and does not reset on collapse**, exactly as in
-[§2′.4](#2′4-edit-workspace). Its collapsed summary should name how many values differ from
+[§2′.4](#24-edit-workspace). Its collapsed summary should name how many values differ from
 the defaults.
 
 ### The advanced pane is tabbed, not nested
@@ -568,9 +576,13 @@ prove awkward in practice, stacked boxes remain a valid fallback.
 
 ### This screen has no footer buttons
 
-There is nothing to cancel or save: parameter edits recompute and persist as they always have
-([§3.5](04-state-machine.md#35-persistence-points) — `PARAMS_CHANGED`, debounced). The screen
-is left through the back link. This is the one screen where the wizard's `[ Previous ] /
+There is nothing to cancel or save: parameter edits are committed by the parameter box's own
+`[ Calculate → ]`, which recomputes and persists, as they were before this restructure. The
+screen is left through the back link.
+
+([§3.5](04-state-machine.md#35-persistence-points) specifies a debounced auto-persist on
+`PARAMS_CHANGED` in addition to that button. It is **not built** — see the note there — so
+today `[ Calculate → ]` is the only thing that commits a parameter edit.) This is the one screen where the wizard's `[ Previous ] /
 [ Next ]` and the card's `[ Cancel ] / [ Save ]` do not apply, because it is the end of both
 paths.
 
@@ -578,11 +590,12 @@ paths.
 
 `RESULTS_STALE` still renders the previous results dimmed rather than blanking them
 ([§3.1](04-state-machine.md#31-session-level-states)), and editing a parameter still does not
-navigate away from the figures. [§3.4](04-state-machine.md#34-panel-focus-model) calls
-"reopening panel ① or ② does not collapse panel ③" the single most important interaction
-detail in the app; the equivalent here is that **the battery box and the results are on one
-screen and scroll together**, so a capacity change and its effect are visible at once. That is
-why parameters were not given a screen of their own.
+navigate away from the figures.
+[§3.4](04-state-machine.md#34-screen-structure-and-what-must-stay-visible-together) calls
+"the parameters and the results must be visible at the same time" the single most important
+interaction detail in the app. Here that is met structurally: **the battery box and the
+results are on one screen and scroll together**, so a capacity change and its effect are
+visible at once. That is why parameters were not given a screen of their own.
 
 ### The cost toggle and its precondition
 
@@ -621,7 +634,7 @@ reverted — would silently unlock the toggle. A flag says what it means.
 **Two rules keep the flag honest:**
 
 - **Migration must not regress an existing user.** The workspace migrated from `local`
-  ([§2′.10](#2′10-what-the-backend-needs-noted-not-designed)) is set `configured = true` if
+  ([§2′.10](#210-what-the-backend-needs-noted-not-designed)) is set `configured = true` if
   `simulate_cost` is already on — someone with cost results on screen today must not find them
   switched off and the toggle blocked after an upgrade. A workspace with cost simulation off
   migrates as `false`, which costs nothing: the toggle they were not using becomes one that
@@ -634,7 +647,7 @@ reverted — would silently unlock the toggle. A flag says what it means.
 - **Saving the screen sets it, not editing a field.** The flag means the user committed to a
   contract, so an abandoned edit — typed into and then cancelled — leaves it false. This
   follows the `[ Cancel ]` semantics in
-  [§2′.8](#2′8-the-footer-and-the-two-entry-points): what is not saved did not happen. In the
+  [§2′.8](#28-the-footer-and-the-two-entry-points): what is not saved did not happen. In the
   wizard, `[ Next → ]` persists and therefore sets it on the same terms as `[ Save ]`.
 
 ---
@@ -705,7 +718,7 @@ Rules:
 - **`[ Next → ]` persists.** The wizard is not a transaction held in memory to be committed at
   the end: a workspace exists from the moment step 1 is completed, so an interrupted wizard
   leaves a usable workspace rather than nothing. This is what lets the third card in
-  [§2′.2](#2′2-the-workspace-list--the-apps-home-screen) — configured, no data — exist as a
+  [§2′.2](#22-the-workspace-list--the-apps-home-screen) — configured, no data — exist as a
   legitimate state.
 - **`[ Cancel ]` discards this screen's edits only**, and never deletes the workspace. A user
   who wants the workspace gone uses `[ 🗑 ]` on the card.
@@ -791,14 +804,30 @@ step indicator (`Step 2 of 3`) beside the screen title is suggested, not specifi
 ### `[ Next → ]` on step 2 is blocked until house load can be reconstructed
 
 Advancing to the results step requires enough data to compute the household's load, since
-that is what every figure on step 3 rests on. Until then `[ Next → ]` is **Blocked** — greyed,
-with the reason beside it — rather than leading to an empty results screen.
+that is what every figure on step 3 rests on. Until then `[ Next → ]` is **Blocked** rather
+than leading to an empty results screen.
+
+**It is Blocked without being disabled**, which is [§2.1](02-ux-wireframes.md#the-four-availability-states)'s
+self-clearing exception rather than a departure from it. This button is the only submitter of
+the form the `has_pv` / `has_battery` radios sit in, so disabling it also disables the answer
+that clears the block: a household whose stored answers say "I have solar" but whose dataset
+has none could see the reason "Add Solar production to continue", answer "no solar", and have
+no way to submit that answer — `[ Fetch history ]` is disabled with nothing staged, and
+`[ ← Previous ]` discards the radio. So the button stays live, the reason beside it carries
+the Blocked meaning at full strength, and **the server-side check is the enforcement**: the
+POST persists the two household answers first and only then re-checks the gate, re-rendering
+step 2 with an accurate message if it is still unmet. A click from a genuinely blocked state
+therefore records the answer and redraws; it never advances.
 
 The condition is [§6.3](09-ingest-algorithms.md)'s load reconstruction,
 `load = imp − exp + pv + batt_dis − batt_chg`, being computable. Concretely, a loaded dataset
 in which:
 
-- **grid import and grid export** are present (both T1/T2 register pairs, per §2.2's roster);
+- **grid import and grid export** are present. Each is a T1/T2 register pair in §2.2's
+  roster, and the gate requires **the T1 register of each pair only**: T1 is §4.1's required
+  slot, T2 is "expected" rather than required (note 4), and the reconciliation folds the pair
+  so an absent T2 contributes zero. A single-tariff household has no T2 register to map, and
+  requiring one would block those users behind a message naming a series they cannot supply;
 - **solar production** is present *if* `has_pv` is on — without it the reconstruction silently
   attributes PV output to the house not existing, which is check 7's negative-load symptom
   ([§7.3](15-data-quality-and-limits.md));
@@ -816,7 +845,7 @@ data first". The user is looking at the roster that would fix it.
 
 **The back link remains available throughout**, so a user who cannot complete the fetch is
 never trapped: leaving keeps the workspace with whatever was configured, which is exactly the
-no-data card in [§2′.2](#2′2-the-workspace-list--the-apps-home-screen).
+no-data card in [§2′.2](#22-the-workspace-list--the-apps-home-screen).
 
 **There is no minimum duration.** The gate is about which series exist, not how long they run:
 a user with three days of data may advance and see a result for three days. §2.4 already
@@ -846,15 +875,16 @@ three consequences:
   so nothing changes there. If two workspaces can be open in two browser tabs, the SSE channel
   and the `JobRunner`'s keying by `workspace_id` ([§5.1](08-architecture.md#51-diagram))
   already carry the distinction.
-- **§3.5's startup rule needs rewording.** "On startup the server restores the most recent
-  workspace and lands the user in `RESULTS_STALE`" was written for a single implicit
-  workspace; with a list screen the user should land on the list, and no workspace should be
-  restored or recalculated until one is opened.
+- **§3.5's startup rule is rewritten to match.** It previously read "on startup the server
+  restores the most recent workspace and lands the user in `RESULTS_STALE`", which was
+  written for a single implicit workspace. With a list screen the user lands on the list, and
+  no workspace is restored or recalculated until one is opened.
 
-[§3.4](04-state-machine.md#34-panel-focus-model)'s panel focus model largely dissolves: with
-data and results on separate screens there is no collapse/expand stepper to model. What
-survives is the rule underneath it — parameters and results must be visible together — which
-[§2′.6](#2′6-results) keeps by putting them on one scrolling screen.
+[§3.4](04-state-machine.md#34-screen-structure-and-what-must-stay-visible-together)'s panel
+focus model is gone: with data and results on separate screens there is no collapse/expand
+stepper to model. What survives is the rule underneath it — parameters and results must be
+visible together — which [§2′.6](#26-results) keeps by putting them on one scrolling screen,
+and which §3.4 now states as the requirement rather than as a property of the mechanism.
 
 ---
 
@@ -887,7 +917,7 @@ must cover; none of them are settled here.
   time — so loading data must not reorder the list or advance the badge.
 - **Cascade semantics for the two deletes.** "Delete data" must clear the dataset rows, the
   `.npz` files and any cached results while leaving `simconfig.json`
-  ([§2′.3](#2′3-the-two-confirmation-modals)). It does *not* leave a fetched slot's source
+  ([§2′.3](#23-the-two-confirmation-modals)). It does *not* leave a fetched slot's source
   mapping, which lives in `series_meta` and goes with the data — §2′.3 sets out the split and
   the dialog copy states it; "delete analysis" must remove the workspace
   directory and every row keyed by its id — with one exception, below.
@@ -927,14 +957,14 @@ must cover; none of them are settled here.
 | # | Question | Decision | § |
 |---|---|---|---|
 | 1 | Contract badge when cost is off | Always shown, full strength | [§2′.2](#the-badges) |
-| 2 | Does "delete data" clear the source mapping | No — mapping is kept | [§2′.3](#2′3-the-two-confirmation-modals) |
+| 2 | Does "delete data" clear the source mapping | No — mapping is kept | [§2′.3](#23-the-two-confirmation-modals) |
 | 3 | Off-list connection (`1×20 A`) | Preset list only; overrides cover the rest | [§2′.4](#the-connection-dropdown) |
 | 4 | Contract box when cost is off | Always shown | [§2′.4](#what-is-not-on-this-screen) |
 | 5 | Zip code | Live and persisted now, wired later | [§2′.4](#the-zip-code) |
 | 6 | Nesting of the advanced pane | Tabbed, capacity still first | [§2′.6](#the-advanced-pane-is-tabbed-not-nested) |
 | 7 | Cost toggle placement | Inside the results block; Blocked until a contract exists | [§2′.6](#the-cost-toggle-and-its-precondition) |
-| 7b | §2.4's invitation box | Kept as is, revisit later | [§2′.7](#2′7-where-the-setup-bands-questions-went) |
-| 8 | `[ Cancel ]` and unsaved changes | Warns when dirty | [§2′.8](#2′8-the-footer-and-the-two-entry-points) |
+| 7b | §2.4's invitation box | Kept as is, revisit later | [§2′.7](#27-where-the-setup-bands-questions-went) |
+| 8 | `[ Cancel ]` and unsaved changes | Warns when dirty | [§2′.8](#28-the-footer-and-the-two-entry-points) |
 | 9 | `[ Next → ]` with no data | Blocked until house load is reconstructable | [§2′.8](#-next---on-step-2-is-blocked-until-house-load-can-be-reconstructed) |
 | 11 | Header badge and ⚙ | Both removed | [§2′.2](#the-header) |
 
@@ -946,9 +976,9 @@ The five that the first round's answers left open:
 |---|---|---|---|
 | 12 | What counts as "a contract configured" | A new persisted `pricing.configured` flag | [§2′.6](#a-contract-configured-is-an-explicit-flag) |
 | 13 | Where the band-overlap warning lives | Charge and discharge merge into one tab; warning below both | [§2′.6](#the-advanced-pane-is-tabbed-not-nested) |
-| 14 | "Changed" on configure data | A slot's source changed but `[ Fetch history ]` not yet pressed | [§2′.8](#2′8-the-footer-and-the-two-entry-points) |
+| 14 | "Changed" on configure data | A slot's source changed but `[ Fetch history ]` not yet pressed | [§2′.8](#28-the-footer-and-the-two-entry-points) |
 | 15 | Minimum data duration for the wizard | None — §7.4's short-window guard covers it | [§2′.8](#-next---on-step-2-is-blocked-until-house-load-can-be-reconstructed) |
-| 10 | `feature_interest` and workspace deletion | Elevated to installation-wide; `workspace_id` dropped | [§2′.10](#2′10-what-the-backend-needs-noted-not-designed) |
+| 10 | `feature_interest` and workspace deletion | Elevated to installation-wide; `workspace_id` dropped | [§2′.10](#210-what-the-backend-needs-noted-not-designed) |
 | 16 | What sets `pricing.configured` | Saving the screen, not editing a field | [§2′.6](#a-contract-configured-is-an-explicit-flag) |
 
 Decision 10 is the one with reach beyond this document: it makes `feature_interest` the first
@@ -963,7 +993,7 @@ what already exists: `ha_fetch.js` keeps pre-fetch slot customizations in `local
 under `ha.slots`, tagged with the `source_generation` they were saved at, precisely so a
 customization made before a fetch survives a reload and is discarded once a newer fetch
 supersedes it. A non-empty entry at the current generation *is* the "changed but not fetched"
-state the warning in [§2′.8](#2′8-the-footer-and-the-two-entry-points) describes.
+state the warning in [§2′.8](#28-the-footer-and-the-two-entry-points) describes.
 
 One consequence for the build: that store is a single browser-global key today. It must
 become **per workspace**, or a mapping staged in one analysis will appear staged in another.

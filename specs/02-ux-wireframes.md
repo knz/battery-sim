@@ -1,119 +1,86 @@
 # 2. UX wireframes
 
-> **Purpose:** the single-page layout and the three stepper panels.
+> **Purpose:** the box-level contents of the data, parameter and results surfaces, and the
+> availability states every control in this package is drawn in.
 > **Audience:** frontend.
-> **Read with:** [03-topology-selector.md](03-topology-selector.md) for the illustrated
-> selectors referenced from panel ②, and [04-state-machine.md](04-state-machine.md) for
-> the state transitions these panels drive.
+> **Read with:** [20-workspaces-ux.md](20-workspaces-ux.md) for the screen structure — which
+> surface each control lives on and how it is reached;
+> [03-topology-selector.md](03-topology-selector.md) for the illustrated selectors referenced
+> from the parameter surface; and [04-state-machine.md](04-state-machine.md) for the states
+> these surfaces drive.
 >
-> **§2.1 is under revision.** [20-workspaces-ux.md](20-workspaces-ux.md) proposes replacing
-> the single-page stepper and the setup band with a workspace list and three per-workspace
-> screens. That draft changes *which screen* each control sits on; it does not change the
-> box-level contents specified in §2.2, §2.3a, §2.3 and §2.4, which it references rather
-> than restates. Read this file for what the controls are, and 20 for where they live.
+> **§2.2, §2.3a, §2.3 and §2.4 are written as three stacked panels**, which is the layout
+> §2.1 originally specified. That layout is superseded; the *contents* they specify are not.
+> Read "panel ①" as the configure-data screen, "panel ②" as the parameter box on the results
+> screen, and "panel ③" as the result sections below it, per
+> [§2′.5](20-workspaces-ux.md#25-configure-data) and [§2′.6](20-workspaces-ux.md#26-results).
 
 ## 2.1 Overall layout
 
-Single page, a **setup band** followed by three stacked panels acting as a stepper.
-Completed panels collapse to a one-line summary and can be reopened at any time. Reopening
-and editing does **not** discard results — it marks them stale and triggers a
-recalculation.
+**The app is a list of workspaces; each workspace has three screens.** The layout is
+specified in [20-workspaces-ux.md](20-workspaces-ux.md) and is not restated here:
 
-```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│  Home Battery Simulator                          [workspace: local]  [⚙]     │
-├──────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  ┌─ Before you start ─────────────────────────────────────────────────────┐  │
-│  │  Do you have solar PV?      ( • ) Yes    (   ) No                      │  │
-│  │  Simulate cost savings?     (   ) Yes    ( • ) No                      │  │
-│  │  ⓘ These two answers decide what the app asks you for below.           │  │
-│  └────────────────────────────────────────────────────────────────────────┘  │
-│                                                                              │
-│  ┌────────────────────────────────────────────────────────────────────────┐  │
-│  │ ① DATA                                            ✓ 412 days  [edit ▾] │  │
-│  │    Home Assistant · 5 series · simulated hourly                        │  │
-│  │    (expanded: … data quality, then "Your data at a glance" — see 2.3a, │  │
-│  │     shown once data loads — then the "Next: parameters →" CTA)         │  │
-│  └────────────────────────────────────────────────────────────────────────┘  │
-│                                                                              │
-│  ┌────────────────────────────────────────────────────────────────────────┐  │
-│  │ ② PARAMETERS                                      ✓ valid     [edit ▾] │  │
-│  │    10.0 kWh · 5.0/5.0 kW · 90% · charge P3 · discharge P1 · energy only│  │
-│  └────────────────────────────────────────────────────────────────────────┘  │
-│                                                                              │
-│  ┌────────────────────────────────────────────────────────────────────────┐  │
-│  │ ③ RESULTS                                                    [expanded]│  │
-│  │                                                                        │  │
-│  │   ... see 2.4 ...                                                      │  │
-│  │                                                                        │  │
-│  └────────────────────────────────────────────────────────────────────────┘  │
-└──────────────────────────────────────────────────────────────────────────────┘
-```
+| Surface | Specified in | Contents specified in |
+|---|---|---|
+| The workspace list — the home screen | [§2′.2](20-workspaces-ux.md#22-the-workspace-list--the-apps-home-screen) | — |
+| Edit workspace — title, location, grid connection, contract | [§2′.4](20-workspaces-ux.md#24-edit-workspace) | §2.3 boxes 2 and 6 |
+| Configure data | [§2′.5](20-workspaces-ux.md#25-configure-data) | §2.2, §2.3a |
+| Results — the battery box and the result sections, one scrolling screen | [§2′.6](20-workspaces-ux.md#26-results) | §2.3, §2.4 |
 
-### The setup band
+The new-analysis wizard walks the last three in order; the footer that distinguishes the
+wizard path from the from-a-card path is [§2′.8](20-workspaces-ux.md#28-the-footer-and-the-two-entry-points).
 
-Three choices decide the *shape* of everything below them — which series the data panel asks
-for, which boxes the parameter panel shows, and which sections the results panel renders:
+**Superseded by that structure**, and recorded here because the rest of this document and
+several others still refer to them:
 
-- **`has_pv`** — *do you have solar PV?* (default on)
-- **`has_battery`** — *do you already have a battery?* (default off)
-- **`simulate_cost`** — *simulate cost savings?* (default off)
+- **The single page with three stacked panels acting as a stepper**, in which a completed
+  panel collapsed to a one-line summary and a CTA in one panel opened the next. There is no
+  collapse, no summary line and no CTA between surfaces; the panels became screens.
+- **The setup band.** It held three scope answers, and each has moved to the surface it
+  shapes: `has_pv` and `has_battery` to the configure-data screen, above the roster they
+  govern, and `simulate_cost` to the results screen, above the sections it adds or removes.
+  The rule is proximity — a shape question sits where its effect is visible.
+  [§2′.7](20-workspaces-ux.md#27-where-the-setup-bands-questions-went) sets out the move and
+  what it changes.
+- **The `[workspace: local]` header badge and the `[⚙]` button.** Both removed
+  ([§2′.2](20-workspaces-ux.md#the-header)); the header keeps the title and the language
+  toggle.
 
-**They are not all in the same place, and the split is deliberate.** `has_pv` and
-`has_battery` exist to decide which **slots panel ① asks for**, and they are committed by that
-panel's fetch button — so they are rendered **inside panel ①, directly below its title**, above
-the roster they govern. Putting a question in a band above the panel it configures separates
-the answer from its consequence and from the button that commits it.
+Two properties of the three answers survive the move unchanged, and are stated here because
+§2.2, §2.3 and §2.4 all rely on them:
 
-`simulate_cost` stays **in the band**: it shapes panels ② and ③ as well as ①, so it belongs to
-no single panel. The band is therefore a one-question strip in the shipped UI.
+- **Each answer is the single source of truth for what it controls**, and appears exactly
+  once as a control. Nothing asks the same question twice.
+- **They are editable at any time**, including after data is loaded. Changing one re-derives
+  the surfaces below it in place — showing or hiding rows and boxes against the new answer —
+  **retains** any values already entered in still-applicable fields, and marks results stale
+  so they recalculate ([§3.2](04-state-machine.md#32-events)). It never discards a loaded
+  dataset or resets the configuration; a user who toggles a choice and toggles it back finds
+  their earlier inputs where they left them.
 
 **`has_battery` is about reconstruction, not about the simulation.** It gates only the two
-existing-battery slots in §2.2. Those series exist so [§6.3](08-simulation-core.md)'s load
-reconstruction can strip a battery the household already owns, recovering what the *house*
-consumed from a meter that only sees the grid connection. The battery being simulated is the
-one configured in panel ②, and the simulation assumes it **replaces** any existing battery —
-it never builds on the existing battery's state. The question invites the opposite reading on
-a page whose whole subject is a battery, so the control carries an ⓘ saying exactly this.
+existing-battery slots in §2.2. Those series exist so
+[§6.3](09-ingest-algorithms.md#63-household-load-reconstruction)'s load reconstruction can
+strip a battery the household already owns, recovering what the *house* consumed from a meter
+that only sees the grid connection. The battery being simulated is the one configured on the
+results screen, and the simulation assumes it **replaces** any existing battery — it never
+builds on the existing battery's state. The question invites the opposite reading in an app
+whose whole subject is a battery, so the control carries an ⓘ saying exactly this.
 
-The band is a **scope selector, not a stepper panel**: it does not collapse to a summary, does
-not carry a `[?]` or a CTA, and is not numbered. Each answer is the **single source of truth**
-for what it controls and appears exactly once as a control, whether in the band or at the top
-of panel ①.
-
-**The band is editable at any time**, including after data is loaded. Changing an answer
-re-derives the panels below in place — showing or hiding rows and boxes against the new
-answer — **retains** any values already entered in still-applicable fields, and marks
-results stale so they recalculate ([§3.2](04-state-machine.md#32-events)). It never
-discards a loaded dataset or resets the configuration; a user who toggles a choice and
-toggles it back finds their earlier inputs where they left them. What each answer controls
-is set out per panel in §2.2 (data slots), §2.3 (parameter boxes) and §2.4 (result
-sections).
-
-**When the answers are committed.** `has_pv` and `has_battery` re-gate panel ①'s slot roster
+**When `has_pv` and `has_battery` are committed.** They re-gate the slot roster
 **immediately**, client-side, so the user sees which series the app is asking for as they
 answer. They are **persisted with the fetch**, as fields on the ingest hand-off
-([§4.3](05-data-formats.md)): the fetch button is what commits the whole data configuration,
-and these answers are part of that configuration rather than a separate round-trip of their
-own. Two consequences, both intended:
+([§4.3](05-data-formats.md)) — the fetch button commits the whole data configuration, and
+these answers are part of it — and the configure-data screen's footer `[ Save ]` / `[ Next → ]`
+persists them too, because a footer that promises a save must perform one
+([§2′.5](20-workspaces-ux.md#25-configure-data)). Two consequences, both intended:
 
-- Panels ② and ③ render the **stored** answers until the next fetch. They describe a
-  simulation over data that has actually been loaded, so re-deriving them from an answer
-  that has not been committed would describe a run that does not exist.
+- The results screen renders the **stored** answers until the next commit. It describes a
+  simulation over data that has actually been loaded, so re-deriving it from an answer that
+  has not been committed would describe a run that does not exist.
 - A slot whose row is gated out is **not fetched**, even if a source was staged for it before
   the answer changed. The staged choice is retained, not cleared, so turning the answer back
   on restores it.
-
-The panel ① summary line reports the **simulation grid**, not any one series' native
-resolution — one line cannot carry a per-series fact, and the grid is the figure that
-applies to every number downstream. The per-series breakdown is in the expanded panel
-([§2.2](#granularity-per-series)).
-
-The panel ② summary line ends with the run's cost mode: the contract name
-(`dynamic`, `fixed`, `variable`) when cost simulation is on, and `energy only`
-when it is off. That word is the fastest way for a user to see, from the collapsed state,
-which of the two products they are looking at.
 
 ### The four availability states
 
@@ -151,6 +118,32 @@ they may never have seen has no such place, a greyed P1 between P2 and P3 does.
 **Blocked is greyed, because the user can clear it.** `[ Load data ]` while a slot is empty,
 the annualised figure under `min_annualisation_days`. The greying is the message: this becomes available when
 you do something, and the adjacent text says what.
+
+**The exception: a control whose own submission is what clears the precondition stays live.**
+Greying is Blocked's default rendering, not its definition — the definition is that a
+precondition is unmet and the user can clear it. Where the blocked control is itself the way
+to clear it, disabling it traps the user, and the trap is silent because the reason text
+beside it goes on naming a precondition the user has just tried to satisfy. In that case:
+
+- the control stays **enabled**, and is not dimmed — a dimmed-but-clickable control asserts
+  something false;
+- the **reason beside it carries the Blocked meaning**, at full strength rather than as a
+  subdued note, since it is now the whole of the rendering;
+- **the server-side check is the enforcement.** A disabled control was never enforcement in
+  any case; it is a rendering. The check must record whatever the submission carries *before*
+  re-testing the precondition, so a click from a genuinely blocked state saves the answer and
+  redraws with an accurate message rather than advancing.
+
+The one instance is the wizard's step-2 `[ Next → ]`
+([§2′.8](20-workspaces-ux.md#-next---on-step-2-is-blocked-until-house-load-can-be-reconstructed)),
+which is the only submitter of the form holding the `has_pv` / `has_battery` answers that
+change what the gate asks for. Disabling it was found to be self-locking, reproduced in a
+browser. Recorded here so the greying is not reinstated as a fix.
+
+This is written as a caveat on Blocked rather than as a sixth state because the *reason* the
+control is unusable is unchanged; only the rendering that reason prescribes is. It is
+generalised from a single instance, which is the main thing that could be wrong with it: if a
+second case turns up that this rule fits badly, a distinct state is the alternative.
 
 **Pending is different in kind from the other three, and the difference is the point.**
 Inapplicable and blocked are properties of the user's *configuration*; the soft block in
@@ -232,7 +225,7 @@ before the slot is known forces a single answer onto a set of slots that do not 
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│ ① DATA                                                            [collapse] │
+│ ① DATA  → the configure-data screen (§2′.5)                                  │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
 │  Pick where each series comes from. Choose a source per slot; for Home       │
@@ -259,7 +252,7 @@ before the slot is known forces a single answer onto a set of slots that do not 
 │  │  ● = required.  ○ = optional.                                          │  │
 │  │  ◐ = required only if you have solar PV.                               │  │
 │  │  ◒ = offered only if you simulate costs (intra-hour price bracketing). │  │
-│  │  Both answers come from the setup band above.                          │  │
+│  │  has_pv is answered above; simulate_cost on the results screen.        │  │
 │  │  Spot price drives the charge and discharge bands, so it is required   │  │
 │  │  whether or not you simulate costs.                                    │  │
 │  │  Both meter registers should be mapped. See "Tariff registers" below.  │  │
@@ -310,7 +303,7 @@ before the slot is known forces a single answer onto a set of slots that do not 
 │  │  Present only once data has loaded; absent in the empty state.         │  │
 │  └────────────────────────────────────────────────────────────────────────┘  │
 │                                                                              │
-│                                              [ Next: parameters →  ]         │
+│                                     [ Cancel ] / [ Save ]  — footer, §2′.8   │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -435,9 +428,10 @@ then fetching an HA slot no longer discards the backend source: there is no earl
 dataset to orphan. The reify is all-or-nothing — if a staged backend load fails, the whole fetch
 fails (`LOAD_FAILED`, §3.2) and nothing is persisted.
 
-**The setup band decides which slots the roster asks for.** The two choices in the band above
-panel ① ([§2.1](#the-setup-band)) determine the slot roster here, and this is the reason
-they are asked first:
+**Two scope answers decide which slots the roster asks for.** `has_pv` is answered on this
+screen, directly above the roster; `simulate_cost` is answered on the results screen
+([§2′.7](20-workspaces-ux.md#27-where-the-setup-bands-questions-went)). Both determine the
+slot roster here:
 
 - **`has_pv`** governs the **Solar production** row. It is rendered only when the household
   has declared PV; with PV declared it is required and carries the same `●` as the grid
@@ -453,9 +447,9 @@ they are asked first:
   and are absent otherwise. They are the one place the cost choice *adds* a data slot rather
   than only hiding downstream boxes.
 
-Editing either answer in the band re-derives this roster in place: a slot that ceases to
+Editing either answer re-derives this roster in place: a slot that ceases to
 apply is removed and any file or mapping in a still-applicable slot is kept
-([§2.1](#the-setup-band), [§3.2](04-state-machine.md#32-events)).
+([§2.1](#21-overall-layout), [§3.2](04-state-machine.md#32-events)).
 
 The **Spot price** row itself is required in both cost modes, because the charge and
 discharge bands compare against it regardless of whether anything is converted to euros
@@ -576,7 +570,7 @@ to download", with one upload slot per series and a pointer to where each file c
   │  ● = required.  ○ = optional.                                          │
   │  ◐ = required only if you have solar PV.                               │
   │  ◒ = offered only if you simulate costs (intra-hour price bracketing). │
-  │  Both answers come from the setup band above.                          │
+  │  has_pv is answered above; simulate_cost on the results screen.        │
   │  Spot price drives the charge and discharge bands, so it is required   │
   │  whether or not you simulate costs.                                    │
   │                                                                        │
@@ -594,11 +588,11 @@ stating plainly: the series names in
 [§4.1](05-data-formats.md#41-the-series-vocabulary) are internal identifiers used
 downstream and in the result object; a user's file is never required to contain them.
 
-**Which rows appear** follows the same setup-band rules as the roster above
-([§2.1](#the-setup-band)): `Solar production` only when `cfg.has_pv` is set, the `Spot price
-(min)` / `Spot price (max)` slots only when `cfg.simulate_cost` is on, and `Spot price` itself
-required in both cost modes. Neither choice is asked here — the band is the single source of
-truth for both.
+**Which rows appear** follows the same two scope answers as the roster above: `Solar
+production` only when `cfg.has_pv` is set, the `Spot price (min)` / `Spot price (max)` slots
+only when `cfg.simulate_cost` is on, and `Spot price` itself required in both cost modes.
+Neither choice is asked here — each is answered once, on the surface it shapes
+([§2.1](#21-overall-layout)).
 
 **Validation is per slot and recoverable.** A file is checked against the expected format
 for the series it was dropped into, and a failure is reported on that row alone: what was
@@ -615,8 +609,8 @@ The expected format for each series is in [05-data-formats.md](05-data-formats.m
 
 ## 2.3a The data summary — "Your data at a glance"
 
-**Inside panel ①**, below the data-quality box and above the "Next: parameters →" CTA, sits a
-**data summary section**. It appears once the fetch succeeds (`LOAD_SUCCEEDED`,
+**On the configure-data screen**, below the data-quality box and above the screen's footer,
+sits a **data summary section**. It appears once the fetch succeeds (`LOAD_SUCCEEDED`,
 [§3.1](04-state-machine.md#31-session-level-states)) and shows the figures that follow **from the
 household's own recorded data alone** — before any simulated battery, policy or pricing is
 configured. It is the closing "here is what we found" of the data step: having just reported
@@ -650,29 +644,27 @@ effort in parameters.
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### It is a section of panel ①, not a band and not a step
+### It is a section of the configure-data screen, not a band and not a step
 
-It is **part of panel ①'s body**, so it has no numbering, no CTA, no `[?]` affordance and no focus
-state of its own ([§3.4](04-state-machine.md#34-panel-focus-model)) — panel ①'s focus state covers
-it. Two consequences follow from living inside the panel rather than between panels:
+It is **part of that screen's body**, so it has no numbering, no CTA and no `[?]` affordance. It
+is read-only context and drives no transition. One consequence:
 
-- **It hides when panel ① collapses.** Once the user steps on to panel ②, panel ① collapses to its
-  one-line summary and these figures go with it. That is accepted: the user can reopen panel ① at
-  any time, and panel ③ repeats the figures over the selected range (see below).
-- **It is absent before the first successful fetch.** There is nothing to summarise in `EMPTY`, so
-  panel ① renders its slot roster and quality box without this section, and gains it on
+- **It is absent before the first successful fetch.** There is nothing to summarise in `EMPTY`,
+  so the screen renders its slot roster and quality box without this section, and gains it on
   `LOAD_SUCCEEDED`. It re-renders whenever the dataset is reloaded
   ([§3.2](04-state-machine.md#32-events) `RELOAD_DATA`).
 
-Panel ①'s "Next: parameters →" CTA is unchanged and still drives the step from ① to ②; the section
-sits above it as context, not as a gate.
+It sits above the screen's footer as context, not as a gate. The gate that does gate the
+wizard's forward step is separate and reads the loaded series, not this section
+([§2′.8](20-workspaces-ux.md#-next---on-step-2-is-blocked-until-house-load-can-be-reconstructed)).
 
-**It is rendered twice, from one source.** Panel ③ repeats the same figures over the **selected
-range** ([§2.4](#24-panel--results)), clamped to that window (spot price included). The two copies
-share one implementation and differ only in their frame: in panel ① it is a card styled as a peer
-of the data-quality box beside it; in panel ③ it carries a divider heading matching the "Energy
-savings" section it introduces, with no card around it, so it reads as one of that panel's result
-sections rather than a transplanted band.
+**It is rendered twice, from one source.** The results screen repeats the same figures over
+the **selected range** ([§2.4](#24-panel-③--results-expanded)), clamped to that window (spot
+price included). The two copies share one implementation and differ only in their frame: on
+the configure-data screen it is a card styled as a peer of the data-quality box beside it; on
+the results screen it carries a divider heading matching the "Energy savings" section it
+introduces, with no card around it, so it reads as one of that screen's result sections rather
+than a transplanted band.
 
 ### What it shows, and why none of it needs the simulated battery
 
@@ -742,8 +734,8 @@ Two data problems the summary must surface rather than present as clean numbers,
 
 ### The pre-existing battery, and what "net of your battery" means
 
-The user **may already own a battery**. They declare it with `has_battery` in the setup band
-([§2.1](#the-setup-band)), which is what makes the two slots appear at all — with the answer off
+The user **may already own a battery**. They declare it with `has_battery`, answered on this
+screen ([§2.1](#21-overall-layout)), which is what makes the two slots appear at all — with the answer off
 they are gated out of the roster exactly as the solar row is without PV. When they do, its
 charge/discharge sensors are mapped into the
 `battery_charge` / `battery_discharge` slots ([§4.1](05-data-formats.md#41-the-series-vocabulary)),
@@ -777,7 +769,7 @@ offering to restrict the window is future work.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│ ② PARAMETERS                                                      [collapse] │
+│ ② PARAMETERS  → the battery box on the results screen (§2′.6)                │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
 │  ┌─ Battery ──────────────────────────────────────────────────────────────┐  │
@@ -858,7 +850,7 @@ offering to restrict the window is future work.
 │    simulation is off. Every field in it — contract, rates, tax, VAT,         │
 │    feed-in, degradation cost, day/night window — feeds a euro figure only.   │
 │                                                                              │
-│                              [ ← Back ]          [ Calculate →  ]            │
+│                                                  [ Calculate →  ]            │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -919,15 +911,15 @@ An earlier draft of the Dynamic sub-panel carried a **Spot source** row — *fro
 slot by slot, and the spot price is one of those slots. A second control over the same setting
 gives the user two answers to one question and no way to tell which one the run used.
 
-This is the same reasoning that keeps `has_pv` in panel ① rather than in the setup band
-([§2.1](#the-setup-band)) — each answer is the single source of truth for what it controls and
-appears exactly once as a control. The Pricing box asks how the spot price is *turned into a
+This is the same reasoning that keeps `has_pv` on the configure-data screen beside the roster
+it governs ([§2.1](#21-overall-layout)) — each answer is the single source of truth for what it
+controls and appears exactly once as a control. The Pricing box asks how the spot price is *turned into a
 bill*; it does not ask where the price came from.
 
 ### Without PV
 
-`has_pv` is set in the setup band ([§2.1](#the-setup-band)); this panel reads it and does
-not ask again. With `has_pv = false` the panel changes as follows, and nothing else changes:
+`has_pv` is set on the configure-data screen ([§2.1](#21-overall-layout)); this box reads it
+and does not ask again. With `has_pv = false` the panel changes as follows, and nothing else changes:
 
 ```
   ┌─ Charge policy ────────────────────────────────────────────────────────┐
@@ -977,7 +969,8 @@ not ask again. With `has_pv = false` the panel changes as follows, and nothing e
 
 ### Without cost simulation
 
-`simulate_cost` is set in the setup band ([§2.1](#the-setup-band)); this panel reads it and
+`simulate_cost` is set on the results screen, above these sections
+([§2′.7](20-workspaces-ux.md#27-where-the-setup-bands-questions-went)); this box reads it and
 does not ask again. With `simulate_cost = false` — the default — the panel loses everything
 that exists to turn kWh into euros, and keeps everything that decides which kWh move:
 
@@ -998,8 +991,7 @@ that exists to turn kWh into euros, and keeps everything that decides which kWh 
 - **The Battery, Grid connection, Solar PV and Installation topology boxes are unchanged.**
   All four describe physical hardware.
 
-Everything else about the panel — validation, the Calculate button, the collapsed summary —
-behaves identically; only the summary's final clause reads `energy only`.
+Everything else — validation, the `[ Calculate → ]` button — behaves identically.
 
 Field semantics and the formulas behind them: policies in
 [11-policies-and-battery.md](11-policies-and-battery.md), pricing in
@@ -1228,8 +1220,9 @@ without the second half rather than looking truncated. Two smaller consequences:
   headline number would go reads as a failed calculation; an absent section reads as a
   choice the user made, which is what it is.
 - A short affordance sits at the foot of the energy section: *"Want to know what this is
-  worth in euros? [ Enable cost simulation ]"*, linking back to the `simulate_cost` choice
-  in the setup band ([§2.1](#the-setup-band)). Since it defaults off, some users will
+  worth in euros? [ Enable cost simulation ]"*, linking to the `simulate_cost` toggle above
+  these sections on the same screen
+  ([§2′.7](20-workspaces-ux.md#27-where-the-setup-bands-questions-went)). Since it defaults off, some users will
   otherwise never discover that the app can do this at all.
 
 ### Panel ③ without PV

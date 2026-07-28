@@ -163,7 +163,7 @@ string that names the control, and it is the primary key on its own, so a repeat
 `last_clicked_at` and leaves `count` alone.
 
 **This table is installation-wide** — the one exception to §5.5's invariant 1, argued there and
-in [20-workspaces-ux.md §2′.10](20-workspaces-ux.md#2′10-what-the-backend-needs-noted-not-designed).
+in [20-workspaces-ux.md §2′.10](20-workspaces-ux.md#210-what-the-backend-needs-noted-not-designed).
 It was originally keyed per workspace, on the reasoning that totalling across workspaces at read
 time was cheaper than an exception to the rule the schema rests on. The workspace list showed
 why that is wrong in a way totalling does not fix: the count is one household's boolean wish,
@@ -246,7 +246,7 @@ change rather than a rewrite:
 
    **One deliberate exception: `feature_interest`.** Its primary key is `feature_key` alone,
    and its rows survive the deletion of every workspace, including the last. The reasoning is
-   in [20-workspaces-ux.md §2′.10](20-workspaces-ux.md#2′10-what-the-backend-needs-noted-not-designed):
+   in [20-workspaces-ux.md §2′.10](20-workspaces-ux.md#210-what-the-backend-needs-noted-not-designed):
    the invariant's purpose is that user *data* never leaks between workspaces or, later,
    between accounts, and interest counters are not user data in that sense — they are outbound
    product telemetry, already reported under the pseudonymous `installation_id` from

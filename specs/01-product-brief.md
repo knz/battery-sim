@@ -100,9 +100,9 @@ for. But two things follow:
   which case applies, and the requirements, policies, topology choices, metrics and
   diagnostics that depend on PV are adjusted accordingly.
 - **Cost simulation as an opt-in.** The household declares whether it wants money figures
-  as well as energy figures (`cfg.simulate_cost`, one of the two choices in the setup band
-  above panel ①, [§2.1](02-ux-wireframes.md#the-setup-band), default
-  **off**). With it off, the contract, tax, VAT and feed-in configuration is not asked
+  as well as energy figures (`cfg.simulate_cost`, answered on the results screen above the
+  sections it adds, [§2′.7](20-workspaces-ux.md#27-where-the-setup-bands-questions-went),
+  default **off**). With it off, the contract, tax, VAT and feed-in configuration is not asked
   for, the money results are not produced, and the app is usable end to end without any
   euro figure. See the note on what the toggle does and does not remove, below.
 - Reconstruction of the battery-free household load, including stripping out an

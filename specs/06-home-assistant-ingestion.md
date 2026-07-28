@@ -182,7 +182,7 @@ plus a ten-day fine window is on the order of tens of thousands of rows per seri
 of megabytes in total.
 
 **The `header` also carries the setup-band answers**, `has_pv` and `has_battery`
-([§2.1](02-ux-wireframes.md#the-setup-band)). The fetch is what commits the whole data
+([§2.1](02-ux-wireframes.md#21-overall-layout)). The fetch is what commits the whole data
 configuration, and these two answers are part of it — they decide which slots the roster
 offered in the first place, so persisting them anywhere else would let the stored answers
 disagree with the dataset they produced. Both fields are **optional**: a client that omits one

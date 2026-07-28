@@ -277,6 +277,21 @@ def test_summaries_are_ordered_most_recently_updated_first(mods):
 
 
 def test_touch_moves_updated_at_and_rename_does_not(mods):
+    """§2′.10: `touch()` is the only writer of `updated_at`, and a rename is not one.
+
+    **The `touch()` half is asserted against a back-dated row.** It used to read `assert
+    updated_at >= created`, with `created` taken from the same row a moment earlier — which holds
+    whether or not `touch()` wrote anything, because `_now()` never goes backwards. So the one
+    unit test of `touch()` did not constrain `touch()`. Writing a fixed instant well in the past
+    into the column first makes the `>` real: only a write can move the row off it.
+
+    The rename half needs no such treatment. It asserts EQUALITY against the value the row was
+    created with, which a spurious write would break.
+    """
+    from datetime import timedelta
+
+    from app import db
+
     _, _, _, workspaces = mods
 
     wid = workspaces.create("Before")
@@ -287,8 +302,17 @@ def test_touch_moves_updated_at_and_rename_does_not(mods):
     assert row["title"] == "After"
     assert row["updated_at"] == created  # a rename is not a configuration save (§2′.10)
 
+    past = created - timedelta(days=365)
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE workspaces SET updated_at = ? WHERE id = ?", (past.isoformat(), wid)
+        )
+    assert workspaces.get(wid)["updated_at"] == past
+
     workspaces.touch(wid)
-    assert workspaces.get(wid)["updated_at"] >= created
+    assert workspaces.get(wid)["updated_at"] > past, (
+        "touch() must write updated_at; the row is still at its back-dated value"
+    )
 
 
 # ── Deletion ─────────────────────────────────────────────────────────────────────────────────

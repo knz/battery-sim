@@ -39,6 +39,7 @@ the configuration it is about.
 from __future__ import annotations
 
 import re
+from datetime import datetime, timezone
 
 import pytest
 from starlette.testclient import TestClient
@@ -71,6 +72,25 @@ def _seed(mod, workspace_id: str = "w1", title: str = "Our house"):
 def _store(mod, cfg, workspace_id: str = "w1") -> None:
     """Persist `cfg`, cloned so the caller's object is not the one the store normalises."""
     mod["simconfig_store"].save(mod["simconfig_store"].clone(cfg), workspace_id)
+
+
+def _backdate(mod, workspace_id: str, when: datetime) -> None:
+    """Set the row's stored `updated_at` to a fixed past instant, writing the column directly.
+
+    There is no app-level way to do this — `touch()` writes "now" and nothing else writes the
+    column — so the test reaches for SQL. That is deliberate rather than a shortcut: the point of
+    back-dating is to create a value the route's own clock CANNOT produce, which makes a
+    subsequent `>` a real constraint on the route instead of a restatement of the fact that time
+    moves forward. The alternative, freezing the clock, would mean patching `workspaces._now` and
+    asserting against the frozen value — equivalent in strength but coupled to a private helper.
+    """
+    from app import db
+
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE workspaces SET updated_at = ? WHERE id = ?",
+            (when.isoformat(), workspace_id),
+        )
 
 
 def _select(html: str) -> str:
@@ -631,16 +651,33 @@ def test_a_save_advances_updated_at_and_a_failed_one_does_not(env):
     The list screen's badge and its most-recently-updated-first ordering both read `updated_at`,
     so a submission that fails validation must leave it alone — the badge reports when the
     configuration was last STORED, and a blocking submission stored nothing.
+
+    **The successful half is asserted against a BACK-DATED row, not against the row's own value
+    a moment earlier.** This test used to end `assert updated_at >= before`, with `before` read
+    from the same row seconds before — a comparison that holds whether or not the route wrote
+    anything, since a clock never goes backwards. `tests/test_workspace_data.py` found the same
+    shape in its own copy and measured the consequence: deleting `workspaces.touch` from the
+    route left the whole non-browser suite green. Back-dating the stored value to a fixed instant
+    in the past makes `>` a real constraint — nothing but a write can satisfy it — and lets the
+    failed half assert exact equality against that same instant rather than against "unchanged".
     """
     client, mod = env
     _seed(mod)
-    before = mod["workspaces"].get("w1")["updated_at"]
+
+    past = datetime(2020, 1, 1, tzinfo=timezone.utc)
+    _backdate(mod, "w1", past)
+    assert mod["workspaces"].get("w1")["updated_at"] == past
 
     client.post("/w/w1/edit", data=_form(**{"grid.max_import_kw_override": "abc"}))
-    assert mod["workspaces"].get("w1")["updated_at"] == before
+    assert mod["workspaces"].get("w1")["updated_at"] == past, (
+        "a blocking submission stored nothing, so it is not a 'last saved' event"
+    )
 
     client.post("/w/w1/edit", data=_form(), follow_redirects=False)
-    assert mod["workspaces"].get("w1")["updated_at"] >= before
+    assert mod["workspaces"].get("w1")["updated_at"] > past, (
+        "a successful save must call touch(); the row is still at its back-dated value, so "
+        "nothing advanced it"
+    )
 
 
 def test_the_edit_screen_inherits_settings_it_does_not_draw(env):
