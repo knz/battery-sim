@@ -284,7 +284,29 @@
                 <p class="mb-2 text-xs text-base-content/60">{{ _('compensation = max(0, α × bare + β)') }}</p>
                 {{ num_field(pa['pricing.feedin_alpha'], _('α'), '', '', 'w-20') }}
                 {{ num_field(pa['pricing.feedin_beta'], _('β'), '€/kWh', '', 'w-24') }}
-                {{ num_field(pa['pricing.tlk_eur_per_kwh'], _('Terugleverkosten'), '€/kWh', _('flat, per fed-in kWh')) }}
+                {# ── Terugleverkosten: how it is charged, then the rate ──────────────
+                     The mode radios came with the Pricing box when §2′.1 moved it here. TIERED is
+                     a PENDING control — drawn, disabled, with a `[?]` opening the shared "Not
+                     built yet" dialog — for the same reason FIXED and VARIABLE are above it:
+                     §6.5 specifies it but nothing builds it yet, and a dropped option leaves the
+                     user unable to tell whether the app has the feature at all.
+
+                     The rate field below is FLAT's rate. It stays visible under TIERED rather than
+                     being hidden, because TIERED cannot be selected — hiding a field behind a
+                     disabled radio would make it unreachable with no way to see why. #}
+                <span class="label-text">{{ _('Terugleverkosten') }}</span>
+                {% for m in view.tlk_modes %}
+                <label class="label justify-start gap-2{% if not m.pending %} cursor-pointer{% endif %}">
+                  <input type="radio" name="pricing.tlk_mode" value="{{ m.key }}" class="radio radio-sm"
+                         {% if m.selected %}checked{% endif %}{% if m.pending %} disabled{% endif %} />
+                  <span class="label-text{% if m.pending %} text-base-content/50{% endif %}">{{ _(m.label) }}</span>
+                  {% if m.pending %}
+                  <button type="button" class="btn btn-ghost btn-xs"
+                          data-pending-name="{{ _(m.label) }}" data-feature-key="{{ m.feature_key }}">[?]</button>
+                  {% endif %}
+                </label>
+                {% endfor %}
+                {{ num_field(pa['pricing.tlk_eur_per_kwh'], _('Flat rate'), '€/kWh', _('per fed-in kWh')) }}
                 <p class="mt-2 text-xs text-base-content/60">
                   ⓘ {{ _('2027 tariffs are not yet published. These values are estimates.') }}
                 </p>

@@ -481,13 +481,17 @@ def test_the_tabbed_pane_shows_one_panel_at_a_time_and_gives_the_svgs_their_widt
     context.add_cookies([{"name": "lang", "value": "en", "url": base_url}])
     pg = context.new_page()
 
-    # 3-phase through the real control, so the battery-phase selector is offered.
+    # 3-phase through the real control, so the battery-phase selector is offered. The connection
+    # is set on the EDIT screen since §2′.1 — §2′.4's preset dropdown, one select carrying both
+    # `grid.phases` and `grid.fuse_a` as a "<phases>:<fuse>" token — not in the results pane, which
+    # no longer draws either field.
+    pg.goto(f"{base_url}/w/{workspace_id}/edit", wait_until="networkidle")
+    pg.locator('select[name="grid.connection"]').select_option("3:25")
+    pg.get_by_role("button", name="Save").click()
+    pg.wait_for_load_state("networkidle")
+
     pg.goto(f"{base_url}/w/{workspace_id}/results", wait_until="networkidle")
     pg.locator("summary", has_text="More settings").click()
-    pg.locator('input[name="grid.phases"][value="3"]').check()
-    pg.locator('input[name="grid.fuse_a"]').fill("25")
-    pg.get_by_role("button", name="Calculate").click()
-    pg.wait_for_timeout(1500)
 
     for tab in ("battery", "installation", "dispatch"):
         _select_tab(pg, tab)
@@ -771,35 +775,29 @@ def test_the_cost_tint_actually_renders_and_is_not_merely_a_class_name(page, bas
     page.wait_for_load_state("networkidle")
     page.goto(f"{base_url}/w/{workspace_id}/results", wait_until="networkidle")
 
-    # Now it is live, and turning it on draws the Pricing box.
+    # Now it is live.
     yes = page.locator("#setup-simulate-cost input[value='yes']")
     assert not yes.is_disabled(), "saving the contract must unblock the toggle"
     yes.check()
-    # The POST swaps the box in with the pane closed, so re-open before measuring — a computed
-    # style on a `display:none` subtree is not what the reader sees.
-    page.wait_for_selector("input.cost-field", state="attached", timeout=10000)
-    page.evaluate("document.querySelectorAll('details[data-advanced]').forEach(d => d.open = true)")
-    _select_tab(page, "dispatch")
-    page.wait_for_selector("input.cost-field", timeout=10000)
+    page.wait_for_load_state("networkidle")
 
-    tinted_input = page.locator("input.cost-field").first
-    plain_input = page.locator("input[name='battery.usable_capacity_kwh']").first
-    tinted_border = tinted_input.evaluate("e => getComputedStyle(e).borderColor")
-    plain_border = plain_input.evaluate("e => getComputedStyle(e).borderColor")
-    assert tinted_border != plain_border, (
-        f"cost input border {tinted_border} is identical to an untinted input's — the rule is "
+    # **What is measured changed with §2′.1, and the CSS hazard did not.** The tinted set used to
+    # be the Pricing box's inputs (`.cost-field`); that box moved to the edit-workspace screen,
+    # which does not tint, so no `.cost-field` element is rendered anywhere today. The `.cost-label`
+    # half is still live on this screen — the cost toggle's own label, the COST SAVINGS divider and
+    # the euro headings — and it runs the same override risk against the same later daisyUI layer,
+    # so it is what this test now measures.
+    #
+    # The toggle's label is used because it needs no dataset: this fixture has no data, so the
+    # divider and the KPI tile below it do not render.
+    tinted = page.locator("#setup-simulate-cost span.cost-label").first
+    plain = page.locator("#setup-simulate-cost + p, label.label span.label-text").first
+    tinted_color = tinted.evaluate("e => getComputedStyle(e).color")
+    plain_color = plain.evaluate("e => getComputedStyle(e).color")
+    assert tinted_color != plain_color, (
+        f"the cost label renders {tinted_color}, identical to an untinted label — the rule is "
         "being overridden, most likely by a later CSS layer"
     )
-
-    # A tinted heading must differ from an untinted one, and an untinted one must NOT pick the
-    # tint up — otherwise the marking distinguishes nothing. The MONEY SAVED tile needs a
-    # simulated dataset, which this fixture has no data for; the Pricing box's heading is on
-    # screen and exercises the same rule against the same override risk.
-    plain_h3 = page.locator("h3.text-base-content\\/70").first
-    cost_h3 = page.locator("h3.cost-label").first
-    assert cost_h3.evaluate("e => getComputedStyle(e).color") != plain_h3.evaluate(
-        "e => getComputedStyle(e).color"
-    ), "a cost heading renders the same colour as a plain one"
 
 
 # ── The workspace list (specs/20-workspaces-ux.md §2′.2, §2′.3) ──────────────────────────────

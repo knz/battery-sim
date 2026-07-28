@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-27 16:41+0200\n"
+"POT-Creation-Date: 2026-07-28 10:53+0200\n"
 "PO-Revision-Date: 2026-07-23 20:30+0200\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: nl\n"
@@ -179,9 +179,6 @@ msgstr "+ Nieuwe analyse"
 msgid "+ weekends"
 msgstr "+ weekenden"
 
-msgid "1-phase"
-msgstr "1-fase"
-
 msgid "1-phase battery"
 msgstr "1-fase batterij"
 
@@ -195,9 +192,6 @@ msgstr ""
 
 msgid "3 × 1-phase batteries"
 msgstr "3 × 1-fase batterijen"
-
-msgid "3-phase"
-msgstr "3-fase"
 
 msgid "3-phase inverter"
 msgstr "3-fase omvormer"
@@ -217,10 +211,6 @@ msgstr ""
 "geen opwekking door, dus de zonne-cijfers zijn verborgen. Mogelijk is hij"
 " niet goed aangesloten."
 
-#, python-format
-msgid "A → max import %(kw)s kW"
-msgstr "A → max. afname %(kw)s kW"
-
 msgid "AC-coupled"
 msgstr "AC-gekoppeld"
 
@@ -232,6 +222,9 @@ msgstr "Over"
 
 msgid "About the contract types"
 msgstr "Over de contractvormen"
+
+msgid "About these rates"
+msgstr "Over deze tarieven"
 
 msgid "About your household"
 msgstr "Over je huishouden"
@@ -462,9 +455,6 @@ msgstr "Koppeling"
 msgid "Coverage"
 msgstr "Dekking"
 
-msgid "Custom"
-msgstr "Aangepast"
-
 msgid "D"
 msgstr "D"
 
@@ -552,6 +542,9 @@ msgstr "Economische bewaking: nooit met verlies ontladen"
 msgid "Edit analysis"
 msgstr "Analyse bewerken"
 
+msgid "Edit contract & rates →"
+msgstr "Contract en tarieven aanpassen →"
+
 msgid "Enable cost simulation"
 msgstr "Kostensimulatie inschakelen"
 
@@ -576,11 +569,16 @@ msgstr "Voer een getal in."
 msgid "Entity"
 msgstr "Entiteit"
 
+msgid ""
+"Every euro figure below is produced from your contract type and its rates"
+" — the supplier markup, energy tax, VAT, feed-in terms and the day/night "
+"window. Those are part of the workspace rather than of this simulation, "
+"so they are set on its edit screen. Change them there and come back: the "
+"figures are recalculated from the new rates."
+msgstr "Elk bedrag hieronder volgt uit uw contractvorm en de bijbehorende tarieven — de opslag leverancier, energiebelasting, btw, terugleververgoeding en het dal/normaal-venster. Die horen bij de werkruimte en niet bij deze simulatie, dus stelt u ze in op het bewerkscherm. Pas ze daar aan en kom terug: de bedragen worden opnieuw berekend met de nieuwe tarieven."
+
 msgid "Export CSV"
 msgstr "CSV exporteren"
-
-msgid "Export limit"
-msgstr "Invoedingslimiet"
 
 msgid "Exported"
 msgstr "Teruggeleverd"
@@ -611,21 +609,11 @@ msgstr "%(slot)s ophalen (%(n)s/%(total)s)…"
 msgid "Fixed"
 msgstr "Vast"
 
-msgid ""
-"Fixed costs (vastrecht, systeembeheer, vermindering) do not change with a"
-" battery and are excluded from savings."
-msgstr ""
-"Vaste kosten (vastrecht, systeembeheer, vermindering) veranderen niet "
-"door een batterij en tellen niet mee in de besparing."
-
 msgid "Flat rate"
 msgstr "Vast tarief"
 
 msgid "From"
 msgstr "Van"
-
-msgid "Fuse rating"
-msgstr "Zekeringwaarde"
 
 msgid "GRID IMPORT SAVED"
 msgstr "BESPAARDE NETAFNAME"
@@ -733,9 +721,6 @@ msgstr ""
 "Als je dit zou gebruiken, laat het weten. Het vertelt ons wat we hierna "
 "moeten bouwen, en het is het enige signaal dat we krijgen."
 
-msgid "Import limit override"
-msgstr "Afwijkende afnamelimiet"
-
 msgid "Imported"
 msgstr "Afgenomen"
 
@@ -763,9 +748,6 @@ msgstr "Taal"
 
 msgid "Leave anyway"
 msgstr "Toch weggaan"
-
-msgid "Legal minimum — 50 percent of the bare price"
-msgstr "Wettelijk minimum — 50 procent van de kale prijs"
 
 msgid "Loaded. Reloading…"
 msgstr "Geladen. Opnieuw laden…"
@@ -950,9 +932,6 @@ msgstr "alleen met PV"
 msgid "Perfect foresight"
 msgstr "Perfecte vooruitblik"
 
-msgid "Phases"
-msgstr "Fasen"
-
 msgid ""
 "Pick where each series comes from. Choose a source per slot; for Home "
 "Assistant, connect once from the source drawer (Configure) and that "
@@ -974,9 +953,6 @@ msgstr ""
 msgid "Postcode"
 msgstr "Postcode"
 
-msgid "Preset"
-msgstr "Voorinstelling"
-
 msgid "Preset historical (ENTSO-E NL)"
 msgstr "Vaste historische reeks (ENTSO-E NL)"
 
@@ -989,9 +965,6 @@ msgid ""
 msgstr ""
 "Geprijsd onder het regime vanaf 2027, op basis van het contract dat je "
 "hebt ingevuld. Zie de kanttekeningen hieronder."
-
-msgid "Pricing"
-msgstr "Tarieven"
 
 msgid "Produced"
 msgstr "Opgewekt"
@@ -1137,12 +1110,6 @@ msgstr ""
 
 msgid "Source"
 msgstr "Bron"
-
-msgid "Spot"
-msgstr "Spot"
-
-msgid "Spot minus fee"
-msgstr "Spot min vergoeding"
 
 msgid "Spot price"
 msgstr "Spotprijs"
@@ -1552,6 +1519,9 @@ msgstr "Waar de energie vandaan komt"
 msgid "Where the money comes from"
 msgstr "Waar het geld vandaan komt"
 
+msgid "Where these figures come from"
+msgstr "Waar deze bedragen vandaan komen"
+
 msgid "Why is this greyed out?"
 msgstr "Waarom is dit grijs?"
 
@@ -1944,12 +1914,6 @@ msgstr "laatste 30 dagen"
 msgid "last 6 months"
 msgstr "laatste 6 maanden"
 
-msgid "leave empty for the same as import"
-msgstr "laat leeg voor gelijk aan afname"
-
-msgid "leave empty to derive from the fuse"
-msgstr "laat leeg om af te leiden uit de hoofdzekering"
-
 msgid "loaded"
 msgstr "geladen"
 
@@ -1994,6 +1958,9 @@ msgstr "aangeboden als je kosten simuleert"
 
 msgid "optional"
 msgstr "optioneel"
+
+msgid "per fed-in kWh"
+msgstr "per teruggeleverde kWh"
 
 msgid "per kWh throughput; 0 disables it"
 msgstr "per kWh doorzet; 0 schakelt het uit"
@@ -2403,4 +2370,59 @@ msgstr "👍 Ik wil dit"
 
 #~ msgid "set by the topology selector below"
 #~ msgstr "ingesteld door de topologiekeuze hieronder"
+
+#~ msgid "1-phase"
+#~ msgstr "1-fase"
+
+#~ msgid "3-phase"
+#~ msgstr "3-fase"
+
+#~ msgid "A → max import %(kw)s kW"
+#~ msgstr "A → max. afname %(kw)s kW"
+
+#~ msgid "Custom"
+#~ msgstr "Aangepast"
+
+#~ msgid "Export limit"
+#~ msgstr "Invoedingslimiet"
+
+#~ msgid ""
+#~ "Fixed costs (vastrecht, systeembeheer, "
+#~ "vermindering) do not change with a "
+#~ "battery and are excluded from savings."
+#~ msgstr ""
+#~ "Vaste kosten (vastrecht, systeembeheer, "
+#~ "vermindering) veranderen niet door een "
+#~ "batterij en tellen niet mee in de"
+#~ " besparing."
+
+#~ msgid "Fuse rating"
+#~ msgstr "Zekeringwaarde"
+
+#~ msgid "Import limit override"
+#~ msgstr "Afwijkende afnamelimiet"
+
+#~ msgid "Legal minimum — 50 percent of the bare price"
+#~ msgstr "Wettelijk minimum — 50 procent van de kale prijs"
+
+#~ msgid "Phases"
+#~ msgstr "Fasen"
+
+#~ msgid "Preset"
+#~ msgstr "Voorinstelling"
+
+#~ msgid "Pricing"
+#~ msgstr "Tarieven"
+
+#~ msgid "Spot"
+#~ msgstr "Spot"
+
+#~ msgid "Spot minus fee"
+#~ msgstr "Spot min vergoeding"
+
+#~ msgid "leave empty for the same as import"
+#~ msgstr "laat leeg voor gelijk aan afname"
+
+#~ msgid "leave empty to derive from the fuse"
+#~ msgstr "laat leeg om af te leiden uit de hoofdzekering"
 

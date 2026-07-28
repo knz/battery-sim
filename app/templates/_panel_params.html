@@ -14,11 +14,18 @@
   — so the common path ("what would a 10 kWh battery have done for me?") is one input away from a
   result, while nothing is removed from the user who wants the rest.
 
-  Everything below the capacity field is UNCHANGED IN CONTENT. §2′.6: "This is a presentation
-  choice and nothing depends on it: the four groups keep their §2.3 contents, their validation and
-  their gating (the PV-blocked charge policies, the cost-gated economic guard, the soft block on
-  unsupported battery phases) exactly as specified." The boxes were regrouped into tabs, not
-  rewritten, and `app/params_view.py` did not change shape for this.
+  **Two of §2.3's boxes are not in this file at all: Grid connection and Pricing.** §2′.1's
+  ownership table assigns `grid.*` and `pricing.*` to the EDIT-WORKSPACE screen, and §2′.6's
+  wireframe for this screen draws neither. Phase 4.2's reshape regrouped the boxes it kept into
+  tabs but left these two behind, so the same stored fields were editable from two screens at
+  once; they were removed here afterwards. `workspace_edit.html` is now the only place either is
+  edited — the connection as §2′.4's preset dropdown, the rates as its Contract box.
+
+  What remains below the capacity field is unchanged in content. §2′.6: "the four groups keep
+  their §2.3 contents, their validation and their gating (the PV-blocked charge policies, the
+  cost-gated economic guard, the soft block on unsupported battery phases) exactly as specified."
+  The economic guard is the one cost-gated control that STAYS: it is `policy.economic_guard`, a
+  dispatch decision that lives in the discharge card, not part of the Pricing box that left.
 
   §2.3's collapsed one-line summary went with the collapsed panel. `params_view.summary_line` still
   computes it and is still covered by its own tests; nothing renders it. What replaces it is the
@@ -85,17 +92,17 @@
 
 {# A labelled numeric input bound to its dotted path, with its unit, optional hint and messages.
 
-   `cost=true` marks the row as belonging to cost simulation: the label and the input take the
-   .cost-label / .cost-field tint defined in app.tailwind.css. It is a parameter rather than a
-   second macro because this one is shared by every box here and only the Pricing box wants the
-   tint — duplicating the markup would give the two copies room to drift. The tint is decoration
-   only; the Pricing box's own heading and legends still say what it is (§2.3). #}
-{% macro num_field(f, label, unit, hint='', width='w-20', label_width='w-44', cost=false) %}
+   It used to take a `cost=true` flag applying the .cost-label / .cost-field tint, for the Pricing
+   box's rows. That box moved to the edit-workspace screen (§2′.1) and took the only caller with
+   it, so the parameter went too rather than staying as an option nothing exercises. The tint
+   classes still exist in app.tailwind.css and are still used by `_panel_results.html` and by
+   `workspace_edit.html`'s own copy of this macro. #}
+{% macro num_field(f, label, unit, hint='', width='w-20', label_width='w-44') %}
 <div class="flex flex-col gap-1">
   <div class="flex items-center gap-2">
-    <span class="{{ label_width }} label-text{% if cost %} cost-label{% endif %}">{{ label }}</span>
+    <span class="{{ label_width }} label-text">{{ label }}</span>
     <input type="text" inputmode="decimal" name="{{ f.name }}"
-           class="input input-bordered input-xs {{ width }} text-right{% if cost %} cost-field{% endif %}{% if f.invalid %} input-error{% endif %}"
+           class="input input-bordered input-xs {{ width }} text-right{% if f.invalid %} input-error{% endif %}"
            value="{{ f.value }}"
            aria-label="{{ label }}"
            {% if f.invalid %}aria-invalid="true"{% endif %} />
@@ -237,7 +244,13 @@
             <label for="params-tab-dispatch" class="tab" data-tab="dispatch">{{ _('Charge & discharge') }}</label>
           </div>
 
-          {# ── Tab 1: Battery — §2.3's box 1 (minus the capacity) and box 2 ─────── #}
+          {# ── Tab 1: Battery — §2.3's box 1, minus the capacity ─────────────────
+               §2.3's box 2 (Grid connection) is NOT here. It was, until this file was corrected
+               against §2′.1's ownership table, which assigns `grid.*` to the edit-workspace
+               screen; §2′.6's wireframe for this tab lists the SoC/power/efficiency/standby/
+               initial-SoC/coupling rows and no connection box. `workspace_edit.html` draws the
+               connection as the §2′.4 preset dropdown plus its advanced overrides — that is the
+               one place it is edited. #}
           <div class="tab-panel flex-col gap-4 pt-4" data-tab-panel="battery">
             <div class="flex flex-col gap-2">
               {{ num_field(b.min_soc, _('Min state of charge'), '%') }}
@@ -261,48 +274,6 @@
               </div>
             </div>
 
-            {# ── Grid connection (§2.3's box 2) ───────────────────────────────────
-                 On the Battery tab rather than on Installation: §2′.6 names three tabs and puts
-                 §2.3's box 3 — the ILLUSTRATED topology selectors — on Installation. The fuse and
-                 phase count are the battery's operating envelope (they set `max_import_kw`, which
-                 §6.8 step 6 clamps every interval against), so they sit with the other limits. #}
-            <div class="rounded-box border border-base-300 p-3">
-              <h3 class="mb-2 text-xs font-semibold uppercase">{{ _('Grid connection') }}</h3>
-              <div class="flex flex-col gap-2">
-                <div class="flex flex-col gap-1">
-                  <div class="flex items-center gap-3">
-                    <span class="w-28 label-text">{{ _('Phases') }}</span>
-                    <label class="label cursor-pointer gap-1">
-                      <input type="radio" name="grid.phases" value="1" class="radio radio-xs"
-                             {% if params.grid.phases == '1' %}checked{% endif %} />
-                      <span class="label-text">{{ _('1-phase') }}</span>
-                    </label>
-                    <label class="label cursor-pointer gap-1">
-                      <input type="radio" name="grid.phases" value="3" class="radio radio-xs"
-                             {% if params.grid.phases == '3' %}checked{% endif %} />
-                      <span class="label-text">{{ _('3-phase') }}</span>
-                    </label>
-                  </div>
-                  {{ field_messages(params.grid.phases_field) }}
-                </div>
-                <div class="flex flex-col gap-1">
-                  <div class="flex items-center gap-2">
-                    <span class="w-28 label-text">{{ _('Fuse rating') }}</span>
-                    <input type="text" inputmode="decimal" name="{{ params.grid.fuse.name }}"
-                           class="input input-bordered input-xs w-16 text-right{% if params.grid.fuse.invalid %} input-error{% endif %}"
-                           value="{{ params.grid.fuse.value }}" aria-label="{{ _('Fuse rating') }}" />
-                    {# The ROUNDED display figure (connection_capacity_kw_display); the exact value
-                       is what §6.8 step 6 compares against and is never printed. #}
-                    <span class="text-sm text-base-content/60">{{ _('A → max import %(kw)s kW') | interpolate(kw=params.grid.max_import) }}</span>
-                  </div>
-                  {{ field_messages(params.grid.fuse) }}
-                </div>
-                {{ num_field(params.grid.max_import_override, _('Import limit override'), 'kW',
-                             _('leave empty to derive from the fuse'), 'w-20', 'w-28') }}
-                {{ num_field(params.grid.max_export, _('Export limit'), 'kW',
-                             _('leave empty for the same as import'), 'w-20', 'w-28') }}
-              </div>
-            </div>
           </div>
 
           {# ── Tab 2: Installation — §2.3's box 3, the illustrated selectors (§2.5) ──
@@ -526,149 +497,6 @@
             {% else %}
             <div role="alert" class="alert alert-success py-1 text-sm" data-band-overlap>
               <span>{{ _('Charge band [%(a)s, %(b)s] and discharge band [%(c)s, %(d)s] do not overlap. ✓') | interpolate(a=params.band_values.a, b=params.band_values.b, c=params.band_values.c, d=params.band_values.d) }}</span>
-            </div>
-            {% endif %}
-
-            {# ── Pricing (§2.3, §6.5) ──────────────────────────────────────────────
-                 ABSENT while cost simulation is off — absent, not greyed (§2.3 "Without cost
-                 simulation": "there is nothing here the user can usefully look at without opting
-                 in"). The charge/discharge bands above STAY, because they are dispatch parameters
-                 that change which kWh move; everything in here only turns kWh into euros.
-
-                 On this tab because that is where the settings it prices live — the bands it
-                 compares against are two cards up. §2′.6 names three tabs and does not place the
-                 Pricing box; putting it behind a fourth tab would contradict the tab list the spec
-                 draws, and putting it on Battery would separate the rates from the bands.
-
-                 The values are computed either way (params_view._pricing_view); this `if` is the ONE
-                 place the box's existence is decided, and `params.sections` echoes the same answer
-                 back so the route can tell an unticked checkbox from an undrawn box.
-
-                 **The wireframe's "Spot source" row is not rendered here.** §2.3 draws it inside the
-                 Dynamic sub-panel, but where the spot price comes from is data-source configuration
-                 and the configure-data screen already owns it — slot-first, per slot, with its own
-                 drawer and its own persistence. A second control over the same setting would give
-                 the user two answers to one question. See `_pricing_view`'s docstring. #}
-            {% if cfg.simulate_cost %}
-            {% set pr = params.pricing %}
-            <div class="card bg-base-200 border border-base-300">
-              <div class="card-body gap-3 p-4">
-                <h3 class="text-sm font-semibold cost-label">{{ _('Pricing') }}</h3>
-
-                {# Contract type. FIXED and VARIABLE are PENDING controls (app/features.py):
-                   disabled, with a [?] opening the shared #pending-dialog. Only DYNAMIC has a rate
-                   source behind it — FIXED needs the §6.4 tariff-zone axis and VARIABLE a dated rate
-                   schedule, and neither is built. Listed rather than dropped, same reasoning as the
-                   PV-gated charge policies: a vanished option says nothing, a disabled one says what
-                   is missing. #}
-                <div class="flex flex-wrap items-center gap-3">
-                  <span class="w-28 label-text cost-label">{{ _('Contract') }}</span>
-                  <button type="button" class="btn btn-ghost btn-xs btn-circle align-middle slot-info-btn"
-                          aria-label="{{ _('About the contract types') }}"
-                          data-info-title="{{ _('Contract types') }}"
-                          data-info-body="{{ _('Dynamic — the price follows the EPEX day-ahead market and changes every hour. Fixed — one normaal and one dal rate, agreed for the term of the contract. Variable — the supplier sets the rate and revises it periodically, typically every six months; between revisions it behaves exactly like a fixed contract.') }}">ⓘ</button>
-                  {% for c in pr.contracts %}
-                  <label class="label gap-1{% if not c.pending %} cursor-pointer{% endif %}">
-                    <input type="radio" name="pricing.contract" value="{{ c.key }}" class="radio radio-sm"
-                           {% if c.selected %}checked{% endif %}{% if c.pending %} disabled{% endif %} />
-                    <span class="label-text cost-label{% if c.pending %} text-base-content/50{% endif %}">{{ _(c.label) }}</span>
-                    {% if c.pending %}
-                    <button type="button" class="btn btn-ghost btn-xs"
-                            data-pending-name="{{ _(c.label) }}" data-feature-key="{{ c.feature_key }}">[?]</button>
-                    {% endif %}
-                  </label>
-                  {% endfor %}
-                </div>
-
-                {# The Dynamic sub-panel. Only the supplier markup: §6.5's FIXED and VARIABLE
-                   branches never read it, and the wireframe's Spot source row belongs to the
-                   configure-data screen. #}
-                <div class="rounded-box border border-base-300 p-3">
-                  <h4 class="mb-2 text-xs font-semibold uppercase cost-label">{{ _('Dynamic') }}</h4>
-                  {{ num_field(pr.supplier_markup, _('Supplier markup'), '€/kWh', _('excl. VAT'), 'w-24', 'w-44', cost=true) }}
-                </div>
-
-                {{ num_field(pr.energy_tax, _('Energy tax'), '€/kWh', _('excl. VAT — 2026 value'), 'w-24', 'w-44', cost=true) }}
-                {# Stored as a fraction (0.21), shown as 21 — the conversion is `_pct_to_frac` in the
-                   FIELDS table and its inverse on the way out, so the two directions cannot drift. #}
-                {{ num_field(pr.vat, _('VAT'), '%', '', 'w-16', 'w-44', cost=true) }}
-
-                {# ── Feed-in ─────────────────────────────────────────────────────── #}
-                <div class="rounded-box border border-base-300 p-3">
-                  <h4 class="mb-2 text-xs font-semibold uppercase cost-label">{{ _('Feed-in') }}</h4>
-                  {# The preset select FILLS α and β; it is not itself stored (§6.5's table, and see
-                     _FEEDIN_PRESETS). A stored pair matching no row leaves the placeholder selected. #}
-                  <div class="flex flex-wrap items-center gap-2">
-                    <span class="w-44 label-text cost-label">{{ _('Preset') }}</span>
-                    <select id="feedin-preset" class="select select-bordered select-xs w-64 cost-field"
-                            aria-label="{{ _('Preset') }}">
-                      <option {% if not pr.feedin_presets | selectattr('selected') | list %}selected{% endif %}>{{ _('Custom') }}</option>
-                      {% for p in pr.feedin_presets %}
-                      <option data-alpha="{{ p.alpha }}" data-beta="{{ p.beta }}"
-                              {% if p.selected %}selected{% endif %}>{{ _(p.label) }}</option>
-                      {% endfor %}
-                    </select>
-                  </div>
-                  <p class="my-2 text-xs text-base-content/60">{{ _('compensation = max(0, α × bare + β)') }}</p>
-                  {{ num_field(pr.feedin_alpha, _('α'), '', '', 'w-20', 'w-44', cost=true) }}
-                  {{ num_field(pr.feedin_beta, _('β'), '€/kWh', '', 'w-24', 'w-44', cost=true) }}
-
-                  {# Terugleverkosten. TIERED is vocabulary only (§6.5: it needs a tier table, an
-                     annualisation and the min_tlk_tiering_days fallback), so it renders pending. #}
-                  <div class="mt-2 flex flex-col gap-1">
-                    <span class="label-text cost-label">{{ _('Terugleverkosten') }}</span>
-                    {% for m in pr.tlk_modes %}
-                    <label class="label justify-start gap-2{% if not m.pending %} cursor-pointer{% endif %}">
-                      <input type="radio" name="pricing.tlk_mode" value="{{ m.key }}" class="radio radio-sm"
-                             {% if m.selected %}checked{% endif %}{% if m.pending %} disabled{% endif %} />
-                      <span class="label-text cost-label{% if m.pending %} text-base-content/50{% endif %}">{{ _(m.label) }}</span>
-                      {% if m.pending %}
-                      <button type="button" class="btn btn-ghost btn-xs"
-                              data-pending-name="{{ _(m.label) }}" data-feature-key="{{ m.feature_key }}">[?]</button>
-                      {% endif %}
-                    </label>
-                    {% endfor %}
-                    {{ num_field(pr.tlk_rate, _('Flat rate'), '€/kWh', '', 'w-24', 'w-44', cost=true) }}
-                  </div>
-                  <p class="mt-2 text-xs text-base-content/60">
-                    ⓘ {{ _('2027 tariffs are not yet published. These values are estimates.') }}
-                  </p>
-                </div>
-
-                {# ── Advanced (collapsible, §2.3 "[expand]") ─────────────────────────
-                     A `<details>` since phase 4.2, not a daisyUI `collapse`: this is inside another
-                     `<details>` (the "More settings" pane) and inside a CSS-hidden tab panel, and a
-                     `collapse` uses `content-visibility`, which nests badly. Both mechanisms keep
-                     the inputs in the DOM, so `dal_weekends` round-trips either way. #}
-                <details class="rounded-box border border-base-300 p-3" data-advanced>
-                  <summary class="cursor-pointer text-xs font-semibold uppercase cost-label">{{ _('Advanced') }}</summary>
-                  <div class="mt-3 flex flex-col gap-2">
-                    {{ num_field(pr.degradation, _('Degradation cost'), '€/kWh', _('per kWh throughput; 0 disables it'), 'w-24', 'w-44', cost=true) }}
-                    <div class="flex flex-wrap items-center gap-2">
-                      <span class="w-44 label-text cost-label">{{ _('Day/night window') }}</span>
-                      <span class="text-sm">{{ _('dal from') }}</span>
-                      <input type="text" inputmode="decimal" name="{{ pr.dal_start.name }}"
-                             class="input input-bordered input-xs w-16 text-right cost-field{% if pr.dal_start.invalid %} input-error{% endif %}"
-                             value="{{ pr.dal_start.value }}" aria-label="{{ _('dal from') }}" />
-                      <span class="text-sm">{{ _('to') }}</span>
-                      <input type="text" inputmode="decimal" name="{{ pr.dal_end.name }}"
-                             class="input input-bordered input-xs w-16 text-right cost-field{% if pr.dal_end.invalid %} input-error{% endif %}"
-                             value="{{ pr.dal_end.value }}" aria-label="{{ _('to') }}" />
-                      <span class="text-sm text-base-content/60">{{ _('h') }}</span>
-                      <label class="label cursor-pointer gap-2">
-                        <input type="checkbox" name="pricing.dal_weekends" value="1" class="checkbox checkbox-sm"
-                               {% if pr.dal_weekends %}checked{% endif %} />
-                        <span class="label-text cost-label">{{ _('+ weekends') }}</span>
-                      </label>
-                    </div>
-                    {{ field_messages(pr.dal_start) }}
-                    {{ field_messages(pr.dal_end) }}
-                    <p class="text-xs text-base-content/60">
-                      {{ _('Fixed costs (vastrecht, systeembeheer, vermindering) do not change with a battery and are excluded from savings.') }}
-                    </p>
-                  </div>
-                </details>
-              </div>
             </div>
             {% endif %}
           </div>

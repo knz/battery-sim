@@ -391,6 +391,30 @@
       {{ _('Cost savings') }}
     </div>
 
+    {# ── Where the rates behind these figures are edited ──────────────────
+         §2.3's Pricing box used to sit in the battery panel and was how a reader adjusted the
+         contract and rates that produce every euro below. §2′.1 assigns `pricing.*` to the
+         edit-workspace screen, so that box is gone from this screen — and with it the only route
+         from a euro figure to the assumptions behind it.
+
+         **This is the THIRD control pointing at `/w/{id}/edit#contract`, and that is not the
+         duplication the invitation box's comment warns against.** The three are mutually
+         exclusive by cost state: with cost OFF the invitation box offers it, and if the toggle is
+         additionally Blocked its ⓘ dialog does; with cost ON — the only state this branch renders
+         in — neither exists and this one does. A reader sees exactly one at a time.
+
+         The ⓘ is the SHARED .slot-info-btn dialog, not the blocked toggle's bespoke one. That one
+         is bespoke because it carries an action button; here the action is the adjacent link, and
+         a dialog repeating it would be two buttons to one destination on one screen. #}
+    <div class="flex flex-wrap items-center justify-end gap-1 -mt-2">
+      <a href="/w/{{ workspace_id | urlencode }}/edit#contract" class="btn btn-ghost btn-xs"
+         data-cost-edit-contract>{{ _('Edit contract & rates →') }}</a>
+      <button type="button" class="btn btn-ghost btn-xs btn-circle align-middle slot-info-btn"
+              aria-label="{{ _('About these rates') }}"
+              data-info-title="{{ _('Where these figures come from') }}"
+              data-info-body="{{ _('Every euro figure below is produced from your contract type and its rates — the supplier markup, energy tax, VAT, feed-in terms and the day/night window. Those are part of the workspace rather than of this simulation, so they are set on its edit screen. Change them there and come back: the figures are recalculated from the new rates.') }}">ⓘ</button>
+    </div>
+
     {# ── MONEY SAVED tile + the baseline → battery sentence ─────────────
        §2.4's wireframe puts the tile and the sentence side by side in one bordered block, not as
        three peer tiles like the energy row: there is one headline euro figure, and the space

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-27 16:41+0200\n"
+"POT-Creation-Date: 2026-07-28 10:53+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -162,9 +162,6 @@ msgstr ""
 msgid "+ weekends"
 msgstr ""
 
-msgid "1-phase"
-msgstr ""
-
 msgid "1-phase battery"
 msgstr ""
 
@@ -175,9 +172,6 @@ msgid "2027 tariffs are not yet published. These values are estimates."
 msgstr ""
 
 msgid "3 × 1-phase batteries"
-msgstr ""
-
-msgid "3-phase"
 msgstr ""
 
 msgid "3-phase inverter"
@@ -195,10 +189,6 @@ msgid ""
 "correctly."
 msgstr ""
 
-#, python-format
-msgid "A → max import %(kw)s kW"
-msgstr ""
-
 msgid "AC-coupled"
 msgstr ""
 
@@ -209,6 +199,9 @@ msgid "About"
 msgstr ""
 
 msgid "About the contract types"
+msgstr ""
+
+msgid "About these rates"
 msgstr ""
 
 msgid "About your household"
@@ -417,9 +410,6 @@ msgstr ""
 msgid "Coverage"
 msgstr ""
 
-msgid "Custom"
-msgstr ""
-
 msgid "D"
 msgstr ""
 
@@ -499,6 +489,9 @@ msgstr ""
 msgid "Edit analysis"
 msgstr ""
 
+msgid "Edit contract & rates →"
+msgstr ""
+
 msgid "Enable cost simulation"
 msgstr ""
 
@@ -523,10 +516,15 @@ msgstr ""
 msgid "Entity"
 msgstr ""
 
-msgid "Export CSV"
+msgid ""
+"Every euro figure below is produced from your contract type and its rates"
+" — the supplier markup, energy tax, VAT, feed-in terms and the day/night "
+"window. Those are part of the workspace rather than of this simulation, "
+"so they are set on its edit screen. Change them there and come back: the "
+"figures are recalculated from the new rates."
 msgstr ""
 
-msgid "Export limit"
+msgid "Export CSV"
 msgstr ""
 
 msgid "Exported"
@@ -556,18 +554,10 @@ msgstr ""
 msgid "Fixed"
 msgstr ""
 
-msgid ""
-"Fixed costs (vastrecht, systeembeheer, vermindering) do not change with a"
-" battery and are excluded from savings."
-msgstr ""
-
 msgid "Flat rate"
 msgstr ""
 
 msgid "From"
-msgstr ""
-
-msgid "Fuse rating"
 msgstr ""
 
 msgid "GRID IMPORT SAVED"
@@ -671,9 +661,6 @@ msgid ""
 "the only signal we get."
 msgstr ""
 
-msgid "Import limit override"
-msgstr ""
-
 msgid "Imported"
 msgstr ""
 
@@ -700,9 +687,6 @@ msgid "Language"
 msgstr ""
 
 msgid "Leave anyway"
-msgstr ""
-
-msgid "Legal minimum — 50 percent of the bare price"
 msgstr ""
 
 msgid "Loaded. Reloading…"
@@ -861,9 +845,6 @@ msgstr ""
 msgid "Perfect foresight"
 msgstr ""
 
-msgid "Phases"
-msgstr ""
-
 msgid ""
 "Pick where each series comes from. Choose a source per slot; for Home "
 "Assistant, connect once from the source drawer (Configure) and that "
@@ -879,9 +860,6 @@ msgstr ""
 msgid "Postcode"
 msgstr ""
 
-msgid "Preset"
-msgstr ""
-
 msgid "Preset historical (ENTSO-E NL)"
 msgstr ""
 
@@ -891,9 +869,6 @@ msgstr ""
 msgid ""
 "Priced under the 2027 regime from the contract you entered. See the "
 "caveats below."
-msgstr ""
-
-msgid "Pricing"
 msgstr ""
 
 msgid "Produced"
@@ -1017,12 +992,6 @@ msgid ""
 msgstr ""
 
 msgid "Source"
-msgstr ""
-
-msgid "Spot"
-msgstr ""
-
-msgid "Spot minus fee"
 msgstr ""
 
 msgid "Spot price"
@@ -1323,6 +1292,9 @@ msgstr ""
 msgid "Where the money comes from"
 msgstr ""
 
+msgid "Where these figures come from"
+msgstr ""
+
 msgid "Why is this greyed out?"
 msgstr ""
 
@@ -1610,12 +1582,6 @@ msgstr ""
 msgid "last 6 months"
 msgstr ""
 
-msgid "leave empty for the same as import"
-msgstr ""
-
-msgid "leave empty to derive from the fuse"
-msgstr ""
-
 msgid "loaded"
 msgstr ""
 
@@ -1659,6 +1625,9 @@ msgid "offered if you simulate costs"
 msgstr ""
 
 msgid "optional"
+msgstr ""
+
+msgid "per fed-in kWh"
 msgstr ""
 
 msgid "per kWh throughput; 0 disables it"

@@ -357,12 +357,23 @@ def test_without_cost_simulation_the_guard_is_off_and_the_pricing_section_is_abs
 
 
 def test_the_fuse_figure_is_the_rounded_display_value():
-    """Panel ② prints `connection_capacity_kw_display`, never the exact cap §6.8 compares against."""
-    view = params_view.params_view(SimulationConfig())
-    assert view["grid"]["max_import"] == "5.75"          # 1 × 25 A, appendix A's published figure
+    """The connection prints `connection_capacity_kw_display`, never the exact cap §6.8 compares
+    against.
+
+    Panel ② printed it until §2′.1 moved the Grid connection box to the edit-workspace screen, so
+    the assertion follows the figure to `workspace_edit_view._fmt_kw`. What is being pinned is
+    unchanged: the display helper has ALREADY decided the precision, and re-padding to a fixed
+    width would turn 17.3 into 17.30 and contradict appendix A's published figures.
+    """
+    from app.workspace_edit_view import connection_options
+
+    def kw(cfg):
+        return next(o["kw"] for o in connection_options(cfg) if o["selected"])
+
     cfg = SimulationConfig()
+    assert kw(cfg) == "5.75"          # 1 × 25 A, appendix A's published figure
     cfg.grid.phases = 3
-    assert params_view.params_view(cfg)["grid"]["max_import"] == "17.3"   # not 17.25, not 17.2
+    assert kw(cfg) == "17.3"          # not 17.25, not 17.2
 
 
 # ── check 18: the unsupported phase topology (§2.5b, §7.3) ───────────────────────────────────
@@ -662,12 +673,19 @@ def test_with_pv_the_stored_charge_policy_is_reported_unchanged():
 # ── §2.3's Pricing box ───────────────────────────────────────────────────────────────────────
 
 
-# The energy-only `_form` plus everything §2.3's Pricing box draws, as the rendered form posts it
-# once the setup band's answer is "Yes". Both section markers matter: `setup` is what lets
-# `parse_form` read the band's radio, `pricing` is what lets it read the box's two checkboxes.
+# The energy-only `_form` plus every `pricing.*` control, in ONE submission carrying every section
+# marker. No live screen posts exactly this shape any more — §2′.1 split the controls across two,
+# with the results screen posting `setup battery charge discharge topology pricing` and the edit
+# screen `grid pricing_advanced`. It is kept combined DELIBERATELY, because what these tests
+# exercise is `parse_form`, which is shared by both screens and must coerce every path it declares
+# whichever form carries it. The per-screen marker discipline is asserted where it lives: by
+# `test_the_sections_marker_names_exactly_the_checkboxes_this_render_draws` against the real
+# renders, and by `_sections_for`'s own tests below.
 def _cost_form(**overrides) -> dict:
     base = _form()
-    base["sections"] = "setup battery grid charge discharge topology pricing"
+    base["sections"] = (
+        "setup battery grid charge discharge topology pricing pricing_advanced"
+    )
     base["setup.simulate_cost"] = "yes"
     base.update({
         "pricing.contract": "dynamic",
@@ -685,6 +703,31 @@ def _cost_form(**overrides) -> dict:
     })
     base.update(overrides)
     return base
+
+
+# §2′.1 moved the Pricing box to the edit-workspace screen, so the RENDER half of these round-trips
+# is `workspace_edit_view`'s, not `params_view`'s. `parse_form` — the coercion half — is still
+# shared by both screens and is still what the tests below drive, so the pairs stay here together
+# rather than being split across two files by which module happens to draw the input.
+def _rendered(cfg, result=None) -> dict:
+    """`pricing.*` fields as the edit screen renders them, keyed by dotted path."""
+    from app import workspace_edit_view
+
+    return workspace_edit_view.edit_view(cfg, "Our house", result=result)["pricing_advanced"]
+
+
+def _contracts(cfg) -> list[dict]:
+    """The contract radios as the edit screen offers them."""
+    from app import workspace_edit_view
+
+    return workspace_edit_view.edit_view(cfg, "Our house")["contracts"]
+
+
+def _tlk_modes(cfg) -> list[dict]:
+    """The terugleverkosten-mode radios as the edit screen offers them."""
+    from app import workspace_edit_view
+
+    return workspace_edit_view.edit_view(cfg, "Our house")["tlk_modes"]
 
 
 def test_every_pricing_field_coerces_and_round_trips():
@@ -729,13 +772,12 @@ def test_vat_is_entered_as_a_percentage_and_stored_as_a_fraction():
     """
     cfg = params_view.parse_form(_cost_form(**{"pricing.vat_rate": "21"}))
     assert cfg.pricing.vat_rate == pytest.approx(0.21)
-    view = params_view.params_view(cfg)
-    assert view["pricing"]["vat"]["value"] == "21"
+    assert _rendered(cfg)["pricing.vat_rate"]["value"] == "21"
 
     # And a non-default value, so the test cannot pass on the appendix-A default alone.
     other = params_view.parse_form(_cost_form(**{"pricing.vat_rate": "9"}))
     assert other.pricing.vat_rate == pytest.approx(0.09)
-    assert params_view.params_view(other)["pricing"]["vat"]["value"] == "9"
+    assert _rendered(other)["pricing.vat_rate"]["value"] == "9"
 
 
 def test_feedin_alpha_is_not_percent_typed():
@@ -747,7 +789,7 @@ def test_feedin_alpha_is_not_percent_typed():
     """
     cfg = params_view.parse_form(_cost_form(**{"pricing.feedin_alpha": "0.50"}))
     assert cfg.pricing.feedin_alpha == 0.50
-    assert params_view.params_view(cfg)["pricing"]["feedin_alpha"]["value"] == "0.50"
+    assert _rendered(cfg)["pricing.feedin_alpha"]["value"] == "0.50"
 
 
 def test_a_bad_pricing_value_survives_into_the_re_render_with_its_error():
@@ -756,9 +798,9 @@ def test_a_bad_pricing_value_survives_into_the_re_render_with_its_error():
     assert cfg.pricing.vat_rate == "abc"          # unscaled — `_pct_to_frac` does not divide a str
     result = cfg.validate()
     assert "pricing.vat_rate" in result.fields_with_errors()
-    view = params_view.params_view(cfg, result)
-    assert view["pricing"]["vat"]["value"] == "abc"
-    assert view["pricing"]["vat"]["invalid"] is True
+    vat = _rendered(cfg, result)["pricing.vat_rate"]
+    assert vat["value"] == "abc"
+    assert vat["invalid"] is True
 
 
 def test_a_bad_pricing_value_does_not_block_an_energy_only_run():
@@ -794,8 +836,7 @@ def test_fixed_and_variable_are_pending_and_dynamic_is_not():
     """
     from app import features
 
-    view = params_view.params_view(SimulationConfig(simulate_cost=True))
-    by_key = {c["key"]: c for c in view["pricing"]["contracts"]}
+    by_key = {c["key"]: c for c in _contracts(SimulationConfig(simulate_cost=True))}
     assert set(by_key) == {"dynamic", "fixed", "variable"}
     assert by_key["dynamic"]["pending"] is False
     assert by_key["dynamic"]["feature_key"] is None
@@ -808,8 +849,7 @@ def test_tiered_terugleverkosten_is_pending_and_flat_is_not():
     """Same treatment for `TlkMode`: §2.3 draws both rows, §6.5 builds only FLAT."""
     from app import features
 
-    view = params_view.params_view(SimulationConfig(simulate_cost=True))
-    by_key = {m["key"]: m for m in view["pricing"]["tlk_modes"]}
+    by_key = {m["key"]: m for m in _tlk_modes(SimulationConfig(simulate_cost=True))}
     assert by_key["flat"]["pending"] is False
     assert by_key["tiered"]["pending"] is True
     assert features.is_known(by_key["tiered"]["feature_key"])
@@ -823,27 +863,37 @@ def test_a_stored_pending_contract_is_still_reported_as_selected():
     """
     cfg = SimulationConfig(simulate_cost=True)
     cfg.pricing.contract = Contract.VARIABLE
-    view = params_view.params_view(cfg)
-    selected = [c for c in view["pricing"]["contracts"] if c["selected"]]
+    selected = [c for c in _contracts(cfg) if c["selected"]]
     assert [c["key"] for c in selected] == ["variable"]
     assert selected[0]["pending"] is True
 
 
-def test_the_feedin_presets_are_offered_and_match_the_stored_pair():
-    """§6.5's preset table, offered as a way of TYPING α and β rather than as a stored setting.
+def test_the_feedin_pair_round_trips_without_the_preset_shortcut():
+    """α and β remain fully editable now that §6.5's preset SELECT is gone.
 
-    Appendix A's default pair IS the "Legal minimum" row, so a fresh config marks exactly that one;
-    a pair matching no row marks none, which the template renders as "Custom".
+    That select was a way of TYPING the two fields — client-side only, never a stored value — and
+    it lived in the Pricing box on the results screen. §2′.1 moved the box to the edit-workspace
+    screen, which renders α and β as plain numeric fields and has no equivalent select, so the
+    shortcut is currently absent from the app rather than relocated (recorded as a follow-up in
+    changelog/20260728-results-screen-leftover-boxes.md).
+
+    This test replaces the one that asserted the preset rows. What it pins is the part that
+    actually matters and that the removal could have broken: both values still coerce, still
+    store and still render back. A user who wants "Legal minimum" now types 0.50 and 0.0000 —
+    which is exactly what the preset wrote into the two inputs.
     """
-    view = params_view.params_view(SimulationConfig(simulate_cost=True))
-    presets = view["pricing"]["feedin_presets"]
-    assert [p["selected"] for p in presets].count(True) == 1
-    assert presets[0]["selected"] is True
-    assert (presets[0]["alpha"], presets[0]["beta"]) == ("0.50", "0.0000")
+    # Appendix A's default pair IS §6.5's "Legal minimum" row.
+    default = SimulationConfig(simulate_cost=True)
+    assert (default.pricing.feedin_alpha, default.pricing.feedin_beta) == (0.50, 0.0000)
 
-    cfg = SimulationConfig(simulate_cost=True)
-    cfg.pricing.feedin_alpha, cfg.pricing.feedin_beta = 0.73, 0.0031
-    assert not any(p["selected"] for p in params_view.params_view(cfg)["pricing"]["feedin_presets"])
+    cfg = params_view.parse_form(_cost_form(**{
+        "pricing.feedin_alpha": "0.73",
+        "pricing.feedin_beta": "0.0031",
+    }))
+    assert (cfg.pricing.feedin_alpha, cfg.pricing.feedin_beta) == (0.73, 0.0031)
+    rendered = _rendered(cfg)
+    assert rendered["pricing.feedin_alpha"]["value"] == "0.73"
+    assert rendered["pricing.feedin_beta"]["value"] == "0.0031"
 
 
 def test_economic_guard_round_trips_under_cost_simulation():

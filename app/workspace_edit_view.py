@@ -39,7 +39,9 @@ standing fact about the household, not an input to the current run, and it is al
 the cost toggle on the results screen (§2′.6) — greying it while cost simulation is off would
 make the two controls mutually blocking. So `contracts` is built unconditionally and carries no
 `simulate_cost` gate at all. FIXED and VARIABLE stay rendered-but-disabled with their feature
-keys, exactly as `params_view._pricing_view` does it: the pending affordance, not absence.
+keys — the pending affordance, not absence. `params_view._pricing_view` did the same for panel
+②'s copy of these radios; §2′.1 moved the box here and that function went with it, so this is
+now the only place the three contract types are offered. The same applies to `tlk_modes`.
 
 ## Which issues this screen may show
 
@@ -61,6 +63,7 @@ from __future__ import annotations
 from app.domain.simconfig import (
     Contract,
     SimulationConfig,
+    TlkMode,
     ValidationResult,
     connection_capacity_kw_display,
 )
@@ -154,6 +157,21 @@ _CONTRACT_FEATURE_KEYS: dict[Contract, str] = {
     Contract.VARIABLE: "pricing_contract_variable",
 }
 
+# Terugleverkosten mode (§6.5). Same pending treatment and the same reuse of panel ②'s key: TIERED
+# is vocabulary, not implementation (it needs a tier table, an annualisation and the
+# `min_tlk_tiering_days` fallback), so the row is DRAWN and disabled rather than absent.
+#
+# **This pair came here late.** It was the one control the Pricing box carried that this screen did
+# not, so when §2′.1's move was completed the selector briefly existed nowhere while
+# `pricing_tlk_tiered` stayed registered in `app/features.py` and accepted by the interest route —
+# a feature key with no control, which is precisely the state §2.1's pending doctrine exists to
+# prevent. Rebuilt here rather than dropping the key.
+_TLK_LABELS: dict[TlkMode, str] = {
+    TlkMode.FLAT: _N("flat, per fed-in kWh"),
+    TlkMode.TIERED: _N("tiered by annual volume"),
+}
+_TLK_FEATURE_KEYS: dict[TlkMode, str] = {TlkMode.TIERED: "pricing_tlk_tiered"}
+
 
 def _fmt_fuse(fuse_a: float) -> str:
     """A fuse rating for a label: "25" for 25.0, "1.5" for 1.5.
@@ -176,7 +194,9 @@ def _fmt_kw(kw: float) -> str:
     `connection_capacity_kw_display` has ALREADY decided the precision (two decimals below 10 kW,
     one at or above, so both published figures — 5.75 and 17.3 — come out as appendix A prints
     them). Re-padding to a fixed width here would turn 17.3 back into 17.30 and contradict it, so
-    this is `:g`, exactly as `params_view._g` does for the same figure in panel ②.
+    this is `:g`. `params_view._g` did the same for panel ②'s copy of the figure until §2′.1 made
+    this screen the only one drawing the connection; that helper went with the box it served, so
+    this is now the single renderer of it.
     """
     try:
         return f"{float(kw):g}"
@@ -337,8 +357,10 @@ def edit_view(
         """One input's render state: value, dotted name, inline messages.
 
         Percent-typed fields go through `params_view`'s own conversion table rather than a second
-        copy of it, so `pricing.vat_rate`'s stored 0.21 shows as 21 here exactly as it does in
-        panel ②.
+        copy of it, so `pricing.vat_rate`'s stored 0.21 shows as 21. Panel ② used to render the
+        same field the same way; since §2′.1 moved the Pricing box here this is the only screen
+        that renders it, but the table stays shared because `parse_form` — which reads THIS
+        screen's submissions — is the other half of the same conversion and must not drift from it.
         """
         from app.params_view import _PCT_FIELDS, _frac_to_pct
 
@@ -365,6 +387,17 @@ def edit_view(
         for c in Contract
     ]
 
+    tlk_modes = [
+        {
+            "key": m.value,
+            "label": _TLK_LABELS[m],
+            "selected": cfg.pricing.tlk_mode == m,
+            "pending": m in _TLK_FEATURE_KEYS,
+            "feature_key": _TLK_FEATURE_KEYS.get(m),
+        }
+        for m in TlkMode
+    ]
+
     grid_advanced = [field(path, places) for path, places in ADVANCED_GRID_FIELDS]
     pricing_advanced = {path: field(path, places) for path, places in ADVANCED_PRICING_FIELDS}
 
@@ -381,6 +414,7 @@ def edit_view(
             ),
         },
         "contracts": contracts,
+        "tlk_modes": tlk_modes,
         "pricing_advanced": pricing_advanced,
         "pricing_overridden": _overridden_count(
             cfg, [p for p, _ in ADVANCED_PRICING_FIELDS], defaults

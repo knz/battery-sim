@@ -799,3 +799,24 @@ becomes self-consistent, but the precondition stops meaning anything); or hide t
 blocked (honest, but the box is where the user would go to satisfy the precondition). The first is
 the most defensive and the third the most confusing; L2 above probably wants deciding first.
 *Origin:* `20260726-workspaces-phase4.md` (4.2, flagged by the implementer, confirmed by review).
+
+**L4. The feed-in (α, β) preset select has no home after the Pricing box moved.**
+§6.5 tabulates three (α, β) rows — "Legal minimum — 50 percent of the bare price", "Spot minus
+fee", "Spot" — and panel ② offered them as a `<select>` that WROTE the two fields. It was
+client-side only: never a stored value, only a way of typing the pair. §2′.1 moved the Pricing box
+to the edit-workspace screen, which renders α and β as plain numeric fields and has no equivalent
+select, so the shortcut is currently absent from the app rather than relocated.
+
+Nothing persisted is affected and neither value lost any capability — both still coerce, store and
+render back (pinned by `test_the_feedin_pair_round_trips_without_the_preset_shortcut`). What is
+lost is discoverability: a user who recognises "Legal minimum" by name now has to know it means
+α = 0.50, β = 0.0000. Rebuilding it is an edit-screen design question — where it sits relative to
+the two fields, and whether the "Custom" row still reads correctly inside that screen's Advanced
+pane — which is why it was not done as part of undoing the duplication.
+*Origin:* `20260728-results-screen-leftover-boxes.md`.
+
+**Note on L3:** its third option — "hide the Pricing box while blocked" — is now moot. The box no
+longer renders on the results screen at all (§2′.1), so the contradictory state L3 describes is
+narrower than when it was written: a hand-crafted POST can still leave `simulate_cost` true with
+`pricing_configured` false, but what the reader then sees is a checked-but-Blocked toggle beside
+COST SAVINGS figures, not beside an editable Pricing box. The first two options are unaffected.

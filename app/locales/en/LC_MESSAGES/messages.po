@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-27 16:41+0200\n"
+"POT-Creation-Date: 2026-07-28 10:53+0200\n"
 "PO-Revision-Date: 2026-07-23 20:40+0200\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: en\n"
@@ -176,9 +176,6 @@ msgstr "+ New analysis"
 msgid "+ weekends"
 msgstr "+ weekends"
 
-msgid "1-phase"
-msgstr "1-phase"
-
 msgid "1-phase battery"
 msgstr "1-phase battery"
 
@@ -190,9 +187,6 @@ msgstr "2027 tariffs are not yet published. These values are estimates."
 
 msgid "3 × 1-phase batteries"
 msgstr "3 × 1-phase batteries"
-
-msgid "3-phase"
-msgstr "3-phase"
 
 msgid "3-phase inverter"
 msgstr "3-phase inverter"
@@ -212,10 +206,6 @@ msgstr ""
 "period, so the Solar figures are hidden. It may not be wired up "
 "correctly."
 
-#, python-format
-msgid "A → max import %(kw)s kW"
-msgstr "A → max import %(kw)s kW"
-
 msgid "AC-coupled"
 msgstr "AC-coupled"
 
@@ -227,6 +217,9 @@ msgstr "About"
 
 msgid "About the contract types"
 msgstr "About the contract types"
+
+msgid "About these rates"
+msgstr ""
 
 msgid "About your household"
 msgstr ""
@@ -458,9 +451,6 @@ msgstr "Coupling"
 msgid "Coverage"
 msgstr "Coverage"
 
-msgid "Custom"
-msgstr "Custom"
-
 msgid "D"
 msgstr "D"
 
@@ -547,6 +537,9 @@ msgstr "Economic guard: never discharge at a loss"
 msgid "Edit analysis"
 msgstr ""
 
+msgid "Edit contract & rates →"
+msgstr ""
+
 msgid "Enable cost simulation"
 msgstr "Enable cost simulation"
 
@@ -571,11 +564,16 @@ msgstr "Enter a number."
 msgid "Entity"
 msgstr "Entity"
 
+msgid ""
+"Every euro figure below is produced from your contract type and its rates"
+" — the supplier markup, energy tax, VAT, feed-in terms and the day/night "
+"window. Those are part of the workspace rather than of this simulation, "
+"so they are set on its edit screen. Change them there and come back: the "
+"figures are recalculated from the new rates."
+msgstr ""
+
 msgid "Export CSV"
 msgstr "Export CSV"
-
-msgid "Export limit"
-msgstr "Export limit"
 
 msgid "Exported"
 msgstr "Exported"
@@ -606,21 +604,11 @@ msgstr "Fetching %(slot)s (%(n)s/%(total)s)…"
 msgid "Fixed"
 msgstr "Fixed"
 
-msgid ""
-"Fixed costs (vastrecht, systeembeheer, vermindering) do not change with a"
-" battery and are excluded from savings."
-msgstr ""
-"Fixed costs (vastrecht, systeembeheer, vermindering) do not change with a"
-" battery and are excluded from savings."
-
 msgid "Flat rate"
 msgstr "Flat rate"
 
 msgid "From"
 msgstr "From"
-
-msgid "Fuse rating"
-msgstr "Fuse rating"
 
 msgid "GRID IMPORT SAVED"
 msgstr "GRID IMPORT SAVED"
@@ -728,9 +716,6 @@ msgstr ""
 "If you would use it, say so. It tells us what to build next, and it is "
 "the only signal we get."
 
-msgid "Import limit override"
-msgstr "Import limit override"
-
 msgid "Imported"
 msgstr "Imported"
 
@@ -758,9 +743,6 @@ msgstr "Language"
 
 msgid "Leave anyway"
 msgstr ""
-
-msgid "Legal minimum — 50 percent of the bare price"
-msgstr "Legal minimum — 50 percent of the bare price"
 
 msgid "Loaded. Reloading…"
 msgstr "Loaded. Reloading…"
@@ -934,9 +916,6 @@ msgstr "PV only"
 msgid "Perfect foresight"
 msgstr "Perfect foresight"
 
-msgid "Phases"
-msgstr "Phases"
-
 msgid ""
 "Pick where each series comes from. Choose a source per slot; for Home "
 "Assistant, connect once from the source drawer (Configure) and that "
@@ -958,9 +937,6 @@ msgstr ""
 msgid "Postcode"
 msgstr ""
 
-msgid "Preset"
-msgstr "Preset"
-
 msgid "Preset historical (ENTSO-E NL)"
 msgstr "Preset historical (ENTSO-E NL)"
 
@@ -971,9 +947,6 @@ msgid ""
 "Priced under the 2027 regime from the contract you entered. See the "
 "caveats below."
 msgstr ""
-
-msgid "Pricing"
-msgstr "Pricing"
 
 msgid "Produced"
 msgstr "Produced"
@@ -1114,12 +1087,6 @@ msgstr ""
 
 msgid "Source"
 msgstr "Source"
-
-msgid "Spot"
-msgstr "Spot"
-
-msgid "Spot minus fee"
-msgstr "Spot minus fee"
 
 msgid "Spot price"
 msgstr "Spot price"
@@ -1483,6 +1450,9 @@ msgstr "Where the energy comes from"
 msgid "Where the money comes from"
 msgstr ""
 
+msgid "Where these figures come from"
+msgstr ""
+
 msgid "Why is this greyed out?"
 msgstr ""
 
@@ -1841,12 +1811,6 @@ msgstr "last 30 days"
 msgid "last 6 months"
 msgstr "last 6 months"
 
-msgid "leave empty for the same as import"
-msgstr "leave empty for the same as import"
-
-msgid "leave empty to derive from the fuse"
-msgstr "leave empty to derive from the fuse"
-
 msgid "loaded"
 msgstr "loaded"
 
@@ -1891,6 +1855,9 @@ msgstr "offered if you simulate costs"
 
 msgid "optional"
 msgstr "optional"
+
+msgid "per fed-in kWh"
+msgstr ""
 
 msgid "per kWh throughput; 0 disables it"
 msgstr "per kWh throughput; 0 disables it"
@@ -2277,4 +2244,58 @@ msgstr "👍 I want this"
 
 #~ msgid "set by the topology selector below"
 #~ msgstr "set by the topology selector below"
+
+#~ msgid "1-phase"
+#~ msgstr "1-phase"
+
+#~ msgid "3-phase"
+#~ msgstr "3-phase"
+
+#~ msgid "A → max import %(kw)s kW"
+#~ msgstr "A → max import %(kw)s kW"
+
+#~ msgid "Custom"
+#~ msgstr "Custom"
+
+#~ msgid "Export limit"
+#~ msgstr "Export limit"
+
+#~ msgid ""
+#~ "Fixed costs (vastrecht, systeembeheer, "
+#~ "vermindering) do not change with a "
+#~ "battery and are excluded from savings."
+#~ msgstr ""
+#~ "Fixed costs (vastrecht, systeembeheer, "
+#~ "vermindering) do not change with a "
+#~ "battery and are excluded from savings."
+
+#~ msgid "Fuse rating"
+#~ msgstr "Fuse rating"
+
+#~ msgid "Import limit override"
+#~ msgstr "Import limit override"
+
+#~ msgid "Legal minimum — 50 percent of the bare price"
+#~ msgstr "Legal minimum — 50 percent of the bare price"
+
+#~ msgid "Phases"
+#~ msgstr "Phases"
+
+#~ msgid "Preset"
+#~ msgstr "Preset"
+
+#~ msgid "Pricing"
+#~ msgstr "Pricing"
+
+#~ msgid "Spot"
+#~ msgstr "Spot"
+
+#~ msgid "Spot minus fee"
+#~ msgstr "Spot minus fee"
+
+#~ msgid "leave empty for the same as import"
+#~ msgstr "leave empty for the same as import"
+
+#~ msgid "leave empty to derive from the fuse"
+#~ msgstr "leave empty to derive from the fuse"
 

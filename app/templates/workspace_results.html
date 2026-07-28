@@ -38,8 +38,10 @@
   half's; 4.1 established as much and moved none of them.
 
   **`#slot-info-dialog` stayed even though the roster went.** It is not only the roster's: the
-  PV-blocked charge policies and the Pricing box's contract-types ⓘ use the same shared
-  `.slot-info-btn` affordance, and so does the glance repeated inside the results. Its delegated
+  PV-blocked charge policies use the same shared `.slot-info-btn` affordance, and so do the
+  glance repeated inside the results and the Cost savings section's "where do these rates come
+  from" ⓘ. (The Pricing box's contract-types ⓘ was a fourth user until that box moved to the
+  edit-workspace screen per §2′.1.) Its delegated
   click handler used to come from `ha_fetch.js`, which this page no longer loads — so the handler
   is inlined below. That was the one behaviour the deletion would have taken with it silently.
 
@@ -109,8 +111,9 @@
   {# ── Slot info dialog — the shared ⓘ modal (specs §4.1, §2.3a). ──────────────────
        One modal for every ⓘ .slot-info-btn on THIS screen. The roster's role blurbs went to
        `workspace_data.html` with panel ①, but three users of the affordance remain here: the
-       PV-blocked charge policies, the Pricing box's "Contract types" ⓘ, and the derived-metric
-       blurbs in the data glance repeated inside the results.
+       PV-blocked charge policies, the derived-metric blurbs in the data glance repeated inside
+       the results, and the Cost savings section's ⓘ beside its link to the edit screen. (The
+       Pricing box's "Contract types" ⓘ was a fourth until §2′.1 moved that box out.)
 
        **Its handler is now inlined below.** It used to come from `ha_fetch.js`, which this page
        loaded for the drawer and no longer does — the ⓘ buttons would have opened nothing, silently,
@@ -194,8 +197,8 @@
     //
     // **This handler used to live in ha_fetch.js**, which this screen loaded for the source drawer
     // and stopped loading in phase 4.2 when panel ① moved out. The buttons that remain here — the
-    // PV-blocked charge policies, the Pricing box's contract-types ⓘ, the glance's derived-metric
-    // blurbs — would otherwise have gone quiet without any visible change to the markup. Copied
+    // PV-blocked charge policies, the glance's derived-metric blurbs, the Cost savings section's
+    // rates ⓘ — would otherwise have gone quiet without any visible change to the markup. Copied
     // rather than kept by loading a data-fetching module for one listener.
     (function () {
       var dialog = document.getElementById('slot-info-dialog');
@@ -658,20 +661,16 @@
         if (form && form.requestSubmit) form.requestSubmit();
       });
 
-      // Feed-in (α, β) presets (§6.5, §2.3's Pricing box). The select is a way of TYPING the two
-      // fields, never a stored setting: picking a row writes α and β into their inputs and the
-      // form posts those two numbers, exactly as if they had been typed. Nothing else changes,
-      // and a user who then edits either field simply has a pair matching no preset.
-      document.addEventListener('change', function (ev) {
-        var el = ev.target;
-        if (!el || el.id !== 'feedin-preset') return;
-        var opt = el.options[el.selectedIndex];
-        if (!opt || !opt.getAttribute('data-alpha')) return;
-        var a = document.querySelector('[name="pricing.feedin_alpha"]');
-        var b = document.querySelector('[name="pricing.feedin_beta"]');
-        if (a) a.value = opt.getAttribute('data-alpha');
-        if (b) b.value = opt.getAttribute('data-beta');
-      });
+      // The feed-in (α, β) preset handler used to sit here, driving a `<select>` in the Pricing
+      // box. §2′.1 assigns `pricing.*` to the edit-workspace screen, so the box left this screen
+      // and the handler with it.
+      //
+      // NOTE: the edit screen draws α and β as plain numeric fields and has NO preset select, so
+      // the preset shortcut is currently absent from the app rather than relocated. It was a way
+      // of TYPING the two fields, never a stored setting, so nothing persisted is affected and
+      // both values remain editable — but a user who picked "Terugleververgoeding 100%" from a
+      // list now has to know the two numbers. Filed as a follow-up rather than rebuilt here,
+      // since it belongs to the edit screen's design, not to this removal.
 
       // Initial draw once the page (and Plotly) are ready, plus the first benchmark fetch.
       function initPanelResults() { drawMonthlyChart(); loadBenchmark(); }

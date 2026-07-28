@@ -64,7 +64,6 @@ Main items:
     FIELDS                       the form-name → dotted-path → coercion table.
     parse_form(form, base)       coerce a submitted form into a candidate config.
     params_view(cfg, result)     the panel-② view-model, including the collapsed summary line.
-    _pricing_view(cfg, field)    §2.3's Pricing box — contract radios, rates, feed-in, Advanced.
     summary_line(cfg)            §2.3's collapsed one-liner, computed from the config.
     field_messages(result)       dotted path → translated messages, for inline binding.
 """
@@ -578,20 +577,6 @@ def _fmt(value, places: int) -> str:
     return str(value)
 
 
-def _g(value) -> str:
-    """A number at its own natural precision (`%g`), anything else via `_fmt`'s rules.
-
-    For values whose precision was already decided elsewhere — `max_import_kw_display` being the
-    one that matters — where imposing a second, fixed precision would undo the first.
-    """
-    if isinstance(value, (int, float)) and not isinstance(value, bool):
-        try:
-            return f"{value:g}"
-        except (OverflowError, ValueError):
-            return str(value)
-    return _fmt(value, 0)
-
-
 def summary_line(cfg: SimulationConfig) -> str:
     """§2.3's collapsed one-liner, computed from `cfg`.
 
@@ -689,52 +674,10 @@ _D1_LABEL_NO_PV = _N("Discharge battery to cover house load")
 
 # ── The Pricing box (§2.3, §6.5) ─────────────────────────────────────────────────────────────
 
-# The three contract types, named by §6.5's rule: "the user-facing name of a contract type is the
-# enum value lower-cased, with no country qualifier". Capitalised here only because they head a
-# radio; the enum value is what the summary line and the result fields print.
-_CONTRACT_LABELS: dict[Contract, str] = {
-    Contract.DYNAMIC: _N("Dynamic"),
-    Contract.FIXED: _N("Fixed"),
-    Contract.VARIABLE: _N("Variable"),
-}
-
-# Only DYNAMIC has a rate source behind it (§6.5; followups H4). The other two render as PENDING
-# controls — disabled, with a `[?]` opening the shared "Not built yet" dialog — rather than being
-# dropped, for the same reason P1/P3 are greyed rather than removed without PV: a vanished option
-# leaves the user unable to tell whether the app has the feature at all. The keys are allocated in
-# `app/features.py` and must match the `data-feature-key` the template renders.
-_CONTRACT_FEATURE_KEYS: dict[Contract, str] = {
-    Contract.FIXED: "pricing_contract_fixed",
-    Contract.VARIABLE: "pricing_contract_variable",
-}
-
-# §6.5's (α, β) presets, offered as a select that FILLS the two fields rather than replacing them.
-# Both halves matter: the presets are what §6.5 tabulates and what a user recognises, and the raw
-# fields are what appendix A stores and what a user with a non-standard contract needs. The select
-# is client-side only (a tiny inline handler on the results screen writes the two inputs), so no
-# fifth stored value and nothing to keep in sync on the server — the config carries α and β,
-# exactly as `PricingConfig` declares them, and a preset is only ever a way of typing them.
-#
-# The α/β numbers are §6.5's table verbatim. **Only THREE of its four rows are here.** The fourth,
-# "Fixed amount" (α = 0.00, β = *user*), has no β to offer: the table writes it as user-supplied
-# because a flat feed-in rate is whatever the contract says, and inventing a figure for it would
-# put a made-up tariff in front of the user with a preset's authority. A user who wants it types
-# α = 0 and their own β, which is exactly what the two fields are for, and lands on "Custom".
-_FEEDIN_PRESETS: tuple[tuple[str, float, float], ...] = (
-    (_N("Legal minimum — 50 percent of the bare price"), 0.50, 0.0000),
-    (_N("Spot minus fee"), 1.00, -0.0200),
-    (_N("Spot"), 1.00, 0.0000),
-)
-
-_TLK_LABELS: dict[TlkMode, str] = {
-    TlkMode.FLAT: _N("flat, per fed-in kWh"),
-    TlkMode.TIERED: _N("tiered by annual volume"),
-}
-
-# TIERED is vocabulary, not implementation (§6.5: it needs a tier table, an annualisation and the
-# `min_tlk_tiering_days` fallback). §2.3's wireframe draws the row, so it is drawn — pending,
-# like FIXED and VARIABLE, rather than silently absent.
-_TLK_FEATURE_KEYS: dict[TlkMode, str] = {TlkMode.TIERED: "pricing_tlk_tiered"}
+# The contract labels, feed-in (α, β) presets and terugleverkosten-mode labels used to live here,
+# feeding `_pricing_view`. §2′.1 moved the Pricing box to the edit-workspace screen, which carries
+# its own `_CONTRACT_LABELS` / `_CONTRACT_FEATURE_KEYS` in `workspace_edit_view`; they went with it.
+# The α/β preset table (§6.5) has no equivalent there yet — see that screen's follow-up.
 
 _PHASE_LABELS: dict[BatteryPhases, str] = {
     BatteryPhases.ONE_PHASE: _N("1-phase battery"),
@@ -848,22 +791,9 @@ def params_view(
             "initial_soc": field("battery.initial_soc_pct", 0),
             "coupling": _enum_value(cfg.battery.coupling),
         },
-        "grid": {
-            "phases": _fmt(cfg.grid.phases, 0),
-            "phases_field": field("grid.phases", 0),
-            "fuse": field("grid.fuse_a", 0),
-            # The ROUNDED figure, display only — `connection_capacity_kw_display`'s whole purpose.
-            # The exact value is what §6.8 step 6 compares against and is never shown.
-            #
-            # Rendered with `:g`, NOT with a fixed number of decimals: that helper has ALREADY
-            # made the precision decision (two decimals below 10 kW, one at or above, so that both
-            # published figures — 5.75 and 17.3 — come out exactly as appendix A prints them).
-            # Re-padding to a fixed width here would turn 17.3 back into 17.30 and contradict it.
-            "max_import": _g(cfg.max_import_kw_display),
-            "max_import_override": field("grid.max_import_kw_override", 2),
-            "max_export": field("grid.max_export_kw", 2),
-            "export_follows_import": cfg.grid.max_export_kw is None,
-        },
+        # No `grid` block: §2.3's Grid connection box moved to the edit-workspace screen (§2′.1),
+        # which builds its own view in `workspace_edit_view` — including its own rendering of
+        # `max_import_kw_display` — so nothing on the results screen reads `grid.*` any more.
         "charge_policies": charge_policies,
         "charge_band": {"a": field("policy.band_a", 3), "b": field("policy.band_b", 3)},
         "discharge_policies": discharge_policies,
@@ -872,10 +802,10 @@ def params_view(
         # The FORCED value, not the stored one: without a cost model the guard is off whatever is
         # stored, and the control is absent anyway (§2.3). The stored choice survives on disk.
         "economic_guard": cfg.economic_guard,
-        # §2.3's Pricing box. Built unconditionally — the template's `cfg.simulate_cost` gate is
-        # what makes it ABSENT, and computing the values either way keeps this function free of a
-        # second copy of that rule. Nothing here is expensive and nothing here mutates.
-        "pricing": _pricing_view(cfg, field),
+        # No `pricing` block either, and for the same reason: §2′.1 assigns `pricing.*` to the
+        # edit-workspace screen. The `pricing` and `pricing_advanced` SECTION MARKERS are a
+        # separate matter and both stay — see `_sections_for`. `pricing` names the economic-guard
+        # checkbox, which is `policy.*`, lives in the discharge card and is still drawn here.
         # §7.3 check 12 — the wireframe's alert, now reflecting reality rather than a literal.
         # `overlap` drives which of the two sentences the template shows.
         "bands_overlap": cfg.bands_overlap(),
@@ -917,78 +847,6 @@ def params_view(
         "error_tab": _error_tab(result),
         # Valid, but not written to disk — see the docstring.
         "save_error": bool(save_error),
-    }
-
-
-def _pricing_view(cfg: SimulationConfig, field) -> dict:
-    """The Pricing box's half of the view-model (§2.3, §6.5).
-
-    `field` is `params_view`'s own per-input closure, passed in rather than rebuilt, so a pricing
-    input gets exactly the same value/messages/invalid treatment as a battery one — including the
-    percent conversion, which `field` applies from `_PCT_FIELDS` and which is where `vat_rate`'s
-    0.21 becomes the 21 the box shows.
-
-    The three selectors are emitted with a `pending` flag and a feature key rather than being
-    filtered: §2.3 lists all three contract types and both terugleverkosten modes, and only
-    DYNAMIC / FLAT are built. `selected` reports the STORED value even when it names a pending
-    option — a hand-edited document can hold one, and a box that silently showed `dynamic` for a
-    stored `variable` would misreport what is about to run.
-
-    **The wireframe's "Spot source" row is deliberately not here.** §2.3 draws it inside the
-    Dynamic sub-panel, but choosing where the spot price comes from is data-source configuration:
-    panel ① already owns it, slot-first, per-slot, with its own persistence and its own drawer.
-    Drawing a second control over the same setting would give the user two answers to one
-    question and this layer no way to say which won.
-    """
-    contracts = [
-        {
-            "key": c.value,
-            "label": _CONTRACT_LABELS[c],
-            "selected": cfg.pricing.contract == c,
-            "pending": c in _CONTRACT_FEATURE_KEYS,
-            "feature_key": _CONTRACT_FEATURE_KEYS.get(c),
-        }
-        for c in Contract
-    ]
-    tlk_modes = [
-        {
-            "key": m.value,
-            "label": _TLK_LABELS[m],
-            "selected": cfg.pricing.tlk_mode == m,
-            "pending": m in _TLK_FEATURE_KEYS,
-            "feature_key": _TLK_FEATURE_KEYS.get(m),
-        }
-        for m in TlkMode
-    ]
-    # The preset select is a way of TYPING α and β, not a stored setting — see `_FEEDIN_PRESETS`.
-    # `selected` marks the row whose pair the config currently holds, so a user who picked a preset
-    # and saved sees it again; a pair matching no row leaves every option unselected, which the
-    # template renders as the "Custom" placeholder.
-    alpha, beta = cfg.pricing.feedin_alpha, cfg.pricing.feedin_beta
-    presets = [
-        {
-            "label": label,
-            "alpha": _fmt(a, 2),
-            "beta": _fmt(b, 4),
-            "selected": alpha == a and beta == b,
-        }
-        for label, a, b in _FEEDIN_PRESETS
-    ]
-    return {
-        "contracts": contracts,
-        "supplier_markup": field("pricing.supplier_markup", 4),
-        "energy_tax": field("pricing.energy_tax_excl_vat", 5),
-        # Rendered as a percentage (21) because `field` converts it; stored as 0.21.
-        "vat": field("pricing.vat_rate", 0),
-        "feedin_presets": presets,
-        "feedin_alpha": field("pricing.feedin_alpha", 2),
-        "feedin_beta": field("pricing.feedin_beta", 4),
-        "tlk_modes": tlk_modes,
-        "tlk_rate": field("pricing.tlk_eur_per_kwh", 4),
-        "degradation": field("pricing.degradation_eur_per_kwh", 4),
-        "dal_start": field("pricing.dal_start_hour", 0),
-        "dal_end": field("pricing.dal_end_hour", 0),
-        "dal_weekends": bool(cfg.pricing.dal_weekends),
     }
 
 
@@ -1074,17 +932,26 @@ def _sections_for(cfg: SimulationConfig) -> list[str]:
     `setup` in two would therefore buy nothing and would leave one screen emitting a marker no
     parser branch reads.
 
-    The Pricing box emits TWO names, because a marker is a claim about controls rather than about
-    a box (see `_section`): `pricing` for the economic-guard checkbox and `pricing_advanced` for
-    `dal_weekends`. Panel ② draws both together, so it always emits them together and its
-    behaviour is unchanged by the split; the edit screen, which draws only `dal_weekends`, emits
-    only the second.
+    **`pricing` is emitted and `pricing_advanced` is NOT, and the asymmetry is the whole point of
+    the split.** A marker is a claim about CONTROLS, not about a box (see `_section`): `pricing`
+    names the economic-guard checkbox and `pricing_advanced` names `dal_weekends`. Both used to be
+    on this screen, in the Pricing box, so this function emitted them together. §2′.1 then moved
+    that box to the edit-workspace screen — taking `dal_weekends` with it and leaving the guard
+    behind, because the guard is `policy.economic_guard`, a dispatch decision drawn in the
+    discharge card. So the two markers now go to different screens: this one claims `pricing`
+    only, the edit screen claims `pricing_advanced` only. Emitting `pricing_advanced` here would
+    make every results-screen save clear the user's stored `dal_weekends`.
+
+    **`grid` is no longer emitted either.** The Grid connection box went to the edit screen in the
+    same move. It names no checkbox, so over-claiming it would have been inert rather than
+    destructive — but a marker that claims a control this render did not draw is exactly what this
+    function exists to prevent, and leaving it would have made the doctrine unreadable.
     """
-    out = ["setup", "battery", "grid", "charge", "discharge"]
+    out = ["setup", "battery", "charge", "discharge"]
     if cfg.has_pv or cfg.battery_phases_offered:
         out.append("topology")
     if cfg.simulate_cost:
-        out.extend(("pricing", "pricing_advanced"))
+        out.append("pricing")
     return out
 
 

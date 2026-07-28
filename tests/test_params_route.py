@@ -183,6 +183,20 @@ def _saved_kwh(client, **body) -> float:
 # ── The happy path ───────────────────────────────────────────────────────────────────────────
 
 
+
+def _edit_html(client) -> str:
+    """The edit-workspace screen's rendered HTML.
+
+    §2′.1 moved the Grid connection and Pricing boxes here, so the tests below that assert about
+    those controls' RENDERING read this rather than the params response. Their persistence half
+    still posts to `/params`, because `parse_form` is shared by both screens and is what coerces
+    and stores either screen's submission.
+    """
+    r = client.get(w("/edit"))
+    assert r.status_code == 200, r.status_code
+    return r.text
+
+
 def test_a_valid_submission_persists_and_returns_the_panel(client):
     from app import simconfig_store
 
@@ -337,13 +351,13 @@ def test_a_forged_sections_value_cannot_clear_the_retained_guard(client):
 
 
 def test_panel_two_still_unticks_the_guard_and_still_carries_it_forward(client):
-    """The split of `pricing` into `pricing` + `pricing_advanced` leaves panel ② as it was.
+    """The `pricing` / `pricing_advanced` split leaves the guard's behaviour as it was.
 
     Phase 3's edit screen claimed `pricing` while drawing no guard checkbox, which cleared the
     stored guard on every save; the fix moved `dal_weekends` behind its own `pricing_advanced`
-    name. Panel ② draws both checkboxes and claims both names, so both of its behaviours must be
-    bit-for-bit unchanged, and that is what fails first if the split were done by dropping a name
-    rather than adding one:
+    name. §2′.1 then moved the Pricing box itself to the edit screen, which took `dal_weekends`
+    with it and left the guard here — so the two names now belong to two different screens, and
+    THIS one claims `pricing` alone. The guard's own behaviour is unchanged by either step:
 
       * a cost submission WITHOUT the checkbox is a user unticking it — the guard goes off;
       * an energy-only submission never drew it — the stored tick carries forward (appendix A).
@@ -351,10 +365,14 @@ def test_panel_two_still_unticks_the_guard_and_still_carries_it_forward(client):
     from app import simconfig_store
 
     # The marker the tests below drive must be the one the panel really renders, or they would be
-    # asserting about a form no browser sends. Both names, because panel ② draws both checkboxes.
+    # asserting about a form no browser sends. `pricing` yes (the guard is drawn here);
+    # `pricing_advanced` no (its checkbox is on the edit screen now).
     rendered = _rendered_sections(client)
-    assert {"pricing", "pricing_advanced"} <= rendered
-    assert rendered == set(_cost_form()["sections"].split())
+    assert "pricing" in rendered
+    assert "pricing_advanced" not in rendered, (
+        "the results screen must not claim a checkbox the edit screen draws"
+    )
+    assert "grid" not in rendered
 
     client.post(w("/params"), data=_cost_form(**{"policy.economic_guard": "1"}))
     assert simconfig_store.load().economic_guard is True
@@ -375,16 +393,22 @@ def test_panel_two_still_unticks_the_guard_and_still_carries_it_forward(client):
     assert simconfig_store.load().economic_guard is True
 
 
-def test_panel_two_still_unticks_dal_weekends(client):
-    """The other half of the split: `pricing_advanced` must actually be claimed by panel ②.
+def test_dal_weekends_unticks_through_the_marker_that_claims_it(client):
+    """The other half of the split, now driven from the screen that owns the checkbox.
 
-    Nothing in the suite drove this before, which is how `_cost_form` could carry a `sections`
-    value the rendered panel does not emit. If `_sections_for` emitted only `pricing`, the untick
-    below would be read as "this build never drew the control" and silently ignored.
+    `dal_weekends` moved to the edit screen with the Pricing box (§2′.1), so `pricing_advanced` is
+    claimed there and not here. The untick must still take effect — if no rendered form emitted
+    the marker, an unticked box would read as "this build never drew the control" and be silently
+    ignored, which is the defect the split exists to prevent.
+
+    Posted through the params route rather than the edit route because what is under test is
+    `parse_form`'s gate, which both routes share; the edit screen's own rendering of the marker is
+    asserted in `test_workspace_edit.py`.
     """
     from app import simconfig_store
 
-    assert "pricing_advanced" in _rendered_sections(client)
+    # Not claimed by THIS screen — the assertion that would have caught the over-claim.
+    assert "pricing_advanced" not in _rendered_sections(client)
 
     client.post(w("/params"), data=_cost_form(**{"pricing.dal_weekends": "1"}))
     assert simconfig_store.load().pricing.dal_weekends is True
@@ -618,28 +642,40 @@ def test_index_renders_panel_3_under_the_stored_config(client):
 # ── §2.3's Pricing box, end to end ───────────────────────────────────────────────────────────
 
 
-def test_the_pricing_box_renders_only_with_cost_simulation_on(client):
-    """§2.3 "Without cost simulation": the whole box is ABSENT, not greyed.
+def test_the_params_panel_never_draws_the_pricing_fields_and_the_edit_screen_always_does(client):
+    """Where each `pricing.*` control lives after §2′.1, asserted in both directions.
 
-    Asserted against the rendered HTML rather than against the view-model, because the box's
-    existence is decided in the template — a view-model assertion would pass against a template
-    that drew it unconditionally, which is the defect worth catching. The `economic_guard`
-    checkbox goes with it (§2.3 names it separately).
+    This replaces "the Pricing box renders only with cost simulation on", which was §2.3's rule
+    while the box was part of panel ②. Two things changed it. The box moved to the edit-workspace
+    screen, so this panel draws NO `pricing.*` field in either cost mode; and §2′.4 answer 5 makes
+    it "show always" there, so cost mode does not gate it on that screen either.
+
+    The one control that stayed and is still cost-gated is `policy.economic_guard` — a `policy.*`
+    dispatch decision, not a rate, drawn in the discharge card. §2.3 names it separately and that
+    part of the old rule survives intact.
     """
     off = client.post(w("/params"), data=_form())
     assert off.headers["X-Params-Valid"] == "1"
-    for absent in ('name="pricing.vat_rate"', 'name="pricing.contract"',
-                   'name="pricing.supplier_markup"', 'name="policy.economic_guard"',
-                   'name="pricing.dal_start_hour"'):
-        assert absent not in off.text, absent
-
     on = client.post(w("/params"), data=_cost_form())
     assert on.headers["X-Params-Valid"] == "1"
+
+    for text in (off.text, on.text):
+        assert not re.findall(r'<input[^>]*name="pricing\.[^"]*"', text)
+        assert 'name="grid.' not in text
+
+    # The guard: absent without a cost model, present with one. Unchanged behaviour.
+    assert 'name="policy.economic_guard"' not in off.text
+    assert 'name="policy.economic_guard"' in on.text
+
+    # And the fields themselves are on the edit screen, cost mode notwithstanding — the stored
+    # config here has `simulate_cost` on from the POST above; `test_the_contract_box_is_always_shown`
+    # in test_workspace_edit.py drives both modes.
+    html = _edit_html(client)
     for present in ('name="pricing.vat_rate"', 'name="pricing.contract"',
-                    'name="pricing.supplier_markup"', 'name="policy.economic_guard"',
-                    'name="pricing.dal_start_hour"', 'name="pricing.feedin_alpha"',
-                    'name="pricing.tlk_mode"', 'name="pricing.degradation_eur_per_kwh"'):
-        assert present in on.text, present
+                    'name="pricing.supplier_markup"', 'name="pricing.dal_start_hour"',
+                    'name="pricing.feedin_alpha"', 'name="pricing.tlk_mode"',
+                    'name="pricing.degradation_eur_per_kwh"'):
+        assert present in html, present
 
 
 def test_the_setup_band_radio_changes_simulate_cost_and_re_renders_the_panel(client):
@@ -650,9 +686,14 @@ def test_the_setup_band_radio_changes_simulate_cost_and_re_renders_the_panel(cli
     """
     from app import simconfig_store
 
+    # The panel's own tell is the `pricing` section marker: it is emitted exactly when the cost
+    # toggle is on, because that is when the economic-guard checkbox is drawn. It replaces the
+    # Pricing box's fields as the assertion here — those moved to the edit screen (§2′.1), so a
+    # re-render of THIS panel no longer contains them in either direction.
     on = client.post(w("/params"), data=_cost_form())
     assert simconfig_store.load().simulate_cost is True
-    assert 'name="pricing.vat_rate"' in on.text
+    assert "pricing" in re.search(r'name="sections" value="([^"]*)"', on.text).group(1).split()
+    assert 'name="policy.economic_guard"' in on.text
 
     off = client.post(
         w("/params"),
@@ -660,7 +701,8 @@ def test_the_setup_band_radio_changes_simulate_cost_and_re_renders_the_panel(cli
                    **{"setup.simulate_cost": "no"}),
     )
     assert simconfig_store.load().simulate_cost is False
-    assert 'name="pricing.vat_rate"' not in off.text
+    assert "pricing" not in re.search(r'name="sections" value="([^"]*)"', off.text).group(1).split()
+    assert 'name="policy.economic_guard"' not in off.text
 
 
 def test_every_pricing_field_persists_and_vat_converts_both_ways(client):
@@ -696,9 +738,13 @@ def test_every_pricing_field_persists_and_vat_converts_both_ways(client):
     assert pr.dal_end_hour == 6
     assert pr.degradation_eur_per_kwh == 0.015
 
-    assert 'value="9"' in r.text            # 0.09 back out as 9 percent
-    assert 'value="0.0300"' in r.text
-    assert 'value="-0.0200"' in r.text
+    # The render half is the edit screen's now (§2′.1): these fields post through `parse_form`
+    # above, but the inputs they come back into are drawn there. Asserted against a real GET so
+    # the round trip stays end-to-end rather than stopping at the config object.
+    html = _edit_html(client)
+    assert 'value="9"' in html              # 0.09 back out as 9 percent
+    assert 'value="0.0300"' in html
+    assert 'value="-0.0200"' in html
 
 
 def test_an_out_of_range_pricing_value_blocks_and_binds_to_its_input(client):
@@ -709,9 +755,15 @@ def test_an_out_of_range_pricing_value_blocks_and_binds_to_its_input(client):
     r = client.post(w("/params"), data=_cost_form(**{"pricing.vat_rate": "300"}))
     assert r.status_code == 200
     assert r.headers["X-Params-Valid"] == "0"
-    assert 'data-field-error="pricing.vat_rate"' in r.text
-    assert 'value="300"' in r.text                                   # what they typed
     assert simconfig_store.load().pricing.vat_rate == pytest.approx(0.21)   # unchanged on disk
+
+    # The INLINE binding — the raw string kept and keyed to its input — is the edit screen's half
+    # since §2′.1 moved the field there, and it is asserted through that screen's own route in
+    # `test_workspace_edit.py`. What this test keeps is the part that is this route's: an
+    # out-of-range pricing value blocks the save and leaves disk alone. Driving the binding from
+    # here would need the edit route, whose POST re-renders with the typed value; the params
+    # response no longer draws a `pricing.vat_rate` input to bind to at all.
+    assert 'name="pricing.vat_rate"' not in r.text
 
 
 def test_the_pending_contract_radios_render_disabled_with_their_keys(client):
@@ -722,17 +774,21 @@ def test_the_pending_contract_radios_render_disabled_with_their_keys(client):
     """
     from app import features
 
-    r = client.post(w("/params"), data=_cost_form())
+    # All three controls are on the edit screen since §2′.1 (§2′.4's Contract box). `tlk_mode` is
+    # the one that had to be REBUILT there: it existed only in the Pricing box, so moving the box
+    # briefly left `pricing_tlk_tiered` registered as a feature key with nothing rendering it —
+    # the state §2.1's pending doctrine exists to prevent. This test is what pins the repair.
+    html = _edit_html(client)
     for key in ("pricing_contract_fixed", "pricing_contract_variable", "pricing_tlk_tiered"):
         assert key in features.FEATURE_KEYS
-        assert f'data-feature-key="{key}"' in r.text
+        assert f'data-feature-key="{key}"' in html, key
     # And the radios they belong to really are disabled.
-    assert re.search(r'name="pricing\.contract" value="fixed"[^>]*disabled', r.text)
-    assert re.search(r'name="pricing\.contract" value="variable"[^>]*disabled', r.text)
-    assert re.search(r'name="pricing\.tlk_mode" value="tiered"[^>]*disabled', r.text)
+    assert re.search(r'name="pricing\.contract" value="fixed"[^>]*disabled', html)
+    assert re.search(r'name="pricing\.contract" value="variable"[^>]*disabled', html)
+    assert re.search(r'name="pricing\.tlk_mode" value="tiered"[^>]*disabled', html)
     # DYNAMIC and FLAT are the built ones and must NOT be.
-    assert not re.search(r'name="pricing\.contract" value="dynamic"[^>]*disabled', r.text)
-    assert not re.search(r'name="pricing\.tlk_mode" value="flat"[^>]*disabled', r.text)
+    assert not re.search(r'name="pricing\.contract" value="dynamic"[^>]*disabled', html)
+    assert not re.search(r'name="pricing\.tlk_mode" value="flat"[^>]*disabled', html)
 
 
 def test_the_interest_route_accepts_the_new_pricing_keys(client):
@@ -751,11 +807,10 @@ def test_the_contract_help_affordance_uses_the_shared_dialog(client):
     roster and the disabled charge policies already use, so this adds no JS. Asserted so that a
     future refactor of the dialog cannot quietly orphan this one caller.
     """
-    r = client.post(w("/params"), data=_cost_form())
-    assert 'data-info-title="Contract types"' in r.text
-    body = re.search(r'data-info-body="([^"]*)"[^>]*>ⓘ</button>\s*\n?\s*<label class="label gap-1',
-                     r.text)
-    assert body, "the contract ⓘ is not the button preceding the contract radios"
+    html = _edit_html(client)                       # §2′.1: the Contract box lives here now
+    assert 'data-info-title="Contract types"' in html
+    body = re.search(r'data-info-body="([^"]*)"[^>]*>ⓘ</button>', html)
+    assert body, "the contract ⓘ is not rendered"
     for phrase in ("EPEX day-ahead", "normaal and one dal rate", "revises it periodically"):
         assert phrase in body.group(1)
 
@@ -764,21 +819,21 @@ def test_the_cost_mode_shows_as_the_pricing_box_appearing_and_disappearing(clien
     """The rendered box, through the route — §2.3's "Without cost simulation" over the wire.
 
     **This asserted §2.1's collapsed summary clause until phase 4.2** ("· dynamic" / "· energy
-    only"), which §2′.6 removed with the collapsed panel. `params_view.summary_line` still computes
-    that clause and `tests/test_params_view.py` still covers it; what the PAGE says about the cost
-    mode is now the box being drawn or not, which is the thing the user acts on.
+    only"), which §2′.6 removed with the collapsed panel. It then asserted the Pricing box being
+    drawn or not — until §2′.1 moved that box to the edit screen, where §2′.4 answer 5 shows it in
+    both modes. What is left on THIS panel that still tracks the cost mode is the economic guard,
+    so that is what the test now watches: it is the one control here whose existence the toggle
+    decides, and `test_workspace_results.py` covers the result sections the toggle also gates.
     """
     on = client.post(w("/params"), data=_cost_form())
-    assert re.search(r'<h[1-4][^>]*cost-label[^>]*>\s*Pricing\s*</h[1-4]>', on.text)
-    assert 'name="pricing.contract"' in on.text
+    assert 'name="policy.economic_guard"' in on.text
 
     off = client.post(
         w("/params"),
         data=_form(sections="setup battery grid charge discharge topology",
                    **{"setup.simulate_cost": "no"}),
     )
-    assert "Pricing" not in off.text
-    assert 'name="pricing.contract"' not in off.text
+    assert 'name="policy.economic_guard"' not in off.text
     # The dispatch bands STAY: they change which kWh move, not what a kWh is worth (§2.3).
     assert 'name="policy.band_a"' in off.text
 
@@ -819,62 +874,32 @@ def test_pricing_values_survive_turning_cost_simulation_off_and_on(client):
     assert 'name="policy.economic_guard"' in r.text and "checked" in r.text
 
 
-def test_the_cost_tint_marks_the_pricing_box_and_only_the_pricing_box(client):
-    """Phase 7: the cost-simulation controls carry .cost-label / .cost-field; the rest do not.
+def test_the_params_panel_carries_no_cost_tint_now_that_the_pricing_box_has_gone(client):
+    """Phase 7's tint rule, re-scoped by §2′.1.
 
-    The rule, not every occurrence: cost inputs are tinted, non-cost inputs are not. Pinning each
-    individual label would make any future restyling a test edit, and the point of the change is
-    that the marking is uniform.
+    The rule was "cost inputs are tinted, non-cost inputs are not", and inside panel ② the tinted
+    set WAS the Pricing box. That box moved to the edit-workspace screen — which does not tint at
+    all, because a box titled "Contract" between a rate and a VAT field does not need a hue to say
+    it is about money — so this panel's tinted set is now empty.
 
-    Colour is an accent on top of structure, never a replacement for it, so this test also holds
-    the structural signals in place — the Pricing box's own heading and its sub-box legends still
-    read as text (see the .cost-label comment in app/static/src/app.tailwind.css).
+    What the rule still governs is `_panel_results.html`: the cost toggle, the COST SAVINGS
+    divider and the euro KPI/benchmark headings, which is where a reader now needs the cue that a
+    figure is money rather than kWh. Those are asserted in `test_workspace_results.py`.
+
+    Kept as a NEGATIVE assertion here rather than deleted. A stray `cost-field` reappearing on a
+    `battery.` or `grid.` input is exactly the drift the original test existed to catch, and the
+    check costs nothing.
     """
-    import re
-
-    # The OFF render first: `_form()`'s `sections` carries no `setup` marker, so it INHERITS the
-    # stored `simulate_cost` (which is the retention behaviour appendix A asks for). Posting it
-    # before the cost form is what makes it an energy-only render rather than an inheriting one.
     off = client.post(w("/params"), data=_form()).text
     on = client.post(w("/params"), data=_cost_form()).text
 
-    # Every TEXT input under `pricing.` is tinted. Radios and checkboxes are excluded on purpose:
-    # a border tint on a 16px round control is not legible, so those take the tint on their label
-    # instead — which is where a reader looks for the meaning anyway.
-    priced = [
-        t for t in re.findall(r'<input[^>]*name="pricing\.[^"]*"[^>]*>', on)
-        if 'type="text"' in t
-    ]
-    assert priced, "no pricing text inputs rendered"
-    for tag in priced:
-        assert "cost-field" in tag, tag
+    for text in (off, on):
+        assert "cost-field" not in text
+        for tag in re.findall(r'<input[^>]*name="(?:battery|policy|topology)\.[^"]*"[^>]*>', text):
+            assert "cost-field" not in tag, tag
 
-    # …and no input outside the cost boxes is. `battery.` and `grid.` are the physical system.
-    for tag in re.findall(r'<input[^>]*name="(?:battery|grid)\.[^"]*"[^>]*>', on):
-        assert "cost-field" not in tag, tag
-
-    # The headings: Pricing is tinted, Battery and Grid connection are not — and all three are
-    # still present as words, which is what a reader who cannot see the hue relies on.
-    #
-    # The heading LEVEL is deliberately not pinned. §2′.6 made "Battery" the box's own title (an
-    # <h2>) while "Grid connection" became a sub-box legend inside a tab (an <h3>); what this test
-    # is about is the tint, and pinning `<h3>` would make it fail on a restyle that changed
-    # nothing it cares about.
-    assert re.search(r'<h[1-4][^>]*cost-label[^>]*>\s*Pricing\s*</h[1-4]>', on)
-    for plain in ("Battery", "Grid connection"):
-        assert re.search(r'<h[1-4](?![^>]*cost-label)[^>]*>\s*%s\s*</h[1-4]>' % plain, on), plain
-
-    # The sub-box legends and the Advanced summary inside the Pricing box.
-    for legend in ("Dynamic", "Feed-in"):
-        assert re.search(r'<h4[^>]*cost-label[^>]*>\s*%s\s*</h4>' % legend, on), legend
-    # The Pricing box's own Advanced pane. A `<summary>` since §2′.6 (it now nests inside two
-    # other collapsibles and a daisyUI `collapse` there uses `content-visibility`); the tint is on
-    # the same element either way.
-    assert re.search(r'<summary[^>]*cost-label[^>]*>\s*Advanced\s*</summary>', on)
-
-    # With cost simulation OFF the panel carries no tint at all: the boxes it marks are gone.
-    assert "cost-label" not in off
-    assert "cost-field" not in off
+    # The structural signals the tint was only ever an accent on: still words, still headings.
+    assert re.search(r'<h[1-4][^>]*>\s*Battery\s*</h[1-4]>', on)
 
 
 def test_the_setup_band_toggle_carries_the_cost_tint(client):

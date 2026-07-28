@@ -89,10 +89,12 @@ def _get(client, workspace_id: str = "w1", **kw) -> str:
 def _pane_span(html: str) -> tuple[int, int]:
     """The character range of the "More settings" `<details>`.
 
-    Found by its id and closed by matching `<details>`/`</details>` nesting, because the pane
-    CONTAINS another `<details>` (the Pricing box's Advanced) and a naive `.index('</details>')`
-    would stop at the inner one — which would make every "inside the pane" assertion below quietly
-    weaker than it reads.
+    Found by its id and closed by matching `<details>`/`</details>` nesting rather than by a naive
+    `.index('</details>')`. The pane used to CONTAIN another `<details>` — the Pricing box's
+    Advanced sub-box — and stopping at that inner one would have made every "inside the pane"
+    assertion below quietly weaker than it reads. That box moved to the edit-workspace screen
+    (§2′.1) so there is nothing nested here today, but the matching is kept: it is correct either
+    way, and a future nested pane must not silently re-open the hole.
     """
     start = html.index('id="params-advanced"')
     start = html.rindex("<details", 0, start)
@@ -262,17 +264,90 @@ def test_every_tabs_inputs_are_in_the_dom_whichever_tab_is_selected(env):
     pane = html[slice(*_pane_span(html))]
     assert 'id="params-tab-battery"' in pane and "checked" in pane
 
+    # No `grid.*` on the Battery tab and no `pricing.*` on the dispatch tab: §2′.1 assigns both
+    # groups to the edit-workspace screen, and this screen stopped drawing them. `test_the_moved_
+    # boxes_are_not_on_the_results_screen` pins their absence; this one pins what remains.
     expected = {
-        "battery": ("battery.min_soc_pct", "battery.standby_w", "grid.fuse_a"),
+        "battery": ("battery.min_soc_pct", "battery.standby_w", "battery.initial_soc_pct"),
         "installation": ("topology.pv_coupling", "topology.battery_phases"),
         "dispatch": ("policy.charge_policy", "policy.band_c", "policy.allow_grid_export",
-                     "pricing.contract", "pricing.dal_weekends"),
+                     "policy.economic_guard"),
     }
     for tab, names in expected.items():
         panel_start = pane.index(f'data-tab-panel="{tab}"')
         for name in names:
             assert f'name="{name}"' in pane, f"{name} is not rendered at all ({tab} tab)"
             assert pane.index(f'name="{name}"') > panel_start, f"{name} is not inside {tab}"
+
+
+def test_the_moved_boxes_are_not_on_the_results_screen(with_data):
+    """§2′.1 assigns `grid.*` and `pricing.*` to the edit-workspace screen; this one draws neither.
+
+    Both boxes survived phase 4.2's reshape and were editable from two screens at once until they
+    were removed. Asserted with cost simulation ON and a priced dataset, because that is the state
+    that used to render the Pricing box: with cost off the box was gated away anyway, so an
+    energy-only render would pass this test without proving anything about the half that matters.
+
+    Field-level rather than heading-level: a heading can be reworded, but an `<input name="grid.…">`
+    on this screen is the actual defect, because it makes the same stored value editable from two
+    places and gives `sections` a control to over-claim.
+    """
+    client, mod = with_data
+    cfg = mod["simconfig_store"].load("w1")
+    cfg.simulate_cost = True
+    cfg.grid.phases = 3
+    mod["simconfig_store"].save(cfg, "w1", pricing_configured=True)
+
+    html = _get(client)
+    assert "data-cost-edit-contract" in html, "precondition: the cost section actually rendered"
+    stray = re.findall(r'<input[^>]*name="((?:grid|pricing)\.[^"]*)"', html)
+    assert not stray, f"the results screen still edits fields it does not own: {stray}"
+    assert "Grid connection" not in html
+    # The `sections` marker must not claim what is no longer drawn. `pricing` is the exception and
+    # stays: it names the economic-guard checkbox, which is `policy.*` and IS still drawn here.
+    claimed = set(re.search(r'name="sections" value="([^"]*)"', html).group(1).split())
+    assert "grid" not in claimed and "pricing_advanced" not in claimed, claimed
+    assert "pricing" in claimed, "the economic guard's marker must survive the Pricing box"
+
+
+def test_the_cost_section_links_to_the_contract_on_the_edit_screen(with_data):
+    """With cost ON, the Cost savings section offers a way back to the rates behind its figures.
+
+    Removing the Pricing box took away the only route from a euro figure to the assumptions that
+    produced it: the two existing links to `/w/{id}/edit#contract` both render only when cost is
+    OFF (the invitation box, and the blocked toggle's dialog). This is the third, and the three are
+    mutually exclusive by cost state.
+
+    Uses `with_data` for the reason `test_the_invitation_box_is_absent_once_cost_simulation_is_on`
+    documents: `results.cost` needs a real priced dataset, not merely the toggle, so against the
+    static sample this would assert on an energy-only render and pass for the wrong reason.
+    """
+    client, mod = with_data
+    cfg = mod["simconfig_store"].load("w1")
+    cfg.simulate_cost = True
+    mod["simconfig_store"].save(cfg, "w1", pricing_configured=True)
+
+    html = _get(client)
+    assert "data-cost-edit-contract" in html, "the cost section must offer a link to the contract"
+    link = re.search(r"<a[^>]*data-cost-edit-contract[^>]*>", html)
+    assert 'href="/w/w1/edit#contract"' in link.group(0), link.group(0)
+    # Its ⓘ is the SHARED dialog affordance, not a second bespoke one carrying the same link.
+    assert "data-info-title" in html[link.end():link.end() + 600]
+    assert "data-cost-invitation" not in html, "the cost-off invitation must not render with cost on"
+
+
+def test_the_contract_link_is_absent_when_cost_is_off(with_data):
+    """The counterpart: with cost OFF there is no Cost savings section, so no link from it.
+
+    What the user gets instead is the invitation box, which already existed and already points at
+    the same destination. Pinning both halves is what makes "mutually exclusive by cost state" a
+    tested claim rather than a comment.
+    """
+    client, _mod = with_data  # appendix A leaves simulate_cost off
+
+    html = _get(client)
+    assert "data-cost-edit-contract" not in html
+    assert "data-cost-invitation" in html, "the cost-off invitation should be what shows instead"
 
 
 def test_a_collapsed_pane_round_trips_its_values_instead_of_clearing_them(env):

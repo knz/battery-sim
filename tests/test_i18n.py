@@ -89,11 +89,17 @@ def test_interpolate_available_as_a_template_filter():
 
 def test_interpolated_string_is_translated_before_substitution():
     """The Dutch catalog carries this msgid with its placeholder intact, so translation must
-    happen first and substitution second — the reverse order would leave the msgid unmatched."""
-    out = _render("nl", "{{ _('A → max import %(kw)s kW') | interpolate(kw=17.3) }}")
+    happen first and substitution second — the reverse order would leave the msgid unmatched.
+
+    The sample used to be "A → max import %(kw)s kW", the Grid connection box's fuse line. §2′.1
+    moved that box to the edit-workspace screen, which prints the figure inside its connection
+    dropdown instead, so the msgid stopped being extracted and the catalog no longer carries it.
+    Any live msgid with a placeholder and a Dutch translation proves the same ordering.
+    """
+    out = _render("nl", "{{ _('%(n)s / day') | interpolate(n=17.3) }}")
     assert "17.3" in out
-    assert "%(kw)s" not in out
-    assert "afname" in out  # the Dutch translation, not the English source
+    assert "%(n)s" not in out
+    assert "dag" in out  # the Dutch translation, not the English source
 
 
 # ── 3. The locale race ─────────────────────────────────────────────────────────────────────────
@@ -105,9 +111,9 @@ def test_env_for_is_cached_per_locale():
 
 
 def test_each_locale_env_resolves_its_own_catalog():
-    src = "{{ _('A → max import %(kw)s kW') }}"
-    assert _render("en", src) == "A → max import %(kw)s kW"
-    assert "afname" in _render("nl", src)
+    src = "{{ _('%(n)s / day') }}"
+    assert _render("en", src) == "%(n)s / day"
+    assert "dag" in _render("nl", src)
 
 
 def test_concurrent_mixed_locale_renders_do_not_cross_contaminate():
@@ -121,7 +127,7 @@ def test_concurrent_mixed_locale_renders_do_not_cross_contaminate():
     With per-locale environments there is no post-startup mutation to interleave with, so every
     render must match the locale it asked for.
     """
-    src = "{{ _('A → max import %(kw)s kW') }}"
+    src = "{{ _('%(n)s / day') }}"
     expected = {code: _render(code, src) for code in ("en", "nl")}
     assert expected["en"] != expected["nl"], "test is vacuous if the catalogs agree"
 
@@ -279,10 +285,10 @@ def test_msg_renders_a_plain_string_through_gettext():
 
 
 def test_msg_substitutes_pair_params_after_translating():
-    m = {"msgid": "A → max import %(kw)s kW", "params": {"kw": "17.3"}}
-    assert _msg_render("en", m) == "A → max import 17.3 kW"
+    m = {"msgid": "%(n)s / day", "params": {"n": "17.3"}}
+    assert _msg_render("en", m) == "17.3 / day"
     nl = _msg_render("nl", m)
-    assert "17.3" in nl and "%(kw)s" not in nl and "afname" in nl
+    assert "17.3" in nl and "%(n)s" not in nl and "dag" in nl
 
 
 @pytest.mark.parametrize("n,expected", [(1, "1 interval"), (2, "2 intervals"), (0, "0 intervals")])
