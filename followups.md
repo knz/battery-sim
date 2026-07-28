@@ -652,13 +652,19 @@ and the wizard. Scoping the routes made that a broken page — `GET /` renders t
 `GET /` is the list, this line becomes the phantom workspace §2′.2 does not want.
 *Origin:* `20260726-workspaces-phase1.md`.
 
-**I8. `ha_fetch.js`'s file header had drifted from the code, independently of the workspace work.**
-It described a backend_load Confirm as POSTing `/data/slot/{slot}/load` and triggering a reload;
-both stopped being true when reify moved into Fetch history, and the browser no longer calls that
-route at all (only tests do). The two lines directly touching the re-rooted path were corrected in
-phase 1; the surrounding "surviving the reload" narrative was updated only where it named the wrong
-trigger. A full pass over that header against the current code is still owed.
-*Origin:* `20260726-workspaces-phase1.md`.
+**I8. `ha_fetch.js`'s file header had drifted from the code, independently of the workspace work.
+— DONE (2026-07-28).** The owed full pass was made. What the drift actually was, beyond the
+phase-1 lines: the header named `_panel_data.html` (deleted; the roster is `_data_roster.html`)
+and `_setup_band.html` (deleted; the answers are in `_data_household.html`), still called panel ①
+a panel after it became the configure-data screen, and headed its last block "User actions on the
+connection card" after that card became the `#ha-config-dialog` modal. Two paragraphs explaining
+what an earlier version of the comment had said were dropped as changelog content — but the note
+that `POST /w/{id}/data/slot/{slot}/load` exists and the browser deliberately never calls it was
+kept, since that is a fact about the code. Also fixed while in there: `mappedSlots`'s docstring had
+been orphaned from its function by the setup-band block spliced between them. The load-bearing
+parts — the generation-reconcile rule, the global-connection vs per-workspace-store split, the
+transactional draft model — were checked and were correct.
+*Origin:* `20260726-workspaces-phase1.md`. *Closed by:* `20260728-i8-ha-fetch-header.md`.
 
 **I9. `DataFacts.loaded` means "has a dataset", not "has energy data", and the card shows it.**
 A workspace whose only series is a PRICE series (the preset spot-price load, which is the one

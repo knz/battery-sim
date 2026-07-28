@@ -16,7 +16,7 @@
  *     which normalises and persists them. The scoped path is not built here — the roster carries
  *     it whole in data-ingest-ws, so this file never has to know the URL layout.
  *
- *  2. The slot-first source-picker drawer. Each slot row (templates/_panel_data.html) has a
+ *  2. The slot-first source-picker drawer. Each slot row (templates/_data_roster.html) has a
  *     "Choose source…" button carrying the slot name, its kind (energy/price), and its source
  *     list (data-slot-sources). A click opens the shared right-side drawer (#source-drawer in
  *     workspace_data.html) listing those sources as radios. Picking a source:
@@ -27,9 +27,9 @@
  *         chosen entity too, so a committed HA slot is always fetchable.
  *       * energy_charts (backend_load)   → Confirm only STAGES the choice; the slot is reified
  *         server-side by the next Fetch history, as a `backend_load` message on the ingest WS.
- *         (There IS a POST /w/{id}/data/slot/{slot}/load route, and this used to call it on
- *         Confirm, but the all-or-nothing reify model moved that work into the fetch — see
- *         "Staged-then-confirm" below. Nothing in this file calls that route today.)
+ *         (A POST /w/{id}/data/slot/{slot}/load route does exist, but the all-or-nothing reify
+ *         model puts that work in the fetch instead — see "Staged-then-confirm" below. Nothing
+ *         in this file calls that route; only the tests do.)
  *       * data_source_csv (pending)      → the shared "not built yet" dialog (#pending-dialog).
  *
  *     A row may also carry an ⓘ info affordance (SlotSpec.info, specs §4.1). A delegated click on
@@ -46,19 +46,16 @@
  *       * HA source   → writes draft → slotState, refreshes the row label, closes. No reload.
  *       * backend     → the SAME thing, minus the entity. Neither branch calls the server: the
  *                       drawer is a pure staging surface and Fetch history reifies both kinds.
- *                       (This line used to describe a load POST + reload on the backend branch;
- *                       that stopped being true when reify moved into the fetch, and the text
- *                       had not followed. Corrected while re-rooting the routes.)
  * Cancel / Escape / ✕ / backdrop DISCARD: closeDrawer reverts to the committed state and never
  * mutates slotState or the row label. slotState is seeded from each .slot-source-btn's data-*
  * attributes at load (the committed initial state). mappedSlots() (used by Fetch history) reads
  * slotState — the HA slots whose statId is set — so the fetch depends only on committed state.
  *
  * Surviving the reload (localStorage ha.slots.<workspace> + a source GENERATION). A successful
- * Fetch history ends in a full window.location.reload() so panel ① re-renders from the persisted
- * dataset. That reload drops all in-memory slotState, and the persisted view-model carries no
- * re-selectable statistic id for a slot that has not been fetched — so without help a STAGED HA
- * slot's chosen entity and source are lost across any reload, including an ordinary refresh.
+ * Fetch history ends in a full window.location.reload() so the configure-data screen re-renders
+ * from the persisted dataset. That reload drops all in-memory slotState, and the persisted
+ * view-model carries no re-selectable statistic id for an unfetched slot — so without help a
+ * STAGED HA slot's chosen entity and source are lost across any reload, including a plain refresh.
  *
  * Two things carry a source choice across a reload, split by whether the slot has been FETCHED:
  *
@@ -97,13 +94,14 @@
  *     integer that can collide by coincidence.
  *
  * The ingest WebSocket path is not built here at all — the roster's data-ingest-ws carries the
- * whole scoped path, rendered server-side (_panel_data.html), so this file keeps knowing nothing
+ * whole scoped path, rendered server-side (_data_roster.html), so this file keeps knowing nothing
  * about the URL layout. It reads <body data-workspace-id> only to key the store.
  *
  * A pre-workspaces global `ha.slots` from an older build is DISCARDED rather than adopted into
  * `local` — the reasoning is beside the removal, below.
  *
- * User actions on the connection card:
+ * User actions. Test connection lives in the #ha-config-dialog modal; Fetch history is the
+ * roster's own button (_data_roster.html):
  *   Test connection  — open wss://<ha>/api/websocket, auth, recorder/list_statistic_ids, store
  *                       the listed ids (energy ids from "sum", mean ids from "mean"), and if a
  *                       drawer is open for an HA slot, (re)populate its entity <select>. Enables
@@ -545,21 +543,20 @@
     };
   }
 
-  // Slots whose chosen source is Home Assistant AND that have an entity chosen (slotState). This
-  // is the sole source of truth for the HA arm of the fetch — there is no per-row DOM select.
-  // ── Setup-band answers (specs §2.1) ────────────────────────────────────────────────────────
+  // ── Household setup answers (specs §2.1) ───────────────────────────────────────────────────
   //
   // The two shape-determining answers — has_pv and has_battery — live as radio groups in
-  // _setup_band.html. They are NOT a form and post nowhere on change. Instead:
+  // _data_household.html (they were in the since-deleted _setup_band.html when this was written).
+  // They are NOT a form and post nowhere on change. Instead:
   //
-  //   * changing one re-gates panel ①'s slot roster IMMEDIATELY (applySetupGating below), so the
+  //   * changing one re-gates the slot roster IMMEDIATELY (applySetupGating below), so the
   //     user sees which series the app is asking for as they answer; and
   //   * the answers are PERSISTED with the fetch, as fields on the ingest WS `header` message —
   //     the fetch button commits the whole data configuration, and these are part of it.
   //
-  // Panels ② and ③ keep showing the STORED answers until the next fetch. That is deliberate:
-  // they describe a simulation over data that has actually been loaded, so re-deriving them from
-  // an uncommitted answer would describe a run that does not exist yet.
+  // The params and results screens keep showing the STORED answers until the next fetch. That is
+  // deliberate: they describe a simulation over data that has actually been loaded, so re-deriving
+  // them from an uncommitted answer would describe a run that does not exist yet.
 
   // One setup answer as a boolean, read off the checked radio. Defaults matter: an absent group
   // (a template that did not render it) must not silently flip the answer, so each caller passes
@@ -612,6 +609,8 @@
     if (el.name === "setup_haspv" || el.name === "setup_hasbattery") applySetupGating();
   });
 
+  // Slots whose chosen source is Home Assistant AND that have an entity chosen (slotState). This
+  // is the sole source of truth for the HA arm of the fetch — there is no per-row DOM select.
   function mappedSlots() {
     return Object.keys(slotState)
       .filter(function (name) {
@@ -734,7 +733,7 @@
       var result = await finishBackend(backend);
       setStatus(fetchStatus, ti("imported_series", "✓ Imported %(count)s series. Reloading…", { count: result.series }), "text-success");
       // The server now has ONE dataset with every staged slot — HA (source + statistic id) and
-      // backend-load — so panel ① re-renders all of them after the reload (§3.5, §2.2).
+      // backend-load — so the roster re-renders all of them after the reload (§3.5, §2.2).
       setTimeout(function () { window.location.reload(); }, 600);
     } catch (e) {
       setStatus(fetchStatus, ti("failed_reason", "✗ %(reason)s", { reason: e.message }), "text-error");
