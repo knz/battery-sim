@@ -245,6 +245,110 @@ def test_self_sufficiency_tile_uses_the_simulated_baseline_not_the_meter():
     assert float(np.nansum(frame.import_obs)) == pytest.approx(48.0)
 
 
+def test_self_sufficiency_tile_carries_an_info_blurb_explaining_the_baseline():
+    """The ⓘ that documents what the left half is, and why it is not the household card's figure.
+
+    `test_..._not_the_meter` above pins the CHOICE; this pins the EXPLANATION of it. Both figures
+    are on one screen — the data-glance band's measured self-sufficiency and this tile's simulated
+    baseline — and on this fixture they read 50% and 75%. §7.1 requires the divergence, so the
+    only thing left is to say so on the page; without the blurb the difference is indistinguishable
+    from a bug. The sibling caveat (next test) does this for the two IMPORT figures in kWh; this
+    is the same obligation for the two self-sufficiency PERCENTAGES.
+
+    Only this tile carries one — asserted, so a future generic ⓘ on every tile is a deliberate
+    change rather than something this test waves through.
+    """
+    r = results_from(_overlap_dataset(), (_WIN_START, _WIN_END))
+    assert r is not None
+    ss = next(k for k in r["kpis"] if k["title"] == "SELF-SUFFICIENCY")
+
+    # The blurb exists, is a plain _N msgid (the template translates it), and names the two things
+    # a reader needs: that the left half is the battery-free baseline, and that the measured
+    # figure elsewhere on the page is a different quantity rather than a contradiction.
+    assert ss["info_title"] == "Self-sufficiency"
+    body = ss["info_body"]
+    assert isinstance(body, str), "a data-* attribute takes a string, not an _msg pair"
+    assert "baseline" in body
+    assert "measured" in body and "simulation" in body
+
+    # It is ONE paragraph: ha_fetch.js sets the dialog body with textContent into a single <p>,
+    # so an embedded newline would silently render as a space.
+    assert "\n" not in body
+
+    # The other two tiles do not have one.
+    for other in ("GRID IMPORT SAVED", "EQUIVALENT FULL CYCLES"):
+        tile = next(k for k in r["kpis"] if k["title"] == other)
+        assert "info_body" not in tile
+
+
+def test_resolution_loss_is_both_a_caveat_and_an_info_button_on_the_baseline_row():
+    """The kWh discrepancy is explained in two places from ONE msgid.
+
+    The caveat states it unprompted; the ⓘ on "Grid import, no battery" puts it at the figure it
+    is about, for a reader who questions that number without reading the caveat list. Sharing the
+    msgid is the point — two hand-written copies would drift apart and cost the translator twice.
+    """
+    r = results_from(_overlap_dataset(), (_WIN_START, _WIN_END))
+    assert r is not None
+
+    row = next(x for x in r["energy_breakdown"] if x["label"] == "Grid import, no battery")
+    assert row["info_title"] == "Grid import, no battery"
+
+    # Same msgid AND same params as the caveat — literally the same object, not a copy.
+    caveat = next(c for c in r["caveats"]
+                  if isinstance(c, dict) and c["msgid"].startswith("Your meter recorded"))
+    assert row["info_body"] is caveat
+
+    # It renders with both figures substituted (48 measured vs 24 simulated on this fixture).
+    rendered = _en(row["info_body"])
+    assert "48 kWh" in rendered and "24 kWh" in rendered
+
+    # No other breakdown row carries one.
+    assert [x["label"] for x in r["energy_breakdown"] if "info_body" in x] \
+        == ["Grid import, no battery"]
+
+
+def test_self_sufficiency_discrepancy_gets_its_own_caveat_beside_the_import_one():
+    """The same divergence in PERCENTAGES, which the kWh caveat never names.
+
+    The pair a reader actually compares is the two self-sufficiency figures on screen, not the two
+    import totals — so the reconciliation is stated in that unit too, immediately after the kWh
+    one. On this fixture the measured figure is 50% and the simulated baseline 75%.
+    """
+    r = results_from(_overlap_dataset(), (_WIN_START, _WIN_END))
+    caveats = [c["msgid"] if isinstance(c, dict) else c for c in r["caveats"]]
+
+    import_i = next(i for i, m in enumerate(caveats) if m.startswith("Your meter recorded"))
+    ss_i = next(i for i, m in enumerate(caveats) if m.startswith("For the same reason"))
+    assert ss_i == import_i + 1, "the two halves of one discrepancy read together"
+
+    rendered = _en(r["caveats"][ss_i])
+    assert "50%" in rendered and "75%" in rendered
+    # It quotes the figures as the page shows them: the measured one from the household card and
+    # the tile's simulated baseline, NOT the with-battery half.
+    ss = next(k for k in r["kpis"] if k["title"] == "SELF-SUFFICIENCY")
+    assert _en(ss["value"]).startswith("75%")
+
+
+def test_no_self_sufficiency_caveat_when_the_two_percentages_agree():
+    """Silent when there is nothing visible to explain.
+
+    Export is zero in every interval here, so the meter's import and run A's coincide: both the
+    kWh caveat and its percentage counterpart must stay away rather than point at a difference the
+    reader cannot see on the page.
+    """
+    r = results_from(_dataset([
+        _energy("grid_import_t1", 2.0),
+        _energy("grid_export_t1", 0.0),
+        _energy("solar_production", 3.0),
+    ]), (_WIN_START, _WIN_END))
+    caveats = [c["msgid"] if isinstance(c, dict) else c for c in r["caveats"]]
+    assert not any(m.startswith("For the same reason") for m in caveats)
+    assert not any(m.startswith("Your meter recorded") for m in caveats)
+    # …and with no discrepancy the ⓘ is absent from the row too.
+    assert not any("info_body" in x for x in r["energy_breakdown"])
+
+
 def test_panel_states_the_resolution_loss_between_meter_and_simulated_baseline():
     """§7.1: "Report the observed import alongside it, with the difference labelled as resolution
     loss."
@@ -430,6 +534,9 @@ def test_no_caveat_contains_a_literal_percent_sign():
     caveats say "0.90 round-trip" where the tiles say "34.2 %", and a "%" appearing here would
     mean someone changed a sentence.
 
+    ONE caveat is exempt, at the loop below: the self-sufficiency reconciliation caveat is about
+    two percentages differing and has to quote them as percentages. See the note there.
+
     What it now also pins is the RENDER PATH, which changed shape. A caveat is a (msgid, params)
     pair, so the template does `_(msgid) | interpolate(**params)` — translate, then substitute.
     The round trip below runs exactly that and asserts the result equals the English sentence,
@@ -473,7 +580,17 @@ def test_no_caveat_contains_a_literal_percent_sign():
             c = _en(m)
             seen += 1
             branches.add(c[:40])
-            assert "%" not in c, f"literal % in a rendered caveat: {c!r}"
+            # The house style has ONE documented exception, and it is a deliberate one. The
+            # self-sufficiency reconciliation caveat exists to explain why two PERCENTAGES on this
+            # page differ (the household card's measured figure against the tile's simulated
+            # baseline), and it quotes both. Restating them as fractions to satisfy the style —
+            # "0.44 against 0.47" — would describe neither figure as the page shows it, which is
+            # the opposite of what that caveat is for. The corruption trap the rule began as is
+            # gone (`newstyle=False`, see above), so the cost of the exception is cosmetic.
+            # Pinned by prefix rather than waived generally: any OTHER caveat growing a "%" still
+            # fails, which is the regression the assertion is kept for.
+            if not c.startswith("For the same reason, the self-sufficiency"):
+                assert "%" not in c, f"literal % in a rendered caveat: {c!r}"
             # Every caveat here is a pair (no counted caveat exists yet), and the real render path
             # reproduces the English sentence exactly.
             assert isinstance(m, dict) and "plural" not in m

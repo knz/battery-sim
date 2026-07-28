@@ -91,6 +91,65 @@ def test_results_preset_returns_fragment(client):
     assert "RESULTS" in body or "RESULTATEN" in body
 
 
+def test_self_sufficiency_info_button_renders_on_both_paths(client):
+    """The ⓘ next to SELF-SUFFICIENCY reaches the HTML on the full page AND the swapped fragment.
+
+    The view-model side is pinned in test_results_view; this is the wiring. It matters on BOTH
+    paths because the panel is replaced wholesale on every period change: the button's handler is
+    delegated from `document` in ha_fetch.js and #slot-info-dialog lives outside the swap, so a
+    fragment that renders the button keeps working — but only if the fragment renders it.
+    """
+    for body in (client.get(page()).text,
+                 client.post(w("/results"), json={"period": "last_1_week"}).text):
+        i = body.find("SELF-SUFFICIENCY")
+        assert i != -1
+        # The button belongs to THIS tile: look only at the markup up to the next tile.
+        tile = body[i:i + 2000]
+        assert "slot-info-btn" in tile
+        assert 'data-info-title="Self-sufficiency"' in tile
+        assert "the left figure is the baseline" in tile.lower()
+        # The accessible name uses the sentence-case title, not the shouty display heading.
+        assert 'aria-label="About SELF-SUFFICIENCY"' not in tile
+
+
+def test_grid_import_baseline_row_info_button_renders(tmp_path, monkeypatch):
+    """The ⓘ on "Grid import, no battery", whose body is an `_msg` pair rather than a flat string.
+
+    Worth a route test of its own precisely because of that: the body carries runtime kWh figures,
+    so it renders through the `msg()` macro into an HTML attribute. A pair reaching the attribute
+    unrendered would show up here as a literal "%(meter)s".
+
+    It does NOT use the `client` fixture: that dataset exports nothing, so the meter's import and
+    run A's coincide, no discrepancy exists and the ⓘ is correctly absent. Simultaneous import and
+    export in the same hour is the only thing that raises it (the §7.1 overlap), so this builds its
+    own dataset with export — otherwise the test would pass while asserting nothing.
+    """
+    monkeypatch.setenv("BATTERY_SIM_DATA_DIR", str(tmp_path))
+    from app import dataset
+
+    dataset.save_dataset(
+        [_energy("grid_import_t1", 2.0), _energy("grid_export_t1", 1.0),
+         _energy("solar_production", 3.0)],
+        (_WIN_START, _WIN_END), "test", [], None,
+    )
+    seed_workspace()
+    from app import main
+    c = TestClient(main.app)
+
+    for body in (c.get(page()).text,
+                 c.post(w("/results"), json={"period": "last_1_week"}).text):
+        i = body.find("Grid import, no battery")
+        assert i != -1
+        row = body[max(0, i - 900):i + 900]
+        assert "slot-info-btn" in row
+        assert 'data-info-title="Grid import, no battery"' in row
+        # The pair was rendered: placeholders substituted, both figures present, and the caveat's
+        # own wording (not a dict repr) in the attribute.
+        assert "%(meter)s" not in row and "%(baseline)s" not in row
+        assert "Your meter recorded" in row
+        assert "msgid" not in row, "an unrendered _msg pair reached the attribute"
+
+
 def test_results_default_body_is_full_year_clamped(client):
     # Empty body → default preset (last_1_year), clamped to the 30-day coverage.
     r = client.post(w("/results"), json={})

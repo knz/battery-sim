@@ -56,6 +56,12 @@
   delegated from `document` in ha_fetch.js and the #slot-info-dialog lives in the never-swapped
   _panel_data.html. The macro import works in the standalone POST /results render too — the Jinja
   loader (templates.env) finds _data_glance.html the same way it finds this file.
+
+  This panel now carries ⓘ buttons of its OWN, on the same shared affordance and for the same
+  reason of surviving the swap: on the SELF-SUFFICIENCY tile, and on the "Grid import, no battery"
+  breakdown row. Both are opt-in per item — the view-model sets `info_title`/`info_body` and the
+  loops branch on it — so no other tile or row is affected. The two differ in ONE respect: the
+  tile's body is a plain msgid (`_()`), the row's is an `_msg` pair carrying kWh figures (`msg()`).
 #}
 {# `with context` is REQUIRED, not stylistic: Jinja macro imports do not receive the
    importing template's context, which is where the i18n extension puts the per-request
@@ -223,9 +229,22 @@
 
     {# ── KPI tiles ─────────────────────────────────────────────────────── #}
     <div class="stats stats-vertical sm:stats-horizontal border border-base-300 bg-base-200 w-full">
+      {# A tile MAY carry `info_title`/`info_body` — `_N` msgids from the view-model, translated
+         here by `_()` exactly like `title` (the prose belongs beside the reasoning that produces
+         the figure, and only the self-sufficiency tile needs it today). When present the title
+         gets the same shared ⓘ .slot-info-btn every derived metric on the data glance carries:
+         one delegated handler in ha_fetch.js, one #slot-info-dialog at page level, no per-tile
+         JS. Tiles without the keys render exactly as before. #}
       {% for k in results.kpis %}
       <div class="stat">
-        <div class="stat-title text-xs">{{ _(k.title) }}</div>
+        <div class="stat-title text-xs">{{ _(k.title) }}{% if k.info_body %}
+          <button type="button" class="btn btn-ghost btn-xs btn-circle align-middle slot-info-btn"
+                  {# The label uses `info_title` ("Self-sufficiency"), NOT `title` — the tile
+                     headings are display-uppercase ("SELF-SUFFICIENCY") and a screen reader
+                     would either spell that out or shout it. #}
+                  aria-label="{{ _('About') }} {{ _(k.info_title) }}"
+                  data-info-title="{{ _(k.info_title) }}"
+                  data-info-body="{{ _(k.info_body) }}">ⓘ</button>{% endif %}</div>
         <div class="stat-value text-2xl">{{ msg(k.value) }}{% if k.unit %}<span class="text-base font-normal text-base-content/60"> {{ k.unit }}</span>{% endif %}</div>
         {# `delta`/`extra` are either empty or a message (a pair from results_view, or a plain
            marked string from the sample view-model — msg() takes both). #}
@@ -242,8 +261,18 @@
           {% for row in results.energy_breakdown %}
             {% if row.rule_above %}<div class="my-1 border-t border-base-300"></div>{% endif %}
             {% if row.gap_above %}<div class="h-2"></div>{% endif %}
+            {# A row MAY carry `info_title`/`info_body`, same shared ⓘ as the KPI tiles above and
+               the data glance's derived metrics. Here `info_body` is an `_msg` PAIR (it quotes
+               runtime kWh figures), so it renders through `msg()` rather than `_()`; the macro's
+               output is plain text and Jinja escapes it into the attribute. Today only the
+               "Grid import, no battery" row sets it, and only when the simulated import actually
+               differs from the meter's — see results_view. #}
             <div class="flex justify-between {% if row.rule_above %}font-semibold{% endif %}">
-              <span>{{ _(row.label) }}</span>
+              <span>{{ _(row.label) }}{% if row.info_body %}<button type="button"
+                      class="btn btn-ghost btn-xs btn-circle align-middle slot-info-btn"
+                      aria-label="{{ _('About') }} {{ _(row.info_title) }}"
+                      data-info-title="{{ _(row.info_title) }}"
+                      data-info-body="{{ msg(row.info_body) }}">ⓘ</button>{% endif %}</span>
               <span class="figure-col">{{ msg(row.value) }}</span>
             </div>
           {% endfor %}

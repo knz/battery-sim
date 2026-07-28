@@ -101,6 +101,20 @@ caveat states the kWh difference so the two numbers on the panel are legible rat
 contradictory (§7.1: "Report the observed import alongside it, with the difference labelled as
 resolution loss").
 
+That divergence is surfaced in THREE places, because it produces two pairs of figures a reader can
+compare and each pair needs its own explanation where it is met:
+
+  * the kWh caveat above, and the SAME message on an ⓘ beside the "Grid import, no battery"
+    breakdown row (one msgid, built once — the caveat states it unprompted, the ⓘ puts it at the
+    figure);
+  * a second caveat stating the same divergence in PERCENTAGES — the household card's measured
+    self-sufficiency against this panel's simulated baseline — which is the pair a reader actually
+    compares and which the kWh caveat never names. Gated on the two rounding differently;
+  * an ⓘ on the self-sufficiency tile itself, explaining what its left half is.
+
+All three ⓘ use the shared `.slot-info-btn` / `#slot-info-dialog` affordance (one delegated handler
+in `ha_fetch.js`), so they survive the panel's fragment swaps.
+
 **Self-consumption is measured over the PV series' OWN coverage on both sides** (§2.3a: "comparing
 six months of production against two years of export would be meaningless"). `frame.pv` is
 zero-filled outside PV coverage, so the whole-window figure silently widens the export window while
@@ -1426,9 +1440,37 @@ def results_from(
         kpis = [
             {"title": "GRID IMPORT SAVED", "value": saved_value, "unit": "kWh",
              "delta": saved_delta},
+            # The ⓘ exists because the left half is NOT the figure the household card shows, and
+            # the two sit on one screen a scroll apart. Both are `1 − import/load` over the same
+            # window on the same load; they differ ONLY in the numerator — the card uses the
+            # METERED import, this tile uses run A's simulated one, which the §7.1 note above
+            # explains is systematically lower (the hourly grid nets out within-interval
+            # import/export overlap). On the local dataset over six months that is 1366 vs 1304
+            # kWh, i.e. 44% on the card against 47% here. Without the ⓘ a reader has no way to
+            # tell that apart from a bug, so the blurb names the difference rather than leaving
+            # them to find it. The blurb carries no runtime figures, so it is a plain `_N` msgid
+            # that the template's `_()` looks up at render time — the same shape `title` uses.
+            # Not an `_msg` pair: those are for sentences with values interpolated into them, and
+            # the ⓘ's data-* attribute takes a string. ONE paragraph, because ha_fetch.js sets
+            # the body with `textContent` into a single <p> — a newline would render as a space,
+            # so every existing blurb is one paragraph and this one matches.
             {"title": "SELF-SUFFICIENCY",
              "value": _arrow(ss_base_str, ss_batt_str),
-             "delta": ss_delta},
+             "delta": ss_delta,
+             "info_title": _N("Self-sufficiency"),
+             "info_body": _N(
+                 "The share of your household consumption met without drawing from the grid: "
+                 "1 − grid import ÷ consumption. The left figure is the baseline — what this same "
+                 "period would have looked like without a battery — and the right figure is the "
+                 "simulated result with the battery you configured. Both come from the "
+                 "simulation, so the two are a like-for-like comparison. This is why the left "
+                 "figure can differ by a point or two from the self-sufficiency shown for your "
+                 "household higher up the page: that one is measured straight from your meter. "
+                 "Your meter records importing and exporting at separate moments within the same "
+                 "hour, whereas the simulation works in whole intervals, so those partly cancel "
+                 "out and it reproduces slightly less grid import. Comparing your measured figure "
+                 "against a simulated one would overstate what the battery adds."
+             )},
             # `delta` and `extra` carry WORDS ("/ day", "throughput"), so they are `_msg` pairs;
             # their figures ride as params and are formatted in the render locale like every other.
             {"title": "EQUIVALENT FULL CYCLES",
@@ -1452,9 +1494,43 @@ def results_from(
         # counterpart — the sample shows a positive saving — so without the tag a Dutch user on the
         # negative-saving path got one English row among translated peers.
         avoided_label = _N("Extra grid import") if negative_saving else "Grid import avoided"
+
+        # The resolution-loss explanation, built ONCE here and used TWICE: as the ⓘ on the "Grid
+        # import, no battery" row below (this is the figure it is about — the row is where a reader
+        # meets the simulated import and wonders why it is not the meter's) and as the caveat in
+        # the list further down. One msgid rather than two near-identical ones: the sentences would
+        # drift apart under editing, and a translator would have to render the same explanation
+        # twice. §7.1 asks for the difference to be "labelled as resolution loss"; the caveat is
+        # where it is stated unprompted, the ⓘ is where it is available at the figure itself.
+        #
+        # None below the 1 kWh threshold: the two figures then print identically, and neither an
+        # ⓘ nor a caveat should point at a difference the reader cannot see.
+        resolution_loss = rec.imp_total - metrics.baseline_import_kwh
+        resolution_loss_msg = None
+        if round(resolution_loss) >= 1:
+            resolution_loss_msg = _msg(
+                "Your meter recorded %(meter)s imported over this period; the simulation's "
+                "no-battery baseline is %(baseline)s. The difference "
+                "of %(difference)s is energy that flowed both into and out of your "
+                "house within a single %(res)s interval, which data at this resolution cannot "
+                "see. Everything under Energy savings is computed from the simulated baseline, so "
+                "that the battery and no-battery cases are built from the same information; the "
+                "figures above it are as your meter recorded them. That is why the two sets of "
+                "numbers do not match exactly.",
+                meter=imp_str,
+                baseline=_fmt_kwh(metrics.baseline_import_kwh),
+                difference=_fmt_kwh(resolution_loss),
+                res=res_msg,
+            )
+
         energy_breakdown = [
             {"label": "Grid import, no battery",
-             "value": _fmt_kwh(metrics.baseline_import_kwh)},
+             "value": _fmt_kwh(metrics.baseline_import_kwh),
+             # `info_title` is the row's own label; the body is the shared pair above. Omitted
+             # entirely when there is no discrepancy, so the ⓘ appears only when it has something
+             # to say (the template branches on `info_body`).
+             **({"info_title": _N("Grid import, no battery"),
+                 "info_body": resolution_loss_msg} if resolution_loss_msg else {})},
             {"label": "Grid import, with battery",
              "value": _fmt_kwh(metrics.battery_import_kwh)},
             {"label": avoided_label,
@@ -1520,24 +1596,38 @@ def results_from(
         # no simulated battery can recover it. Two grid-import numbers on one panel read as a
         # contradiction unless the difference is named, so it is named here in kWh.
         #
-        # Raised only when the gap rounds to at least 1 kWh: below that the two figures print
-        # identically and a caveat explaining a difference the reader cannot see would be noise.
-        resolution_loss = rec.imp_total - metrics.baseline_import_kwh
-        if round(resolution_loss) >= 1:
-            caveats.append(_msg(
-                "Your meter recorded %(meter)s imported over this period; the simulation's "
-                "no-battery baseline is %(baseline)s. The difference "
-                "of %(difference)s is energy that flowed both into and out of your "
-                "house within a single %(res)s interval, which data at this resolution cannot "
-                "see. Everything under Energy savings is computed from the simulated baseline, so "
-                "that the battery and no-battery cases are built from the same information; the "
-                "figures above it are as your meter recorded them. That is why the two sets of "
-                "numbers do not match exactly.",
-                meter=imp_str,
-                baseline=_fmt_kwh(metrics.baseline_import_kwh),
-                difference=_fmt_kwh(resolution_loss),
-                res=res_msg,
-            ))
+        # The message itself is built where `energy_breakdown` is, because the "Grid import, no
+        # battery" row's ⓘ carries the SAME pair — see there, including the 1 kWh threshold that
+        # makes it None when the two figures print identically. `None` here means there was no
+        # visible discrepancy to explain, not that the caveat was forgotten.
+        if resolution_loss_msg is not None:
+            caveats.append(resolution_loss_msg)
+        # The self-sufficiency counterpart of the caveat above, and raised on the SAME condition:
+        # the two are one discrepancy expressed in two units. The one above reconciles the two
+        # grid-import figures in kWh; this one reconciles the two self-sufficiency PERCENTAGES,
+        # which is the pair a reader actually compares (44% in the household card against 47% in
+        # the tile) and which the kWh caveat never names. Both figures are quoted so the caveat
+        # stands on its own rather than asking the reader to scroll and subtract.
+        #
+        # Gated additionally on both percentages being computable AND actually printing
+        # differently: when they round to the same integer there is no visible discrepancy to
+        # explain, and a caveat about one would send the reader looking for a difference that is
+        # not on the screen.
+        if (resolution_loss_msg is not None
+                and metrics.self_sufficiency_baseline is not None):
+            measured_ss = _self_sufficiency(rec)
+            simulated_ss = max(0.0, metrics.self_sufficiency_baseline)
+            if round(100 * measured_ss) != round(100 * simulated_ss):
+                caveats.append(_msg(
+                    "For the same reason, the self-sufficiency of %(measured)s shown for your "
+                    "household above differs from the %(simulated)s the Energy savings tile uses "
+                    "as its no-battery baseline. The first is measured from your meter; the "
+                    "second is what the simulation reproduces without a battery, and it is the "
+                    "one the battery is compared against so that both sides of that comparison "
+                    "rest on the same information.",
+                    measured=_fmt_pct(measured_ss),
+                    simulated=_fmt_pct(simulated_ss),
+                ))
     price_lost = normalize.price_granularity_lost(dataset.frames, rec.grid_s)
     if price_lost["lost"]:
         native = _res_msg(price_lost["native_resolution_s"])
