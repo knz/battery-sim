@@ -26,11 +26,9 @@ its own series name.
 | `grid_export_t1` | yes¹ | cumulative/delta | |
 | `grid_export_t2` | expected⁴ | cumulative/delta | |
 | `solar_production` | conditional² | cumulative/delta | AC output of the PV inverter. Required when the household declares PV, absent otherwise |
-| `battery_charge` | no⁶ | cumulative/delta | **AC-side.** See [§7.2](15-data-quality-and-limits.md#72-known-modelling-limitations--state-these-in-the-ui-not-just-here) item 2 |
-| `battery_discharge` | no⁶ | cumulative/delta | **AC-side.** |
-| `price_spot` | yes³ | price | Bare EPEX, excl. markup, tax and VAT |
-| `price_spot_min` | no⁵ | price | Intra-interval minimum. Enables [§6.16](14-diagnostics.md#616-price-bracketing-under-settlementresolution-mismatch) bracketing; cost simulation only |
-| `price_spot_max` | no⁵ | price | Intra-interval maximum. Enables [§6.16](14-diagnostics.md#616-price-bracketing-under-settlementresolution-mismatch) bracketing; cost simulation only |
+| `battery_charge` | no⁵ | cumulative/delta | **AC-side.** See [§7.2](15-data-quality-and-limits.md#72-known-modelling-limitations--state-these-in-the-ui-not-just-here) item 2 |
+| `battery_discharge` | no⁵ | cumulative/delta | **AC-side.** |
+| `price_spot` | yes³ | price | Bare EPEX, excl. markup, tax and VAT. Where its native spacing is finer than the simulation grid, [§6.16](14-diagnostics.md#616-price-bracketing-under-settlementresolution-mismatch)'s bracket is derived from it |
 | `power_grid` | no | power | Signed W, import positive. Enables [§6.17](14-diagnostics.md#617-timestamp-misalignment-detection) checks |
 | `house_load` | no | cumulative/delta | If supplied, overrides reconstruction ([§6.3](09-ingest-algorithms.md#63-household-load-reconstruction)) and enables a consistency check |
 
@@ -58,13 +56,7 @@ results if the household is billed a single rate. A missing or permanently flat 
 register is reported as a probable installation or export problem rather than accepted
 silently — see [§6.4](09-ingest-algorithms.md#64-tariff-registers--availability-identification-and-use).
 
-⁵ Never required. The min/max slots are *offered* in the data step only when the household
-enables cost simulation on the results screen ([§2′.7](20-workspaces-ux.md#27-where-the-setup-bands-questions-went),
-`cfg.simulate_cost`), since the bracketing they feed qualifies a euro figure and has no
-meaning in an energy-only run. With cost simulation off the slots are absent from the data
-step; with it on they appear as optional. Supplying them is always optional even then.
-
-⁶ Never required. The two existing-battery slots are *offered* in the data step only when the
+⁵ Never required. The two existing-battery slots are *offered* in the data step only when the
 household declares an existing battery in the setup band
 ([§2.1](02-ux-wireframes.md#21-overall-layout), `cfg.has_battery`); with the answer off they are
 absent from the roster, with it on they appear as optional. They exist solely so

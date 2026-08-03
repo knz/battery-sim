@@ -96,19 +96,18 @@ pessimistic), NOT by "charging vs everything else". With the correct split
 
 ## Current Status
 
-Steps 1–5 done and committed; the bracket is computed and its width surfaced as a results caveat,
-and the copy has been through one adversarial review round. Steps 6a (D7) and 6b (D3, D6) are done
-in the working tree, uncommitted.
+Steps 1–6b done and committed (1–5 as bbe55f6, 6a as 05673f2, 6b as b37d7b2); the bracket is
+computed and its width surfaced as a results caveat, the two slots and their vocabulary are gone,
+and the copy has been through one adversarial review round. Step 7 (spec updates) is done in the
+working tree, uncommitted.
 
-**Remaining, in the order planned:**
+**Remaining:**
 
-- **Step 7 — spec updates.** Known touch points: `specs/05-data-formats.md:32-33`,
-  `04-state-machine.md:109`, `06-home-assistant-ingestion.md:111-112`,
-  `20-workspaces-ux.md:679`, `14-diagnostics.md`, `07-internal-representation.md`. §6.16 needs a
-  substantive rewrite (it specifies user-supplied min/max series and a `price_bracket` result
-  block that D5′ dropped), and the open question in §12 can be resolved.
-- **Step 8 — the tests those two steps require**, which cannot be enumerated before the removals
-  are made.
+- **Step 8 — the tests step 7 implies.** Step 7 is documentation only, so it adds no assertions
+  of its own. The two spec/code disagreements it uncovered are both places where the spec was
+  stale rather than the code wrong, so neither implies a test. What may still be worth pinning:
+  fixture 10 has no test carrying that number, and the ordering invariant it names is asserted
+  only under a descriptive test name in `tests/test_results_view.py`.
 
 **Open, not blocking:** what the "ideal scenario" benchmarks should compute. The user asked to
 reconsider this from first principles — the concept was introduced during the initial
@@ -120,6 +119,160 @@ width and does not attach it to the saving as a ± interval, for the reason reco
 F1: the width exceeds the saving on realistic fixtures, where a ± reading invites the conclusion
 that the battery might lose money — a far stronger claim than a worst-case bound on the PRICING
 supports.
+
+### Step 7 — bring `specs/` in line with the shipped behaviour (done)
+
+Documentation only. No file under `app/` or `tests/` was touched.
+
+**User prompts this step.** "go ahead with step 7". Then, in answer to two questions: on the
+§6.16 heading, the user first chose "Rename, fix all anchors", and on being shown that the
+existing title ("Price bracketing under settlement/resolution mismatch") already describes the
+shipped behaviour accurately, revised to **"Keep the title, rewrite the body"** — so the
+heading and every inbound anchor
+(`#616-price-bracketing-under-settlementresolution-mismatch`) are unchanged. On depth, the
+user chose **"Behaviour only"**: state what is computed, when it applies, and what the user
+sees; no internal construction (the ULP clamp, the sort mechanics, the per-interval envelope
+machinery) in the spec.
+
+**§6.16 rewritten, same length band.** 53 lines before, 61 after — the house's ~20-line
+sections are not the norm in this file, and the neighbouring §6.13 and §6.17 are comparable.
+The `price_bracket_runs` pseudocode block is gone rather than shrunk: it encoded the old
+data-source premise (`if frame.spot_min is None`) and the old per-run corner structure
+(`charge_px` / `discharge_px`), both of which the shipped code contradicts. The
+`intra_hour_spread` standalone-indicator block went with it — nothing computes it, and the
+"large spread with hourly settlement is an argument for switching supplier" insight it fed was
+never built. Four things are now stated that the old text did not say: the min/max are derived
+from the spot series' own spacing; the envelope is chosen per interval and why the uniform
+corners do not work; the report is a WIDTH and not an interval, with the reason; and the suppression
+conditions plus the sub-half-euro display suppression.
+
+**§8.12 resolved as D4 actually resolved it.** The app asks — a radio pair in the Contract
+box's Advanced pane — and the stored default stays hourly. Recorded together with the fact that
+experiment X8's width distribution was *not* waited for, since the resolution was a judgement
+rather than a measurement. X8 itself is rewritten: it is no longer decision-blocking, and the
+open measurable is restated as whether the width is worth the caveat.
+
+**Fixture 10's rationale was disproved and is corrected rather than deleted.** The claim
+"violation means charge and discharge price arrays were swapped" does not survive step 3's
+finding: with correct arrays the central saving can still fall outside the two evaluated
+extremes, because the saving is a difference of bills and the feed-in floor's window-level
+clamp breaks separability. One such window was witnessed (central −0.380 against −0.597 and
+−0.460, roughly one in three hundred random windows). The fixture now says it pins the
+containment, not any particular mechanism, and names the construction that produces the strict
+case.
+
+**Two claims in `specs/` that the code contradicted, found while checking rather than from the
+task list.** Both corrected:
+
+- `06-home-assistant-ingestion.md` §4.3 said the min and max "are fetched regardless, because
+  they cost nothing extra in the same request". `ha_fetch.js:758` requests `types: ["mean"]`
+  for price slots — verified in the shipped file, not inferred. The §4.3 WS payload sketch
+  (`types: ["sum"] | ["mean","min","max"]`) was wrong for the same reason and is narrowed.
+- `16-validation-harness.md` fixture 19 and `07-internal-representation.md` §4.5 both listed
+  `price_bracket` as a result-object field that is `null` without cost simulation. D5′ dropped
+  that block; the bracket never reaches the result JSON in either mode. §4.5's block is replaced
+  by a comment recording the internal object's actual shape (`width_eur`,
+  `bracketed_fraction`, `saved_low`/`saved_central`/`saved_high`), read off `PriceBracket` in
+  `app/results_view.py`.
+
+**`supplier_settlement` was missing from the screen wireframes** — confirmed by grep, it
+appeared only in appendix A and in the open question. Added as a Settlement sub-box in the
+Advanced pane of §2′.4's Contract box, matching `workspace_edit.html`'s placement and wording
+("Your supplier bills" / "Hourly average" / "Every 15 minutes", with the info line saying
+supplier-not-market). §2′.4 gains a short prose subsection saying why the wording asks about
+the invoice. §2.3 gets a one-line pointer to §2′.4 instead of a drawn control — see the review
+round below for why.
+
+**Footnote renumbering in `05-data-formats.md`.** Removing the two slot rows orphaned footnote
+5 (the cost-only gate). Rather than leave a gap, ⁶ (the existing-battery slots) was renumbered
+to ⁵ — three call sites, all in that file, no inbound references to footnote numbers found
+elsewhere.
+
+**Files changed (18 under `specs/`, plus this changelog).**
+
+| File | Change |
+| --- | --- |
+| `14-diagnostics.md` | §6.16 body rewritten; availability-table row and two intro sentences realigned |
+| `17-open-questions.md` | §8.12 marked RESOLVED with the resolution and its basis |
+| `07-internal-representation.md` | `spot_min`/`spot_max` no longer nullable and documented as derived; §4.5's `price_bracket` block replaced by a comment; three other `price_bracket` mentions |
+| `05-data-formats.md` | two slot rows and footnote 5 removed, ⁶→⁵, `price_spot` row notes the derivation |
+| `02-ux-wireframes.md` | two roster wireframes and both legends; two slot-description passages; caveat scope and its bracket gate; a one-line pointer from §2.3 to §2′.4 for the settlement question |
+| `appendix-a-defaults.md` | `supplier_settlement` dropped from the "open questions" list, count six → five |
+| `20-workspaces-ux.md` | `◒` out of the §2′.5 legend line; §2′.7's cross-screen gating consequence rewritten; Settlement box + prose added to §2′.4 |
+| `04-state-machine.md` | slot re-derivation example no longer cites the removed slots |
+| `16-validation-harness.md` | fixture 10 rationale corrected; fixture 19's `price_bracket` reference removed |
+| `06-home-assistant-ingestion.md` | preset-source paragraph; §4.3 spot-price bullet; the request line; the WS payload sketch; the file header's "min/max columns" |
+| `implementation-progress.md` | §6.16 and the settlement question moved to built; fixture-10 caveat added |
+| `19-prototype-experiments.md` | X8 rewritten as non-blocking |
+| `01-product-brief.md`, `README.md`, `appendix-b-glossary.md`, `15-data-quality-and-limits.md`, `09-ingest-algorithms.md`, `10-pricing.md` | one- to three-line realignments |
+
+**Checked and deliberately not changed.**
+`18-dutch-electricity-background.md`'s two §6.16 references are about MTU15 and the energy-tax
+bracket structure (an unrelated sense of "bracket") and need nothing. `02-ux-wireframes.md`'s
+caveats paragraph was already correct about the bracket appearing only with cost simulation;
+only its scope wording ("the euro figure" → "the saving") and the two extra gates were added.
+
+**Review round on step 7's own edits.** A review pass over the uncommitted `specs/` diff found
+ten problems, all of them in the new text rather than in the code. All were corrected;
+documentation only, nothing under `app/` or `tests/` was touched.
+
+- *A wireframe drawing a control the screen does not have.* The Settlement box had been added
+  to §2.3's Pricing wireframe as well as §2′.4's Contract box. But commit 667047c removed the
+  Pricing box from that screen — `_panel_params.html` says so in its header comment, and
+  `supplier_settlement` appears in no template but `workspace_edit.html`. The §2.3 drawing also
+  placed the box first inside Advanced with Feed-in outside it, matching nothing shipped. It is
+  removed and replaced by a one-line pointer to §2′.4, whose placement does match
+  `workspace_edit.html`. The trailing note's field list is back to its committed wording for the
+  same reason.
+- *Radio labels transcribed loosely.* Both wireframes rendered the options as "the hourly
+  average" / "every 15 minutes". The shipped msgids are "Hourly average" and "Every 15 minutes"
+  (`workspace_edit_view.py`, and the same strings in both catalogs). §2′.4 now carries them
+  verbatim.
+- *The suppression conditions were miscounted.* §6.16 said three; `_price_bracket` has four
+  `return None` guards — cost-off, hourly settlement, no priced interval anywhere in the window,
+  and no interval carrying a spread. The all-unpriced case had been folded into the no-spread one
+  in the prose but is a separate guard with a separate reason, and an all-unpriced window
+  producing no bracket is user-visible. Corrected to four, with the display suppression becoming
+  the fifth condition.
+- *The display boundary was off by the endpoint.* §6.16 said a width "under half a euro" renders
+  "€ 0". The comparison is `> WATERFALL_DISPLAY_EPS_EUR`, so exactly €0.50 is suppressed too —
+  the code comment records why (half-to-even rounding prints "€ 0" at 0.5).
+- *The gate was described as a resolution test, and it is not.* Three sites (§6.16's availability
+  row, §15's check-8 note, §2.3's caveat note) said the bracket applies when the spot series is
+  "finer than the grid". The code tests `count_nonzero(spread > 0)`, so a nominally 15-minute
+  series carrying identical values within each hour is finer than the grid and still yields no
+  bracket. All three now say at least one interval's native prices differ. §6.16's own body was
+  already right about this.
+- *"Billed three times" overstated the arithmetic.* `_price_bracket` performs two cost
+  evaluations; the central saving is passed in from the main run (`results_view.py:1598`), which
+  is what guarantees the band contains the figure on screen rather than a re-derivation of it.
+  Reworded.
+- *`appendix-a-defaults.md` went stale.* Its "six of these defaults **are** themselves open
+  questions" list still named `supplier_settlement`, which this change marks RESOLVED. Dropped
+  from the list, count to five. An earlier draft of this entry claimed that list needed nothing;
+  that was wrong. The other four entries (§8.3, §8.13, §8.14, §8.16, §8.18) were checked and are
+  still open.
+- *Fixture 10 had grown past the house length.* Its corrected rationale ran ~13 lines carrying
+  sort mechanics and per-interval envelope detail, where its neighbours run two to three. The
+  substance is kept — the old "a violation means the arrays were swapped" claim is genuinely
+  false — but compressed, and the construction detail dropped, consistent with the behaviour-only
+  depth the user set for §6.16.
+- *§8.12's resolution and X8 were not talking to each other.* §8.12 stated the resolution as
+  settled while X8's restated measurable is whether the control earns its place on the edit
+  screen. One sentence now says at the resolution that X8 can unmake it.
+- *File count.* The table said 16; the diff touches 18 spec files. Corrected, and
+  `appendix-a-defaults.md` added as a row.
+
+Two smaller edits went with it: X8's "some synthetic scenarios" now names the number (three of
+seven, and €2.46 against €0.45 on the standard fixture — both verified against the code comments
+at `results_view.py:1925-1930` and the tests that carry them), and §2′.4's "It is **not
+decorative**" was dropped, since the sentence after it makes the point on its own.
+
+**Not verified.** The repo's cross-file anchors were spot-checked against existing usage
+(`#24-edit-workspace` is already used from `02-ux-wireframes.md`) rather than validated
+mechanically; a naive link checker reported ~155 pre-existing mismatches across `specs/`, which
+is a property of its normalisation rather than a finding about these edits, and chasing it was
+out of scope.
 
 ### Step 6b — remove the two bracket SLOTS and the cost-only slot vocabulary (D3, D6) (done)
 

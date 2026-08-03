@@ -86,9 +86,9 @@ Everything not in that list applies in both modes. The band parameters in partic
 [§2.3](02-ux-wireframes.md#23-panel--parameter-configuration-expanded)) are dispatch
 parameters and are asked for in both modes, as is the spot price series itself.
 
-Six of these defaults are themselves open questions: `degradation_eur_per_kwh`
-([§8.3](17-open-questions.md)), `supplier_settlement` ([§8.12](17-open-questions.md)),
-`pv_capacity_change_detection` ([§8.13](17-open-questions.md)), `feedin_floor_period`
+Five of these defaults are themselves open questions: `degradation_eur_per_kwh`
+([§8.3](17-open-questions.md)), `pv_capacity_change_detection`
+([§8.13](17-open-questions.md)), `feedin_floor_period`
 ([§8.14](17-open-questions.md)), `has_pv` ([§8.16](17-open-questions.md)) and
 `simulate_cost` ([§8.18](17-open-questions.md)).
 

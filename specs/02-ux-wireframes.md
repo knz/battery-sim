@@ -243,16 +243,13 @@ before the slot is known forces a single answer onto a set of slots that do not 
 │  │  Battery charge     ○  [ Choose source…                            ▸ ]  │  │
 │  │  Battery discharge  ○  [ Choose source…                            ▸ ]  │  │
 │  │  Spot price         ●  [ Preset historical (Energy-Charts NL)      ▸ ]  │  │
-│  │  Spot price (min)   ◒  [ Choose source…                            ▸ ]  │  │
-│  │  Spot price (max)   ◒  [ Choose source…                            ▸ ]  │  │
 │  │                                                                        │  │
 │  │  Each row's [ … ▸ ] opens the source drawer for that slot; the button  │  │
 │  │  shows the chosen source and, for Home Assistant, the bound entity.    │  │
 │  │                                                                        │  │
 │  │  ● = required.  ○ = optional.                                          │  │
 │  │  ◐ = required only if you have solar PV.                               │  │
-│  │  ◒ = offered only if you simulate costs (intra-hour price bracketing). │  │
-│  │  has_pv is answered above; simulate_cost on the results screen.        │  │
+│  │  has_pv is answered above.                                             │  │
 │  │  Spot price drives the charge and discharge bands, so it is required   │  │
 │  │  whether or not you simulate costs.                                    │  │
 │  │  Both meter registers should be mapped. See "Tariff registers" below.  │  │
@@ -379,9 +376,10 @@ Which slots offer which sources:
   household measurement. The two are independent origins for the same quantity, so a run can be
   repeated against either; they are listed Energy-Charts first because it bridges live to the
   present, while ENTSO-E stops at the last extracted dump but reaches back further (mid-2022).
-- The **Spot price (min)** and **Spot price (max)** bracket slots offer Home Assistant only:
-  they carry an HA measurement statistic's own intra-interval min/max, which the price API does
-  not provide.
+- There is **no separate slot for the intra-interval price minimum and maximum**.
+  [§6.16](14-diagnostics.md#616-price-bracketing-under-settlementresolution-mismatch)'s
+  bracket is derived from the spot series' own native spacing, so no source needs to serve
+  one and the user is never asked for one.
 
 **Home Assistant is a browser fetch; the preset source is a backend load.** The two families
 differ in *where the frame is produced*, and the drawer reflects it. Picking Home Assistant
@@ -428,10 +426,10 @@ then fetching an HA slot no longer discards the backend source: there is no earl
 dataset to orphan. The reify is all-or-nothing — if a staged backend load fails, the whole fetch
 fails (`LOAD_FAILED`, §3.2) and nothing is persisted.
 
-**Two scope answers decide which slots the roster asks for.** `has_pv` is answered on this
-screen, directly above the roster; `simulate_cost` is answered on the results screen
-([§2′.7](20-workspaces-ux.md#27-where-the-setup-bands-questions-went)). Both determine the
-slot roster here:
+**Which scope answers decide the slots the roster asks for.** `has_pv` is answered on this
+screen, directly above the roster. `simulate_cost`, answered on the results screen
+([§2′.7](20-workspaces-ux.md#27-where-the-setup-bands-questions-went)), used to decide slots
+too and no longer does:
 
 - **`has_pv`** governs the **Solar production** row. It is rendered only when the household
   has declared PV; with PV declared it is required and carries the same `●` as the grid
@@ -439,13 +437,12 @@ slot roster here:
   rather than as a third level of optionality. With PV not declared the row is hidden
   entirely rather than shown greyed, so there is no invitation to map a sensor the run will
   ignore.
-- **`simulate_cost`** governs the two **Spot price (min)** and **Spot price (max)** rows.
-  These carry the intra-interval price minimum and maximum that enable the bracketing
-  diagnostic ([§6.16](14-diagnostics.md#616-price-bracketing-under-settlementresolution-mismatch)),
-  which quantifies a euro figure and therefore has no meaning in an energy-only run. They
-  are offered — as optional (`◒`) slots, never required — only when cost simulation is on,
-  and are absent otherwise. They are the one place the cost choice *adds* a data slot rather
-  than only hiding downstream boxes.
+- **`simulate_cost` governs no row at all.** The roster is identical in both cost modes. It
+  once added two optional bracket slots — the one place the cost choice *added* a data slot
+  rather than only hiding downstream boxes — but
+  [§6.16](14-diagnostics.md#616-price-bracketing-under-settlementresolution-mismatch)'s
+  bracket is now derived from the spot series rather than supplied, so the cost choice
+  reaches this screen not at all.
 
 Editing either answer re-derives this roster in place: a slot that ceases to
 apply is removed and any file or mapping in a still-applicable slot is kept
@@ -558,8 +555,6 @@ to download", with one upload slot per series and a pointer to where each file c
   │  Battery charge       ○   [ choose file… ]                             │
   │  Battery discharge    ○   [ choose file… ]                             │
   │  Spot price           ●   prices.csv          ✗ see below   [ replace ]│
-  │  Spot price (min)     ◒   [ choose file… ]                             │
-  │  Spot price (max)     ◒   [ choose file… ]                             │
   │                                                                        │
   │  ✗  prices.csv does not match the expected format for Spot price.      │
   │     Expected a timestamp column with a UTC offset and a price column   │
@@ -569,8 +564,7 @@ to download", with one upload slot per series and a pointer to where each file c
   │                                                                        │
   │  ● = required.  ○ = optional.                                          │
   │  ◐ = required only if you have solar PV.                               │
-  │  ◒ = offered only if you simulate costs (intra-hour price bracketing). │
-  │  has_pv is answered above; simulate_cost on the results screen.        │
+  │  has_pv is answered above.                                             │
   │  Spot price drives the charge and discharge bands, so it is required   │
   │  whether or not you simulate costs.                                    │
   │                                                                        │
@@ -853,6 +847,11 @@ offering to restrict the window is future work.
 │                                                  [ Calculate →  ]            │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
+
+`supplier_settlement` is not drawn above. It is asked on the edit-workspace screen instead,
+in the Contract box's Advanced pane
+([§2′.4](20-workspaces-ux.md#24-edit-workspace)), which is where the shipped app carries the
+pricing parameters.
 
 The **Fixed** and **Variable** sub-panels replace the Dynamic sub-panel:
 
@@ -1206,8 +1205,10 @@ Notes on the two sections:
   caveat is likewise shown in both modes: it says the battery *dispatched* on an averaged
   price, which happened either way
   ([§6.2](09-ingest-algorithms.md#62-simulation-grid-selection-and-resampling)). Its
-  cost-only companion, the price bracket, quantifies what that averaging did to the euro
-  figure and appears beside it only when there is one.
+  cost-only companion, the price bracket, states how far that averaging could shift the
+  *saving* and appears beside it only when there is one — and additionally only when the
+  supplier bills quarter-hourly and at least one interval's native prices differ
+  ([§6.16](14-diagnostics.md#616-price-bracketing-under-settlementresolution-mismatch)).
 
 ### Panel ③ without cost simulation
 

@@ -127,8 +127,9 @@ for. But two things follow:
 - **Installation topology** selection (PV coupling, battery phase configuration) via
   illustrated choices, since users reliably recognise a picture of their meter cupboard
   and reliably mis-answer the same question asked in words.
-- **Price uncertainty bracketing** where the supplier settles per 15 minutes but the
-  available energy data is hourly. Requires cost simulation.
+- **Price uncertainty bracketing** where the supplier bills per 15 minutes but the
+  available energy data is hourly: how far the stated saving could shift, derived from the
+  spot series' own finer spacing rather than asked of the user. Requires cost simulation.
 
 ### A price series is not a cost model
 

@@ -321,26 +321,30 @@ to reverse either way, which is why this sits at X7 and not higher.
 
 ## X8 — Does `supplier_settlement` change the euro figure?
 
-**Serves:** both. **Data:** several real households, with quarter-hourly `spot_min`/
-`spot_max` available. **Informs:** [§8.12](17-open-questions.md).
+**Serves:** both. **Data:** several real households with hourly energy data and a
+quarter-hourly spot series. **Informs:** [§8.12](17-open-questions.md), which is now
+resolved — the app asks. This experiment is **no longer decision-blocking**; what it still
+measures is how much the answer is worth.
 
-**Question.** `supplier_settlement` defaults to hourly, which silently disables the price
-bracket in [§6.16](14-diagnostics.md#616-price-bracketing-under-settlementresolution-mismatch)
-for most users. §8.12 asks whether that default is right or whether the app should ask. The
-measurable half is how wide the bracket is when it does apply.
+**Question, as it now stands.** The app asks for `supplier_settlement` and reports the
+bracket's width as a caveat when the answer is quarter-hourly
+([§6.16](14-diagnostics.md#616-price-bracketing-under-settlementresolution-mismatch)). The
+open measurable is how wide that width typically is on real data — which decides whether the
+caveat is informative or noise, and whether the question earns its place on the edit screen.
 
-**Method.** For households with hourly energy data and quarter-hourly price information,
-compute the bracket regardless of the configured settlement, and record its width as a
-percentage of `saved_eur`. Alongside it, record `intra_hour_spread`, which §6.16 already
-specifies as a standalone indicator. Report both distributions.
+**Method.** Compute the bracket regardless of the configured settlement, and record its
+width as a percentage of `saved_eur`, together with `bracketed_fraction`. Report both
+distributions. Note the width already exceeded the saving in three of seven synthetic
+scenarios and on the standard test fixture (€2.46 against a saving of €0.45), so a share
+above 100% is expected rather than a defect.
 
-**Decision it informs.** If the bracket is narrow wherever it applies, defaulting to hourly
-costs the user nothing even when the default is wrong for them, and §8.12 resolves toward
-keeping the default and not adding a setup question. If it is wide, a silently wrong default
-hides a real uncertainty band from exactly the users who have it, and the app should ask —
-the friction is then justified. The `intra_hour_spread` distribution separately determines
-whether the "large spread with hourly settlement is an argument for switching supplier"
-insight that §6.16 contemplates is worth surfacing prominently or is a curiosity.
+**Decision it informs.** If the width is consistently small relative to the saving, the
+caveat could be dropped for a plainer sentence, or the wording could carry a typical
+magnitude rather than only a worst case. If it is frequently comparable to or larger than the
+saving, the current phrasing — a shift, deliberately not a ± interval — is load-bearing and
+should not be softened. A separate question this reopens: whether a typical rather than
+worst-case figure can be estimated at all, which was declined for want of a defensible
+independence assumption.
 
 ---
 

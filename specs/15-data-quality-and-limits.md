@@ -135,8 +135,9 @@ discharge bands compare against the spot series in both cost modes
 ([§1.4](01-product-brief.md#a-price-series-is-not-a-cost-model)), so an energy-only run
 carries exactly the same error. What *is* cost-gated is
 [§6.16](14-diagnostics.md#616-price-bracketing-under-settlementresolution-mismatch), which
-bounds what the averaging did to the euro figure — a different question, asked only when
-there is a euro figure.
+bounds how far the averaging could shift the saving — a different question, asked only when
+there is a euro figure, and additionally only when the supplier bills quarter-hourly and at
+least one interval's native prices actually differ.
 
 Check 8 is split because its two halves ask different questions. **8a** asks whether the
 meter's two registers are both present and accruing — a fact about the installation and the

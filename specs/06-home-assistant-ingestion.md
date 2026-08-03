@@ -6,7 +6,7 @@
 > **Read with:** [05-data-formats.md](05-data-formats.md) for the series vocabulary these
 > statistics are mapped onto, [08-architecture.md](08-architecture.md) §5.1 for where the
 > pieces live, and
-> [14-diagnostics.md](14-diagnostics.md) for the diagnostics that depend on the min/max
+> [14-diagnostics.md](14-diagnostics.md) for the diagnostics that depend on the statistics
 > columns described here.
 
 ## The fetch runs in the browser
@@ -108,9 +108,10 @@ fires on selection. That egress is described in
 [§7.5](15-data-quality-and-limits.md#75-operational-notes) alongside the HA requests and the
 feature-interest POST.
 
-The min/max price bracket slots are **not** served by this source: `price_spot_min` and
-`price_spot_max` carry an HA measurement statistic's own intra-interval min/max (below), which
-the price API does not provide. Those slots remain Home Assistant only.
+There is no separate slot for the intra-interval price minimum and maximum, from this source
+or any other:
+[§6.16](14-diagnostics.md#616-price-bracketing-under-settlementresolution-mismatch)'s bracket
+is derived from whatever spot series is loaded, on its own native spacing.
 
 ## Which HA API, and why
 
@@ -129,7 +130,7 @@ WS   wss://<user-ha>/api/websocket        → auth with long-lived access token 
      {type: "recorder/list_statistic_ids", statistic_type: "sum" | "mean"}
      {type: "recorder/statistics_during_period",
       start_time, end_time, statistic_ids: [...],
-      period: "5minute" | "hour" | "day", types: ["sum"] | ["mean","min","max"]}
+      period: "5minute" | "hour" | "day", types: ["sum"] | ["mean"]}
 ```
 
 `list_statistic_ids` populates the mapping dropdowns (energy `sum` ids for the energy slots,
@@ -212,12 +213,14 @@ There is no intra-hour information to recover from it.
 Where min/max/mean *are* available and useful:
 
 - **Spot price sensors** are `measurement`, so an hourly row retains the min, max and mean
-  of the underlying 15-minute prices. The mean is the price the simulation runs on and is
-  fetched always, since the charge and discharge bands compare against it in both cost
-  modes. The min and max support the bracketing in
-  [§6.16](14-diagnostics.md#616-price-bracketing-under-settlementresolution-mismatch),
-  which is a cost diagnostic; they are fetched regardless, because they cost nothing extra
-  in the same request and the user may enable cost simulation later without a refetch.
+  of the underlying 15-minute prices. Only the **mean** is requested and only the mean is
+  ingested: it is the price the simulation runs on, since the charge and discharge bands
+  compare against it in both cost modes.
+  [§6.16](14-diagnostics.md#616-price-bracketing-under-settlementresolution-mismatch)'s
+  bracket does **not** come from this statistic's own min and max. It is derived from the
+  spot series' native spacing during resampling, so that the quantity has one definition
+  rather than varying by whether the series arrived from HA or from a preset source — and
+  an HA row at hourly resolution against an hourly grid yields no spread either way.
 - **Power sensors**, if the user has them, retain hourly min/max/mean power. These enable
   the consistency and misalignment checks in
   [§6.17](14-diagnostics.md#617-timestamp-misalignment-detection) and reveal inverter
@@ -225,8 +228,9 @@ Where min/max/mean *are* available and useful:
 - **Battery SoC sensors** (%) retain min/max/mean, which gives a cheap sanity check
   against a simulated SoC trace when the user already owns a battery.
 
-Request `price_spot` and any power sensors with all of `mean`, `min`, `max`; request
-energy sensors with `sum` only.
+Request `price_spot` with `mean` only and energy sensors with `sum` only. The wire format
+carries one value per price row accordingly. A power slot, if one is ever built, would need
+`min` and `max` for the §6.17 checks above; nothing requests them today.
 
 **Units are not reliably in the statistics metadata.** On instances observed in practice,
 `list_statistic_ids` and `get_statistics_metadata` return `unit_of_measurement: null` for

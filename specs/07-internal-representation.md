@@ -43,8 +43,8 @@ SimulationFrame:
     pv:         ndarray            # kWh
     load:       ndarray            # kWh, battery-free, standby-free
     spot:       ndarray            # EUR/kWh, bare (mean within interval)
-    spot_min:   ndarray | None     # EUR/kWh, intra-interval min (§6.16)
-    spot_max:   ndarray | None     # EUR/kWh, intra-interval max (§6.16)
+    spot_min:   ndarray            # EUR/kWh, intra-interval min, derived (§6.16)
+    spot_max:   ndarray            # EUR/kWh, intra-interval max, derived (§6.16)
     epoch_id:   ndarray[uint8]     # configuration epoch index (§6.15)
     import_obs: ndarray            # kWh, as measured (for validation only)
     export_obs: ndarray            # kWh, as measured (for validation only)
@@ -72,9 +72,15 @@ Notes on the fields that are not simulation inputs:
   zero everywhere", and every band comparison would silently take a definite and wrong
   branch. There is therefore no energy-only mode in which this field is absent.
 - `spot_min` / `spot_max` drive the price bracket in
-  [§6.16](14-diagnostics.md#616-price-bracketing-under-settlementresolution-mismatch) and
-  are `None` when the source has no sub-interval price information, or when cost simulation
-  is off and the bracket will not be computed.
+  [§6.16](14-diagnostics.md#616-price-bracketing-under-settlementresolution-mismatch). They
+  are **derived from the spot series itself**, in the same resampling pass that produces
+  `spot`: the cheapest and dearest native price point that landed in each grid interval. No
+  user-supplied series feeds them and no configuration gates them — they are a property of
+  the price data, computed in both cost modes. They are always arrays and always the same
+  length as `spot`, NaN on exactly the intervals where `spot` is NaN, and
+  `spot_min ≤ spot ≤ spot_max` holds. Where the interval received a single price point (an
+  hourly price on an hourly grid, or a held value) all three coincide, which is the honest
+  answer rather than a special case: the intra-interval spread is unobservable, not zero.
 - `epoch_id` lets metrics be grouped per configuration epoch without re-running the
   simulation — see [§6.15](13-configuration-epochs.md#615-configuration-epochs).
 
@@ -108,9 +114,9 @@ Notes on the fields that are not simulation inputs:
       "fine_resolution_s": null, "fine_coverage": null,
       "reconciliation": "averaged" }
   ],
-  // false ⇒ cost, benchmarks.cost and price_bracket are null; everything
-  // else below is identical either way. See "Shape of the object without
-  // cost simulation".
+  // false ⇒ cost and benchmarks.cost are null and §6.16's bracket is not
+  // computed; everything else below is identical either way. See "Shape of
+  // the object without cost simulation".
   "simulate_cost": true,
 
   "energy": {
@@ -191,12 +197,14 @@ Notes on the fields that are not simulation inputs:
   "epoch_used": 1,
   "spans_epoch_boundary": false,
 
-  "price_bracket": {
-    "applicable": true,
-    "settlement": "quarter_hourly",
-    "saved_eur_low": 298.40, "saved_eur_central": 331.10, "saved_eur_high": 366.80,
-    "intra_hour_spread_mean_eur_kwh": 0.021
-  },
+  // §6.16's price bracket is NOT a block here. Only its WIDTH reaches the user, as a
+  // caveat rather than as a reported figure, so the object it lives in is internal:
+  //   width_eur           half the range between the favourable and unfavourable saving
+  //   bracketed_fraction  share of PRICED intervals carrying a spread, which the caveat's
+  //                       wording branches on
+  //   saved_low / saved_central / saved_high   the three evaluations, kept for the
+  //                       ordering invariant (fixture 10) and not surfaced
+  // Absent — not zero-valued — under any of §6.16's three suppression conditions.
 
   "topology": {
     "has_pv": true,
@@ -247,7 +255,6 @@ Where each block comes from:
 | `cost.waterfall` | [§6.10](10-pricing.md#610-cost-accounting) |
 | `benchmarks.energy`, `benchmarks.cost` | [§6.12](12-metrics-and-benchmarks.md#612-perfect-foresight-benchmark) |
 | `epochs`, `epoch_used`, `spans_epoch_boundary` | [§6.15](13-configuration-epochs.md#615-configuration-epochs) |
-| `price_bracket` | [§6.16](14-diagnostics.md#616-price-bracketing-under-settlementresolution-mismatch) |
 | `topology` | [§2.5](03-topology-selector.md) |
 | `diagnostics` | [14-diagnostics.md](14-diagnostics.md) and [§7.3](15-data-quality-and-limits.md#73-data-quality-checks-in-execution-order) |
 
@@ -280,7 +287,9 @@ What is `null` with `simulate_cost = false`, and populated when it is `true`:
   This is orthogonal to the additive-cost invariant above: the energy block's unconstrained
   fields are still bit-identical across `simulate_cost`, because export permission does not
   depend on whether euros are computed.
-- `price_bracket` — `null`. Bracketing exists to bound a *pricing* error.
+- §6.16's price bracket — not computed at all, and its caveat absent. Bracketing exists to
+  bound a *pricing* error. It is not on the null list above because it is not a field of
+  this object; it never reaches the result JSON in either mode.
 - `battery.soc_delta_value_eur` — `null`. Residual SoC is still reported in kWh as
   `soc_end_kwh − soc_start_kwh`; only its valuation is unavailable.
 - `monthly[].saved_eur` — `null`. `saved_kwh` and `cycles` are unaffected.
@@ -296,8 +305,8 @@ particular `diagnostics.price_granularity_lost` and `price_native_resolution_s` 
 populated in both modes: they report that intra-interval price movement was averaged away
 before dispatch, which is true whether or not euros were computed
 ([§6.2](09-ingest-algorithms.md#62-simulation-grid-selection-and-resampling)). The
-cost-only companion is `price_bracket`, which bounds the *pricing* error rather than
-reporting the *dispatch* one, and that is `null` here.
+cost-only companion is §6.16's bracket, which bounds the *pricing* error rather than
+reporting the *dispatch* one, and that is not computed here.
 
 Nulling whole blocks rather than every leaf is a deliberate departure from the
 key-for-key rule below. The rule exists so consumers test for `null` instead of for

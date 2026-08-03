@@ -63,5 +63,6 @@ Where these terms carry a modelling consequence:
   installation rather than the contract, and is checked in both cost modes.
 - **Intern salderen** — the reason the overlap diagnostic is a clean measure of temporal
   resolution loss ([§7.1](14-diagnostics.md#71-the-overlap-diagnostic--measure-resolution-damage-directly)).
-- **MTU15** — the reason a price bracket is needed when energy data is hourly
+- **MTU15** — the reason a price bracket is needed when energy data is hourly, and the
+  reason the spot series is often fine enough for the bracket to be derived from it
   ([§6.16](14-diagnostics.md#616-price-bracketing-under-settlementresolution-mismatch)).

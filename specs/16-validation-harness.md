@@ -69,8 +69,11 @@ Conservation and closure identities are asserted to `CLOSURE_TOL` (a module cons
    epochs with the correct boundary date, and per-epoch savings that sum to the aggregate.
    → [§6.15](13-configuration-epochs.md)
 10. **Bracket ordering** — `saved_low ≤ saved_central ≤ saved_high` for every configuration
-    where a bracket applies. Violation means charge and discharge price arrays were
-    swapped.
+    where a bracket applies, and the reported width is non-negative. The fixture pins the
+    containment only; it does not diagnose a cause, since the central saving can fall outside
+    the two evaluated extremes even when everything is correct (witnessed roughly once in
+    three hundred random windows). Construct the strict case on a window that grid-charges in
+    some intervals and cuts import in others.
     → [§6.16](14-diagnostics.md#616-price-bracketing-under-settlementresolution-mismatch)
 11. **Offset recovery** — a series shifted by a known lag is recovered by
     `detect_time_offset` to within one interval, with confidence above
@@ -137,9 +140,10 @@ Conservation and closure identities are asserted to `CLOSURE_TOL` (a module cons
     [§4.5](07-internal-representation.md#shape-of-the-object-without-cost-simulation)
 
 19. **Energy-only result shape** — a run with `simulate_cost = false` yields `cost`,
-    `benchmarks.cost`, `price_bracket`, `battery.soc_delta_value_eur`,
+    `benchmarks.cost`, `battery.soc_delta_value_eur`,
     `monthly[].saved_eur` and `diagnostics.resolution_bias_pct_eur` all `null` — never
-    `0.0` — while `benchmarks.energy` is fully populated. The exported per-interval CSV
+    `0.0` — while `benchmarks.energy` is fully populated. No §6.16 bracket is computed and
+    the pricing-uncertainty caveat is absent. The exported per-interval CSV
     omits `p_import_eur_kwh`, `p_export_net_eur_kwh`, `base_cost_eur` and `batt_cost_eur`
     from its header entirely, and retains `spot_eur_kwh`. Assert the run raises no
     missing-series warning for absent contract configuration, and that

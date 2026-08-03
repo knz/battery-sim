@@ -12,7 +12,7 @@ waterfall consumes the price arrays directly.
 
 > **This entire file is gated on `cfg.simulate_cost`.** When cost simulation is off none of
 > it runs: no price arrays are built, no costs are accumulated, no waterfall is produced,
-> and `cost`, `benchmarks` and `price_bracket` in the result object are `null`
+> §6.16's bracket is not computed, and `cost` and `benchmarks` in the result object are `null`
 > ([§4.5](07-internal-representation.md#shape-of-the-object-without-cost-simulation)). The
 > implementation should skip the `pricing/` package outright rather than call it with
 > neutral parameters — there is no neutral tax rate or neutral feed-in term, and a run

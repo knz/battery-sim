@@ -22,7 +22,7 @@ one place.
 | §7.1 overlap | How much information the recording resolution destroyed | Always, full window |
 | §6.13 resolution bias | How much that loss changes the answer (*dispatch* error) | Only where 5-minute data exists; always in kWh, additionally in euros when costs are modelled |
 | §6.2 granularity loss | That a price series was averaged onto a coarser grid at all — a *dispatch* concern | Always, both cost modes, when a price series is downsampled by a factor ≥ 2 |
-| §6.16 price bracket | *Pricing* error from settling per 15 min but recording hourly | Cost simulation only, and only with `spot_min`/`spot_max` and quarter-hourly settlement |
+| §6.16 price bracket | *Pricing* error from settling per 15 min but recording hourly | Cost simulation only, quarter-hourly settlement, and at least one interval whose native prices differ |
 | §6.17 misalignment | Whether two sensors' clocks agree | Needs PV + export, or power + energy |
 
 §6.13 and §6.16 measure independent errors and both should be reported.
@@ -32,7 +32,7 @@ from quarter-hourly prices against hourly data. They are two halves of one misma
 reports that the battery *dispatched* on an averaged price and so could not act on
 within-hour swings, which is true whether or not euros were computed. §6.16 bounds what the
 averaging did to the euro figure, and exists only when there is one. The first is a fact
-about the data, the second an interval around a result.
+about the data, the second a bound on a result.
 
 **Without PV, only §6.17 changes.** The overlap diagnostic, the resolution-bias run, the
 granularity finding and the price bracket are all computed from grid flows and prices and
@@ -41,7 +41,7 @@ resolution gate. §6.17's
 primary method needs a PV signal and is unavailable; see that section.
 
 **Without cost simulation, only §6.16 disappears.** It bounds a *pricing* error, and with
-no prices applied there is no such error to bound; `price_bracket` is `null`. The others
+no prices applied there is no such error to bound; no bracket is computed. The others
 survive **with identical values**, because resolution damage, granularity loss and clock
 offsets are properties of the data rather than of the cost model. §6.13 in particular measures dispatch
 error against the kWh saving in both modes; enabling cost simulation adds a euro-basis
@@ -185,51 +185,60 @@ Since 1 October 2025 EPEX settles per 15 minutes. Where the supplier passes that
 but the available energy data is hourly, the simulator sees an hourly average price and
 cannot know how the household's consumption was distributed within the hour.
 
-HA's hourly statistics retain `min`, `max` and `mean` for price sensors
-([§4.3](06-home-assistant-ingestion.md#which-statistics-columns-actually-exist--this-is-not-uniform)).
-That is enough to *bound* the pricing error rather than ignore it:
+**The min and max are derived, not asked for.** When the spot series is natively finer than
+the simulation grid, the resampling in
+[§6.2](09-ingest-algorithms.md#62-simulation-grid-selection-and-resampling) already visits
+every native price point that falls in an interval; the cheapest and dearest of them are
+recorded alongside the mean as `spot_min` / `spot_max`
+([§4.4](07-internal-representation.md#44-internal-normalised-representation)). Where an
+interval received a single price point — an hourly price on an hourly grid, or a held
+value — min, max and mean coincide and the bracket is a point. No slot is asked of the
+user, and the quantity does not vary by data source.
 
-```python
-def price_bracket_runs(frame, cfg):
-    if not cfg.simulate_cost:
-        return None            # bounds a pricing error; no prices are applied
-    if cfg.supplier_settlement == HOURLY:
-        return None            # supplier bills the hourly average: min/max irrelevant
-    if frame.spot_min is None:
-        return None            # no sub-hourly information available
+**What is computed.** One dispatch, re-billed at two further price vectors. The flows are
+those of the ordinary run; only the price vector changes, so what is being bounded is the
+*pricing* error and not what the battery would have done differently. The central saving is
+the one the results screen already shows, taken from the main run rather than recomputed; the
+favourable and unfavourable saving are evaluated beside it by choosing, **per interval**, whichever of
+`spot_min` / `spot_max` moves the saving in the intended direction — on the sign of that
+interval's own flow difference between the battery and no-battery runs, with imports and
+exports taking opposite ends because the saving subtracts the export term. A window-uniform
+choice — billing the whole window at `spot_min`, then at `spot_max` — is the right pair for
+a single *bill* but not for a *difference* of bills, and on windows that mix grid-charging
+intervals with import-cutting ones the two ends cancel against each other.
 
-    central     = run(frame, cfg, charge_px=frame.spot,     discharge_px=frame.spot)
-    optimistic  = run(frame, cfg, charge_px=frame.spot_min, discharge_px=frame.spot_max)
-    pessimistic = run(frame, cfg, charge_px=frame.spot_max, discharge_px=frame.spot_min)
-    return Bracket(low=pessimistic, central=central, high=optimistic)
-```
+**Reported as a width, not as an interval.** The result surfaced to the user is half the
+range between the favourable and unfavourable saving: how far the saving shown on the
+results screen could shift, phrased as a caveat beside the §6.2 granularity finding. The
+endpoints stay internal. The reason is that the width can exceed the saving itself, in
+which case a "± €Y" reading invites the conclusion that the battery might lose money — a
+much stronger claim than a worst-case bound on the pricing supports. The caveat also states
+the share of priced intervals that carry a spread at all, since a window straddling
+2025-10-01 is part hourly and part not.
 
-**Be precise about what this brackets.** Every kWh charged within the hour was bought at
-some price ≥ the hourly minimum, and every kWh discharged displaced a price ≤ the hourly
-maximum. So the optimistic run is a genuine upper bound *on the cost of this dispatch* and
-the pessimistic run a genuine lower bound. It is **not** a bound on what a 15-minute-aware
-controller could achieve — such a controller would also dispatch differently, and could
-exceed the optimistic bound. Pricing error and dispatch error are separate; §6.13 covers
-the second.
+It is a **worst case** over where inside each interval the energy sat, and the copy says so.
+A typical error would be narrower, because errors across many hours partially cancel — but
+that claim needs an independence assumption household load does not satisfy (load has
+intra-hour structure and battery charging is deliberately timed), so the narrower figure is
+not offered. It is also **not** a bound on what a 15-minute-aware controller could achieve:
+such a controller would dispatch differently. Pricing error and dispatch error are separate;
+§6.13 covers the second.
 
-The first check is `cfg.supplier_settlement`. Many Dutch dynamic suppliers still average
-the four quarter-hour prices to an hourly price and bill on that. For those customers the
-hourly mean is not an approximation — it is exactly what they pay, and applying a bracket
-would manufacture uncertainty that does not exist. Ask the user; default to hourly.
-Whether that default is right is [open question §8.12](17-open-questions.md).
+**Four suppression conditions**, each yielding no bracket at all rather than a zero width:
+cost simulation off (there is no euro figure to qualify); `supplier_settlement = HOURLY`,
+where the hourly mean is exactly what the household pays and a bracket would manufacture
+uncertainty that does not exist; no priced interval anywhere in the window, so there is
+nothing to bracket; and no interval carrying a spread, which is the natively hourly case —
+there the intra-hour variation is unobservable rather than absent, and reporting "±€0" would
+assert it was absent. Whether hourly is the right default is resolved in
+[§8.12](17-open-questions.md): the app asks.
 
-Also report the intra-hour spread as a standalone indicator:
+A fifth condition suppresses the caveat on **display** rather than the bracket itself: euro
+figures print to whole euros, so a width of half a euro or less would render as "€ 0" — a
+sentence claiming a worst case of nothing.
 
-```python
-intra_hour_spread = (frame.spot_max - frame.spot_min).mean()
-```
-
-A large spread with hourly settlement is an argument for switching supplier, not a
-modelling problem — worth surfacing as an insight.
-
-`saved_low ≤ saved_central ≤ saved_high` must hold for every configuration where a bracket
-applies; a violation means the charge and discharge price arrays were swapped. Fixture 10
-in [16-validation-harness.md](16-validation-harness.md).
+`saved_low ≤ saved_central ≤ saved_high` must hold wherever a bracket applies. Fixture 10 in
+[16-validation-harness.md](16-validation-harness.md).
 
 ---
 

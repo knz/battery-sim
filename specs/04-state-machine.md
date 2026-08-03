@@ -106,8 +106,9 @@ new state. What it additionally requires is:
   that have just ceased to exist, or the panel reports itself invalid over fields the user
   can no longer see.
 - **The panel ① slot roster is re-derived in place.** A slot that ceases to apply — the
-  solar slot when PV is switched off, the `price_spot_min`/`price_spot_max` slots when cost
-  simulation is switched off — is removed; a slot that begins to apply appears empty. A file
+  solar slot when PV is switched off, the existing-battery slots when the household declares
+  no battery — is removed; a slot that begins to apply appears empty. Cost simulation no
+  longer adds or removes any slot: the roster is the same in both cost modes. A file
   or mapping already placed in a slot that still applies is **kept**, and `SOURCE_CONFIGURED`
   is re-evaluated against the new required set (a run may become blocked if a now-required
   slot is empty, or unblocked if the newly-absent slot was the only thing missing).

@@ -36,9 +36,10 @@ inform.
 
 **Changes in 1.1:** configuration epochs for mid-window PV/battery installation
 ([§6.15](13-configuration-epochs.md)); installation topology selector with diagrams
-([§2.5](03-topology-selector.md)); use of HA statistics min/max/mean for price bracketing
-([§6.16](14-diagnostics.md#616-price-bracketing-under-settlementresolution-mismatch)) and
-timestamp-misalignment detection
+([§2.5](03-topology-selector.md)); price bracketing
+([§6.16](14-diagnostics.md#616-price-bracketing-under-settlementresolution-mismatch), since
+revised to derive the bracket from the spot series rather than from HA's statistics columns)
+and timestamp-misalignment detection
 ([§6.17](14-diagnostics.md#617-timestamp-misalignment-detection)); corrected
 conversion-loss formula ([§6.11](12-metrics-and-benchmarks.md#611-metrics)); overlap
 diagnostic reinterpreted in light of smart-meter phase netting

@@ -317,6 +317,12 @@ Reached by `[ Update ]` from a card, or as step 1 of the new-workspace wizard.
 │  │  │  │  ⓘ 2027 tariffs are not published. Presets are estimates.    │ │ │  │
 │  │  │  └──────────────────────────────────────────────────────────────┘ │ │  │
 │  │  │                                                                   │ │  │
+│  │  │  ┌ Settlement ──────────────────────────────────────────────────┐ │ │  │
+│  │  │  │  Your supplier bills  ( • ) Hourly average                   │ │ │  │
+│  │  │  │                       (   ) Every 15 minutes                 │ │ │  │
+│  │  │  │  ⓘ How your SUPPLIER bills you, not how the market settles.  │ │ │  │
+│  │  │  └──────────────────────────────────────────────────────────────┘ │ │  │
+│  │  │                                                                   │ │  │
 │  │  │  Day/night window   dal from [ 23:00 ] to [ 07:00 ] + weekends    │ │  │
 │  │  │  Degradation cost   [ 0.0000 ] €/kWh throughput  (0 = disabled)   │ │  │
 │  │  └───────────────────────────────────────────────────────────────────┘ │  │
@@ -367,6 +373,20 @@ its collapsed summary line, so a user cannot leave a non-default override hidden
 ```
   ┌ Advanced ─────────────────── 2 values overridden ───────── [ expand ] ┐
 ```
+
+### The settlement question
+
+The Contract box's Advanced pane carries a radio pair for `supplier_settlement` — hourly
+average, or every 15 minutes. It resolves [§8.12](17-open-questions.md), which asked whether
+the hourly default should be silent. It is the sole gate on whether
+[§6.16](14-diagnostics.md#616-price-bracketing-under-settlementresolution-mismatch)'s
+pricing-uncertainty caveat can appear at all, since a supplier billing the hourly average
+charges exactly the price the simulation used and there is nothing to bracket.
+
+The wording asks about the **invoice**, not the market. EPEX has settled quarter-hourly since
+2025-10-01, so a user who has read about that change and is asked "how is your electricity
+settled?" answers for the market and gets the wrong branch. Both options are real — neither
+is pending — and hourly is pre-checked, matching appendix A.
 
 ### What is *not* on this screen
 
@@ -440,7 +460,7 @@ their specified behaviour.
 │                                                                              │
 │  ┌─ Series slots ─────────────────────────────────────────────────────────┐  │
 │  │  … §2.2's roster, unchanged: ROLE / REQ / SOURCE, the [ … ▸ ] drawer   │  │
-│  │    opener per row, the ● ○ ◐ ◒ legend, [ Fetch history ]              │  │
+│  │    opener per row, the ● ○ ◐ legend, [ Fetch history ]                │  │
 │  └────────────────────────────────────────────────────────────────────────┘  │
 │                                                                              │
 │  ┌─ Data quality ─────────────────────────────────────────────────────────┐  │
@@ -676,10 +696,13 @@ wizard ask every shape question before the user has seen anything, and would hav
   they emit an ordinary `PARAMS_CHANGED`, validation runs against the new field set, the
   roster is re-derived in place with mappings kept, and values are retained rather than
   discarded so toggling back restores the previous answer.
-- `simulate_cost` still gates the `price_spot_min` / `price_spot_max` slots (`◒`) on the
-  *configure data* screen, from a control on a *different* screen. The roster's legend must
-  therefore explain the marker without assuming the toggle is visible — today it says "Both
-  answers come from the setup band above", which becomes wrong.
+- `simulate_cost` gates no data slot. It once offered two `◒` bracket slots on the
+  *configure data* screen, from a control on a *different* screen, which would have needed a
+  legend that did not assume the toggle was visible; those slots are gone
+  ([§6.16](14-diagnostics.md#616-price-bracketing-under-settlementresolution-mismatch)
+  derives the bracket from the spot series instead), and with them the cross-screen
+  dependency. The roster's remaining gates — `has_pv` and `has_battery` — are both answered
+  on this same screen.
 - The `economic_guard` retention behaviour in `simconfig_store` is untouched.
 
 **§2.4's invitation box stays as it is.** "Want to know what this is worth in euros?" keeps

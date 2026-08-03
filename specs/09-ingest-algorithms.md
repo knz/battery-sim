@@ -122,7 +122,9 @@ named — these are the values reported per series in panel ① and in the resul
 > converted to euros ([§1.4](01-product-brief.md#a-price-series-is-not-a-cost-model)). The
 > *pricing* half of the same mismatch is bounded separately, and only when costs are
 > modelled, in
-> [§6.16](14-diagnostics.md#616-price-bracketing-under-settlementresolution-mismatch).
+> [§6.16](14-diagnostics.md#616-price-bracketing-under-settlementresolution-mismatch) — from
+> this same resampling pass, which records the cheapest and dearest native price point in
+> each grid interval alongside the mean it emits.
 
 In practice the grid will almost always be hourly, because hourly is what survives: Home
 Assistant's long-term statistics are hourly and never purged, while 5-minute short-term

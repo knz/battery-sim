@@ -43,6 +43,8 @@ UTC-naive pipeline cannot yet express.
 | §6.10 cost accounting and the waterfall | built (`app/domain/costs.py`) |
 | Panel ② form, validation, persistence | built (`app/params_view.py`, `app/simconfig_store.py`) |
 | Panel ③ results, both benchmark boxes, cost savings section | built (`app/results_view.py`) |
+| §6.16 price bracket — derived min/max, width, and the results caveat | built (`app/domain/simframe.py`, `app/results_view.py`) |
+| `supplier_settlement` question in the Contract box | built (`app/workspace_edit_view.py`) |
 
 `simulate_cost` is no longer a pending control: the setup band's radios POST, and panel ② draws
 §2.3's Pricing box behind the answer. Within that box the two unbuilt contract types (FIXED,
@@ -50,10 +52,12 @@ VARIABLE) and tiered terugleverkosten are themselves pending — only DYNAMIC an
 source behind them (§6.5).
 
 **Not built** — the FIXED and VARIABLE contracts and tiered terugleverkosten (see above); §6.15
-configuration epochs; §6.16's price bracket; §6.13's resolution-bias diagnostic (both bases); §6.17's
+configuration epochs; §6.13's resolution-bias diagnostic (both bases); §6.17's
 timestamp-misalignment detection; §4.6's per-interval CSV export; and CSV ingestion. §6.14 fixtures
 1, 2, 3, 4, 5, 6, 7, 12, 13, 14, 16, 17, 18, 19, 20 and 21 are implemented; the rest belong to those
-unbuilt areas.
+unbuilt areas. Fixture 10's ordering invariant is asserted by a named test in
+`tests/test_results_view.py` but is not registered under the fixture number, so it is not counted
+above.
 
 Two findings from building the cost path are corrections to the specification rather than deferred
 work, and are applied there: §6.10's waterfall pseudocode did not close (the standby line must be
