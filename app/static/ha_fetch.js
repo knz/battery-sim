@@ -748,14 +748,16 @@
 
   // Fetch one (slot, window, period) from HA and forward its rows to the backend. Rows are
   // reshaped to the compact arrays the ingest protocol expects: [start_ms, sum] for energy,
-  // [start_ms, mean, min, max] for price (specs app/ingest_ws.py).
+  // [start_ms, mean] for price (specs app/ingest_ws.py). Only the "mean" statistic column is
+  // requested for a price: the §6.16 intra-hour bracket is derived server-side from the values
+  // themselves, so HA's own min/max would be fetched and then discarded.
   async function fetchAndForward(ha, backend, slot, startIso, endIso, period) {
     var payload = {
       type: "recorder/statistics_during_period",
       start_time: startIso, end_time: endIso,
       statistic_ids: [slot.statId], period: period
     };
-    if (slot.kind === "price") payload.types = ["mean", "min", "max"];
+    if (slot.kind === "price") payload.types = ["mean"];
     else payload.types = ["sum"];
 
     var result = await ha.call(payload);
@@ -764,7 +766,7 @@
 
     var packed = rows.map(function (r) {
       if (slot.kind === "price") {
-        return [r.start, nz(r.mean), nz(r.min), nz(r.max)];
+        return [r.start, nz(r.mean)];
       }
       return [r.start, nz(r.sum)];
     });

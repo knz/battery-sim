@@ -117,22 +117,22 @@ def test_energy_frame_sorts_unordered_rows():
     assert np.allclose(frame.values, [0.5])
 
 
-def test_price_frame_carries_mean_and_bracket():
+def test_price_frame_carries_the_mean_and_nothing_else():
+    """A price frame is mean-only — no intra-interval bracket rides along.
+
+    The §6.16 bracket used to be taken from an HA `measurement` statistic's own min/max and
+    carried on the frame; it is now derived from the 15-minute values at grid reconciliation
+    (`simframe._resample_price_stats`), so `PriceRow` and `SeriesFrame` have no min/max at all.
+    """
     rows = [
-        ingest.PriceRow(start_ms=0, mean=0.2955, min=0.2929, max=0.2982),
-        ingest.PriceRow(start_ms=3_600_000, mean=0.2899, min=0.2886, max=0.2982),
+        ingest.PriceRow(start_ms=0, mean=0.2955),
+        ingest.PriceRow(start_ms=3_600_000, mean=0.2899),
     ]
     frame = ingest.price_frame("price_spot", rows)
     assert frame.kind == "price"
     assert np.allclose(frame.values, [0.2955, 0.2899])
-    assert frame.value_min is not None and np.allclose(frame.value_min, [0.2929, 0.2886])
-    assert frame.value_max is not None
-
-
-def test_price_frame_without_bracket_has_none_minmax():
-    rows = [ingest.PriceRow(start_ms=0, mean=0.30), ingest.PriceRow(start_ms=3_600_000, mean=0.31)]
-    frame = ingest.price_frame("price_spot", rows)
-    assert frame.value_min is None and frame.value_max is None
+    assert not hasattr(frame, "value_min") and not hasattr(frame, "value_max")
+    assert not hasattr(rows[0], "min") and not hasattr(rows[0], "max")
 
 
 # --- grid selection / reconciliation (specs §6.2) --------------------------------------------

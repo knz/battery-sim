@@ -1661,3 +1661,51 @@ def test_the_named_series_use_the_same_strings_as_the_roster_rows(env):
         label = ROLE_LABEL[role]
         assert label in reason, f"{label} not named in the block reason"
         assert label in roster.group(0), f"{label} is not the roster's word for {role}"
+
+
+# ── Old .npz files carrying the removed price bracket still load (D7) ────────────────────────
+
+
+def test_a_price_npz_written_with_the_old_bracket_arrays_still_loads(env, tmp_path):
+    """Users have `price_spot.npz` files on disk holding `value_min`/`value_max` arrays.
+
+    `SeriesFrame` carried an intra-interval bracket taken from an HA `measurement` statistic, and
+    `_save_frame` wrote it into the same .npz as two extra arrays. Nothing ever read it — the
+    §6.16 bracket is derived from the 15-minute values at grid reconciliation — so it was removed.
+    The loader must ignore the leftover arrays rather than fail on them, which it does by reading
+    only the three keys it names.
+
+    Written the way the OLD code wrote it (np.savez with five arrays into the real per-workspace
+    path), then read back through the real `load_latest`, so this exercises the shipped path and
+    not a hand-built reimplementation of it.
+    """
+    client, mod = env
+    dataset = mod["dataset"]
+    _seed(mod)
+
+    n = 4
+    idx = (np.arange(n).astype("timedelta64[s]") * 3600
+           + np.datetime64("2026-01-01T00:00:00")).astype("datetime64[s]")
+    price = SeriesFrame("price_spot", "price", 3600, idx,
+                        np.array([0.20, 0.25, 0.30, 0.22]), np.zeros(n, dtype=QUALITY_DTYPE))
+    energy = _res_energy("grid_import_t1", 3600, n)
+    dataset.save_dataset([energy, price], _WIN, "test", [], None, "w1")
+
+    # Re-write the price .npz in the pre-removal shape: the three current arrays plus the two
+    # bracket arrays the old writer appended.
+    path = tmp_path / "w1" / "series" / "price_spot.npz"
+    assert path.exists(), sorted((tmp_path / "w1" / "series").iterdir())
+    np.savez(
+        path,
+        index_s=idx.astype("datetime64[s]").astype(np.int64),
+        values=price.values,
+        quality=price.quality,
+        value_min=np.array([0.19, 0.24, 0.28, 0.21]),
+        value_max=np.array([0.21, 0.27, 0.33, 0.24]),
+    )
+
+    loaded = dataset.load_latest("w1")
+    assert loaded is not None
+    back = next(f for f in loaded.frames if f.name == "price_spot")
+    assert np.allclose(back.values, [0.20, 0.25, 0.30, 0.22])
+    assert not hasattr(back, "value_min") and not hasattr(back, "value_max")

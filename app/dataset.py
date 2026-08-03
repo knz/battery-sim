@@ -7,9 +7,11 @@ credential is stored — it never leaves the browser (specs §7.5, browser-fetch
 
 Two homes, mirroring §5.1:
   * **Filesystem** — one `.npz` per series under `<data_dir>/<workspace>/series/<name>.npz`,
-    holding the frame's index/values/quality (and price min/max). Chosen over Parquet to avoid
-    a pandas dependency for this increment; the on-disk shape is an implementation detail behind
-    load_frames(). Path derives from workspace_id with traversal rejected (§5.5 invariant 4).
+    holding the frame's index/values/quality. Chosen over Parquet to avoid a pandas dependency
+    for this increment; the on-disk shape is an implementation detail behind load_frames(). Path
+    derives from workspace_id with traversal rejected (§5.5 invariant 4). Files written before
+    the §6.16 price bracket became a derived quantity also hold `value_min`/`value_max` arrays;
+    the reader ignores them.
   * **SQLite** — a `datasets` row (window, source, fetched_at, and the run's size) and one
     `series_meta` row per series (name, kind, resolution_s, path). Reuses app/db.py's
     connection/data-dir plumbing.
@@ -195,20 +197,22 @@ def _frame_path(workspace_id: str, name: str) -> Path:
 
 
 def _save_frame(path: Path, frame: SeriesFrame) -> None:
-    arrays = {
+    np.savez(
+        path,
         # datetime64[s] is not directly npz-savable as-is across versions; store epoch seconds.
-        "index_s": frame.index.astype("datetime64[s]").astype(np.int64),
-        "values": frame.values,
-        "quality": frame.quality,
-    }
-    if frame.value_min is not None:
-        arrays["value_min"] = frame.value_min
-    if frame.value_max is not None:
-        arrays["value_max"] = frame.value_max
-    np.savez(path, **arrays)
+        index_s=frame.index.astype("datetime64[s]").astype(np.int64),
+        values=frame.values,
+        quality=frame.quality,
+    )
 
 
 def _load_frame(path: Path, name: str, kind: str, resolution_s: int | None) -> SeriesFrame:
+    """Read one series .npz back into a SeriesFrame.
+
+    Only the three named arrays are read. Price frames written before the §6.16 bracket became a
+    derived quantity also carry `value_min`/`value_max` arrays; those are simply not looked up, so
+    an old file loads without error and without the dead columns.
+    """
     data = np.load(path)
     index = data["index_s"].astype("datetime64[s]")
     return SeriesFrame(
@@ -218,8 +222,6 @@ def _load_frame(path: Path, name: str, kind: str, resolution_s: int | None) -> S
         index=index,
         values=data["values"],
         quality=data["quality"].astype(QUALITY_DTYPE),
-        value_min=data["value_min"] if "value_min" in data else None,
-        value_max=data["value_max"] if "value_max" in data else None,
     )
 
 

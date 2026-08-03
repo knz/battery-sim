@@ -92,17 +92,17 @@ def test_live_energy_fetch_becomes_valid_frames():
     assert np.nansum(frame.values) >= 0
 
 
-def test_live_price_fetch_carries_bracket():
+def test_live_price_fetch_yields_a_price_frame():
+    """Only "mean" is requested: the §6.16 bracket is derived from the values, not from HA."""
     stat_id = os.environ.get("HA_PRICE_STAT", "sensor.epex_spot_data_market_price")
     _, result = asyncio.run(_fetch(
         [stat_id], "2026-07-15T00:00:00+00:00", "2026-07-16T00:00:00+00:00",
-        types=["mean", "min", "max"],
+        types=["mean"],
     ))
     rows = result.get(stat_id, [])
     if not rows:
         pytest.skip(f"{stat_id} has no data on this instance")
-    price_rows = [ingest.PriceRow(start_ms=int(r["start"]), mean=r.get("mean"),
-                                  min=r.get("min"), max=r.get("max")) for r in rows]
+    price_rows = [ingest.PriceRow(start_ms=int(r["start"]), mean=r.get("mean")) for r in rows]
     frame = ingest.price_frame("price_spot", price_rows)
     assert frame.kind == "price"
-    assert frame.value_min is not None and frame.value_max is not None
+    assert len(frame.values) == len(price_rows)

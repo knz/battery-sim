@@ -64,9 +64,9 @@ def _drive_valid_ingest(ws):
 
     ws.send_json({"type": "series", "name": "price_spot", "kind": "price", "unit": "EUR/kWh"})
     ws.send_json({"type": "rows", "name": "price_spot",
-                  "rows": [[1784505600000, 0.2955, 0.2929, 0.2982],
-                           [1784509200000, 0.2899, 0.2886, 0.2982],
-                           [1784512800000, 0.2924, 0.2858, 0.2978]]})
+                  "rows": [[1784505600000, 0.2955],
+                           [1784509200000, 0.2899],
+                           [1784512800000, 0.2924]]})
     assert ws.receive_json()["type"] == "progress"
 
     ws.send_json({"type": "done"})
@@ -100,6 +100,79 @@ def test_valid_ingest_persists_and_reports(client):
     # server-side after a reload (specs §2.2). Series sent without a stat_id keep None.
     assert imp.stat_id == "sensor.meter_import_t1"
     assert next(f for f in loaded.frames if f.name == "grid_export_t1").stat_id is None
+
+
+def test_a_price_row_with_the_old_four_element_shape_still_ingests(client):
+    """A stale cached ha_fetch.js may still send [start_ms, mean, min, max].
+
+    The wire format narrowed to [start_ms, mean] when the §6.16 bracket became a derived
+    quantity. The parser reads the first two elements and ignores the rest, so a browser holding
+    the previous script is not broken by the change — and the min/max it sends is discarded, not
+    stored anywhere.
+    """
+    tc, main, dataset = client
+    with tc.websocket_connect(w("/data/ingest/ws")) as ws:
+        ws.send_json({"type": "header",
+                      "window": {"start": "2026-07-20T00:00:00+00:00",
+                                 "end": "2026-07-20T03:00:00+00:00"}})
+        ws.send_json({"type": "series", "name": "grid_import_t1", "kind": "energy",
+                      "unit": "kWh"})
+        ws.send_json({"type": "rows", "name": "grid_import_t1",
+                      "rows": [[1784505600000, 5127.0], [1784509200000, 5127.5]]})
+        assert ws.receive_json()["type"] == "progress"
+        ws.send_json({"type": "series", "name": "price_spot", "kind": "price",
+                      "unit": "EUR/kWh"})
+        ws.send_json({"type": "rows", "name": "price_spot",
+                      "rows": [[1784505600000, 0.2955, 0.2929, 0.2982],
+                               [1784509200000, 0.2899, 0.2886, 0.2982]]})
+        assert ws.receive_json()["type"] == "progress"
+        ws.send_json({"type": "done"})
+        result = ws.receive_json()
+
+    assert result["type"] == "result", result
+    loaded = dataset.load_latest()
+    assert loaded is not None
+    price = next(f for f in loaded.frames if f.name == "price_spot")
+    # The means landed; the two trailing elements left no trace on the frame.
+    assert abs(price.values[0] - 0.2955) < 1e-9
+    assert abs(price.values[1] - 0.2899) < 1e-9
+    assert not hasattr(price, "value_min") and not hasattr(price, "value_max")
+
+
+def test_the_browser_asks_home_assistant_for_the_mean_only():
+    """The two ends of the narrowed wire format have to move together.
+
+    `ha_fetch.js` builds the price rows the WS parser above reads. Nothing else in the suite runs
+    that file — it is browser code — so a static scrape is the only thing standing between a
+    backend that stopped reading positions 2 and 3 and a browser that still pays HA for them. It
+    also pins the packing, since asking for "mean" alone while still packing `r.min`/`r.max` would
+    silently send nulls.
+
+    The two regexes tolerate quote style and inner whitespace on purpose. A scrape that matched
+    the source byte for byte would fail on a Prettier run or a quote-style normalisation — changes
+    with no behavioural content — and whoever hit that false positive would loosen or delete the
+    test, costing the protection it exists for. The `nz(r.min)` / `nz(r.max)` check below is a
+    plain substring on purpose: any spelling of it is a real regression.
+    """
+    import re
+    from pathlib import Path
+
+    js = (Path(__file__).resolve().parent.parent / "app" / "static" / "ha_fetch.js").read_text(
+        encoding="utf-8"
+    )
+    # Scoped to the price branch: `payload.types` is also assigned ["sum"] for energy two lines
+    # down, so an unscoped search for the assignment would pass with the price branch deleted.
+    assert re.search(
+        r"""slot\.kind\s*===\s*['"]price['"].*?payload\.types\s*=\s*\[\s*['"]mean['"]\s*\]""",
+        js, re.S,
+    ), (
+        "ha_fetch.js still requests HA statistic columns beyond the mean (or dropped the price "
+        "branch); the backend discards anything past position 1 of a price row"
+    )
+    assert re.search(
+        r"""return\s*\[\s*r\.start\s*,\s*nz\(\s*r\.mean\s*\)\s*\]""", js
+    ), "ha_fetch.js no longer packs a price row as [start_ms, mean]"
+    assert "nz(r.min)" not in js and "nz(r.max)" not in js
 
 
 def test_unknown_series_is_rejected(client):

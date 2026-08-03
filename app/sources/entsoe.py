@@ -35,8 +35,7 @@ from app.sources.base import SourceDescriptor
 
 # The only slot this source fills: NL day-ahead spot price (specs §4.1). It is a single price
 # series; it does not supply energy meters, nor the intra-interval min/max bracket slots
-# (price_spot_min/max come from an HA measurement statistic's own min/max, which a day-ahead
-# series does not carry — each interval has one cleared price).
+# (a day-ahead series has one cleared price per interval and no spread within it).
 _PRICE_SPOT_SLOT_NAME = "price_spot"
 
 # The bidding zone this source serves. The extracted dataset is NL-only.
@@ -70,9 +69,8 @@ class EntsoeSource:
     def available_for(self, slot: SlotSpec) -> bool:
         """True only for the price_spot slot: this is the NL day-ahead spot price and nothing else.
 
-        It does not fill energy slots, nor the price_spot_min/price_spot_max bracket slots (those
-        are an HA measurement statistic's intra-interval min/max; a day-ahead series has a single
-        cleared price per interval and no spread within it).
+        It does not fill energy slots, nor the price_spot_min/price_spot_max bracket slots (a
+        day-ahead series has a single cleared price per interval and no spread within it).
         """
         return slot.name == _PRICE_SPOT_SLOT_NAME
 
@@ -104,8 +102,6 @@ class EntsoeSource:
             ingest.PriceRow(
                 start_ms=int(p.start.timestamp() * _MS_PER_S),
                 mean=p.price_eur_kwh,
-                min=None,
-                max=None,
             )
             for p in points
         ]

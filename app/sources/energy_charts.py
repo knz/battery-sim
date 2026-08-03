@@ -35,7 +35,7 @@ from app.domain import ingest
 
 # The only slot this source fills: NL day-ahead spot price (specs §4.1). It is a single price
 # series; it does not supply energy meters, nor the intra-interval min/max bracket slots
-# (price_spot_min/max come from an HA measurement statistic's own min/max, not from this API).
+# (a day-ahead series has one cleared price per interval and no spread within it).
 _PRICE_SPOT_SLOT_NAME = "price_spot"
 
 # The bidding zone this source serves. The dataset and API are NL-only in this increment.
@@ -101,8 +101,8 @@ class EnergyChartsSource:
     def available_for(self, slot: SlotSpec) -> bool:
         """True only for the price_spot slot: this is the NL day-ahead spot price and nothing else.
 
-        It does not fill energy slots, nor the price_spot_min/price_spot_max bracket slots (those
-        are an HA measurement statistic's intra-interval min/max, not something this API provides).
+        It does not fill energy slots, nor the price_spot_min/price_spot_max bracket slots (a
+        day-ahead series has one cleared price per interval and no spread within it).
         """
         return slot.name == _PRICE_SPOT_SLOT_NAME
 
@@ -164,8 +164,6 @@ class EnergyChartsSource:
             ingest.PriceRow(
                 start_ms=int(p.start.timestamp() * _MS_PER_S),
                 mean=p.price_eur_kwh,
-                min=None,
-                max=None,
             )
             for p in merged
         ]

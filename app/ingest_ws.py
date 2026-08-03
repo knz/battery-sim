@@ -19,7 +19,7 @@ Protocol — client → server messages (JSON per WS text frame):
     {"type": "rows", "name": "grid_import_t1",
      "rows": [[start_ms, sum], ...]}                         # energy: [start_ms, sum]
     {"type": "rows", "name": "price_spot",
-     "rows": [[start_ms, mean, min, max], ...]}              # price:  [start_ms, mean, min, max]
+     "rows": [[start_ms, mean], ...]}                        # price:  [start_ms, mean]
 
     {"type": "backend_load", "name": "price_spot",
      "source": "energy_charts",
@@ -207,14 +207,13 @@ class IngestSession:
                     ingest.EnergyRow(start_ms=int(r[0]), sum=_opt_float(r[1])) for r in rows
                 )
             else:
+                # Only the first two elements are read. A price row used to carry the HA
+                # statistic's own min/max in positions 2 and 3; those are gone (§6.16's bracket is
+                # derived from the 15-minute values at grid reconciliation, not taken from the
+                # source), and any extra elements a stale cached ha_fetch.js still sends are
+                # ignored rather than rejected.
                 target.price_rows.extend(
-                    ingest.PriceRow(
-                        start_ms=int(r[0]),
-                        mean=_opt_float(r[1]),
-                        min=_opt_float(r[2]) if len(r) > 2 else None,
-                        max=_opt_float(r[3]) if len(r) > 3 else None,
-                    )
-                    for r in rows
+                    ingest.PriceRow(start_ms=int(r[0]), mean=_opt_float(r[1])) for r in rows
                 )
         except (IndexError, TypeError, ValueError) as exc:
             raise IngestError(f"malformed row in {name!r}: {exc}") from exc

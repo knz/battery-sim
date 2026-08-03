@@ -14,9 +14,11 @@ Two row shapes arrive, matching the two HA statistic kinds (specs §4.3):
     must match the CSV path exactly. HA's reset correction on `sum` means genuine resets are
     rare here, but the logic is applied uniformly.
 
-  * **price** — from a `measurement` sensor. Each row carries `mean` (the price the run uses),
-    and `min`/`max` (intra-interval bracket, specs §6.16). No differencing: a price is a
-    step function valid from the interval start.
+  * **price** — from a `measurement` sensor. Each row carries `mean`, the price the run uses. No
+    differencing: a price is a step function valid from the interval start. The statistic's own
+    `min`/`max` columns are neither fetched nor parsed: the §6.16 bracket is derived from the
+    15-minute values at grid reconciliation (`simframe._resample_price_stats`), so the source's
+    idea of an intra-interval spread is not needed and would not be used.
 
 Native resolution is inferred from the spacing of the rows themselves (specs §4.2, §4.4): the
 modal gap between consecutive interval starts. Irregular spacing yields `resolution_s = None`.
@@ -62,12 +64,10 @@ class EnergyRow:
 
 @dataclass
 class PriceRow:
-    """One HA price-statistics row (specs §4.3): epoch-ms start, and mean/min/max price."""
+    """One HA price-statistics row (specs §4.3): epoch-ms start and mean price."""
 
     start_ms: int
     mean: float | None
-    min: float | None = None
-    max: float | None = None
 
 
 def _index_from_ms(starts_ms: np.ndarray) -> np.ndarray:
@@ -198,12 +198,11 @@ def energy_frame(name: str, rows: list[EnergyRow]) -> tuple[SeriesFrame, list[di
 
 
 def price_frame(name: str, rows: list[PriceRow]) -> SeriesFrame:
-    """Build a price SeriesFrame from HA `measurement`-statistics rows (specs §4.3, §6.16).
+    """Build a price SeriesFrame from HA `measurement`-statistics rows (specs §4.3).
 
-    No differencing: `mean` is the price valid from the interval start. `min`/`max` ride along
-    as the intra-interval bracket (specs §6.16) when present. A row whose `mean` is missing is a
-    gap; prices are forward-filled at grid reconciliation (specs §6.1), so here the missing
-    interval is simply dropped and its absence shows up as a spacing gap.
+    No differencing: `mean` is the price valid from the interval start. A row whose `mean` is
+    missing is a gap; prices are forward-filled at grid reconciliation (specs §6.1), so here the
+    missing interval is simply dropped and its absence shows up as a spacing gap.
     """
     rows = sorted(rows, key=lambda r: r.start_ms)
     kept = [r for r in rows if r.mean is not None]
@@ -212,16 +211,6 @@ def price_frame(name: str, rows: list[PriceRow]) -> SeriesFrame:
     values = np.array([float(r.mean) for r in kept], dtype=np.float64)
     resolution_s = infer_resolution_s(index)
 
-    have_bracket = any(r.min is not None and r.max is not None for r in kept)
-    vmin = vmax = None
-    if have_bracket:
-        vmin = np.array(
-            [float(r.min) if r.min is not None else np.nan for r in kept], dtype=np.float64
-        )
-        vmax = np.array(
-            [float(r.max) if r.max is not None else np.nan for r in kept], dtype=np.float64
-        )
-
     return SeriesFrame(
         name=name,
         kind="price",
@@ -229,6 +218,4 @@ def price_frame(name: str, rows: list[PriceRow]) -> SeriesFrame:
         index=index,
         values=values,
         quality=np.zeros(len(index), dtype=QUALITY_DTYPE),
-        value_min=vmin,
-        value_max=vmax,
     )

@@ -64,10 +64,10 @@ class SeriesFrame:
         values        float64; energy: kWh in the interval; price: EUR/kWh valid from the start.
         quality       uint16 per-interval bitfield (QualityFlags).
 
-    Price series may additionally carry intra-interval min/max (specs §4.3, from HA `measurement`
-    statistics). They are None for energy series and for prices without sub-interval data. They
-    are not part of the spec's core five fields but ride along here so the ingest of a single
-    price statistic — which returns mean/min/max in one row — is not split into three frames.
+    A price frame carries no intra-interval bracket. It used to ride along here, taken from an HA
+    `measurement` statistic's own min/max, but nothing ever read it: the §6.16 bracket is DERIVED
+    at grid reconciliation from the 15-minute values themselves (`simframe._resample_price_stats`),
+    which gives one definition of the quantity independent of the source.
     """
 
     name: str
@@ -76,8 +76,6 @@ class SeriesFrame:
     index: np.ndarray
     values: np.ndarray
     quality: np.ndarray
-    value_min: np.ndarray | None = None
-    value_max: np.ndarray | None = None
     # A finer native copy of the same series over part of the window (specs §4.3): on the HA
     # path, the 5-minute trailing window alongside the full-window hourly data. It stays part of
     # THIS series (not a second row), and powers the resolution-bias diagnostic (§6.13) even when
@@ -99,9 +97,6 @@ class SeriesFrame:
                 f"SeriesFrame {self.name!r}: index/values/quality length mismatch "
                 f"({n}/{len(self.values)}/{len(self.quality)})"
             )
-        for extra in (self.value_min, self.value_max):
-            if extra is not None and len(extra) != n:
-                raise ValueError(f"SeriesFrame {self.name!r}: min/max length mismatch")
 
     def coverage(self) -> tuple[datetime, datetime] | None:
         """(start, end) as tz-aware UTC datetimes, or None if the series is empty.

@@ -96,15 +96,17 @@ pessimistic), NOT by "charging vs everything else". With the correct split
 
 ## Current Status
 
-Steps 1–5 done and committed; suite at 1262 passed, 2 skipped. The bracket is computed and its
-width surfaced as a results caveat, and the copy has been through one adversarial review round.
+Steps 1–5 done and committed; the bracket is computed and its width surfaced as a results caveat,
+and the copy has been through one adversarial review round. Step 6a (D7) is done in the working
+tree, uncommitted; suite at 1264 passed, 2 skipped.
 
 **Remaining, in the order planned:**
 
-- **Step 6 — remove the two user-supplied slots** (D3): `price_spot_min` / `price_spot_max`,
-  the `cost_only` / `cost_optional` slot vocabulary (D6), and `SeriesFrame.value_min` /
-  `value_max` (D7). This is the change the whole thread started from; everything so far has been
-  building the replacement so the slots can go without losing the capability.
+- **Step 6b — remove the two user-supplied slots** (D3): `price_spot_min` / `price_spot_max` and
+  the `cost_only` / `cost_optional` slot vocabulary (D6). This is the change the whole thread
+  started from; everything so far has been building the replacement so the slots can go without
+  losing the capability. D7's half — `SeriesFrame.value_min` / `value_max` and the ingest chain
+  behind them — is done; see step 6a below.
 - **Step 7 — spec updates.** Known touch points: `specs/05-data-formats.md:32-33`,
   `04-state-machine.md:109`, `06-home-assistant-ingestion.md:111-112`,
   `20-workspaces-ux.md:679`, `14-diagnostics.md`, `07-internal-representation.md`. §6.16 needs a
@@ -123,6 +125,120 @@ width and does not attach it to the saving as a ± interval, for the reason reco
 F1: the width exceeds the saving on realistic fixtures, where a ± reading invites the conclusion
 that the battery might lose money — a far stronger claim than a worst-case bound on the PRICING
 supports.
+
+### Step 6a — remove `SeriesFrame.value_min` / `value_max` and the chain that fed them (done)
+
+D7's half of step 6. The `price_spot_min` / `price_spot_max` SLOTS (D3, D6) are a separate
+removal and are not touched here — `series_vocab.py`, `data_view.py`, `sample_data.py` and
+`_data_roster.html` are unchanged.
+
+**Verified, not assumed: nothing read the fields.** A grep across the working tree found
+`value_min` / `value_max` only in the write/read pair in `dataset.py` and in two tests.
+`simframe.py` does not mention them; `_spot_on_grid` derives its bounds from `frame.values`
+alone (step 1). So the removal has no user-visible effect, and a full `results_from` run over the
+real local dataset before and after produces the same view-model.
+
+**Removed:**
+
+- `app/domain/frames.py`: the two fields, their `__post_init__` length check, and the docstring
+  paragraph, replaced by a sentence saying where the bracket actually comes from now.
+- `app/domain/ingest.py`: `PriceRow.min` / `.max`, and `price_frame`'s `have_bracket` / `vmin` /
+  `vmax` construction and the two constructor arguments. Module and function docstrings updated.
+- `app/dataset.py`: the conditional npz write and read.
+- `app/sources/entsoe.py`, `app/sources/energy_charts.py`: the `min=None, max=None` call-site
+  arguments. Their comments explaining why they cannot fill the bracket slots cited a mechanism
+  that no longer exists ("an HA measurement statistic's own min/max"); the claim about the SLOTS
+  stands, so only the parenthetical rationale changed — the day-ahead series has one cleared price
+  per interval, which is a property of the source and not of how HA reports.
+
+**The wire format narrowed too (user instruction).** `[start_ms, mean, min, max]` →
+`[start_ms, mean]`, and `ha_fetch.js` now asks HA for `types: ["mean"]` instead of
+`["mean","min","max"]`. Both ends changed in this pass, and the module comment in `ingest_ws.py`
+that documents the protocol was updated with them.
+
+Keeping browser and backend in agreement, two ways:
+
+- The parser is **tolerant of the old shape**, deliberately. It reads `r[0]` and `r[1]` and
+  ignores anything past them, so a browser holding a cached copy of the previous `ha_fetch.js`
+  still ingests correctly — it just wastes the two columns it fetched. A stricter parser was tried
+  as a mutant and rejected: the failure mode is a fetch that errors out for a user who has done
+  nothing wrong and cannot tell why.
+- A **static scrape test** (`test_the_browser_asks_home_assistant_for_the_mean_only`) pins the
+  two JS lines that build a price row. Nothing else in the suite executes `ha_fetch.js`, so
+  without it the browser half could drift back — the same class of unasserted glue that step 2's
+  review finding hit in the template.
+
+**Review findings on that scrape test, fixed.** Its first version had two defects, both of the
+kind a static scrape is prone to and worth naming so the next one avoids them.
+
+- *Brittle to formatting.* The regexes matched source text literally, including quote style and
+  spacing, so `['mean']` or `[ "mean" ]` — a Prettier run, or a quote-style normalisation, neither
+  with any behavioural content — failed the test. That is worse than no test: whoever hits the
+  false positive loosens or deletes it, and the real protection goes with it. Both regexes now
+  tolerate quote style and inner whitespace. The `nz(r.min)` / `nz(r.max)` check stays a plain
+  substring, because there is no innocent spelling of that.
+- *An assertion that asserted nothing.* A first line bound a `payload.types` match and never used
+  it — and being unscoped and end-anchored it matched the ENERGY branch's `["sum"]` two lines down,
+  so it would have passed with the price branch deleted outright. Removed, and the surviving regex
+  is scoped to `slot.kind === "price"` so the deletion case is caught. That case is now a mutant in
+  its own right.
+
+Re-verified after loosening: three formatting-only mutants (single quotes with a brace block;
+spaces inside the array literal; a Prettier-style row-packing rewrite) all PASS, while mutants C
+(request `["mean","min","max"]` again), D (pack `min`/`max` again) and E (delete the price branch)
+all still FAIL. The loosening cost no coverage.
+
+**Backward compatibility, verified by running rather than by reasoning.** `_load_frame` now names
+only three keys, and `np.load` returns an `NpzFile` whose extra members are simply not looked up.
+Two checks:
+
+- A test (`test_a_price_npz_written_with_the_old_bracket_arrays_still_loads`) writes a
+  five-array `.npz` into the real per-workspace path with `np.savez`, exactly as the old writer
+  did, then reads it back through the shipped `dataset.load_latest`.
+- The real gitignored dataset at `data/local/series/` was loaded (read-only). Its
+  `price_spot_min.npz` and `price_spot_max.npz` DO carry the `value_min`/`value_max` arrays on
+  disk; all eight frames load, and `results_from` over them completes. Worth recording since it
+  corrects an expectation in the plan: the leftover arrays are on the two BRACKET-SLOT files, not
+  on `price_spot.npz`, which on this machine was written by the Energy-Charts path that never
+  supplied a bracket.
+
+**Tests.** Two deleted assertions became one replacement rather than a straight deletion:
+`test_price_frame_carries_the_mean_and_nothing_else` keeps the mean/kind coverage the old
+`test_price_frame_carries_mean_and_bracket` also had, and adds `hasattr` assertions so the
+removal itself is pinned. `tests/test_ha_live.py`'s bracket test (in the skipped live-HA suite,
+so it would not have failed CI) was likewise narrowed to a mean-only price fetch rather than
+dropped. `tests/test_ingest_ws.py`'s main fixture moved to two-element price rows, with the
+four-element shape kept alive in the dedicated compatibility test above.
+
+**Mutants, all seven killed** (each run alone against the relevant test files):
+
+| Mutant | Killed by |
+| --- | --- |
+| `_load_frame` asserts the npz has exactly the three keys | the old-npz compatibility test |
+| WS parser rejects a price row whose length is not 2 | the four-element-shape test |
+| `ha_fetch.js` requests `["mean","min","max"]` again | the static scrape test |
+| `ha_fetch.js` packs `[start, mean, min, max]` again | the static scrape test |
+| `ha_fetch.js` deletes the price branch, leaving only `["sum"]` | the static scrape test |
+| `SeriesFrame.value_min` / `value_max` reintroduced | all three new tests |
+| `PriceRow.min` / `.max` reintroduced | `test_price_frame_carries_the_mean_and_nothing_else` ALONE |
+| `entsoe.py` passes `min=None, max=None` again | 3 tests in `test_sources.py` (TypeError) |
+| `energy_charts.py` passes `min=None, max=None` again | 8 tests across `test_ingest_ws.py`, `test_slot_load.py`, `test_sources.py` |
+
+The first two are the ones worth having: they pin the two behaviours a reader would otherwise have
+to take on trust — that an old file loads and an old browser still works — neither of which any
+pre-existing test covered.
+
+The `PriceRow` row is recorded as single-killer deliberately. The WS tests do NOT catch it, because
+re-adding two defaulted fields nobody passes changes no WS behaviour — the mutant is arguably
+equivalent there, and only the explicit `hasattr` assertion in the ingest test distinguishes it. An
+earlier draft of this table credited the WS tests as well; that was wrong, and the correction is
+recorded rather than silently applied, since "two tests cover this" is exactly the kind of claim a
+later reader would rely on without re-running it.
+
+Suite: 1264 passed, 2 skipped (1262 before: −2 deleted, +1 replacement, +3 new).
+
+Not done here: the D3/D6 slot removal, and the spec updates (step 7). `specs/` still describes a
+user-supplied bracket and an HA statistic's min/max riding on the frame.
 
 ### Step 1 — derive per-grid-interval min/max in the SimulationFrame (done)
 
