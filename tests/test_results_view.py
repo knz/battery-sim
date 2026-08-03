@@ -2157,12 +2157,18 @@ def test_a_quarter_hourly_price_with_real_spread_produces_a_non_zero_width():
 
 
 def test_the_three_evaluations_are_ordered_low_central_high():
-    """`saved_low <= saved_central <= saved_high`, and the width is the half-difference.
+    """§6.16 fixture 10 on the ordinary fixture: `saved_low <= saved_central <= saved_high`.
 
-    This is the invariant the caveat depends on: the band it prints must CONTAIN the figure
-    beside it. `_price_bracket` gets it by sorting all three evaluations rather than by
+    The width is the half-difference and is non-negative, which is the rest of what fixture 10
+    names. This is the invariant the caveat depends on: the band it prints must CONTAIN the
+    figure beside it. `_price_bracket` gets it by sorting all three evaluations rather than by
     assigning names to the two extremes — the saving is a difference of bills, and a difference
     of bracketed quantities is not itself monotone in the price (see `PriceBracket`).
+
+    Fixture 10's STRICT case — a window where the central figure really does fall outside the
+    two extremes, so the sort is load-bearing rather than defensive — is
+    `test_the_band_still_contains_the_headline_when_the_two_extremes_do_not` below. This test
+    passes on either implementation and does not substitute for it.
     """
     r = results_from(_bracket_dataset(), (_WIN_START, _WIN_END), cfg=_qh_cfg())
     assert r is not None
@@ -2492,83 +2498,125 @@ def test_the_split_is_by_direction_of_flow_not_by_price_vector():
     assert pb.saved_low <= pb.saved_central <= pb.saved_high
 
 
-# A window on which the CENTRAL saving falls OUTSIDE the two extreme evaluations — the case that
-# makes `saved_central`'s presence in `_price_bracket`'s min/max load-bearing rather than merely
-# defensive. Found by random search (numpy default_rng(11), 300 trials, ~1 hit) and pinned here
-# as literals, because the mechanism is real but the fixture that shows it is not one anybody
-# would write by hand.
+# Two windows on which the CENTRAL saving falls OUTSIDE the two extreme evaluations
+# `_price_bracket` ACTUALLY PERFORMS — the case that makes `saved_central`'s presence in its
+# `min`/`max` load-bearing rather than merely defensive. One crosses on the LOW side and one on
+# the HIGH side, because a single fixture only ever pins ONE of the two calls: where central is
+# below both extremes, `max(opt, pess, central)` and `max(opt, pess)` agree, so a fixture of that
+# shape leaves the `max` unpinned (and vice versa). Both are found by random search and pinned as
+# literals; the mechanism is real but neither window is one anybody would write by hand.
 #
-# Why it happens, since "the extremes bracket everything" is the natural expectation: each BILL
-# is bracketed, but the saving is `Σ(impA − impC)·p_import − Σ(expA − expC)·p_export_net`, which
-# is linear over a two-dimensional box of price vectors with FOUR corners. `_price_bracket`
-# evaluates only the two by-direction-of-flow corners — the right two for the worst-case ENVELOPE
-# of a bill — and on a window where the battery net-imports more than the baseline (here
-# `impA − impC ≈ −2.2 kWh`, a grid-charging window) a different corner is the extreme of the
-# DIFFERENCE, leaving the mean-priced figure outside the pair. Central here is −0.380 against
-# extremes of −0.597 and −0.460.
-_CROSS_QUARTERS = [
-    -0.044, 0.0139, -0.0151, 0.1829, 0.0189, 0.1434, 0.4037, 0.331,
-    0.0568, 0.114, 0.2426, 0.1388, -0.0489, 0.3173, 0.3842, 0.2168,
-    -0.024, 0.429, 0.3829, 0.4327, 0.0451, 0.1432, -0.0233, -0.0316,
-    0.0736, 0.0411, 0.0663, 0.0597, 0.0901, 0.2264, 0.4368, 0.191,
-    0.0941, 0.0274, 0.1775, 0.3332, 0.1113, 0.3846, 0.3236, 0.3978,
-    0.1701, 0.3624, 0.273, 0.1161, 0.4074, -0.0294, 0.3899, 0.404,
-    0.3093, 0.1199, -0.0484, 0.0232, 0.3135, 0.0176, 0.2214, 0.0306,
-    -0.0215, 0.2606, 0.29, 0.2218, 0.3257, 0.1205, 0.0373, 0.392,
-    -0.0008, 0.3299, 0.2893, 0.1177, -0.018, 0.3023, 0.3791, 0.1541,
-    0.2873, 0.2124, 0.1055, 0.2537, 0.4006, 0.0797, 0.4284, 0.1186,
-    0.352, 0.3162, 0.1604, 0.1332, 0.1396, 0.3355, 0.2445, 0.0951,
-    0.0683, 0.4113, 0.1618, 0.4136, 0.0991, 0.236, 0.2797, 0.1461,
+# **The mechanism is the feed-in floor, not the four-corner argument.** An earlier single fixture
+# here was built against the ORIGINAL, window-uniform envelope: bill every interval at `spot_min`,
+# or every one at `spot_max`. Those are two corners of a box the saving is linear over, so the
+# mean-priced figure could land outside them. `_price_bracket` no longer evaluates that pair — it
+# chooses the extreme PER INTERVAL on the sign of that interval's own flow difference, which is
+# the exact extremum of a separable sum. For the affine part of §6.5 the central figure therefore
+# cannot escape it, that fixture stopped crossing under the shipped code, and the premise
+# assertion went on passing because it recomputed the uniform corners rather than the shipped
+# ones. Both mutants survived the whole suite in that state.
+#
+# What remains is the one term that is NOT separable: §6.5's feed-in floor under
+# `FeedinFloorMode.MONTHLY` (appendix A's default), a window-level `max(0, −Σ export·c)`. The
+# per-interval pick optimises the separable part and can land on the wrong side of that clamp, so
+# the two evaluations are only a bound on the true envelope and the central figure — which sees
+# the clamp at the mean prices — can sit outside them in either direction.
+#
+# The clamp binds only where compensation is negative, which at appendix-A tariffs is spot below
+# about −0.02 EUR/kWh, so both fixtures carry mostly negative prices: an unusual but real day.
+
+# LOW-side crossing: central 0.2827 against extremes 0.3191 and 0.3466, both above it. Found with
+# numpy default_rng(5) over spot in [−0.20, 0.06].
+_CROSS_LOW_QUARTERS = [
+    -0.1509, -0.1762, 0.0503, -0.1862, -0.189, -0.0718, -0.1204, -0.1112,
+    -0.0848, 0.0268, -0.1082, -0.0863, -0.0619, -0.1793, -0.0814, -0.1681,
+    -0.111, -0.0208, -0.0624, -0.0238, -0.1937, -0.0608, -0.1271, -0.0259,
+    -0.0245, -0.1633, 0.0316, 0.0322, -0.1984, -0.1104, -0.164, 0.0449,
+    -0.0119, -0.1311, 0.0098, 0.0345, 0.0368, -0.1697, -0.1127, 0.0364,
+    -0.1178, -0.1092, -0.0261, -0.0837, -0.0097, -0.12, -0.1283, -0.1007,
+    -0.1395, -0.0491, -0.1755, -0.1086, -0.1314, -0.1598, -0.0693, 0.0017,
+    -0.0037, -0.0111, -0.0167, -0.1628, -0.0848, 0.033, 0.0413, -0.1515,
+    -0.0017, -0.1573, -0.1682, -0.1616, 0.0221, -0.0794, 0.0246, -0.1597,
+    0.0305, -0.0999, 0.0434, -0.1342, -0.0092, -0.1893, -0.0057, 0.0382,
+    0.0268, -0.0554, -0.0841, -0.0617, 0.0043, 0.0566, -0.1459, 0.0534,
+    -0.0132, -0.0984, 0.0536, -0.0889, 0.01, -0.0089, -0.1527, -0.0474,
 ]
-_CROSS_IMPORT = [
-    1.33, 0.61, 0.23, 2.41, 2.51, 1.09, 2.74, 2.43,
-    1.7, 1.34, 1.74, 1.52, 0.14, 1.98, 0.3, 0.28,
-    2.47, 0.65, 2.41, 1.64, 2.6, 1.42, 2.33, 1.78,
+_CROSS_LOW_IMPORT = [
+    0.58, 1.83, 0.15, 0.38, 2.89, 1.79, 2.04, 1.93,
+    1.08, 2.15, 1.11, 2.52, 0.1, 1.18, 1.4, 0.2,
+    2.72, 2.92, 1.94, 1.4, 0.7, 1.37, 1.64, 0.35,
 ]
-_CROSS_EXPORT = [
-    4.37, 4.48, 4.79, 1.91, 4.34, 2.22, 3.2, 5.76,
-    3.97, 5.83, 2.27, 4.6, 0.66, 1.52, 0.38, 5.77,
-    4.92, 2.93, 3.2, 1.92, 4.21, 4.58, 3.43, 5.75,
+_CROSS_LOW_EXPORT = [
+    3.72, 4.58, 0, 5.78, 5.77, 5.29, 0, 4.2,
+    5.89, 5.29, 0.61, 3.7, 2.43, 4.24, 3.72, 1,
+    3.8, 4.97, 2.64, 0.56, 3.51, 5.61, 1.3, 1.93,
 ]
-_CROSS_PV = [
-    1.85, 2.2, 5.82, 2.78, 6.62, 6.91, 0.51, 0.14,
-    3.44, 5.23, 7.67, 0.99, 6.23, 1.64, 6.54, 5.54,
-    7.33, 6.65, 0.83, 6.02, 6.62, 7.97, 4.5, 2.42,
+_CROSS_LOW_PV = [
+    0.63, 0.98, 3.26, 7.33, 7.44, 6.56, 4.9, 7.22,
+    0.8, 3.41, 4.99, 3.35, 2.63, 6.42, 6.76, 6.68,
+    4.39, 3.15, 5.91, 5.14, 4.92, 7.72, 0.08, 1.99,
+]
+
+# HIGH-side crossing: central 0.4921 against extremes 0.2410 and −0.1131, both below it. Found
+# with numpy default_rng(224) over spot in [−0.268, 0.196]. A wider price band than the low-side
+# fixture, and correspondingly a wider bracket (€0.30 against €0.03).
+_CROSS_HIGH_QUARTERS = [
+    0.1655, -0.2487, -0.1424, -0.2198, -0.0384, -0.1186, -0.2535, -0.1838,
+    0.1293, -0.149, 0.1697, -0.1026, 0.1323, 0.1163, -0.1274, 0.1427,
+    -0.2652, -0.1715, -0.1041, -0.0515, -0.1342, 0.122, 0.1167, 0.0015,
+    0.1599, 0.0888, 0.0546, -0.2564, -0.2647, -0.128, 0.1724, 0.1096,
+    -0.0114, 0.1512, -0.1487, 0.0567, -0.1399, -0.0523, -0.0871, 0.1089,
+    -0.079, 0.1298, -0.0226, -0.0527, 0.1669, 0.0346, -0.017, -0.0362,
+    -0.2429, -0.2561, 0.1818, 0.145, -0.07, -0.1282, -0.1412, 0.1238,
+    -0.0072, 0.0494, 0.1039, 0.0114, 0.0606, -0.0541, -0.2461, 0.1224,
+    -0.0558, 0.0099, 0.0325, -0.1954, 0.0436, -0.0847, -0.0769, 0.0545,
+    -0.0879, 0.1098, 0.1764, 0.0909, 0.111, -0.1188, 0.1481, -0.1797,
+    -0.0843, -0.203, -0.0025, -0.0391, -0.0056, -0.0665, 0.0516, -0.0912,
+    0.191, 0.0076, 0.1881, 0.1862, -0.0283, -0.1853, 0.1113, 0.0223,
+]
+_CROSS_HIGH_IMPORT = [
+    1.15, 0.52, 0.71, 0.24, 0.64, 0.94, 0.96, 0.08,
+    0.09, 1.08, 0.85, 0.76, 0.7, 0.22, 0.82, 0.43,
+    0.89, 0.41, 0.13, 0.72, 1.02, 1.2, 1.05, 0.61,
+]
+_CROSS_HIGH_EXPORT = [
+    4.47, 2.86, 0.1, 5.42, 3.36, 4.89, 1.25, 3.33,
+    1.41, 5.74, 1.5, 1.05, 2.78, 4.67, 6.46, 1.46,
+    4.48, 4.25, 5.14, 0.5, 6.54, 4.08, 2.1, 6.36,
+]
+_CROSS_HIGH_PV = [
+    7.77, 2.83, 2.26, 7.04, 3, 2.09, 1.3, 2.11,
+    5.79, 0.05, 3.93, 5.25, 2.16, 6.66, 7.63, 6.49,
+    5.27, 0.23, 4.03, 1.43, 3.19, 0.44, 0.73, 3.44,
 ]
 
 
-def _crossing_dataset():
+def _crossing_dataset(side: str):
+    """The crossing fixture for one side of the band; `side` is "low" or "high"."""
+    q, imp, exp, pv = {
+        "low": (_CROSS_LOW_QUARTERS, _CROSS_LOW_IMPORT, _CROSS_LOW_EXPORT, _CROSS_LOW_PV),
+        "high": (_CROSS_HIGH_QUARTERS, _CROSS_HIGH_IMPORT, _CROSS_HIGH_EXPORT, _CROSS_HIGH_PV),
+    }[side]
     return _dataset([
-        _energy("grid_import_t1", _CROSS_IMPORT),
-        _energy("grid_export_t1", _CROSS_EXPORT),
-        _energy("solar_production", _CROSS_PV),
-        _price_15min("price_spot", _CROSS_QUARTERS),
+        _energy("grid_import_t1", imp),
+        _energy("grid_export_t1", exp),
+        _energy("solar_production", pv),
+        _price_15min("price_spot", q),
     ])
 
 
-def test_the_band_still_contains_the_headline_when_the_two_extremes_do_not():
-    """The ordering is NOT free — it is bought by sorting all three evaluations.
+def _shipped_extremes(ds, cfg):
+    """Re-derive `_price_bracket`'s TWO extreme evaluations the way the shipped code does.
 
-    On this window the mean-priced saving lies above BOTH extreme evaluations (see the comment
-    on the fixture for why a two-corner evaluation of a four-corner box can do that). Assigning
-    `saved_low`/`saved_high` to the two extremes would then publish a band that does not contain
-    the figure printed beside it, and a caveat reading "±€X" around a number outside its own
-    band is worse than no caveat.
-
-    Mutation test: removing `saved_central` from `_price_bracket`'s `min`/`max` fails it. It is
-    the only test that does, which is why the fixture is pinned rather than left to a search.
+    Deliberately a re-derivation of the PER-INTERVAL envelope rather than of the window-uniform
+    corners. The premise of the test below is about the pair `_price_bracket` actually sorts, so
+    computing anything else lets the premise pass on a window the shipped code does not cross on
+    — which is exactly how this test came to assert nothing while both mutants survived.
     """
     from app.domain.costs import compute_costs
     from app.domain.pricing import price_curves
     from app.domain.simframe import simulation_frame
     from app.domain.simulate import run_all
-
-    ds = _crossing_dataset()
-    cfg = _qh_cfg()
-    r = results_from(ds, (_WIN_START, _WIN_END), cfg=cfg)
-    assert r is not None
-    pb = r["price_bracket"]
-    assert pb is not None
 
     frame = simulation_frame(ds, (_WIN_START, _WIN_END))
     runs = run_all(frame, cfg)
@@ -2579,19 +2627,80 @@ def test_the_band_still_contains_the_headline_when_the_two_extremes_do_not():
         a = (p_import, p_export_net, compensation, frame.index, cfg.pricing)
         return compute_costs(runs.a, *a).eur - compute_costs(runs.c, *a).eur
 
-    extremes = [_saved(lo.p_import, hi.p_export_net, hi.compensation),
-                _saved(hi.p_import, lo.p_export_net, lo.compensation)]
-    central = r["cost"]["saved_eur"]
-    # The premise: the fixture really does put the headline outside the two extremes. If a
-    # change to the dispatch or to §6.5 ever makes this false, the test below stops testing
-    # anything and this assertion says so rather than passing quietly.
-    assert not (min(extremes) <= central <= max(extremes)), \
-        "fixture no longer exhibits the crossing case; the assertion below would be vacuous"
+    d_imp = np.asarray(runs.a.imp, dtype=np.float64) - np.asarray(runs.c.imp, dtype=np.float64)
+    d_exp = np.asarray(runs.a.exp, dtype=np.float64) - np.asarray(runs.c.exp, dtype=np.float64)
+    optimistic = _saved(
+        np.where(d_imp > 0, hi.p_import, lo.p_import),
+        np.where(d_exp > 0, lo.p_export_net, hi.p_export_net),
+        np.where(d_exp > 0, lo.compensation, hi.compensation),
+    )
+    pessimistic = _saved(
+        np.where(d_imp > 0, lo.p_import, hi.p_import),
+        np.where(d_exp > 0, hi.p_export_net, lo.p_export_net),
+        np.where(d_exp > 0, hi.compensation, lo.compensation),
+    )
+    return optimistic, pessimistic
 
-    # What the bracket must nevertheless guarantee.
-    assert pb.saved_low <= pb.saved_central <= pb.saved_high
+
+@pytest.mark.parametrize("side", ["low", "high"])
+def test_the_band_still_contains_the_headline_when_the_two_extremes_do_not(side):
+    """§6.16 fixture 10, in its STRICT case — the ordering is not free.
+
+    `saved_low <= saved_central <= saved_high` is bought by sorting all THREE evaluations. On
+    each of these windows the mean-priced saving lies outside both of the extreme evaluations
+    `_price_bracket` performs — below both on the "low" fixture, above both on the "high" one
+    (see the comment on the fixtures: §6.5's feed-in floor is a window-level clamp and therefore
+    not separable, so the per-interval envelope is only a bound on the true one). Assigning
+    `saved_low`/`saved_high` to the two extremes would publish a band that does not contain the
+    figure printed beside it, and a caveat reading "±€X" around a number outside its own band is
+    worse than no caveat.
+
+    Structure matters here as much as the assertions. The PREMISE — that the fixture really does
+    straddle-fail — is asserted first, re-derived from the shipped per-interval envelope; the
+    CONTAINMENT is the conclusion. A test asserting only the containment passes against a
+    `min`/`max` that never saw `saved_central`.
+
+    Mutation-checked: dropping `saved_central` from `_price_bracket`'s `min(...)` fails the
+    "low" case, and dropping it from the `max(...)` fails the "high" case. Both parameters are
+    needed — each mutant is invisible on the other side's fixture.
+    """
+    ds = _crossing_dataset(side)
+    cfg = _qh_cfg()
+    r = results_from(ds, (_WIN_START, _WIN_END), cfg=cfg)
+    assert r is not None
+    pb = r["price_bracket"]
+    assert pb is not None
+
+    optimistic, pessimistic = _shipped_extremes(ds, cfg)
+    lo_e, hi_e = min(optimistic, pessimistic), max(optimistic, pessimistic)
+    central = r["cost"]["saved_eur"]
+
+    # The premise, and it is asserted per SIDE rather than as a plain "outside the pair": a
+    # low-side fixture that drifted into crossing high would satisfy a side-agnostic premise
+    # while leaving the `min` call unpinned. If a change to the dispatch or to §6.5 makes either
+    # false, the conclusions below stop testing anything and this says so rather than passing.
+    if side == "low":
+        assert central < lo_e, \
+            "fixture no longer crosses on the low side; the assertions below would be vacuous"
+    else:
+        assert central > hi_e, \
+            "fixture no longer crosses on the high side; the assertions below would be vacuous"
+
+    # What the bracket must nevertheless guarantee. The two bounds are asserted separately, so a
+    # failure names which end of the sort lost `saved_central`.
+    assert pb.saved_low <= pb.saved_central
+    assert pb.saved_central <= pb.saved_high
     assert pb.saved_central == central
     assert pb.width_eur >= 0
+
+    # And the crossing end must be the CENTRAL figure itself, not an extreme — the assertion the
+    # corresponding mutant actually trips. The other end stays the extreme it was.
+    if side == "low":
+        assert pb.saved_low == central
+        assert pb.saved_high == hi_e
+    else:
+        assert pb.saved_high == central
+        assert pb.saved_low == lo_e
 
 
 # ── §6.16 step 4: the caveat that prints the width ───────────────────────────────────────────
@@ -2749,6 +2858,52 @@ def test_a_width_that_would_print_as_zero_euros_is_not_stated_at_all():
     # The number IS available — this is a display decision, not a computation one.
     assert pb is not None and 0 < pb.width_eur <= WATERFALL_DISPLAY_EPS_EUR
     assert _uncertainty_caveat(r) is None
+
+
+def test_a_width_of_exactly_the_display_threshold_is_suppressed_too(monkeypatch):
+    """The gate is `> WATERFALL_DISPLAY_EPS_EUR`, so a width of exactly €0.50 prints nothing.
+
+    Not a fencepost detail: `num(_, "eur")` rounds half-to-even, so 0.5 renders as "€ 0" like
+    everything below it, and a `>=` gate would emit the one sentence the suppression exists to
+    prevent. The code comment at the gate says so; nothing asserted it, and the `>=` mutant
+    survived the whole suite.
+
+    Patched rather than driven from a fixture. The boundary IS reachable unpatched — scaling each
+    quarter's deviation from its own hour's mean by 0.2035372163776674 makes `width_eur` exactly
+    0.5 — but not robustly: that landing holds over a basin of about 21 ULPs of the scale, so it
+    depends on the summation order inside `compute_costs` and `price_curves` and is not evidence
+    it survives a numpy version bump or a different platform. A boundary test pinned to a value
+    that fragile would be a latent flake, so the value is supplied directly. Patching
+    `_price_bracket` is the same seam `_share_pct` is pinned through above, and for the same
+    reason; the assertion is about the DISPLAY gate, and the number it gates on is an input to
+    that decision.
+
+    Both sides are asserted, so a gate that suppressed everything would not pass either.
+    """
+    import app.results_view as rv
+    from app.results_view import PriceBracket
+
+    def _fixed(width: float):
+        def _stub(cfg, frame, runs, saved_central):
+            return PriceBracket(
+                width_eur=width,
+                bracketed_fraction=1.0,
+                saved_low=saved_central - width,
+                saved_central=saved_central,
+                saved_high=saved_central + width,
+            )
+        return _stub
+
+    monkeypatch.setattr(rv, "_price_bracket", _fixed(WATERFALL_DISPLAY_EPS_EUR))
+    at = results_from(_bracket_dataset(), (_WIN_START, _WIN_END), cfg=_qh_cfg())
+    assert at is not None and at["price_bracket"].width_eur == WATERFALL_DISPLAY_EPS_EUR
+    assert _uncertainty_caveat(at) is None
+
+    # One ULP above, and the caveat appears — which is what stops the assertion above from
+    # passing against a gate that never fires.
+    monkeypatch.setattr(rv, "_price_bracket", _fixed(np.nextafter(WATERFALL_DISPLAY_EPS_EUR, 1.0)))
+    above = results_from(_bracket_dataset(), (_WIN_START, _WIN_END), cfg=_qh_cfg())
+    assert _uncertainty_caveat(above) is not None
 
 
 def _mostly_bracketed_prices(flat_hours: set[int]) -> list[float]:
