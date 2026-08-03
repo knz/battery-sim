@@ -32,6 +32,7 @@ from app.domain.simconfig import (
     PolicyConfig,
     PvCoupling,
     SimulationConfig,
+    SupplierSettlement,
     TlkMode,
 )
 
@@ -843,6 +844,59 @@ def test_fixed_and_variable_are_pending_and_dynamic_is_not():
     for key in ("fixed", "variable"):
         assert by_key[key]["pending"] is True
         assert features.is_known(by_key[key]["feature_key"])
+
+
+def _settlements(cfg) -> list[dict]:
+    """The supplier-settlement radios as the edit screen offers them."""
+    from app import workspace_edit_view
+
+    return workspace_edit_view.edit_view(cfg, "Our house")["settlements"]
+
+
+def test_the_settlement_radios_offer_both_answers_with_hourly_preselected():
+    """Neither member is pending, unlike the two selectors beside it — both are implemented.
+
+    So there is no `feature_key` to check and nothing is disabled; what matters is that the
+    shipped config comes back with appendix A's `hourly` marked, since that is the answer that
+    leaves §6.16's caveat suppressed.
+    """
+    by_key = {s["key"]: s for s in _settlements(SimulationConfig(simulate_cost=True))}
+    assert set(by_key) == {"hourly", "quarter_hourly"}
+    assert by_key["hourly"]["selected"] is True
+    assert by_key["quarter_hourly"]["selected"] is False
+    assert all("pending" not in s and "feature_key" not in s for s in by_key.values())
+
+
+def test_a_stored_quarter_hourly_settlement_is_reported_as_selected():
+    """The round-trip half: what is stored is what the screen shows, not the default."""
+    cfg = SimulationConfig(simulate_cost=True)
+    cfg.pricing.supplier_settlement = SupplierSettlement.QUARTER_HOURLY
+    selected = [s for s in _settlements(cfg) if s["selected"]]
+    assert [s["key"] for s in selected] == ["quarter_hourly"]
+
+
+def test_the_settlement_radio_parses_and_an_absent_group_keeps_the_stored_answer():
+    """`parse_form` reads the radio, and a submission without it inherits rather than resets.
+
+    The `in form` guard is what makes the second half true. A radio group with a checked default
+    always submits from the real screen, so absence means a partial POST — and a partial POST
+    must not silently rewrite an answer the user gave on a screen it did not carry.
+    """
+    cfg = params_view.parse_form(
+        _cost_form(**{"pricing.supplier_settlement": "quarter_hourly"})
+    )
+    assert cfg.pricing.supplier_settlement is SupplierSettlement.QUARTER_HOURLY
+
+    stored = SimulationConfig(simulate_cost=True)
+    stored.pricing.supplier_settlement = SupplierSettlement.QUARTER_HOURLY
+    kept = params_view.parse_form(_cost_form(), base=stored)
+    assert kept.pricing.supplier_settlement is SupplierSettlement.QUARTER_HOURLY
+
+    # An unrecognised value keeps the stored answer too — `_enum_or_keep`, not a default.
+    bad = params_view.parse_form(
+        _cost_form(**{"pricing.supplier_settlement": "per_second"}), base=stored
+    )
+    assert bad.pricing.supplier_settlement is SupplierSettlement.QUARTER_HOURLY
 
 
 def test_tiered_terugleverkosten_is_pending_and_flat_is_not():

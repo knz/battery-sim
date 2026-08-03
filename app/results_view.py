@@ -39,7 +39,8 @@ pipeline sits alongside the energy one and never inside it:
     compute_costs    →  runs A and C billed under §6.10 (a MARGINAL bill — fixed costs excluded)
     waterfall        →  §6.10's eight-line decomposition of the difference
     (here)           →  the MONEY SAVED tile, the money benchmark box, "Where the money comes
-                        from", the monthly euro series, and the euro caveats
+                        from", the monthly euro series, the §6.16 uncertainty width (reported as
+                        a caveat — D5′ — beside the price-granularity one), and the euro caveats
 
 **`cost` is emitted or it is absent — never an object of null fields** (§4.5, which singles out
 "a `waterfall` array of eight null-valued entries, which would invite a template to render eight
@@ -65,8 +66,20 @@ What is NOT emitted this increment (later phases):
     metrics layer does not own yet; omitted rather than guessed.
   * annualisation — a short-window run (< min_annualisation_days) sets `annualisation_disabled`
     with a message so the template can show the §2.4 info box; nothing is annualised here anyway.
-  * §6.16's price bracketing and §6.13's euro-basis resolution bias — both cost-only §4.5 fields,
-    neither of which has a domain-layer implementation to render.
+  * §6.13's euro-basis resolution bias — a cost-only §4.5 field with no domain-layer
+    implementation to render.
+
+**§6.16's pricing-uncertainty width is computed here** (`_price_bracket`, `PriceBracket`). It is
+one dispatch billed three times — at the grid interval's cheapest native price, at its dearest,
+and at the mean — which bounds how far the saving could be off given that hourly energy data
+cannot say when inside an hour the energy moved. It is a top-level `price_bracket` key, NOT a
+`cost.price_bracket` block: the decision (changelog D5′) was to report only the WIDTH as a
+caveat, so §4.5's `cost` object is untouched and no figure already on screen moves. `None` when
+the supplier bills the hourly mean (D10 — the hourly price is then what the household paid) or
+when no interval carries a spread. The caveat that prints it (in `_caveats`' section below) is
+scoped to the SAVING figure and to nothing else on the page: all three evaluations are
+differences of two bills, so the width bounds the difference, while each individual bill — which
+the KPI sentence and the waterfall also show — moves by MORE than the stated width.
 
 The view-model also carries a `data_summary` key: the §2.3a "Your data at a glance" figures repeated
 inside panel ③ but computed over the SELECTED window (spot price clamped to it too), rendered from
@@ -156,6 +169,7 @@ Main items:
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
@@ -179,11 +193,11 @@ from app.domain.reconcile import (
     ReconciledGrid,
     reconcile_grid,
 )
-from app.domain.simconfig import SimulationConfig
+from app.domain.simconfig import SimulationConfig, SupplierSettlement
 from app.domain.simframe import simulation_frame
 from app.domain.simulate import run_all
 from app.data_view import _fmt_res, _res_msg
-from app.i18n import msg as _msg, msg_n as _msg_n, num
+from app.i18n import format_num, msg as _msg, msg_n as _msg_n, num
 from app.sample_data import _N
 from app.summary_view import data_summary_from
 
@@ -961,6 +975,239 @@ def _cost_block(
     }
 
 
+@dataclass(frozen=True)
+class PriceBracket:
+    """§6.16's pricing-uncertainty width over one window — how far off the saving could be.
+
+    The question it answers: hourly energy data cannot say WHEN inside an hour the kWh moved,
+    so when the supplier bills each quarter-hour at its own cleared price, the same dispatch
+    could have been billed anywhere between the hour's cheapest and dearest quarter. This is
+    the size of that band, in euros.
+
+        width_eur     `(saved_high − saved_low) / 2`, i.e. the ± half-width the caveat prints.
+                      Always ≥ 0 (see the ordering note below). Zero when nothing is bracketed.
+        bracketed_fraction   the share of PRICED intervals (those with a non-NaN spot) whose
+                      `spot_max > spot_min`. Distinguishes "no uncertainty at all" (0.0 — the
+                      price was natively at grid resolution everywhere) from "uncertainty over
+                      part of the window" (e.g. 0.6 on a window straddling 2025-10-01, when
+                      EPEX moved to quarter-hourly settlement). The caveat text needs the
+                      difference; the width alone cannot express it.
+        saved_low / saved_central / saved_high   the three evaluations, INTERNAL. D5′ reports
+                      only the width: over seven synthetic price shapes the endpoints were a
+                      true worst-case envelope but a poor uncertainty estimate — three had a
+                      width exceeding the central estimate and two went negative at the low
+                      end, which reads as "you might lose money" when it means no such thing.
+                      Carried anyway so tests can pin the ordering, which is the property the
+                      construction is designed to give.
+
+    **The split of min/max prices is BY DIRECTION OF FLOW.** cost = import·p_import −
+    export·p_export_net, so billing imports at the hour's cheapest price AND crediting exports
+    at its dearest minimises a bill, and the reverse maximises it. An earlier prototype split
+    by "charging vs everything else" instead, which does not have that property; it is recorded
+    in the changelog because it nearly drove the wrong conclusion.
+
+    **The envelope is chosen PER INTERVAL, because a bounded BILL is not a bounded SAVING.**
+    Each of `cost(A)` and `cost(C)` is genuinely bracketed by billing the whole window at one
+    extreme. Their DIFFERENCE is not. The saving is
+    `Σᵢ (impAᵢ − impCᵢ)·p_importᵢ − Σᵢ (expAᵢ − expCᵢ)·p_export_netᵢ`, which is SEPARABLE, so its
+    extremum picks each interval's price on the sign of that interval's own flow difference. A
+    window-uniform extreme evaluates only a corner of the price box, and on a window mixing
+    grid-charging intervals (`impA − impC < 0`) with import-cutting ones the two corners cancel
+    against each other. In the symmetric limit they cancel exactly — a measured four-hour case
+    with equal spreads and alternating flow signs reported a width of €0.00 against a true
+    envelope of ±€0.48, i.e. "no uncertainty" printed exactly where uncertainty is largest.
+    Sign-alternating windows are not exotic: 182 of 200 realistic windows contain both.
+
+    **The three evaluations are still sorted, with the central figure taking part.** The
+    per-interval choice is exact for the affine part of §6.5 (`price_curves` is affine and
+    monotone in spot for every shipped configuration), but `compute_costs` also carries the
+    feed-in floor top-up, which under `FeedinFloorMode.MONTHLY` is a WINDOW-level `max(0, ...)`
+    and so is not separable. Where that floor binds, the greedy per-interval pick can fall short
+    of the true extremum — measured only when spot straddles the binding boundary, and it errs by
+    UNDER-stating. Sorting makes `saved_low ≤ saved_central ≤ saved_high` and `width_eur ≥ 0`
+    hold unconditionally rather than only where the floor is slack, and costs nothing.
+
+    So the number is a worst case over intra-interval price placement, exact where the floor is
+    slack and a lower bound where it binds. `test_the_band_still_contains_the_headline_when_the_
+    two_extremes_do_not` pins the containment invariant on a window that violated it under the
+    superseded corner-based construction.
+
+    This is a WORST CASE and the caveat says so (D9). A statistically typical error would be
+    far narrower, since errors across thousands of hours partially cancel — but claiming that
+    needs an independence assumption that household load does not satisfy (load has strong
+    intra-hour structure and battery charging is deliberately timed). Not attempted.
+    """
+
+    width_eur: float
+    bracketed_fraction: float
+    saved_low: float
+    saved_central: float
+    saved_high: float
+
+
+def _price_bracket(
+    cfg: SimulationConfig,
+    frame,
+    runs,
+    saved_central: float,
+) -> PriceBracket | None:
+    """§6.16's width, from THREE COST EVALUATIONS OVER ONE UNCHANGED DISPATCH.
+
+    Nothing here re-runs the simulation. `runs.a` and `runs.c` are the flows the central figure
+    was billed from, and they are re-billed at two other price vectors — which is the whole
+    design: the uncertainty being measured is about the PRICE the household was charged, not
+    about what the battery would have done, and a second dispatch would conflate the two. It
+    also keeps fixture 18 structural: like the rest of this section, this runs after `run_all`
+    and feeds nothing back into it.
+
+    Returns None — not a zero-width bracket — when the width is not a meaningful quantity:
+
+      * the supplier bills the HOURLY mean (D10). The hourly price is then exactly what the
+        household paid, and there is no uncertainty to report at all. This is appendix A's
+        default and most Dutch dynamic contracts today.
+      * no interval carries a spread: `spot_max == spot_min` everywhere. That is the natively
+        hourly case (§6.16's D1/D2) — the intra-hour variation is unobservable rather than
+        absent, and reporting "±€0" would assert it was absent.
+      * the window has no priced interval at all (every `spot` NaN), which reaches the same
+        `nanmax` of an empty selection and is handled by the same guard.
+
+    None rather than a zero: a caller can then tell "we know the width and it is nothing" from
+    "the width is not a thing we can state", and the caveat in the next step suppresses itself
+    on the None rather than printing a confident zero.
+    """
+    if not cfg.simulate_cost:
+        return None
+    if cfg.pricing.supplier_settlement != SupplierSettlement.QUARTER_HOURLY:
+        return None
+
+    spot_min = np.asarray(frame.spot_min, dtype=np.float64)
+    spot_max = np.asarray(frame.spot_max, dtype=np.float64)
+    spread = spot_max - spot_min
+    # NaN discipline. `spread` is NaN exactly where `spot` was (step 1 guarantees `spot_min` and
+    # `spot_max` are NaN on precisely those intervals), so `np.nanmax` over an ALL-NaN window
+    # both warns and returns NaN — and `NaN > 0` is False, which would silently take the "no
+    # spread" branch for the right reason but by accident. The explicit `priced` count makes the
+    # empty case a decision rather than an IEEE side effect, and keeps the fraction's denominator
+    # from being zero.
+    priced = np.count_nonzero(~np.isnan(spread))
+    if priced == 0:
+        return None
+    bracketed = int(np.count_nonzero(spread > 0))
+    if bracketed == 0:
+        return None
+
+    # ── The two extreme price vectors ────────────────────────────────────────────────────────
+    #
+    # **This looks like a bug and is not.** `price_curves` builds all four arrays from ONE spot
+    # array, but the bracket needs the IMPORT side priced off one spot vector and the EXPORT
+    # side off the other — that is the by-direction-of-flow split `PriceBracket` documents. So
+    # each extreme is assembled from TWO curve sets, taking `p_import` from one and
+    # `p_export_net` / `compensation` from the other. Reading a single line in isolation
+    # ("optimistic imports come from the min curves, optimistic exports from the MAX curves")
+    # is what makes it look transposed; the pairing is the point.
+    #
+    # Both spot vectors are run through the full §6.5 curve construction rather than having the
+    # bracket applied to the finished prices, because the contract's markup, energy tax, VAT and
+    # terugleverkosten are not all affine in spot for every configuration — deriving the extreme
+    # curves from the extreme SPOT is the only construction that stays correct if §6.5 gains a
+    # non-linear term.
+    lo_curves = price_curves(cfg.pricing, spot_min)   # cheap energy
+    hi_curves = price_curves(cfg.pricing, spot_max)   # dear energy
+
+    def _saved(p_import, p_export_net, compensation) -> float:
+        """cost(A) − cost(C) at one price vector, on the flows already computed."""
+        args = (p_import, p_export_net, compensation, frame.index, cfg.pricing)
+        return compute_costs(runs.a, *args).eur - compute_costs(runs.c, *args).eur
+
+    # ── The envelope is chosen PER INTERVAL, not by picking a corner of the price box ─────────
+    #
+    # This is the crux, and the first implementation got it wrong in a way that mattered. The
+    # saving is
+    #       Σᵢ (impAᵢ − impCᵢ)·p_importᵢ  −  Σᵢ (expAᵢ − expCᵢ)·p_export_netᵢ
+    # which is SEPARABLE: each interval contributes independently, so the extremum over the price
+    # box picks each interval's price on the sign of THAT interval's flow difference. Billing the
+    # whole window at `spot_min` (and the reverse) evaluates just two of the box's corners — the
+    # right pair for a single BILL, but not for a DIFFERENCE of bills.
+    #
+    # The difference is not academic. Where the battery grid-charges, `impA − impC` is negative
+    # and that interval wants the OPPOSITE extreme from an interval where the battery cuts import.
+    # A window mixing the two — 182 of 200 realistic windows do — has the uniform corners cancel
+    # against each other. In the symmetric limit they cancel exactly: a measured case with four
+    # equal-spread hours and alternating flow signs reported a width of €0.00 against a true
+    # envelope of ±€0.48. That is the caveat printing "no uncertainty" exactly where uncertainty
+    # is largest, which is the one failure mode a worst-case claim must not have.
+    #
+    # Costs two np.where passes over arrays already in hand — no extra `price_curves` calls, no
+    # extra simulation, and the one-dispatch constraint is untouched.
+    #
+    # Sign convention: the export term is SUBTRACTED, so an interval with `d_exp > 0` wants the
+    # LOW export price to maximise the saving. The four `np.where`s below are not copy-paste
+    # variants of each other; the export pair is deliberately mirrored relative to the import pair.
+    d_imp = np.asarray(runs.a.imp, dtype=np.float64) - np.asarray(runs.c.imp, dtype=np.float64)
+    d_exp = np.asarray(runs.a.exp, dtype=np.float64) - np.asarray(runs.c.exp, dtype=np.float64)
+
+    hi_import = np.where(d_imp > 0, hi_curves.p_import, lo_curves.p_import)
+    lo_import = np.where(d_imp > 0, lo_curves.p_import, hi_curves.p_import)
+    hi_export = np.where(d_exp > 0, lo_curves.p_export_net, hi_curves.p_export_net)
+    lo_export = np.where(d_exp > 0, hi_curves.p_export_net, lo_curves.p_export_net)
+    hi_comp = np.where(d_exp > 0, lo_curves.compensation, hi_curves.compensation)
+    lo_comp = np.where(d_exp > 0, hi_curves.compensation, lo_curves.compensation)
+
+    saved_optimistic = _saved(hi_import, hi_export, hi_comp)
+    saved_pessimistic = _saved(lo_import, lo_export, lo_comp)
+
+    # Sorted, with `saved_central` taking part. The per-interval choice above is exact for the
+    # affine part of §6.5 — `price_curves` is affine and monotone in spot for every shipped
+    # configuration — but `compute_costs` also carries the §6.5 feed-in floor top-up, which under
+    # `FeedinFloorMode.MONTHLY` is a WINDOW-level `max(0, ...)` and therefore not separable. Where
+    # that floor binds, the greedy per-interval pick can fall short of the true extremum (measured:
+    # only when spot straddles the binding boundary, and it errs by UNDER-stating). Sorting keeps
+    # the two invariants the caveat depends on — a non-negative width whose band contains the
+    # headline figure — true unconditionally rather than only where the floor is slack.
+    saved_low = min(saved_optimistic, saved_pessimistic, saved_central)
+    saved_high = max(saved_optimistic, saved_pessimistic, saved_central)
+    return PriceBracket(
+        width_eur=(saved_high - saved_low) / 2.0,
+        bracketed_fraction=bracketed / priced,
+        saved_low=saved_low,
+        saved_central=saved_central,
+        saved_high=saved_high,
+    )
+
+
+def _share_pct(fraction: float) -> dict:
+    """Format `bracketed_fraction` for the §6.16 caveat, keeping a small share visible.
+
+    The partial branch of that caveat fires for anything below 0.95, so the value spans nearly
+    the whole 0..1 range, and no ONE `_NUM_KINDS` entry is right across it. `"pct"` rounds to a
+    whole percent, which prints "0%" for a 365-day window carrying three spread hours (fraction
+    0.00034) — a sentence that says "for 0% of the priced hours … that shifts the saving by € 2"
+    contradicts itself. `"pct_dec2"` everywhere fixes that but writes an ordinary half-window
+    straddle as "50.00%", two digits of precision the interval count does not carry meaning to
+    and which reads as a measurement rather than a share.
+
+    A single `"#,##0.##"` pattern (trailing zeros suppressed) would fix both ends — "0.03%" and
+    "50%" — and was rejected because it writes 22 of 24 hours as "91.67%", which is worse than
+    "92%" for the same reason: the value is a ratio of small integers and the extra digits assert
+    a precision it does not have.
+
+    So: whole percent where the value survives that rounding, two decimals where it does not.
+    Both kinds already exist and are documented for exactly these two cases (`pct_dec2`'s
+    docstring names "a share too small to survive rounding to a whole percent"); no new kind is
+    introduced.
+
+    The test for "survives the rounding" is to RENDER it and look, rather than to compare against
+    a 0.005 cut. `#,##0` rounds half-to-even, so 0.005 itself prints "0%" and a `>= 0.005` cut
+    would let exactly that value through — the one case the whole helper exists to catch. The
+    rendering is locale-dependent only in its separators, never in whether the digits are all
+    zero, so checking one locale settles it for both.
+    """
+    whole = num(fraction, "pct")
+    if any(ch.isdigit() and ch != "0" for ch in format_num(whole["num"], whole["fmt"], "en")):
+        return whole
+    return num(fraction, "pct_dec2")
+
+
 def _cost_benchmark_block(bench, cfg: SimulationConfig) -> dict:
     """§2.4's "Benchmark: money saved" box, from the §6.12 COST block (run E).
 
@@ -1292,6 +1539,7 @@ def results_from(
     cost: dict | None = None
     cost_bench: CostBenchmark | None = None
     monthly_saved_eur: list[float] | None = None
+    price_bracket: PriceBracket | None = None
     if frame is not None and frame.intervals > 0:
         # `rec` and `frame` come from the same reconcile_grid over the same window, so `pv_mask`
         # (built against `rec`) indexes `frame`'s arrays too — same length, same interval starts.
@@ -1342,6 +1590,12 @@ def results_from(
             monthly_saved_eur = _monthly_saved_eur(
                 rec, _per_interval_bill(runs.a) - _per_interval_bill(runs.c)
             )
+            # §6.16's pricing-uncertainty width: the same dispatch, billed at the hour's
+            # cheapest and dearest native price points. Passed the CENTRAL saving that
+            # `_cost_block` just published, so the band is guaranteed to contain the figure on
+            # screen rather than a re-derivation of it. None when there is no width to state —
+            # hourly settlement, or no intra-interval spread anywhere. See `_price_bracket`.
+            price_bracket = _price_bracket(cfg, frame, runs, cost_a.eur - cost_c.eur)
         # §6.12's perfect-foresight DP — ONLY when the caller asked for it. Runs A and C are
         # passed in rather than re-run, so the policy saving inside the benchmark block is the
         # SAME number the KPI tile shows.
@@ -1576,8 +1830,9 @@ def results_from(
     # text is the msgid; the figures ride alongside and are substituted after translation
     # (_msg's docstring, and templates/_msg.html).
     #
-    # Order: reconstruction reliability, price granularity, then the run-specific notes (negative
-    # saving, SoC drift, self-sufficiency clamp), then the standing note stating the parameter set.
+    # Order: reconstruction reliability, price granularity (and the §6.16 pricing-uncertainty width,
+    # which is the same fact stated in euros), then the run-specific notes (negative saving, SoC
+    # drift, self-sufficiency clamp), then the standing note stating the parameter set.
     caveats: list[dict] = []
     if rec.clamped_frac > CLAMP_UNRELIABLE_FRAC:
         caveats.append(_msg(
@@ -1637,6 +1892,88 @@ def results_from(
             native=native,
             res=res_msg,
         ))
+    # §6.16's pricing-uncertainty width (D5′, D9). Placed HERE, right after the price-granularity
+    # caveat, because the two are the same fact read on two sides: that one says the DISPATCH acted
+    # on an averaged price, this one says the BILL is uncertain by a stated amount for the same
+    # reason. Emitted before the run-specific notes so the pair stays adjacent, and it does not wait
+    # for the euro block below because it belongs beside its sibling rather than beside the tariff
+    # notes. `price_bracket` is already None whenever this must not appear at all — cost simulation
+    # off, hourly settlement (D10), or no intra-interval spread anywhere — so this `is not None` is
+    # the whole gate; see `_price_bracket`.
+    if price_bracket is not None:
+        # `num(_, "eur")` prints WHOLE euros (`_NUM_KINDS`, deliberately: appendix A's 2027 tariffs
+        # do not support a figure to the cent). So a width under half a euro would print "€ 0" —
+        # a sentence claiming a worst case of nothing, which is exactly what D5′'s None-not-zero
+        # rule exists to avoid saying. Suppressed on the same rounding the pattern applies, the way
+        # `WATERFALL_DISPLAY_EPS_EUR` drops a row that would print "€ 0"; `<=` because a width of
+        # exactly 0.5 rounds half-to-even to "€ 0" as well.
+        if price_bracket.width_eur > WATERFALL_DISPLAY_EPS_EUR:
+            # WORDING, and every clause of it is load-bearing:
+            #
+            #  * "worst case" (D9). The number is the extreme over where inside each hour the
+            #    energy sat, not a typical error. A typical error would be far narrower, because
+            #    errors across thousands of hours partially cancel — but the independence that
+            #    claim needs is not supportable (household load has strong intra-hour structure and
+            #    battery charging is deliberately timed), so the narrower figure is not offered.
+            #    "give or take" or "±  typically" would assert exactly what was not established.
+            #  * It bounds HOW FAR OFF THE SAVING COULD BE, and says SAVING rather than "the euro
+            #    figures on this page". The scope matters and the narrower claim is the true one:
+            #    `width_eur` is `(saved_high − saved_low)/2`, and all three evaluations are
+            #    DIFFERENCES of two bills. Each individual bill — also on this page, in the KPI
+            #    sentence and in the waterfall rows — moves by MORE than that, because the two
+            #    bills' errors partly cancel in the difference (measured on the `_bracket_dataset`
+            #    fixture: width €2.46, against a half-range of €2.72 on the battery bill alone).
+            #    A sentence sold as a worst case must not be an understatement of what it names, so
+            #    it names only the quantity the number actually bounds.
+            #  * It is deliberately NOT written as "your saving is X ± Y". The width can exceed the
+            #    saving itself (measured: three of seven synthetic scenarios, and the one-day test
+            #    fixture gives €2.46 against a saving of €0.45), which a ± phrasing renders as
+            #    absurd, and which a reader would reasonably take as "so I might lose money" — a
+            #    much stronger claim than a worst-case bound on the PRICING supports. Naming the
+            #    saving as the thing that SHIFTS keeps that separation: it states a displacement,
+            #    not an interval around the figure.
+            #  * The reason is given in the user's terms — their data is hourly, the market moves
+            #    every 15 minutes — rather than as "spot_max − spot_min".
+            width = num(price_bracket.width_eur, "eur")
+            # The fraction counts INTERVALS with a spread, not energy and not euros, so the copy
+            # says "hours", never "of the saving" or "of your electricity". Two wordings rather
+            # than a substituted phrase, for the reason the SoC-drift pair above gives.
+            #
+            # BOTH wordings say PRICED hours. The denominator of `bracketed_fraction` is priced
+            # intervals, so a window that is half unpriced and half spread-carrying has a fraction
+            # of exactly 1.0 and takes the whole-window branch — where "every hour" would claim
+            # something about hours that carry no price at all. "every priced hour" is the same
+            # length and reads no worse, so the common branch carries the qualifier too.
+            #
+            # The 0.95 threshold: below it the window genuinely straddles a resolution change
+            # (§6.16's D2 case — EPEX moved to quarter-hourly settlement on 2025-10-01, so a window
+            # crossing that date is part hourly and part not), and saying "your window" would
+            # overstate the reach. At or above it the handful of exceptions are single held or
+            # gap-filled hours, which are not worth a qualifying clause the reader then has to
+            # place. The percentage is only shown in the partial branch, where it is informative.
+            if price_bracket.bracketed_fraction < 0.95:
+                caveats.append(_msg(
+                    "Your energy data is hourly, but the electricity market prices every 15 "
+                    "minutes, so for %(share)s of the priced hours here the simulation cannot see "
+                    "when inside the hour your electricity actually moved. In the worst case — "
+                    "every one of those hours landing on its least favourable quarter — that "
+                    "shifts the saving shown on this page by %(width)s. Treat it as a bound on "
+                    "how far the pricing could be off, not as a typical error: a real hour will "
+                    "sit somewhere inside its quarters, and this run cannot tell you where.",
+                    share=_share_pct(price_bracket.bracketed_fraction),
+                    width=width,
+                ))
+            else:
+                caveats.append(_msg(
+                    "Your energy data is hourly, but the electricity market prices every 15 "
+                    "minutes, so the simulation cannot see when inside each priced hour your "
+                    "electricity actually moved. In the worst case — every priced hour landing on "
+                    "its least favourable quarter — that shifts the saving shown on this page by "
+                    "%(width)s. Treat it as a bound on how far the pricing could be off, not as a "
+                    "typical error: a real hour will sit somewhere inside its quarters, and this "
+                    "run cannot tell you where.",
+                    width=width,
+                ))
     if negative_saving and metrics is not None:
         # §7.2 items 9 and 10. Without PV the battery's value is in the price SPREAD — a euro
         # quantity — so an energy-only run measures the cost of moving the energy and none of the
@@ -1844,6 +2181,17 @@ def results_from(
         # §4.5's `simulate_cost`, so a consumer reading this view-model can tell "cost is null
         # because the user turned it off" from "cost is null because there was nothing to price".
         "simulate_cost": bool(cfg.simulate_cost),
+        # §6.16's pricing-uncertainty width — a `PriceBracket` or None. Deliberately a TOP-LEVEL
+        # key and NOT a `price_bracket` entry inside `cost`: D5′ dropped the §4.5 result block
+        # (with its low/central/high public fields and its null-when-off contract) in favour of
+        # reporting only the width, as a caveat beside the saving. §4.5's `cost` object stays
+        # exactly the shape the spec fixes, so nothing here can perturb the figures already on
+        # screen. None means "no width to state", never "the width is zero" — see
+        # `_price_bracket`. The template does not read this key: it is consumed HERE, by the
+        # caveat built beside the price-granularity one, and carried on the view-model so a test
+        # (and a future consumer) can assert the number rather than parse it back out of a
+        # sentence.
+        "price_bracket": price_bracket,
     }
 
     # §2.4's benchmark box. Absent — not zeroed — when there was no simulation to bound; the

@@ -312,6 +312,27 @@
                 </p>
               </div>
 
+              {# ── How the SUPPLIER settles (§6.16) ────────────────────────────────
+                   Not a pending control: both answers are implemented, both enabled. EPEX has
+                   settled every 15 minutes since 2025-10-01 whatever the answer, so the help
+                   line has to say this asks about the INVOICE — otherwise a user who has read
+                   about the market change picks the wrong one. The answer decides whether the
+                   results screen reports an intra-hour price uncertainty at all. #}
+              <div class="rounded-box border border-base-300 p-3">
+                <h3 class="mb-2 text-xs font-semibold uppercase">{{ _('Settlement') }}</h3>
+                <span class="label-text">{{ _('Your supplier bills') }}</span>
+                {% for s in view.settlements %}
+                <label class="label cursor-pointer justify-start gap-2">
+                  <input type="radio" name="pricing.supplier_settlement" value="{{ s.key }}" class="radio radio-sm"
+                         {% if s.selected %}checked{% endif %} />
+                  <span class="label-text">{{ _(s.label) }}</span>
+                </label>
+                {% endfor %}
+                <p class="mt-2 text-xs text-base-content/60">
+                  ⓘ {{ _('This is how your supplier bills you, not how the market settles. Most Dutch dynamic contracts still bill the hourly average.') }}
+                </p>
+              </div>
+
               <div class="flex flex-wrap items-center gap-2">
                 <span class="w-44 label-text">{{ _('Day/night window') }}</span>
                 <span class="text-sm">{{ _('dal from') }}</span>

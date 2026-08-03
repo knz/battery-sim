@@ -138,6 +138,7 @@ def _form(**over) -> dict:
         "grid.max_import_kw_override": "",
         "grid.max_export_kw": "",
         "pricing.contract": "dynamic",
+        "pricing.supplier_settlement": "hourly",
         "pricing.supplier_markup": "0.0205",
         "pricing.energy_tax_excl_vat": "0.09161",
         "pricing.vat_rate": "21",
@@ -336,6 +337,85 @@ def test_the_contract_choice_round_trips(env):
             follow_redirects=False,
         )
         assert mod["simconfig_store"].load("w1").pricing.contract.value == submitted
+
+
+# ── Supplier settlement (§6.16) ───────────────────────────────────────────────────────────────
+
+def test_the_settlement_question_is_actually_on_the_page(env):
+    """The control must EXIST in the rendered HTML, not merely in the view-model.
+
+    Worth its own test because the review of this feature deleted the entire settlement box from
+    the template and the whole suite still passed: every other test stops either at `edit_view()`'s
+    dict or at `parse_form()`'s dict, so the template between them was unasserted. This is the only
+    place a user can ever answer the question, and if it vanishes the pricing-uncertainty caveat can
+    never fire — silently, since the config field, the store and the parser all keep working.
+    """
+    client, mod = env
+    _seed(mod)
+
+    html = client.get("/w/w1/edit").text
+    assert 'name="pricing.supplier_settlement"' in html
+    for value in ("hourly", "quarter_hourly"):
+        radio = re.search(
+            rf'<input type="radio" name="pricing\.supplier_settlement" value="{value}"[^>]*>', html
+        )
+        assert radio is not None, f"the {value} option is missing from the page"
+        # Both are real, selectable answers — unlike the pending contract types, neither is disabled.
+        assert "disabled" not in radio.group(0)
+    # Appendix A's default is hourly, and it is what an untouched workspace must show as chosen:
+    # it is the answer that SUPPRESSES the uncertainty caveat, so a wrong default would make the
+    # caveat appear for users whose supplier bills the hourly mean and who have no uncertainty.
+    hourly = re.search(
+        r'<input type="radio" name="pricing\.supplier_settlement" value="hourly"[^>]*>', html
+    )
+    assert "checked" in hourly.group(0)
+
+
+def test_the_settlement_choice_round_trips(env):
+    """A submitted settlement is parsed and stored — driven both ways, like the contract choice.
+
+    Both directions, for the reason `test_the_contract_choice_round_trips` gives: a parser that
+    merely inherits the stored value, and one that always writes the default, each pass a
+    one-directional test.
+    """
+    client, mod = env
+    settlement = _seed(mod).pricing.supplier_settlement.__class__
+
+    for stored, submitted in (("hourly", "quarter_hourly"), ("quarter_hourly", "hourly")):
+        cfg = mod["simconfig_store"].load("w1")
+        cfg.pricing.supplier_settlement = settlement(stored)
+        _store(mod, cfg)
+        assert mod["simconfig_store"].load("w1").pricing.supplier_settlement.value == stored
+
+        client.post(
+            "/w/w1/edit",
+            data=_form(**{"pricing.supplier_settlement": submitted}),
+            follow_redirects=False,
+        )
+        assert mod["simconfig_store"].load("w1").pricing.supplier_settlement.value == submitted
+
+
+def test_the_settlement_labels_compose_into_a_sentence_in_dutch(env):
+    """The stem and the option label are read together, so they must form one Dutch phrase.
+
+    The English pair composes by accident of word order — "Your supplier bills" + "Hourly
+    average" reads as a heading followed by its answer. The first Dutch translation did not:
+    "Je leverancier rekent af per" + "Uurgemiddelde" is "per Uurgemiddelde", and "per elk
+    kwartier" for the other option, neither of which is grammatical. Nothing in the suite could
+    see it, because every other test asserts the English page.
+
+    Pinned as the exact strings rather than as a grammar check, since only a human can judge the
+    composition and the point of the test is to make a future edit re-do that judgement.
+    """
+    client, mod = env
+    _seed(mod)
+
+    html = client.get("/w/w1/edit", headers={"Cookie": "lang=nl"}).text
+    assert "Je leverancier rekent af op basis van" in html
+    assert ">Het uurgemiddelde<" in html
+    assert ">Elk kwartier<" in html
+    # The superseded stem, which made the pair read "per Uurgemiddelde".
+    assert "rekent af per" not in html
 
 
 # ── The postcode (§2′.4) ──────────────────────────────────────────────────────────────────────

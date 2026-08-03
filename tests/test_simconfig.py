@@ -65,6 +65,7 @@ from app.domain.simconfig import (
     PricingConfig,
     PvCoupling,
     SimulationConfig,
+    SupplierSettlement,
     TlkMode,
     TopologyConfig,
     connection_capacity_kw,
@@ -109,6 +110,10 @@ _APPENDIX_A_DEFAULTS = [
     ("pricing.dal_end_hour", 7),
     ("pricing.dal_weekends", True),
     ("pricing.degradation_eur_per_kwh", 0.0),
+    # appendix A: "Most NL dynamic suppliers still bill hourly averages". It is also the answer
+    # that leaves §6.16's uncertainty caveat suppressed, so the shipped default reports nothing
+    # extra until the user says their supplier settles finer.
+    ("pricing.supplier_settlement", SupplierSettlement.HOURLY),
 ]
 
 # §2.3 wireframe (appendix A carries no default for these).
@@ -1080,6 +1085,11 @@ def test_pricing_issues_are_reported_only_when_costs_are_simulated(kwargs, expec
         ("pricing.feedin_floor_mode", {"feedin_floor_mode": "monthly"}),
         ("pricing.tlk_mode", {"tlk_mode": None}),
         ("pricing.tlk_mode", {"tlk_mode": "flat"}),
+        ("pricing.supplier_settlement", {"supplier_settlement": None}),
+        # The same bare-string mistake, on the field §6.16 tests for equality against a member:
+        # "hourly" compares unequal to `SupplierSettlement.HOURLY`, so the caveat would be
+        # reported for a household whose supplier bills the hourly mean.
+        ("pricing.supplier_settlement", {"supplier_settlement": "hourly"}),
     ],
 )
 def test_a_pricing_selector_that_is_not_its_enum_blocks(field, kwargs):
@@ -1105,11 +1115,17 @@ def test_the_shipped_enum_selectors_validate_clean():
     for contract in Contract:
         for mode in FeedinFloorMode:
             for tlk in TlkMode:
-                pricing = PricingConfig(
-                    contract=contract, feedin_floor_mode=mode, tlk_mode=tlk
-                )
-                result = SimulationConfig(pricing=pricing, simulate_cost=True).validate()
-                assert not any(i.code == "not_a_choice" for i in result.errors)
+                for settlement in SupplierSettlement:
+                    pricing = PricingConfig(
+                        contract=contract,
+                        feedin_floor_mode=mode,
+                        tlk_mode=tlk,
+                        supplier_settlement=settlement,
+                    )
+                    result = SimulationConfig(
+                        pricing=pricing, simulate_cost=True
+                    ).validate()
+                    assert not any(i.code == "not_a_choice" for i in result.errors)
 
 
 def test_dal_weekends_takes_anything_because_every_object_is_truthy():
@@ -1212,6 +1228,7 @@ def test_cost_parameters_are_retained_not_reset_when_costs_are_off():
         dal_end_hour=6,
         dal_weekends=False,
         degradation_eur_per_kwh=0.02,
+        supplier_settlement=SupplierSettlement.QUARTER_HOURLY,
         rate_normaal=0.15,
         rate_dal=0.12,
     )
@@ -1282,6 +1299,7 @@ def _non_default_pricing() -> PricingConfig:
         dal_end_hour=6,
         dal_weekends=False,
         degradation_eur_per_kwh=0.02,
+        supplier_settlement=SupplierSettlement.QUARTER_HOURLY,
         rate_normaal=0.15,
         rate_dal=0.12,
     )
@@ -1301,6 +1319,7 @@ def test_pricing_round_trips_through_the_document():
     assert doc["pricing"]["contract"] == "fixed"
     assert doc["pricing"]["feedin_floor_mode"] == "per_interval"
     assert doc["pricing"]["tlk_mode"] == "tiered"
+    assert doc["pricing"]["supplier_settlement"] == "quarter_hourly"
 
     back = from_dict(doc).pricing
     for f in dataclasses.fields(PricingConfig):
@@ -1359,10 +1378,31 @@ def test_out_of_vocabulary_pricing_enums_do_not_raise_and_take_the_default():
     doc["pricing"]["contract"] = "tiered_flex"
     doc["pricing"]["feedin_floor_mode"] = 3
     doc["pricing"]["tlk_mode"] = None
+    doc["pricing"]["supplier_settlement"] = "fifteen_minutes"
     pricing = from_dict(doc).pricing
     assert pricing.contract is Contract.DYNAMIC
     assert pricing.feedin_floor_mode is FeedinFloorMode.MONTHLY
     assert pricing.tlk_mode is TlkMode.FLAT
+    assert pricing.supplier_settlement is SupplierSettlement.HOURLY
+
+
+def test_a_document_predating_supplier_settlement_loads_the_appendix_a_default():
+    """The field was added after documents were already on disk, and needs no migration.
+
+    An absent key takes the appendix-A default field by field — the same within-a-version rule
+    the whole `pricing` group has — so no `_VERSION` bump is involved. That the default is
+    `hourly` is what makes the silence safe: §6.16's caveat stays suppressed for a user who was
+    never asked the question, rather than appearing on their next visit unexplained.
+    """
+    from app.simconfig_store import from_dict, to_dict
+
+    doc = to_dict(SimulationConfig(pricing=_non_default_pricing(), simulate_cost=True))
+    del doc["pricing"]["supplier_settlement"]
+    pricing = from_dict(doc).pricing
+    assert pricing.supplier_settlement is SupplierSettlement.HOURLY
+    # ...and the rest of the block is untouched by the absence.
+    assert pricing.contract is Contract.FIXED
+    assert pricing.dal_start_hour == 21
 
 
 def test_malformed_pricing_numerics_do_not_raise_and_take_the_default():

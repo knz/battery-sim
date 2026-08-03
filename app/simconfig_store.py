@@ -44,7 +44,10 @@ Appendix A draws a distinction that is easy to miss. The twelve cost-only parame
 (`energy_tax_excl_vat`, `vat_rate`, `supplier_markup`, `feedin_alpha`, `feedin_beta`,
 `feedin_floor_mode`, `feedin_floor_period`, `tlk_eur_per_kwh`, `dal_start_hour`, `dal_end_hour`,
 `dal_weekends`, `degradation_eur_per_kwh`, `supplier_settlement`) are merely INERT when
-`simulate_cost` is off: nothing normalises them, so they retain themselves through
+`simulate_cost` is off — inert meaning nothing READS them in an energy-only run, not that
+nothing reads them at all: `supplier_settlement` is consulted by §6.16's price bracketing in a
+cost run, and is on this list because that run is a cost run. Nothing normalises any of them,
+so they retain themselves through
 `parse_form`'s ordinary inherit-if-absent rule, which is already implemented and tested. They
 must NOT be added here. Doing so would build a shadow copy of the parameter set with its own
 drift surface, for no behaviour that is not already correct.
@@ -135,6 +138,7 @@ from app.domain.simconfig import (
     PricingConfig,
     PvCoupling,
     SimulationConfig,
+    SupplierSettlement,
     TlkMode,
     TopologyConfig,
 )
@@ -270,6 +274,7 @@ def to_dict(
             "feedin_floor_mode": _enum_value(pr.feedin_floor_mode),
             "tlk_mode": _enum_value(pr.tlk_mode),
             "tlk_eur_per_kwh": pr.tlk_eur_per_kwh,
+            "supplier_settlement": _enum_value(pr.supplier_settlement),
             "dal_start_hour": pr.dal_start_hour,
             "dal_end_hour": pr.dal_end_hour,
             "dal_weekends": bool(pr.dal_weekends),
@@ -424,6 +429,13 @@ def from_dict(doc: object) -> SimulationConfig:
         ),
         tlk_mode=_enum_or_default(TlkMode, r_raw.get("tlk_mode"), dr.tlk_mode),
         tlk_eur_per_kwh=_number_or_default(r_raw.get("tlk_eur_per_kwh"), dr.tlk_eur_per_kwh),
+        # Absent from every document written before the field existed, and that needs no
+        # migration and no `_VERSION` bump: an absent key takes the appendix-A default here
+        # exactly as an absent `pricing` block does field by field. `hourly` is also the
+        # answer that suppresses §6.16's caveat, so an old document keeps behaving as it did.
+        supplier_settlement=_enum_or_default(
+            SupplierSettlement, r_raw.get("supplier_settlement"), dr.supplier_settlement
+        ),
         dal_start_hour=_number_or_default(r_raw.get("dal_start_hour"), dr.dal_start_hour),
         dal_end_hour=_number_or_default(r_raw.get("dal_end_hour"), dr.dal_end_hour),
         dal_weekends=bool(r_raw.get("dal_weekends", dr.dal_weekends)),

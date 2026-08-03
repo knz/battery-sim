@@ -44,9 +44,17 @@ means "every interval has an OBSERVED price": NaN intervals and extrapolated one
 False, because the flag exists for a run precondition to gate on and a dispatch signal built from
 extrapolation past coverage is not one a run should silently proceed on.
 
+**`spot_min` / `spot_max` are DERIVED here, not ingested.** Since 2025-10-01 the NL day-ahead
+market settles every 15 minutes while household energy data is usually hourly, so the grid is
+hourly and four quarter-hour prices collapse into each interval's mean. That collapse is lossy, and
+the loss is bounded by the cheapest and dearest quarter that landed in the interval — so the same
+bucketing pass that computes the mean also records the per-bucket min and max. They are a property
+of the price series, computed unconditionally: no config gate, no cost-mode branch. Where the
+interval received a single price point (an hourly price on an hourly grid, or a held value) the
+bracket collapses to a point — min == max == mean — which is the honest answer, not a special case.
+
 Fields of §4.4's `SimulationFrame` deliberately NOT built here, because the concerns that define
 them are later increments — omitted rather than filled with invented values:
-    spot_min / spot_max   the §6.16 price bracket.
     epoch_id              §6.15 configuration epochs.
     tariff_zone           §6.4 register/zone identification.
     quality               needs the per-interval ingest bitfield reconciled onto the grid, which
@@ -77,8 +85,9 @@ from app.domain.reconcile import ReconciledGrid, reconcile_grid
 # ~0) even though both happen to be 1e-6; they are not the same constant and should not be aliased.
 CLOSURE_TOL = 1e-6
 
-# The series name the spot price is mapped to (specs §4.1 vocabulary / series_vocab). Only the bare
-# spot price is read here; `price_spot_min` / `price_spot_max` belong to the §6.16 bracket.
+# The series name the spot price is mapped to (specs §4.1 vocabulary / series_vocab). One slot is
+# read, and only one: the intra-interval min/max are DERIVED from this series' own sub-grid points
+# (see the module comment), not read from separate ingested series.
 _SPOT_SLOT = "price_spot"
 
 
@@ -104,10 +113,12 @@ def _grid_starts(window: tuple[datetime, datetime], grid_s: int, n: int) -> np.n
     return start + (np.arange(n, dtype=np.int64) * grid_s).astype("timedelta64[s]")
 
 
-def _resample_price_mean(
+def _resample_price_stats(
     frame: SeriesFrame, grid_s: int, window: tuple[datetime, datetime], n: int
-) -> np.ndarray:
-    """Bucket-MEAN of a price finer than (or equal to) the grid — specs §6.2 `resample_price`.
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Bucket MEAN, MIN and MAX of a price finer than (or equal to) the grid — specs §6.2.
+
+    Returns `(mean, vmin, vmax)`, all three from ONE bucketing pass over the same native points.
 
     Each native price point lands in the grid bucket its interval-start falls into, and the bucket's
     value is the arithmetic mean of the points that landed in it. The mean is time-/energy-
@@ -115,12 +126,26 @@ def _resample_price_mean(
     grid is coarser than the price precisely because consumption at the finer resolution is unknown.
 
     NOT a sum: a price is intensive (see the module comment). Buckets that received no price point
-    are NaN — absence, not a zero price (§4.4).
+    are NaN — absence, not a zero price (§4.4) — in all three arrays alike.
 
-    NaN native values (gap intervals) are excluded from both the numerator and the count, so a
-    bucket with three good quarters and one gap averages the three rather than poisoning the hour.
+    `vmin` / `vmax` are the cheapest and dearest native point that landed in the bucket: the
+    INTRA-INTERVAL BRACKET that bounds how far the collapsed mean can be from the price actually in
+    force at any moment inside the interval. That is what a later step needs to state a pricing
+    uncertainty width, and it is only knowable at this bucketing step, because after the collapse
+    the sub-grid points are gone.
+
+    A bucket that received exactly ONE point gets min == max == mean. That is the intended natural
+    collapse, not a case to special-case: one observation genuinely has no observed spread, so the
+    bracket is a point and any width derived from it is zero.
+
+    NaN native values (gap intervals) are excluded from the numerator, the count and the min/max
+    alike, so a bucket with three good quarters and one gap reports the three rather than being
+    poisoned by the gap. Note `np.minimum.at` would NOT do this for us — NaN propagates through
+    `np.minimum` — which is why the same `inside` mask filters all three accumulators.
     """
     out = np.full(n, np.nan, dtype=np.float64)
+    vmin = np.full(n, np.nan, dtype=np.float64)
+    vmax = np.full(n, np.nan, dtype=np.float64)
     idx = frame.index.astype("datetime64[s]")
     start = np.datetime64(window[0].replace(tzinfo=None), "s")
     offset_s = (idx - start).astype("timedelta64[s]").astype(np.int64)
@@ -128,14 +153,36 @@ def _resample_price_mean(
     values = np.asarray(frame.values, dtype=np.float64)
     inside = (bucket >= 0) & (bucket < n) & ~np.isnan(values)
     if not inside.any():
-        return out
+        return out, vmin, vmax
     totals = np.zeros(n, dtype=np.float64)
     counts = np.zeros(n, dtype=np.int64)
+    # The extrema accumulators start at the identity element for their own reduction (+inf for a
+    # running minimum, -inf for a maximum) so the FIRST point scattered into a bucket always wins.
+    # Starting them at NaN would poison every bucket; starting them at 0.0 would silently claim a
+    # zero-price observation the series never made — and negative spot prices are real in NL, so
+    # 0.0 is not even a safe sentinel for the maximum. The untouched buckets are overwritten with
+    # NaN below, exactly as `out` is, so no ±inf ever escapes.
+    lo = np.full(n, np.inf, dtype=np.float64)
+    hi = np.full(n, -np.inf, dtype=np.float64)
     np.add.at(totals, bucket[inside], values[inside])
     np.add.at(counts, bucket[inside], 1)
+    np.minimum.at(lo, bucket[inside], values[inside])
+    np.maximum.at(hi, bucket[inside], values[inside])
     seen = counts > 0
     out[seen] = totals[seen] / counts[seen]
-    return out
+    vmin[seen] = lo[seen]
+    vmax[seen] = hi[seen]
+    # Clamp the bracket around the mean so `vmin <= mean <= vmax` is literally true, not merely
+    # true in exact arithmetic. `totals` is a sequential np.add.at accumulation, so for buckets of
+    # three or more points the rounded quotient can land ~1 ULP outside the true extrema of its own
+    # inputs — measured, not hypothetical, and three-or-four-point buckets are precisely the real
+    # case (four quarter-hours per hour). The error is ~1e-16 EUR/kWh and immaterial as a price,
+    # but a consumer subtracting these to get a non-negative width would see a tiny negative
+    # number, and downstream code is entitled to treat the ordering as an invariant rather than
+    # defensively clamping at every use. Cheaper to make the guarantee hold here, once.
+    np.minimum(vmin, out, out=vmin)
+    np.maximum(vmax, out, out=vmax)
+    return out, vmin, vmax
 
 
 def _resample_price_hold(
@@ -213,25 +260,36 @@ def _resample_price_hold(
 
 def _spot_on_grid(
     frame: SeriesFrame | None, grid_s: int, window: tuple[datetime, datetime], n: int
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """The per-grid-interval spot price: mean if finer/equal, forward-filled if coarser/irregular.
 
-    Returns `(spot, extrapolated)`, the second being the mask of intervals priced by extrapolation
-    past the last price point's own interval — only the irregular hold can produce those.
+    Returns `(spot, spot_min, spot_max, extrapolated)`: the price, the intra-interval bracket around
+    it, and the mask of intervals priced by extrapolation past the last price point's own interval
+    — only the irregular hold can produce the last of those.
 
-    Returns an all-NaN array when the price slot is absent. `price_spot` is a REQUIRED slot
+    Returns all-NaN arrays when the price slot is absent. `price_spot` is a REQUIRED slot
     (series_vocab), but slot-first sources fill slots one at a time, so a dataset can legitimately
     exist without it yet; refusing to build a frame at all would make the builder unusable during
     that window. The gate on "no prices, cannot dispatch" belongs to the run precondition, which can
     read `spot_complete` — not to frame construction, which should not crash.
     """
     if frame is None:
-        return np.full(n, np.nan, dtype=np.float64), np.zeros(n, dtype=bool)
+        nan = np.full(n, np.nan, dtype=np.float64)
+        return nan, nan.copy(), nan.copy(), np.zeros(n, dtype=bool)
     if frame.resolution_s is None or frame.resolution_s > grid_s:
-        return _resample_price_hold(frame, window, grid_s, n)
-    # The bucket-mean path never extrapolates: an empty bucket is knowably price-less, so absence
+        spot, extrapolated = _resample_price_hold(frame, window, grid_s, n)
+        # A HELD price has no observed spread, so the bracket collapses to the held value itself.
+        # The hold path is reached when the price is COARSER than the grid (or irregular): the
+        # interval sits inside one price point, and there is no sub-interval information to bound
+        # — nothing was collapsed, so nothing was lost. Widening the bracket by, say, the spread of
+        # neighbouring points would be inventing an uncertainty the data does not support, and it
+        # would report as observed. min == max == spot is the honest statement, and it carries the
+        # NaNs of `spot` (including the bounded-hold tail) along with it for free.
+        return spot, spot.copy(), spot.copy(), extrapolated
+    # The bucket path never extrapolates: an empty bucket is knowably price-less, so absence
     # shows up as NaN and is counted by `spot_missing_intervals` instead.
-    return _resample_price_mean(frame, grid_s, window, n), np.zeros(n, dtype=bool)
+    mean, vmin, vmax = _resample_price_stats(frame, grid_s, window, n)
+    return mean, vmin, vmax, np.zeros(n, dtype=bool)
 
 
 @dataclass
@@ -259,6 +317,16 @@ class SimulationFrame:
                       before it). NaN where no price covers the interval — never 0, because a zero
                       spot is a real price that would make every band comparison take a definite and
                       wrong branch (§4.4).
+        spot_min      EUR/kWh per interval: the CHEAPEST native price point that landed in this
+        spot_max      grid interval, and the DEAREST. Together they bracket how far the collapsed
+                      `spot` mean can be from the price actually in force at any moment inside the
+                      interval — the residual pricing uncertainty left by resampling a 15-minute
+                      market onto an hourly grid. Both equal `spot` exactly when the interval
+                      received a single price point or a held value: one observation has no observed
+                      spread, so the bracket is a point (see `_resample_price_stats`). NaN wherever
+                      `spot` is NaN, and only there — absence is NaN, never 0 (§4.4). Derived
+                      unconditionally from the price series, so no consumer needs to ask whether
+                      they were computed; `spot_min <= spot <= spot_max` holds by construction.
 
         import_obs    kWh imported, as measured.
         export_obs    kWh exported, as measured.
@@ -287,9 +355,9 @@ class SimulationFrame:
                       precisely BECAUSE `pv` is unconditionally an array: without this, an all-zero
                       `pv` from a real but idle array is indistinguishable from no array at all.
 
-    Not built in this increment (out of scope, see the module comment): spot_min/spot_max (§6.16),
-    epoch_id (§6.15), tariff_zone (§6.4), quality. They are omitted rather than defaulted, so no
-    consumer can read an invented value and believe it.
+    Not built in this increment (out of scope, see the module comment): epoch_id (§6.15),
+    tariff_zone (§6.4), quality. They are omitted rather than defaulted, so no consumer can read an
+    invented value and believe it.
     """
 
     index: np.ndarray
@@ -299,6 +367,8 @@ class SimulationFrame:
     pv: np.ndarray
     load: np.ndarray
     spot: np.ndarray
+    spot_min: np.ndarray
+    spot_max: np.ndarray
     import_obs: np.ndarray
     export_obs: np.ndarray
     spot_complete: bool
@@ -326,7 +396,8 @@ def simulation_frame(
       2. Resample `price_spot` onto that same grid — by MEAN when finer or equal, forward-filled
          when coarser or irregular, NaN where uncovered (see the module comment). The coarse hold
          is bounded by the price's own `resolution_s`; the irregular hold is not, and whatever it
-         extrapolates is counted in `spot_extrapolated_intervals`.
+         extrapolates is counted in `spot_extrapolated_intervals`. The same pass records
+         `spot_min` / `spot_max`, the intra-interval bracket left by the mean's collapse.
       3. Fill `pv` with zeros when no solar slot is mapped, so the field is unconditionally an
          array (§4.4).
 
@@ -343,7 +414,9 @@ def simulation_frame(
     index = _grid_starts(eff_window, rec.grid_s, n)
 
     by_name = {f.name: f for f in dataset.frames}
-    spot, extrapolated = _spot_on_grid(by_name.get(_SPOT_SLOT), rec.grid_s, eff_window, n)
+    spot, spot_min, spot_max, extrapolated = _spot_on_grid(
+        by_name.get(_SPOT_SLOT), rec.grid_s, eff_window, n
+    )
     missing = int(np.count_nonzero(np.isnan(spot)))
     # Disjoint by construction (an extrapolated interval carries a value, so it is not NaN), but
     # masked anyway so the two counts can never double-count the same interval if that changes.
@@ -361,6 +434,8 @@ def simulation_frame(
         pv=pv,
         load=rec.load,
         spot=spot,
+        spot_min=spot_min,
+        spot_max=spot_max,
         import_obs=rec.imp,
         export_obs=rec.exp,
         # "Every interval OBSERVED" — extrapolation is not observation, see the dataclass docstring.

@@ -81,6 +81,7 @@ from app.domain.simconfig import (
     FeedinFloorMode,
     PvCoupling,
     SimulationConfig,
+    SupplierSettlement,
     TlkMode,
     ValidationResult,
 )
@@ -358,6 +359,20 @@ def parse_form(form, base: SimulationConfig | None = None) -> SimulationConfig:
     if "pricing.tlk_mode" in form:
         cfg.pricing.tlk_mode = _enum_or_keep(
             TlkMode, form.get("pricing.tlk_mode"), cfg.pricing.tlk_mode
+        )
+    # §6.16's settlement question. Unlike the three above it has no pending member — both
+    # answers are real and both are enabled — so a submission from the edit screen always
+    # carries it. The `in form` guard is redundant rather than load-bearing: `_enum_or_keep`
+    # already returns the current value when `form.get` yields None, so the guard and the
+    # fallback do the same thing. It is kept for symmetry with the three blocks above, which
+    # carry it too. No `_section` marker either: a radio group with a checked default cannot
+    # come back empty the way a checkbox can, so absence here means the group was not on the
+    # form at all — which `test_the_settlement_question_is_actually_on_the_page` guards.
+    if "pricing.supplier_settlement" in form:
+        cfg.pricing.supplier_settlement = _enum_or_keep(
+            SupplierSettlement,
+            form.get("pricing.supplier_settlement"),
+            cfg.pricing.supplier_settlement,
         )
 
     # ── The run-wide scope answers. They live OUTSIDE the parameter boxes but post with them,

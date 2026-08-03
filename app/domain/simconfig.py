@@ -31,8 +31,9 @@ Five dataclasses composed into one `SimulationConfig`:
     TopologyConfig   pv_coupling, battery_phases, approximated (§2.5, §4.5).
     PricingConfig    the contract and its rates: contract type, supplier markup, energy tax,
                      VAT, feed-in α/β and floor mode, terugleverkosten, the dal window,
-                     degradation (§2.3's Pricing box, §6.5). Inert — but RETAINED, see below —
-                     when `simulate_cost` is false.
+                     degradation, and the supplier's settlement period (§2.3's Pricing box,
+                     §6.5, §6.16). Inert — but RETAINED, see below — when `simulate_cost` is
+                     false.
 
 The grouping mirrors the panel-② form boxes one-to-one, so an issue keyed `battery.min_soc_pct`
 names both the field and the box the user has to open to fix it.
@@ -122,7 +123,8 @@ file, not merely through its accessors.
 
 ## The cost parameters are RETAINED, never forced — the opposite of `economic_guard`
 
-`PricingConfig` carries the §6.5 contract parameters. Appendix A lists all of them as inert when
+`PricingConfig` carries the §6.5 contract parameters, plus §6.16's `supplier_settlement`.
+Appendix A lists all of them as inert when
 `simulate_cost` is false and says in as many words that they are "retained at their stored values
 so that enabling cost simulation later restores the user's configuration rather than resetting
 it". So nothing in `_force_invariants` touches this group, and there is no forcing property over
@@ -151,10 +153,13 @@ Three `PricingConfig` fields are vocabulary rather than implementation: `Contrac
 paths are built. The enums carry every value so that the stored parameter set, the radio labels
 and the eventual dispatch on contract type all name the same things; a `rate_schedule` for
 VARIABLE and a `tlk_tiers` table for TIERED are not modelled and are absent rather than stubbed.
+`SupplierSettlement` is NOT in that list: both of its members are answerable and both are
+offered, and §6.16 reads whichever one is stored.
 
 Main items:
     ChargePolicy / DischargePolicy / Coupling / PvCoupling / BatteryPhases   the enums.
     Contract / FeedinFloorMode / TlkMode              the §6.5 pricing vocabulary.
+    SupplierSettlement                               §6.16's billing period.
     RTE_MIN, NOMINAL_PHASE_VOLTAGE_V                the appendix-A / E-A constants.
     _finite()                                       the non-raising numeric funnel.
     connection_capacity_kw()                        EXACT phases × A × 230 V / 1000, for physics.
@@ -288,6 +293,28 @@ class TlkMode(str, Enum):
 
     FLAT = "flat"
     TIERED = "tiered"
+
+
+class SupplierSettlement(str, Enum):
+    """§6.16 — the period the SUPPLIER bills a dynamic contract over.
+
+        HOURLY          the supplier averages the four quarter-hour prices and bills the hourly
+                        mean. Appendix A's default: most Dutch dynamic contracts still work this
+                        way. The hourly figure is then exactly what the household paid, so an
+                        hourly price series loses nothing.
+        QUARTER_HOURLY  the supplier bills each 15-minute interval at its own cleared price. An
+                        hourly series is then an average over four prices that were charged
+                        separately, and the intra-hour spread is a real source of error in the
+                        cost estimate.
+
+    This is about BILLING, not about the market. EPEX has settled every 15 minutes since
+    2025-10-01 regardless of the answer here; what the answer decides is whether that finer
+    settlement reached the household's invoice, and hence whether §6.16's price bracket has
+    anything to report (see the caveat's suppression rule).
+    """
+
+    HOURLY = "hourly"
+    QUARTER_HOURLY = "quarter_hourly"
 
 
 # ── The non-raising numeric funnel ───────────────────────────────────────────────────────────
@@ -675,6 +702,10 @@ class PricingConfig:
         feedin_floor_mode     over what period the ≥0 floor is assessed; see `FeedinFloorMode`.
         tlk_mode / tlk_eur_per_kwh   terugleverkosten; see `TlkMode`. The rate is appendix A's
                       explicit PLACEHOLDER — "2027 tariffs unpublished".
+        supplier_settlement   whether the supplier bills the hourly mean or each quarter-hour;
+                      see `SupplierSettlement`. Read by §6.16's price bracketing, not by §6.5's
+                      rate sources — it changes no price, only whether an hourly series is
+                      admitted to be an approximation.
         dal_start_hour / dal_end_hour / dal_weekends   the day/night window §6.4 assigns a
                       `tariff_zone` from, read by the FIXED and VARIABLE rate sources. The
                       default 23 → 7 WRAPS midnight, which is the normal shape and not an
@@ -694,11 +725,11 @@ class PricingConfig:
       * VARIABLE's dated `rate_schedule` and TIERED's tier table each need a STRUCTURE rather
         than a scalar (a dated schedule, a tier table), and each belongs with the §6.5 code that
         reads it. Neither contract type is built this increment.
-      * `feedin_floor_period` and `supplier_settlement` are plain SCALARS — appendix A gives
-        "calendar month" and `hourly` — and are absent for a different reason: nothing consumes
-        them yet. §6.5 leaves the lawful period open (§8.14), and `supplier_settlement` is read
-        by §6.16's price bracketing, not by §6.5 at all. Adding either now would be a field no
-        code reads.
+      * `feedin_floor_period` is a plain SCALAR — appendix A gives "calendar month" — and is
+        absent for a different reason: nothing consumes it yet. §6.5 leaves the lawful period
+        open (§8.14), so adding it now would be a field no code reads. (`supplier_settlement`
+        was in this same sentence until §6.16's price bracketing began reading it; it is a
+        field below now, and the reasoning that kept it out no longer applies to it.)
     """
 
     contract: Contract = Contract.DYNAMIC
@@ -710,6 +741,7 @@ class PricingConfig:
     feedin_floor_mode: FeedinFloorMode = FeedinFloorMode.MONTHLY
     tlk_mode: TlkMode = TlkMode.FLAT
     tlk_eur_per_kwh: float = 0.0400
+    supplier_settlement: SupplierSettlement = SupplierSettlement.HOURLY
     dal_start_hour: float = 23
     dal_end_hour: float = 7
     dal_weekends: bool = True
@@ -1395,7 +1427,7 @@ class SimulationConfig:
                         )
                     )
 
-            # ---- the three enum-typed selectors -----------------------------------------------
+            # ---- the four enum-typed selectors -----------------------------------------------
             # Checked by TYPE, not by range, and checked here rather than left to the reader's
             # goodwill because §6.5 dispatches on these with an if/elif/else chain: a `tlk_mode`
             # of None or the bare string "flat" (not the enum) falls to the `else` and reaches
@@ -1413,6 +1445,12 @@ class SimulationConfig:
                 ("contract", pr.contract, Contract),
                 ("feedin_floor_mode", pr.feedin_floor_mode, FeedinFloorMode),
                 ("tlk_mode", pr.tlk_mode, TlkMode),
+                # Belongs in this loop, and in this `simulate_cost` block, for the same reason
+                # as the other three: §6.16's bracketing tests it for equality against a member,
+                # and the bare string "hourly" would compare unequal to every one of them — the
+                # caveat would then be reported for a household that never sees the uncertainty.
+                # And it is a COST-only field, so an energy-only run has nothing to check.
+                ("supplier_settlement", pr.supplier_settlement, SupplierSettlement),
             ):
                 if not isinstance(value, enum_cls):
                     errors.append(

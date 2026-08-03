@@ -19,6 +19,11 @@ Two spec fixtures from the §6.14 validation harness plus the price-reconciliati
     the grid (forward-filled, and BOUNDED to the last point's own interval), an irregular price
     series (unbounded hold, but the extrapolated intervals counted), no price slot at all, `pv`
     all-zero rather than None, and agreement with reconcile_grid on the energy arrays.
+  * The intra-interval price bracket — `spot_min` / `spot_max`, the cheapest and dearest native
+    price point that landed in each grid interval. Pins that it really is the endpoints of what the
+    mean collapsed (not the mean again), that it collapses to a point for a single-point or held
+    interval, that it is NaN exactly where `spot` is, and that NaN native values are excluded from
+    it rather than propagating through the min/max reduction.
 
 Frames are built in-process (no browser, no real dataset), reusing the helpers in
 tests/test_data_summary.py where the window matches, and building longer/finer frames locally where
@@ -357,6 +362,173 @@ def test_nan_price_points_are_skipped_not_averaged_in():
     assert sf is not None
     assert abs(sf.spot[0] - sum(_QUARTER_PRICES[1:]) / 3) < CLOSURE_TOL
     assert np.allclose(sf.spot[1:], _QUARTER_MEAN)
+
+
+# ── The intra-interval price bracket (spot_min / spot_max) ───────────────────────────────────
+
+
+def test_bracket_is_the_cheapest_and_dearest_quarter_in_each_hour():
+    # The reason the bracket exists: since 2025-10-01 the NL market settles every 15 minutes while
+    # household data is hourly, so four quarter prices collapse into one mean and the collapse is
+    # lossy. spot_min/spot_max are the endpoints of what was collapsed — 0.10 and 0.50 here, around
+    # a mean of 0.20. Pinned against the mean so a min/max that silently returned the mean (or each
+    # other) fails.
+    ds = _dataset([
+        _energy("grid_import_t1", 2.0),
+        _energy("grid_export_t1", 0.0),
+        _quarter_hourly_price(),
+    ])
+    sf = simulation_frame(ds, (_WIN_START, _WIN_END))
+    assert sf is not None
+    assert np.allclose(sf.spot_min, min(_QUARTER_PRICES))
+    assert np.allclose(sf.spot_max, max(_QUARTER_PRICES))
+    assert np.allclose(sf.spot, _QUARTER_MEAN)
+    # The ordering the later width computation relies on, and the spread is genuinely non-zero.
+    assert np.all(sf.spot_min <= sf.spot) and np.all(sf.spot <= sf.spot_max)
+    assert float(sf.spot_max[0] - sf.spot_min[0]) > CLOSURE_TOL
+
+
+def test_bracket_collapses_to_the_mean_for_a_single_point_interval():
+    # An hourly price on an hourly grid: one point per bucket, so there is nothing to spread over
+    # and the bracket is a POINT. This is the natural collapse, not a special case — it is also what
+    # every pre-2025-10-01 hour of the ENTSO-E series looks like, so it has to come out at zero
+    # width rather than at some invented margin.
+    hourly = np.arange(HOURS, dtype=float) / 100  # distinct per hour, so a stuck value shows up
+    ds = _dataset([
+        _energy("grid_import_t1", 2.0),
+        _energy("grid_export_t1", 0.0),
+        _series("price_spot", "price", 3600, _regular_index(_EPOCH, 3600, HOURS), hourly),
+    ])
+    sf = simulation_frame(ds, (_WIN_START, _WIN_END))
+    assert sf is not None
+    assert np.allclose(sf.spot, hourly)
+    assert np.array_equal(sf.spot_min, sf.spot)
+    assert np.array_equal(sf.spot_max, sf.spot)
+
+
+def test_bracket_is_nan_exactly_where_the_price_is_absent():
+    # §4.4: absence is NaN, never 0 — and that applies to all three arrays alike. A zero-filled
+    # bracket would read as "the price was somewhere between 0 and 0", which is a definite and wrong
+    # statement rather than a missing one. Covers both the partially-covered window and the
+    # no-price-slot-at-all case, since the latter takes a different branch in _spot_on_grid.
+    covered = 12
+    idx = _regular_index(_EPOCH, 3600, covered)
+    ds = _dataset([
+        _energy("grid_import_t1", 2.0),
+        _energy("grid_export_t1", 0.0),
+        _series("price_spot", "price", 3600, idx, np.full(covered, 0.30)),
+    ])
+    sf = simulation_frame(ds, (_WIN_START, _WIN_END))
+    assert sf is not None
+    assert np.allclose(sf.spot_min[:covered], 0.30)
+    assert np.allclose(sf.spot_max[:covered], 0.30)
+    # NaN exactly where spot is NaN — no ±inf leaking out of the min/max accumulators either.
+    assert np.array_equal(np.isnan(sf.spot_min), np.isnan(sf.spot))
+    assert np.array_equal(np.isnan(sf.spot_max), np.isnan(sf.spot))
+    assert np.isfinite(sf.spot_min[:covered]).all()
+
+    no_price = _dataset([_energy("grid_import_t1", 2.0), _energy("grid_export_t1", 0.0)])
+    sf_none = simulation_frame(no_price, (_WIN_START, _WIN_END))
+    assert sf_none is not None
+    assert np.isnan(sf_none.spot_min).all()
+    assert np.isnan(sf_none.spot_max).all()
+
+
+def test_nan_price_points_are_excluded_from_the_bracket_too():
+    # A NaN quarter is a gap, not a price, so it must not become the bucket's min or max — and it
+    # must not poison them either (np.minimum propagates NaN, which is why the mask does the work).
+    # The gap here is on the DEAREST quarter, so a leaked NaN and a correct exclusion give visibly
+    # different maxima: 0.10 rather than 0.50 for hour 0.
+    price = _quarter_hourly_price()
+    price.values = price.values.copy()
+    price.values[3] = np.nan  # last quarter of hour 0 — the 0.50 one
+    ds = _dataset([
+        _energy("grid_import_t1", 2.0),
+        _energy("grid_export_t1", 0.0),
+        price,
+    ])
+    sf = simulation_frame(ds, (_WIN_START, _WIN_END))
+    assert sf is not None
+    assert abs(float(sf.spot_min[0]) - 0.10) < CLOSURE_TOL
+    assert abs(float(sf.spot_max[0]) - 0.10) < CLOSURE_TOL  # the three survivors are all 0.10
+    # Every other hour keeps its full four quarters and its full spread.
+    assert np.allclose(sf.spot_min[1:], min(_QUARTER_PRICES))
+    assert np.allclose(sf.spot_max[1:], max(_QUARTER_PRICES))
+
+
+def test_held_price_has_no_spread_so_the_bracket_is_a_point():
+    # Hourly price against 15-minute meters → the forward-fill path. A held value carries no
+    # sub-interval information: nothing was collapsed, so nothing was lost, and inventing a spread
+    # there would report an uncertainty the data does not support. min == max == spot.
+    n_q = HOURS * 4
+    q_idx = _regular_index(_EPOCH, 900, n_q)
+    hourly_prices = np.arange(HOURS, dtype=float) / 100
+    ds = _dataset([
+        _series("grid_import_t1", "energy", 900, q_idx, np.full(n_q, 0.5)),
+        _series("grid_export_t1", "energy", 900, q_idx, np.zeros(n_q)),
+        _series("price_spot", "price", 3600, _regular_index(_EPOCH, 3600, HOURS), hourly_prices),
+    ])
+    sf = simulation_frame(ds, (_WIN_START, _WIN_END))
+    assert sf is not None
+    assert sf.grid_s == 900
+    assert np.allclose(sf.spot, np.repeat(hourly_prices, 4))
+    assert np.array_equal(sf.spot_min, sf.spot)
+    assert np.array_equal(sf.spot_max, sf.spot)
+    # And the arrays are independent objects, so a later step mutating one cannot alter `spot`.
+    assert sf.spot_min is not sf.spot and sf.spot_max is not sf.spot
+
+
+def test_bracket_brackets_the_mean_even_when_rounding_would_not():
+    # `spot_min <= spot <= spot_max` is documented as an invariant, and the width computation is
+    # entitled to rely on it rather than clamp defensively at every use. It does NOT come for free.
+    #
+    # The trigger is unintuitive enough to be worth stating: THREE IDENTICAL PRICES. `x + x + x`
+    # rounds to a value whose quotient by 3 is one ULP ABOVE x, so the mean exceeds the max of its
+    # own inputs. Divisors that are powers of two are exact, which is why a full four-quarter hour
+    # is safe and a three-quarter one is not — and a three-point bucket is the ordinary shape of an
+    # hour with one gap quarter, or of the hour containing the DST spring-forward.
+    #
+    # A flat price across three quarters is not a contrived input either: it is what a market with
+    # no intra-hour movement looks like, which is common in the small hours.
+    #
+    # The assertions are exact rather than allclose, because a tolerance would hide exactly the
+    # failure at issue — a consumer computing `spot - spot_min` as a non-negative width and getting
+    # a small negative number.
+    flat = 0.41671749
+    n_q = HOURS * 4
+    prices = np.tile(np.array([flat, flat, flat, np.nan]), HOURS)  # 4th quarter is a gap
+    ds = _dataset([
+        _energy("grid_import_t1", 2.0),
+        _energy("grid_export_t1", 0.0),
+        _series("price_spot", "price", 900, _regular_index(_EPOCH, 900, n_q), prices),
+    ])
+    sf = simulation_frame(ds, (_WIN_START, _WIN_END))
+    assert sf is not None
+    assert np.all(sf.spot_min <= sf.spot), "spot_min must not exceed the mean, even by an ULP"
+    assert np.all(sf.spot <= sf.spot_max), "the mean must not exceed spot_max, even by an ULP"
+    # And the bracket still reports the observed price rather than the rounded mean.
+    assert np.allclose(sf.spot_min, flat) and np.allclose(sf.spot_max, flat)
+
+
+def test_bracket_handles_negative_prices():
+    # Negative spot prices are real in NL (oversupply on sunny, windy, low-demand hours), which is
+    # why the extrema accumulators seed at ±inf rather than 0.0: a maximum seeded at 0.0 would
+    # report 0.0 for an hour whose every quarter was negative, inventing a price the market never
+    # cleared. Pinned here because the comment in `_resample_price_stats` names this as the reason
+    # for the sentinel choice and nothing else exercises it.
+    negative = np.array([-0.08, -0.02, -0.15, -0.01])
+    n_q = HOURS * 4
+    ds = _dataset([
+        _energy("grid_import_t1", 2.0),
+        _energy("grid_export_t1", 0.0),
+        _series("price_spot", "price", 900, _regular_index(_EPOCH, 900, n_q),
+                np.tile(negative, HOURS)),
+    ])
+    sf = simulation_frame(ds, (_WIN_START, _WIN_END))
+    assert sf is not None
+    assert np.allclose(sf.spot_min, -0.15)
+    assert np.allclose(sf.spot_max, -0.01)
+    assert np.allclose(sf.spot, negative.mean())
 
 
 # ── Frame shape and agreement with reconcile_grid ────────────────────────────────────────────

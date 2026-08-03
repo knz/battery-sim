@@ -92,6 +92,10 @@ def _frame(load, pv=None, spot=None, dt_hours: float = 1.0) -> SimulationFrame:
         pv=pv,
         load=load,
         spot=spot,
+        # No sub-grid price points behind a hand-built frame, so the intra-interval bracket
+        # collapses onto `spot` — the same value the builder produces for a single-point interval.
+        spot_min=spot.copy(),
+        spot_max=spot.copy(),
         import_obs=np.zeros(n),
         export_obs=np.zeros(n),
         spot_complete=not bool(np.isnan(spot).any()),

@@ -2083,3 +2083,891 @@ def test_the_negative_saving_caveat_stops_disclaiming_euros_once_euros_exist():
     import re as _re
     assert _re.search(r"([\d,]+) kWh MORE", off_text).group(1) == \
            _re.search(r"([\d,]+) kWh MORE", on_text).group(1)
+
+
+# ── §6.16: the pricing-uncertainty width ─────────────────────────────────────────────────────
+#
+# What is under test is a NUMBER, not a sentence — the caveat that prints it is the next
+# increment. So these assert the view-model's `price_bracket` directly.
+#
+# The fixture that produces a real spread is a QUARTER-HOURLY price series against HOURLY energy
+# series. `simulation_frame` puts the run on the energy grid (3600 s) and collapses the four
+# quarter-hour prices per hour, which is exactly the D1 condition the bracket keys on: min/max
+# over the intervals that were actually collapsed. An hourly price series collapses nothing and
+# must therefore report no width at all.
+
+from app.domain.simconfig import SupplierSettlement  # noqa: E402
+
+
+def _price_15min(name: str, values, n: int = HOURS * 4) -> "SeriesFrame":  # noqa: F821
+    """A 15-minute price series over the same window `_price` covers hourly.
+
+    Separate from `tests.test_data_summary._price` rather than parameterised into it, because
+    every existing caller of that helper depends on its hourly index and on `resolution_s`
+    being 3600 — the resolution is what `simulation_frame` reads to decide whether anything is
+    being collapsed at all.
+    """
+    from app.domain.frames import QUALITY_DTYPE, SeriesFrame
+    idx = (np.arange(n).astype("timedelta64[s]") * 900
+           + np.datetime64("2026-01-01T00:00:00")).astype("datetime64[s]")
+    vals = np.full(n, float(values)) if np.isscalar(values) else np.asarray(values, dtype=float)
+    return SeriesFrame(name, "price", 900, idx, vals, np.zeros(n, dtype=QUALITY_DTYPE))
+
+
+# Four quarters per hour with a wide, deliberately asymmetric intra-hour spread, so the hourly
+# mean sits well inside [min, max] and a width that came out zero would mean the collapse was
+# not seen rather than that the prices happened to agree.
+_QUARTER_PRICES = [
+    (0.02, 0.10, 0.40, 0.28)[q] if h in (7, 8, 17, 18, 19, 20) else (0.05, 0.03, 0.06, 0.02)[q]
+    for h in range(HOURS) for q in range(4)
+]
+
+
+def _bracket_dataset(prices=None):
+    """The `_cost_dataset` shape, but with a quarter-hourly spot price."""
+    return _dataset([
+        _energy("grid_import_t1", 2.0),
+        _energy("grid_export_t1", 0.5),
+        _energy("solar_production", 3.0),
+        _price_15min("price_spot", _QUARTER_PRICES if prices is None else prices),
+    ])
+
+
+def _qh_cfg(**kw) -> SimulationConfig:
+    """`_cost_cfg`, plus the supplier billing every quarter-hour — D10's gate open."""
+    cfg = _cost_cfg(**kw)
+    cfg.pricing.supplier_settlement = SupplierSettlement.QUARTER_HOURLY
+    return cfg
+
+
+def test_a_quarter_hourly_price_with_real_spread_produces_a_non_zero_width():
+    """The ordinary case §6.16 exists for: hourly energy, quarter-hourly prices, a spread.
+
+    The width is the half-band, so it must be positive and finite, and the fraction must be 1.0
+    here — every hour of `_QUARTER_PRICES` has four distinct quarters, so every priced interval
+    on the grid carries a spread.
+    """
+    r = results_from(_bracket_dataset(), (_WIN_START, _WIN_END), cfg=_qh_cfg())
+    assert r is not None
+    pb = r["price_bracket"]
+    assert pb is not None
+    assert pb.width_eur > 0
+    assert np.isfinite(pb.width_eur)
+    assert pb.bracketed_fraction == pytest.approx(1.0)
+
+
+def test_the_three_evaluations_are_ordered_low_central_high():
+    """`saved_low <= saved_central <= saved_high`, and the width is the half-difference.
+
+    This is the invariant the caveat depends on: the band it prints must CONTAIN the figure
+    beside it. `_price_bracket` gets it by sorting all three evaluations rather than by
+    assigning names to the two extremes — the saving is a difference of bills, and a difference
+    of bracketed quantities is not itself monotone in the price (see `PriceBracket`).
+    """
+    r = results_from(_bracket_dataset(), (_WIN_START, _WIN_END), cfg=_qh_cfg())
+    assert r is not None
+    pb = r["price_bracket"]
+    assert pb is not None
+    assert pb.saved_low <= pb.saved_central <= pb.saved_high
+    assert pb.width_eur == pytest.approx((pb.saved_high - pb.saved_low) / 2.0, abs=1e-12)
+    assert pb.width_eur >= 0
+
+
+def test_the_central_saving_is_exactly_todays_headline_saving():
+    """The bracket must not perturb the number it brackets — the point of D5′'s "caveat, not range".
+
+    `saved_central` is asserted to be the SAME float as `cost.saved_eur`, exactly (`==`, not
+    approx): the bracket is handed the central saving rather than re-deriving it, so anything
+    other than bit-equality would mean a second derivation had crept in. The whole cost block is
+    checked against the cost-off run too, so an unrelated leak into the dispatch would show here
+    as well as in fixture 18.
+    """
+    ds = _bracket_dataset()
+    r = results_from(ds, (_WIN_START, _WIN_END), cfg=_qh_cfg())
+    assert r is not None
+    pb = r["price_bracket"]
+    assert pb is not None
+    assert pb.saved_central == r["cost"]["saved_eur"]
+
+    # And the headline is identical to what the SAME run reports with the supplier billing
+    # hourly — i.e. turning the bracket on does not move a euro on screen.
+    hourly = results_from(ds, (_WIN_START, _WIN_END), cfg=_cost_cfg())
+    assert hourly is not None
+    assert hourly["cost"]["saved_eur"] == r["cost"]["saved_eur"]
+    assert hourly["cost"]["waterfall"] == r["cost"]["waterfall"]
+
+
+def test_hourly_settlement_reports_no_width_even_when_the_price_has_a_spread():
+    """D10: if the supplier bills the hourly mean, the hourly price IS what the household paid.
+
+    Same dataset, same spread, only `supplier_settlement` differs — so this isolates the gate
+    rather than the data. `None`, not a zero width: there is no uncertainty to state, and a
+    printed "±€0" would be a claim about the prices rather than about the contract.
+    """
+    ds = _bracket_dataset()
+    assert results_from(ds, (_WIN_START, _WIN_END), cfg=_cost_cfg())["price_bracket"] is None
+    # ... and the same config with the gate open does produce one, so the assertion above is
+    # about the gate and not about the fixture failing to have a spread.
+    assert results_from(ds, (_WIN_START, _WIN_END), cfg=_qh_cfg())["price_bracket"] is not None
+
+
+def test_a_natively_hourly_price_reports_no_width():
+    """D1/D2: nothing was collapsed, so no intra-hour spread is observable.
+
+    `spot_min == spot == spot_max` on every interval, `spread > 0` nowhere, and the bracket is
+    absent. This is the case the step-1 note flagged for the caveat copy: it means "not
+    measurable from this data", not "measured and found to be nothing" — which is why it is
+    None rather than a zero width, and why `bracketed_fraction` exists for the partial case.
+    """
+    ds = _dataset([
+        _energy("grid_import_t1", 2.0),
+        _energy("grid_export_t1", 0.5),
+        _energy("solar_production", 3.0),
+        _price("price_spot", _PRICES),          # hourly, resolution_s == 3600
+    ])
+    r = results_from(ds, (_WIN_START, _WIN_END), cfg=_qh_cfg())
+    assert r is not None
+    assert r["cost"] is not None                # cost simulation really did run
+    assert r["price_bracket"] is None
+
+
+def test_a_flat_quarter_hourly_price_reports_no_width():
+    """Collapsing happened, but the four quarters agreed — so there is still nothing to report.
+
+    Distinct from the hourly case above: here the grid DID collapse four points per interval,
+    and the width is legitimately zero. The bracket is still absent, because the caveat has
+    nothing to say either way and "±€0" reads as a precision claim.
+    """
+    ds = _bracket_dataset(prices=[0.12] * (HOURS * 4))
+    r = results_from(ds, (_WIN_START, _WIN_END), cfg=_qh_cfg())
+    assert r is not None
+    assert r["price_bracket"] is None
+
+
+def test_the_bracketed_fraction_counts_only_priced_intervals_and_only_spread_ones():
+    """The partial case: half the window collapses a spread, half is flat.
+
+    Models the real straddle §6.16's D2 describes — a window crossing 2025-10-01, hourly
+    settlement before and quarter-hourly after. The fraction must be the share of PRICED
+    intervals carrying a spread, so the caveat can say "over part of your window" rather than
+    implying the whole of it is uncertain.
+    """
+    flat_half = [0.12] * (12 * 4)
+    spread_half = [(0.05, 0.30, 0.02, 0.19)[q] for _ in range(12) for q in range(4)]
+    ds = _bracket_dataset(prices=flat_half + spread_half)
+    r = results_from(ds, (_WIN_START, _WIN_END), cfg=_qh_cfg())
+    assert r is not None
+    pb = r["price_bracket"]
+    assert pb is not None
+    assert pb.bracketed_fraction == pytest.approx(0.5)
+    assert pb.width_eur > 0
+
+
+def test_nan_intervals_do_not_poison_the_width():
+    """A price series with gaps still yields a finite width over the intervals that have one.
+
+    NaN is how an uncovered interval reaches this code (step 1 guarantees `spot_min`/`spot_max`
+    are NaN exactly where `spot` is), and a plain `max` over the spread would make the whole
+    window's width NaN. The reductions are nan-aware, so the width is finite and the fraction's
+    denominator counts only the priced intervals.
+    """
+    prices = list(_QUARTER_PRICES)
+    for i in range(0, 8 * 4):               # first eight hours unpriced
+        prices[i] = float("nan")
+    ds = _bracket_dataset(prices=prices)
+    r = results_from(ds, (_WIN_START, _WIN_END), cfg=_qh_cfg())
+    assert r is not None
+    pb = r["price_bracket"]
+    assert pb is not None
+    assert np.isfinite(pb.width_eur) and pb.width_eur > 0
+    assert np.isfinite(pb.saved_low) and np.isfinite(pb.saved_high)
+    # The gap intervals are excluded from the denominator, not counted as un-bracketed: every
+    # interval that HAS a price here also has a spread.
+    assert pb.bracketed_fraction == pytest.approx(1.0)
+
+
+def test_an_all_nan_price_window_yields_no_width_rather_than_nan():
+    """No priced interval at all: no spread is knowable, so no width — and no NaN, no crash.
+
+    The guard is an explicit count of non-NaN intervals rather than relying on `nanmax` of an
+    empty selection, which returns NaN with a warning and would take the "no spread" branch by
+    IEEE accident (`NaN > 0` is False) instead of by decision.
+    """
+    ds = _bracket_dataset(prices=[float("nan")] * (HOURS * 4))
+    r = results_from(ds, (_WIN_START, _WIN_END), cfg=_qh_cfg())
+    assert r is not None
+    assert r["price_bracket"] is None
+
+
+def test_the_width_is_absent_when_cost_simulation_is_off():
+    """A euro figure has no meaning without the euro pipeline, whatever the settlement says."""
+    cfg = SimulationConfig()
+    cfg.pricing.supplier_settlement = SupplierSettlement.QUARTER_HOURLY
+    r = results_from(_bracket_dataset(), (_WIN_START, _WIN_END), cfg=cfg)
+    assert r is not None
+    assert r["simulate_cost"] is False
+    assert r["cost"] is None
+    assert r["price_bracket"] is None
+
+
+def test_the_bracket_is_not_a_field_of_the_cost_block():
+    """D5′ dropped the §4.5 `cost.price_bracket` result block; only the width survives.
+
+    Pinned because the obvious place to put the number is inside `cost`, and doing so would put
+    a field into a spec-fixed object — with a null-when-off contract and low/central/high public
+    fields the decision explicitly removed.
+    """
+    r = results_from(_bracket_dataset(), (_WIN_START, _WIN_END), cfg=_qh_cfg())
+    assert r is not None
+    assert "price_bracket" not in r["cost"]
+    assert "price_bracket" in r
+
+
+# A second bracket fixture where the battery genuinely changes EXPORT, not only import. The one
+# above is import-only (the load reconstruction absorbs all the PV, so runs A and C both export
+# nothing), and with `expA == expC` the export half of the price vector cancels out of the
+# saving entirely — which makes the by-direction-of-flow split unobservable there. Midday PV
+# large enough to spill to the grid in run A, and a battery that soaks part of it in run C,
+# restores the term.
+_EXPORT_PV = [6.0 if 9 <= h <= 15 else 0.0 for h in range(HOURS)]
+_EXPORT_GRID = [5.0 if 9 <= h <= 15 else 0.0 for h in range(HOURS)]
+_EXPORT_IMPORT = [0.0 if 9 <= h <= 15 else 1.0 for h in range(HOURS)]
+
+
+def _exporting_bracket_dataset():
+    return _dataset([
+        _energy("grid_import_t1", _EXPORT_IMPORT),
+        _energy("grid_export_t1", _EXPORT_GRID),
+        _energy("solar_production", _EXPORT_PV),
+        _price_15min("price_spot", _QUARTER_PRICES),
+    ])
+
+
+def test_the_width_does_not_cancel_itself_on_a_grid_charging_window():
+    """The defect the per-interval envelope exists to prevent, pinned on the real code path.
+
+    A window-uniform extreme (bill EVERY interval at `spot_min`, or every one at `spot_max`) is
+    only a corner of the price box, and the saving is separable, so its extremum picks each
+    interval's price on the sign of THAT interval's flow difference. Where the battery
+    grid-charges, `impA − impC` is negative and the interval wants the opposite extreme from one
+    where the battery cuts import. A window containing both — the ordinary case; 182 of 200
+    realistic windows do — has the two uniform corners partially cancel, and in the symmetric
+    limit cancel exactly: a measured four-hour case reported €0.00 against a true envelope of
+    ±€0.48.
+
+    A width of zero is not a harmless understatement. It is the caveat announcing "no
+    uncertainty" precisely where the uncertainty is largest, which is the one failure mode a
+    worst-case claim must not have. So the assertion here is not "the number is bigger" but
+    "the number is not zero on a window whose prices genuinely spread".
+
+    A price that is cheap overnight and dear in the evening makes the battery grid-charge in the
+    small hours and discharge later, which is what puts both signs of `impA − impC` in one window.
+    """
+    from app.domain.simframe import simulation_frame
+    from app.domain.simulate import run_all
+
+    cheap_night_dear_evening = [
+        (0.01, 0.02, 0.03, 0.01)[q] if h < 6 else
+        (0.30, 0.45, 0.50, 0.35)[q] if 17 <= h <= 20 else
+        (0.12, 0.14, 0.18, 0.13)[q]
+        for h in range(HOURS) for q in range(4)
+    ]
+    ds = _bracket_dataset(prices=cheap_night_dear_evening)
+    cfg = _qh_cfg()
+
+    frame = simulation_frame(ds, (_WIN_START, _WIN_END))
+    runs = run_all(frame, cfg)
+    d_imp = np.asarray(runs.a.imp, dtype=float) - np.asarray(runs.c.imp, dtype=float)
+    assert np.any(d_imp > 1e-9) and np.any(d_imp < -1e-9), (
+        "fixture does not exercise the cancellation: it needs BOTH intervals where the battery "
+        "cuts import and intervals where it grid-charges"
+    )
+
+    r = results_from(ds, (_WIN_START, _WIN_END), cfg=cfg)
+    assert r is not None
+    pb = r["price_bracket"]
+    assert pb is not None
+    assert pb.width_eur > 0.0, "the width cancelled to zero on a genuinely uncertain window"
+    assert pb.saved_low <= pb.saved_central <= pb.saved_high
+
+    # `width > 0` alone does not discriminate — the uniform corners cancel only PARTIALLY here,
+    # not to zero, so both constructions clear it. What separates them is the magnitude: the
+    # cancellation is exactly the understatement, so the shipped width must exceed what the
+    # superseded window-uniform construction would have reported on this same window.
+    from app.domain.costs import compute_costs
+    from app.domain.pricing import price_curves
+
+    lo = price_curves(cfg.pricing, frame.spot_min)
+    hi = price_curves(cfg.pricing, frame.spot_max)
+
+    def _saved(p_import, p_export_net, compensation):
+        a = (p_import, p_export_net, compensation, frame.index, cfg.pricing)
+        return compute_costs(runs.a, *a).eur - compute_costs(runs.c, *a).eur
+
+    central = r["cost"]["saved_eur"]
+    uniform = [_saved(lo.p_import, hi.p_export_net, hi.compensation),
+               _saved(hi.p_import, lo.p_export_net, lo.compensation), central]
+    w_uniform = (max(uniform) - min(uniform)) / 2.0
+    assert pb.width_eur > w_uniform + 1e-9, (
+        f"width {pb.width_eur} did not exceed the window-uniform construction's {w_uniform}; "
+        "the per-interval envelope is not being used"
+    )
+
+
+def test_the_split_is_by_direction_of_flow_not_by_price_vector():
+    """The crux of §6.16, and the thing an earlier prototype got wrong.
+
+    The worst case for the household is imports billed at the hour's ceiling AND exports
+    credited at its floor — the two sides taken from DIFFERENT price vectors, because
+    cost = import·p_import − export·p_export_net and the export term enters with a minus sign.
+    Pricing both sides off the same vector (the arrangement that reads as "obviously symmetric")
+    lets the export term partially offset the import term, and returns a band that is too
+    narrow — it is not the worst case it claims to be.
+
+    So this test re-derives BOTH arrangements from the domain layer and asserts the shipped
+    width equals the crossed one and is strictly wider than the uncrossed one. It is a mutation
+    test: transposing the two `p_export_net` arguments in `_price_bracket` fails it.
+
+    It needs a fixture where runs A and C export DIFFERENT amounts. With `expA == expC` the
+    export term cancels out of the saving and the two arrangements coincide exactly — which is
+    true of `_bracket_dataset` above, and is why that fixture cannot pin this.
+    """
+    from app.domain.costs import compute_costs
+    from app.domain.pricing import price_curves
+    from app.domain.simframe import simulation_frame
+    from app.domain.simulate import run_all
+
+    ds = _exporting_bracket_dataset()
+    cfg = _qh_cfg()
+    r = results_from(ds, (_WIN_START, _WIN_END), cfg=cfg)
+    assert r is not None
+    pb = r["price_bracket"]
+    assert pb is not None
+
+    frame = simulation_frame(ds, (_WIN_START, _WIN_END))
+    runs = run_all(frame, cfg)
+    assert np.nansum(runs.a.exp) != pytest.approx(np.nansum(runs.c.exp)), \
+        "fixture no longer exercises the export term; the assertions below would be vacuous"
+
+    lo = price_curves(cfg.pricing, frame.spot_min)
+    hi = price_curves(cfg.pricing, frame.spot_max)
+
+    def _saved(p_import, p_export_net, compensation):
+        a = (p_import, p_export_net, compensation, frame.index, cfg.pricing)
+        return compute_costs(runs.a, *a).eur - compute_costs(runs.c, *a).eur
+
+    central = r["cost"]["saved_eur"]
+
+    # The envelope is chosen PER INTERVAL on the sign of that interval's own flow difference —
+    # not by billing the whole window at one extreme. Re-derived here from the domain layer so
+    # the test pins the construction rather than restating the implementation's arithmetic.
+    d_imp = np.asarray(runs.a.imp, dtype=float) - np.asarray(runs.c.imp, dtype=float)
+    d_exp = np.asarray(runs.a.exp, dtype=float) - np.asarray(runs.c.exp, dtype=float)
+    # Mirrored on purpose: the export term is SUBTRACTED, so a positive `d_exp` wants the LOW
+    # export price to maximise the saving. Transposing either pair fails this test.
+    per_interval = [
+        _saved(np.where(d_imp > 0, hi.p_import, lo.p_import),
+               np.where(d_exp > 0, lo.p_export_net, hi.p_export_net),
+               np.where(d_exp > 0, lo.compensation, hi.compensation)),
+        _saved(np.where(d_imp > 0, lo.p_import, hi.p_import),
+               np.where(d_exp > 0, hi.p_export_net, lo.p_export_net),
+               np.where(d_exp > 0, hi.compensation, lo.compensation)),
+        central,
+    ]
+    w_per_interval = (max(per_interval) - min(per_interval)) / 2.0
+
+    # The superseded construction: one extreme applied uniformly across the whole window. It is
+    # the corner-of-the-box scheme, and it is what this test previously asserted. Kept as the
+    # comparison because the defect it hides is invisible otherwise — the uniform corners cancel
+    # against each other wherever the battery grid-charges in some intervals and cuts import in
+    # others, understating the width and, in the symmetric limit, collapsing it to exactly zero.
+    uniform = [_saved(lo.p_import, hi.p_export_net, hi.compensation),
+               _saved(hi.p_import, lo.p_export_net, lo.compensation), central]
+    w_uniform = (max(uniform) - min(uniform)) / 2.0
+
+    assert w_per_interval > w_uniform, "fixture no longer separates the two constructions"
+    assert pb.width_eur == pytest.approx(w_per_interval, abs=1e-12)
+    assert pb.width_eur != pytest.approx(w_uniform, abs=1e-9)
+    # And the ordering invariant still holds on the wider, correct band.
+    assert pb.saved_low <= pb.saved_central <= pb.saved_high
+
+
+# A window on which the CENTRAL saving falls OUTSIDE the two extreme evaluations — the case that
+# makes `saved_central`'s presence in `_price_bracket`'s min/max load-bearing rather than merely
+# defensive. Found by random search (numpy default_rng(11), 300 trials, ~1 hit) and pinned here
+# as literals, because the mechanism is real but the fixture that shows it is not one anybody
+# would write by hand.
+#
+# Why it happens, since "the extremes bracket everything" is the natural expectation: each BILL
+# is bracketed, but the saving is `Σ(impA − impC)·p_import − Σ(expA − expC)·p_export_net`, which
+# is linear over a two-dimensional box of price vectors with FOUR corners. `_price_bracket`
+# evaluates only the two by-direction-of-flow corners — the right two for the worst-case ENVELOPE
+# of a bill — and on a window where the battery net-imports more than the baseline (here
+# `impA − impC ≈ −2.2 kWh`, a grid-charging window) a different corner is the extreme of the
+# DIFFERENCE, leaving the mean-priced figure outside the pair. Central here is −0.380 against
+# extremes of −0.597 and −0.460.
+_CROSS_QUARTERS = [
+    -0.044, 0.0139, -0.0151, 0.1829, 0.0189, 0.1434, 0.4037, 0.331,
+    0.0568, 0.114, 0.2426, 0.1388, -0.0489, 0.3173, 0.3842, 0.2168,
+    -0.024, 0.429, 0.3829, 0.4327, 0.0451, 0.1432, -0.0233, -0.0316,
+    0.0736, 0.0411, 0.0663, 0.0597, 0.0901, 0.2264, 0.4368, 0.191,
+    0.0941, 0.0274, 0.1775, 0.3332, 0.1113, 0.3846, 0.3236, 0.3978,
+    0.1701, 0.3624, 0.273, 0.1161, 0.4074, -0.0294, 0.3899, 0.404,
+    0.3093, 0.1199, -0.0484, 0.0232, 0.3135, 0.0176, 0.2214, 0.0306,
+    -0.0215, 0.2606, 0.29, 0.2218, 0.3257, 0.1205, 0.0373, 0.392,
+    -0.0008, 0.3299, 0.2893, 0.1177, -0.018, 0.3023, 0.3791, 0.1541,
+    0.2873, 0.2124, 0.1055, 0.2537, 0.4006, 0.0797, 0.4284, 0.1186,
+    0.352, 0.3162, 0.1604, 0.1332, 0.1396, 0.3355, 0.2445, 0.0951,
+    0.0683, 0.4113, 0.1618, 0.4136, 0.0991, 0.236, 0.2797, 0.1461,
+]
+_CROSS_IMPORT = [
+    1.33, 0.61, 0.23, 2.41, 2.51, 1.09, 2.74, 2.43,
+    1.7, 1.34, 1.74, 1.52, 0.14, 1.98, 0.3, 0.28,
+    2.47, 0.65, 2.41, 1.64, 2.6, 1.42, 2.33, 1.78,
+]
+_CROSS_EXPORT = [
+    4.37, 4.48, 4.79, 1.91, 4.34, 2.22, 3.2, 5.76,
+    3.97, 5.83, 2.27, 4.6, 0.66, 1.52, 0.38, 5.77,
+    4.92, 2.93, 3.2, 1.92, 4.21, 4.58, 3.43, 5.75,
+]
+_CROSS_PV = [
+    1.85, 2.2, 5.82, 2.78, 6.62, 6.91, 0.51, 0.14,
+    3.44, 5.23, 7.67, 0.99, 6.23, 1.64, 6.54, 5.54,
+    7.33, 6.65, 0.83, 6.02, 6.62, 7.97, 4.5, 2.42,
+]
+
+
+def _crossing_dataset():
+    return _dataset([
+        _energy("grid_import_t1", _CROSS_IMPORT),
+        _energy("grid_export_t1", _CROSS_EXPORT),
+        _energy("solar_production", _CROSS_PV),
+        _price_15min("price_spot", _CROSS_QUARTERS),
+    ])
+
+
+def test_the_band_still_contains_the_headline_when_the_two_extremes_do_not():
+    """The ordering is NOT free — it is bought by sorting all three evaluations.
+
+    On this window the mean-priced saving lies above BOTH extreme evaluations (see the comment
+    on the fixture for why a two-corner evaluation of a four-corner box can do that). Assigning
+    `saved_low`/`saved_high` to the two extremes would then publish a band that does not contain
+    the figure printed beside it, and a caveat reading "±€X" around a number outside its own
+    band is worse than no caveat.
+
+    Mutation test: removing `saved_central` from `_price_bracket`'s `min`/`max` fails it. It is
+    the only test that does, which is why the fixture is pinned rather than left to a search.
+    """
+    from app.domain.costs import compute_costs
+    from app.domain.pricing import price_curves
+    from app.domain.simframe import simulation_frame
+    from app.domain.simulate import run_all
+
+    ds = _crossing_dataset()
+    cfg = _qh_cfg()
+    r = results_from(ds, (_WIN_START, _WIN_END), cfg=cfg)
+    assert r is not None
+    pb = r["price_bracket"]
+    assert pb is not None
+
+    frame = simulation_frame(ds, (_WIN_START, _WIN_END))
+    runs = run_all(frame, cfg)
+    lo = price_curves(cfg.pricing, np.asarray(frame.spot_min, dtype=np.float64))
+    hi = price_curves(cfg.pricing, np.asarray(frame.spot_max, dtype=np.float64))
+
+    def _saved(p_import, p_export_net, compensation):
+        a = (p_import, p_export_net, compensation, frame.index, cfg.pricing)
+        return compute_costs(runs.a, *a).eur - compute_costs(runs.c, *a).eur
+
+    extremes = [_saved(lo.p_import, hi.p_export_net, hi.compensation),
+                _saved(hi.p_import, lo.p_export_net, lo.compensation)]
+    central = r["cost"]["saved_eur"]
+    # The premise: the fixture really does put the headline outside the two extremes. If a
+    # change to the dispatch or to §6.5 ever makes this false, the test below stops testing
+    # anything and this assertion says so rather than passing quietly.
+    assert not (min(extremes) <= central <= max(extremes)), \
+        "fixture no longer exhibits the crossing case; the assertion below would be vacuous"
+
+    # What the bracket must nevertheless guarantee.
+    assert pb.saved_low <= pb.saved_central <= pb.saved_high
+    assert pb.saved_central == central
+    assert pb.width_eur >= 0
+
+
+# ── §6.16 step 4: the caveat that prints the width ───────────────────────────────────────────
+#
+# The number above is asserted on the view-model; what follows is the SENTENCE. Two things are
+# separable here and both matter: that the caveat is emitted on exactly the runs where
+# `price_bracket` is not None, and that the figures reach the text rather than an unsubstituted
+# "%(width)s". The rendered-PAGE half lives in tests/test_results_route.py — a caveat that exists
+# in the view-model and never reaches the HTML has been this project's recurring defect.
+
+_UNCERTAINTY_MARK = "the electricity market prices every 15 minutes"
+
+
+def _uncertainty_caveat(r) -> str | None:
+    """The §6.16 caveat's English text, or None if it was not emitted."""
+    hits = [c for c in _caveats(r) if _UNCERTAINTY_MARK in c]
+    assert len(hits) <= 1, "the width caveat was emitted more than once"
+    return hits[0] if hits else None
+
+
+def test_the_pricing_uncertainty_caveat_appears_when_there_is_a_width():
+    """The ordinary case: hourly energy, quarter-hourly prices, quarter-hourly settlement.
+
+    Asserts the load-bearing clauses rather than the whole sentence, so a copy edit that keeps
+    the meaning does not fail the test but one that drops the meaning does. "worst case" is D9
+    and is the reason the figure may be quoted at all; the hourly/15-minute contrast is the
+    user-facing reason; and the width in euros is the number the step exists to surface.
+    """
+    r = results_from(_bracket_dataset(), (_WIN_START, _WIN_END), cfg=_qh_cfg())
+    assert r is not None
+    text = _uncertainty_caveat(r)
+    assert text is not None
+    assert "worst case" in text
+    assert "hourly" in text
+    # The width interpolated, in whole euros with the € prefix — the fixture's is €2.46 → "€ 2".
+    assert "€ 2" in text
+    assert "%(width)s" not in text and "%(share)s" not in text
+    # NOT phrased as a ± around the saving. On this very fixture the width (€2.46) EXCEEDS the
+    # central saving (€0.45), and "your saving is € 0, give or take € 2" reads as a claim that
+    # the household might lose money — far stronger than a worst-case bound on the PRICING
+    # supports. Pinned because it is the natural way to write the sentence and it is wrong here.
+    assert r["cost"]["saved_eur"] < r["price_bracket"].width_eur
+    for banned in ("give or take", "±", "plus or minus"):
+        assert banned not in text
+
+
+def test_the_caveat_is_absent_on_every_run_that_has_no_width():
+    """The three suppression reasons, all of which reach the caveat as `price_bracket is None`.
+
+    The gate is a single `is not None`, so this is really one assertion three times — but the
+    three reasons are independent decisions (D10, D1/D2, and cost simulation being off) and a
+    future change could break any one of them alone.
+    """
+    ds = _bracket_dataset()
+    # (a) D10: the supplier bills the hourly mean, so the hourly price IS what was paid.
+    hourly_settlement = results_from(ds, (_WIN_START, _WIN_END), cfg=_cost_cfg())
+    assert hourly_settlement["price_bracket"] is None
+    assert _uncertainty_caveat(hourly_settlement) is None
+
+    # (b) D1/D2: the price series is natively hourly, so no intra-hour spread is observable.
+    hourly_price = results_from(
+        _dataset([
+            _energy("grid_import_t1", 2.0),
+            _energy("grid_export_t1", 0.5),
+            _energy("solar_production", 3.0),
+            _price("price_spot", _PRICES),
+        ]),
+        (_WIN_START, _WIN_END), cfg=_qh_cfg(),
+    )
+    assert hourly_price["price_bracket"] is None
+    assert _uncertainty_caveat(hourly_price) is None
+
+    # (c) cost simulation off: there is no euro figure to qualify.
+    cost_off = SimulationConfig()
+    cost_off.pricing.supplier_settlement = SupplierSettlement.QUARTER_HOURLY
+    no_cost = results_from(ds, (_WIN_START, _WIN_END), cfg=cost_off)
+    assert no_cost["price_bracket"] is None
+    assert _uncertainty_caveat(no_cost) is None
+
+    # And the same dataset WITH the gate open does emit it, so the three assertions above are
+    # about their gates and not about a fixture that could never produce a caveat.
+    assert _uncertainty_caveat(results_from(ds, (_WIN_START, _WIN_END), cfg=_qh_cfg())) is not None
+
+
+def test_the_caveat_says_how_much_of_the_window_carries_a_spread():
+    """The partial case gets its own wording, carrying `bracketed_fraction` as a percentage.
+
+    The fraction counts INTERVALS with a spread among PRICED intervals — not energy and not
+    euros — so the sentence must attach it to hours.
+
+    Half the window flat, half with a wide spread, for a fraction of exactly 0.5. The spread half
+    is put FIRST — where `_QUARTER_PRICES` has this fixture's battery actually cycling — rather
+    than second as `test_the_bracketed_fraction_counts_only_priced_intervals_and_only_spread_ones`
+    does: with the spread in the quiet half the flows the width multiplies are small and the
+    width lands under `WATERFALL_DISPLAY_EPS_EUR`, which correctly suppresses the caveat and
+    would make this test assert nothing about the partial WORDING.
+    """
+    spread_half = [(0.02, 0.40, 0.05, 0.28)[q] for _ in range(12) for q in range(4)]
+    flat_half = [0.12] * (12 * 4)
+    r = results_from(
+        _bracket_dataset(prices=spread_half + flat_half), (_WIN_START, _WIN_END), cfg=_qh_cfg(),
+    )
+    assert r is not None
+    assert r["price_bracket"].bracketed_fraction == pytest.approx(0.5)
+    text = _uncertainty_caveat(r)
+    assert text is not None
+    # The percentage is interpolated, and it is attached to HOURS rather than to the saving or
+    # to "your electricity" — the fraction is a count of intervals and the copy must not imply
+    # it is a share of energy or of euros.
+    assert "50%" in text
+    assert "50% of the priced hours" in text
+    assert "%(share)s" not in text
+    # The whole-window wording is NOT the one used here.
+    assert "every priced hour landing on its least favourable quarter" not in text
+
+
+def test_the_full_window_wording_omits_the_fraction_entirely():
+    """At a fraction of 1.0 there is no partial share to state, and stating "100%" would invite
+    the reader to look for the other 0%.
+
+    The counterpart of the test above: same code path, opposite branch. The pair pins that there
+    ARE two wordings and which fires at 0.5 and at 1.0 — it does NOT pin the 0.95 cut, since both
+    `< 0.51` and `< 0.999` reproduce it. `test_a_fraction_just_above_the_threshold_takes_the_
+    whole_window_wording` and its counterpart do that.
+
+    Note "priced": the denominator is PRICED intervals, so a window half of which carries no
+    price at all still has a fraction of 1.0 and lands here. "every hour" would then claim
+    something about hours that were never priced, which is why both wordings carry the qualifier.
+    """
+    r = results_from(_bracket_dataset(), (_WIN_START, _WIN_END), cfg=_qh_cfg())
+    assert r is not None
+    assert r["price_bracket"].bracketed_fraction == pytest.approx(1.0)
+    text = _uncertainty_caveat(r)
+    assert text is not None
+    assert "100%" not in text
+    assert "of the priced hours" not in text
+    assert "every priced hour landing on its least favourable quarter" in text
+
+
+def test_a_width_that_would_print_as_zero_euros_is_not_stated_at_all():
+    """`num(_, "eur")` prints whole euros, so a sub-half-euro width renders "€ 0".
+
+    A caveat announcing a worst case of "€ 0" asserts the very precision D5′'s None-not-zero rule
+    exists to avoid claiming. Suppressed on the same rounding the pattern applies — the rule
+    `WATERFALL_DISPLAY_EPS_EUR` already encodes for waterfall rows.
+
+    The fixture narrows the intra-hour spread until the width falls under the threshold; the
+    bracket itself is still present (the spread is real and non-zero), which is what separates
+    this from the suppression test above.
+    """
+    tiny = [(0.1200, 0.1201, 0.1199, 0.1200)[q] for _ in range(HOURS) for q in range(4)]
+    r = results_from(_bracket_dataset(prices=tiny), (_WIN_START, _WIN_END), cfg=_qh_cfg())
+    assert r is not None
+    pb = r["price_bracket"]
+    # The number IS available — this is a display decision, not a computation one.
+    assert pb is not None and 0 < pb.width_eur <= WATERFALL_DISPLAY_EPS_EUR
+    assert _uncertainty_caveat(r) is None
+
+
+def _mostly_bracketed_prices(flat_hours: set[int]) -> list[float]:
+    """`_QUARTER_PRICES`, with the named hours flattened to a single price.
+
+    A flattened hour has `spot_min == spot_max`, so it is PRICED but not BRACKETED and drops out
+    of `bracketed_fraction`'s numerator only. With a 24-hour window the reachable fractions are
+    k/24, which is what lets the two tests below sit either side of the 0.95 threshold.
+
+    The flattened hours are taken from the QUIET part of the day (`_QUARTER_PRICES` puts its wide
+    spread in hours 7, 8, 17-20, which is where this fixture's battery cycles). That is
+    deliberate: the width scales with the FLOWS the spread multiplies, not with the spread alone,
+    so flattening a cycling hour would shrink the width toward `WATERFALL_DISPLAY_EPS_EUR` and
+    the caveat would vanish, leaving both tests asserting nothing about the branch.
+    """
+    return [0.12 if h in flat_hours else _QUARTER_PRICES[h * 4 + q]
+            for h in range(HOURS) for q in range(4)]
+
+
+def test_a_fraction_just_above_the_threshold_takes_the_whole_window_wording():
+    """0.958 (23 of 24 hours bracketed) is at or above 0.95, so no share is stated.
+
+    The pair with the test below pins the THRESHOLD, which the 0.5-and-1.0 fixtures elsewhere
+    in this section cannot: both `bracketed_fraction < 0.51` and `bracketed_fraction < 0.999`
+    reproduce their results exactly. These two fixtures sit either side of 0.95 and nowhere near
+    either mutant's cut, so each of those mutations flips one of them.
+
+    The rationale for the threshold is that a handful of held or gap-filled hours is not worth a
+    qualifying clause the reader then has to place — "96% of the priced hours" invites a search
+    for the missing 4% that the data cannot answer.
+    """
+    r = results_from(
+        _bracket_dataset(prices=_mostly_bracketed_prices({0})),
+        (_WIN_START, _WIN_END), cfg=_qh_cfg(),
+    )
+    assert r is not None
+    pb = r["price_bracket"]
+    assert pb.bracketed_fraction == pytest.approx(23 / 24)
+    # Anti-vacuity: the fixture must clear the display gate, or the caveat is suppressed and
+    # every assertion below passes on a `None` that says nothing about the wording.
+    assert pb.width_eur > WATERFALL_DISPLAY_EPS_EUR, \
+        "fixture no longer produces a width the caveat will print"
+    text = _uncertainty_caveat(r)
+    assert text is not None
+    assert "every priced hour landing on its least favourable quarter" in text
+    assert "of the priced hours" not in text
+    assert "96%" not in text and "95%" not in text
+
+
+def test_a_fraction_just_below_the_threshold_takes_the_partial_wording():
+    """0.917 (22 of 24 hours bracketed) is below 0.95, so the share is stated.
+
+    The counterpart of the test above. See `_mostly_bracketed_prices` for why the flattened
+    hours are the quiet ones.
+    """
+    r = results_from(
+        _bracket_dataset(prices=_mostly_bracketed_prices({0, 1})),
+        (_WIN_START, _WIN_END), cfg=_qh_cfg(),
+    )
+    assert r is not None
+    pb = r["price_bracket"]
+    assert pb.bracketed_fraction == pytest.approx(22 / 24)
+    assert pb.width_eur > WATERFALL_DISPLAY_EPS_EUR, \
+        "fixture no longer produces a width the caveat will print"
+    text = _uncertainty_caveat(r)
+    assert text is not None
+    assert "92% of the priced hours" in text
+    assert "every priced hour landing on its least favourable quarter" not in text
+    # Both wordings are scoped to the SAVING, not to every euro on the page — see
+    # `test_the_caveat_is_scoped_to_the_saving_and_not_to_every_euro_on_the_page` for why the
+    # broader claim would be an understatement. Pinned on this branch too, because the two
+    # msgids are independent strings and a copy edit can revert one without the other.
+    assert "shifts the saving shown on this page" in text
+    assert "the euro figures on this page" not in text
+
+
+def test_a_share_too_small_for_a_whole_percent_is_not_printed_as_zero(monkeypatch):
+    """`num(_, "pct")` writes `#,##0`, which prints "0%" for anything under half a percent.
+
+    "for 0% of the priced hours here … that shifts the saving by € 2" contradicts itself: it
+    states a width while denying there is anything to state it about. The case is not exotic — a
+    365-day window carrying three spread hours has a fraction of 0.00034 — but it is not
+    reachable through `results_from` at this fixture's 24-hour length, where the smallest
+    non-zero fraction is 1/24, so the formatting decision is pinned on `_share_pct` directly.
+
+    Both branches are asserted, because a helper that always returned two decimals would satisfy
+    the small case while writing an ordinary half-window straddle as "50.00%".
+    """
+    from app.results_view import _share_pct
+    from app.i18n import format_num
+
+    def rendered(fraction: float) -> str:
+        d = _share_pct(fraction)
+        return format_num(d["num"], d["fmt"], "en")
+
+    assert rendered(0.00034) == "0.03%"
+    # Exactly 0.005 is the case a `>= 0.005` cut would get wrong: `#,##0` rounds half to even,
+    # so this value renders as "0%" under the whole-percent kind.
+    assert rendered(0.005) == "0.50%"
+    assert rendered(0.0) == "0.00%"
+    # Ordinary shares keep the whole-percent form; no trailing ".00" on a 50% straddle.
+    assert rendered(0.5) == "50%"
+    assert rendered(0.9166666666666666) == "92%"
+
+    # And the caveat's PARTIAL branch actually routes its share through this helper, rather than
+    # calling `num(_, "pct")` directly. Asserted on the raw view-model message because the case
+    # that separates the two is not reachable through `results_from`: at this fixture's window
+    # length the smallest non-zero fraction is 1/24, and lengthening the window to reach a
+    # sub-half-percent share also shrinks the width below `WATERFALL_DISPLAY_EPS_EUR` — the width
+    # scales with the flow difference in the spread hours, so few spread hours means little width
+    # and the caveat suppresses itself. A rendered-text assertion would therefore be vacuous.
+    spread_half = [(0.02, 0.40, 0.05, 0.28)[q] for _ in range(12) for q in range(4)]
+    r = results_from(
+        _bracket_dataset(prices=spread_half + [0.12] * 48), (_WIN_START, _WIN_END), cfg=_qh_cfg(),
+    )
+    caveat = next(c for c in r["caveats"]
+                  if isinstance(c, dict) and _UNCERTAINTY_MARK in c.get("msgid", ""))
+    assert caveat["params"]["share"] == {"num": 0.5, "fmt": "pct"}
+
+    # And that it goes through THIS helper rather than calling `num(_, "pct")` itself, which at
+    # a fraction of 0.5 is indistinguishable by value. Patched to a sentinel so the call site is
+    # observed directly; without it the assertion above would pass under either construction.
+    import app.results_view as rv
+    seen: list[float] = []
+
+    def _spy(fraction):
+        seen.append(fraction)
+        return {"num": fraction, "fmt": "pct_dec2"}
+
+    monkeypatch.setattr(rv, "_share_pct", _spy)
+    r2 = results_from(
+        _bracket_dataset(prices=spread_half + [0.12] * 48), (_WIN_START, _WIN_END), cfg=_qh_cfg(),
+    )
+    assert seen == [pytest.approx(0.5)], "the caveat does not route its share through _share_pct"
+    caveat2 = next(c for c in r2["caveats"]
+                   if isinstance(c, dict) and _UNCERTAINTY_MARK in c.get("msgid", ""))
+    assert caveat2["params"]["share"]["fmt"] == "pct_dec2"
+
+
+def test_the_whole_window_wording_still_says_priced_when_half_the_window_is_unpriced():
+    """A fraction of 1.0 does not mean every hour of the window carries a price.
+
+    `bracketed_fraction`'s denominator is PRICED intervals, so a window whose first half has no
+    spot price at all and whose second half carries a spread everywhere has a fraction of exactly
+    1.0 and takes the whole-window branch. This is the case that makes the qualifier necessary
+    rather than merely tidy: without it the sentence would say "every hour landing on its least
+    favourable quarter" over a window where half the hours were never priced.
+
+    Not a hypothetical shape — a price series that begins after the energy series does produces
+    it, and step 1 guarantees `spot_min`/`spot_max` are NaN exactly where `spot` is.
+    """
+    nan = float("nan")
+    prices = ([nan] * (12 * 4)
+              + [_QUARTER_PRICES[h * 4 + q] for h in range(12, HOURS) for q in range(4)])
+    r = results_from(_bracket_dataset(prices=prices), (_WIN_START, _WIN_END), cfg=_qh_cfg())
+    assert r is not None
+    pb = r["price_bracket"]
+    assert pb.bracketed_fraction == pytest.approx(1.0)
+    assert pb.width_eur > WATERFALL_DISPLAY_EPS_EUR, \
+        "fixture no longer produces a width the caveat will print"
+    text = _uncertainty_caveat(r)
+    assert text is not None
+    # The whole-window branch fired, and it names PRICED hours in both of its two mentions.
+    assert "each priced hour" in text
+    assert "every priced hour landing on its least favourable quarter" in text
+
+
+def test_the_caveat_is_scoped_to_the_saving_and_not_to_every_euro_on_the_page():
+    """`width_eur` bounds a DIFFERENCE of two bills, so it does not bound either bill.
+
+    All three evaluations are savings — `cost(A) − cost(C)` at three price vectors — and the two
+    bills' errors partly cancel in that difference. Each individual bill therefore moves by MORE
+    than the stated width, and both bills are on this same page: the KPI sentence prints them
+    ("X without a battery → Y with one") and the waterfall decomposes one of them. A caveat sold
+    as a worst case must not name a quantity it understates, so the copy names only the saving.
+
+    The understatement is MEASURED here rather than assumed, on the same fixture the caveat's
+    other tests use. The bill's own envelope is the window-uniform pair (each bill genuinely IS
+    bracketed by billing the whole window at one extreme — it is only their DIFFERENCE that is
+    not; see `PriceBracket`).
+    """
+    from app.domain.costs import compute_costs
+    from app.domain.pricing import price_curves
+    from app.domain.simframe import simulation_frame
+    from app.domain.simulate import run_all
+
+    ds = _bracket_dataset()
+    cfg = _qh_cfg()
+    r = results_from(ds, (_WIN_START, _WIN_END), cfg=cfg)
+    assert r is not None
+    pb = r["price_bracket"]
+    assert pb is not None
+
+    frame = simulation_frame(ds, (_WIN_START, _WIN_END))
+    runs = run_all(frame, cfg)
+    lo = price_curves(cfg.pricing, frame.spot_min)
+    hi = price_curves(cfg.pricing, frame.spot_max)
+
+    def _bill(run, imp_curves, exp_curves):
+        return compute_costs(run, imp_curves.p_import, exp_curves.p_export_net,
+                             exp_curves.compensation, frame.index, cfg.pricing).eur
+
+    # The BATTERY bill (run A) at its cheapest and dearest: imports at the floor and exports at
+    # the ceiling minimises it, and the reverse maximises it.
+    bill_low = _bill(runs.a, lo, hi)
+    bill_high = _bill(runs.a, hi, lo)
+    bill_half_range = (bill_high - bill_low) / 2.0
+
+    # The claim the narrowed wording rests on, checked rather than asserted: the width the caveat
+    # prints is SMALLER than how far the battery bill alone could move. Measured on this fixture
+    # when the test was written: €2.46 against €2.72.
+    assert bill_half_range > pb.width_eur, (
+        "fixture no longer separates the saving's width from the bill's own range; "
+        "the wording test below would then be pinning a distinction that does not exist"
+    )
+
+    text = _uncertainty_caveat(r)
+    assert text is not None
+    assert "shifts the saving shown on this page" in text
+    # The superseded, over-broad claim must not come back: it named the euro figures on the page,
+    # of which the two bills are the largest, and understated their movement.
+    assert "the euro figures on this page" not in text

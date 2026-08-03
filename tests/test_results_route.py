@@ -23,7 +23,9 @@ Covered:
       the Charts box gaining a euro option rather than swapping the kWh one, and the money
       benchmark gated on `simulate_cost` as well as on `with_benchmark`;
     * the Phase 7 cost tint: the COST SAVINGS half's divider, headings and MONEY SAVED tile carry
-      .cost-label and their ENERGY SAVINGS counterparts do not.
+      .cost-label and their ENERGY SAVINGS counterparts do not;
+    * §6.16's pricing-uncertainty caveat reaching the served markup with its figures substituted,
+      and leaving it when the supplier bills the hourly mean (D10).
 """
 
 from __future__ import annotations
@@ -813,3 +815,132 @@ def test_the_cost_tint_marks_the_cost_section_and_not_the_energy_one(cost_client
     assert tinted == ["Simulate cost savings?"], tinted
     assert "cost-field" not in off      # no tinted INPUT: the Pricing box is not rendered here
     assert "Energy savings" in off      # …and the untinted half is untouched
+
+
+# ── §6.16's pricing-uncertainty caveat, on the rendered page ─────────────────────────────────
+#
+# The view-model half is pinned in tests/test_results_view.py. This is the wiring, and it is not
+# redundant: a caveat that exists in the view-model and never reaches the HTML is a defect this
+# project has shipped twice (the workspace-edit settlement radio, and the ⓘ on the grid-import
+# row). Both paths are exercised — the full page and the swapped fragment — because panel ③ is
+# replaced wholesale on every period change.
+
+
+def _price_frame_15min(name: str, values, n: int = _HOURS * 4):
+    """A quarter-hourly price series over the same window `_price_frame` covers hourly.
+
+    The width exists only where `simulation_frame` COLLAPSES several native price points into one
+    grid interval (§6.16's D1), so a 15-minute price against hourly energy is the shape that
+    produces one. `resolution_s` is 900 here and that is what makes the collapse happen.
+    """
+    idx = (
+        np.arange(n).astype("timedelta64[s]") * 900
+        + np.datetime64("2026-01-01T00:00:00")
+    ).astype("datetime64[s]")
+    vals = np.full(n, float(values)) if np.isscalar(values) else np.asarray(values, dtype=float)
+    return SeriesFrame(name, "price", 900, idx, vals, np.zeros(n, dtype=QUALITY_DTYPE))
+
+
+@pytest.fixture()
+def uncertainty_client(tmp_path, monkeypatch):
+    """`cost_client`'s dataset with a QUARTER-HOURLY price, and the supplier billing that way.
+
+    Both are required for a width to exist at all: the 15-minute price gives the collapse, and
+    `SupplierSettlement.QUARTER_HOURLY` opens D10's gate (with the default HOURLY the hourly price
+    IS what the household paid and there is nothing to caveat). Returns the client and the store
+    so a test can close the gate and re-request against the same data.
+    """
+    monkeypatch.setenv("BATTERY_SIM_DATA_DIR", str(tmp_path))
+
+    from app import dataset, simconfig_store
+    from app.domain.simconfig import SimulationConfig, SupplierSettlement
+
+    # Four quarters per hour with a wide, asymmetric intra-hour spread, so the hourly mean sits
+    # well inside [min, max] and the width is comfortably above the whole-euro display threshold.
+    quarters = [
+        (0.02, 0.10, 0.40, 0.28)[q] if (h % 24) in (7, 8, 17, 18, 19, 20)
+        else (0.05, 0.03, 0.06, 0.02)[q]
+        for h in range(_HOURS) for q in range(4)
+    ]
+    dataset.save_dataset(
+        [
+            _energy("grid_import_t1", 2.0),
+            _energy("grid_export_t1", 0.5),
+            _energy("solar_production", 3.0),
+            _price_frame_15min("price_spot", quarters),
+        ],
+        (_WIN_START, _WIN_END), "test", [], None,
+    )
+    cfg = SimulationConfig()
+    cfg.simulate_cost = True
+    cfg.pricing.supplier_settlement = SupplierSettlement.QUARTER_HOURLY
+    simconfig_store.save(cfg)
+    seed_workspace()
+
+    from app import main
+    return TestClient(main.app), simconfig_store
+
+
+def test_the_pricing_uncertainty_caveat_reaches_the_html(uncertainty_client):
+    """The sentence, its figure, and its "worst case" qualifier, in the served markup.
+
+    Asserted on both the full page and the POST fragment. The figure is checked for having been
+    SUBSTITUTED rather than for a particular amount — an `_msg` pair that reached the template
+    unrendered would show up as a literal "%(width)s" or as a dict repr, which is the failure
+    mode this test is really for.
+    """
+    client, _ = uncertainty_client
+    for body in (client.get(page()).text,
+                 client.post(w("/results"), json={"period": "last_1_week"}).text):
+        assert "the electricity market prices every 15 minutes" in body
+        assert "worst case" in body
+        i = body.find("the electricity market prices every 15 minutes")
+        sentence = body[i:i + 700]
+        assert "%(width)s" not in sentence and "%(share)s" not in sentence
+        assert "msgid" not in sentence, "an unrendered _msg pair reached the caveats box"
+        # The euro figure was interpolated: a "€" inside the caveat's own text.
+        assert "€" in sentence
+        # And it sits in the caveats box rather than loose on the page.
+        assert body.find("Caveats for this run") < i
+
+
+def test_the_pricing_uncertainty_caveat_is_translated_on_the_dutch_page(uncertainty_client):
+    """The Dutch caveat, in the served markup, with its figure substituted.
+
+    Two things it pins that an English-only test cannot. First, that the Dutch msgstr exists and
+    is compiled — a missing entry falls back to the English msgid, which renders without error
+    and looks fine to anyone not reading it. Second, the wording of the closing clause: an
+    earlier translation said "een echt uur ligt ergens tussen zijn kwartieren in", which reads as
+    BETWEEN the quarters rather than within one, and so denies the very thing the sentence is
+    explaining.
+    """
+    client, _ = uncertainty_client
+    body = client.get(page(), headers={"Cookie": "lang=nl"}).text
+    assert "de elektriciteitsmarkt rekent per 15 minuten af" in body
+    i = body.find("de elektriciteitsmarkt rekent per 15 minuten af")
+    sentence = body[i:i + 800]
+    assert "In het slechtste geval" in sentence
+    assert "%(width)s" not in sentence and "€" in sentence
+    # Scoped to the SAVING, matching the English (see the results-view test of the same name).
+    assert "verschuift de besparing op deze pagina" in sentence
+    assert "eurobedragen op deze pagina" not in sentence
+    # WITHIN one quarter, not between the quarters.
+    assert "ligt ergens binnen een van zijn kwartieren" in sentence
+    assert "tussen zijn kwartieren in" not in sentence
+
+
+def test_the_caveat_leaves_the_page_when_the_supplier_bills_hourly(uncertainty_client):
+    """D10 on the rendered page: same dataset, only the settlement answer changed.
+
+    The negative half of the test above, and the one that shows the first is about the caveat
+    rather than about some other text on a cost-enabled page.
+    """
+    client, store = uncertainty_client
+    from app.domain.simconfig import SimulationConfig
+
+    cfg = SimulationConfig()
+    cfg.simulate_cost = True                 # cost section still present…
+    store.save(cfg)                          # …but settlement back to the HOURLY default
+    body = client.post(w("/results"), json={"period": "last_1_week"}).text
+    assert "Cost savings" in body            # the fixture still prices the run
+    assert "the electricity market prices every 15 minutes" not in body

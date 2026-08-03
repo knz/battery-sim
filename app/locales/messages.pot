@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-28 11:21+0200\n"
+"POT-Creation-Date: 2026-07-31 14:03+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -516,6 +516,9 @@ msgstr ""
 msgid "Entity"
 msgstr ""
 
+msgid "Every 15 minutes"
+msgstr ""
+
 msgid ""
 "Every euro figure below is produced from your contract type and its rates"
 " — the supplier markup, energy tax, VAT, feed-in terms and the day/night "
@@ -652,6 +655,9 @@ msgstr[0] ""
 msgstr[1] ""
 
 msgid "Home Battery Simulator"
+msgstr ""
+
+msgid "Hourly average"
 msgstr ""
 
 msgid "House load"
@@ -962,6 +968,9 @@ msgstr ""
 msgid "Set up your contract first"
 msgstr ""
 
+msgid "Settlement"
+msgstr ""
+
 msgid "Shared across all slots that use Home Assistant"
 msgstr ""
 
@@ -1239,6 +1248,11 @@ msgid "This control"
 msgstr ""
 
 msgid ""
+"This is how your supplier bills you, not how the market settles. Most "
+"Dutch dynamic contracts still bill the hourly average."
+msgstr ""
+
+msgid ""
 "This is priced under the post-2027 regime, in which net metering no "
 "longer exists. Several of those tariffs are not yet published — the "
 "terugleverkosten rate in particular is a placeholder — so the euro "
@@ -1391,6 +1405,29 @@ msgstr ""
 msgid "Your data at a glance"
 msgstr ""
 
+#, python-format
+msgid ""
+"Your energy data is hourly, but the electricity market prices every 15 "
+"minutes, so for %(share)s of the priced hours here the simulation cannot "
+"see when inside the hour your electricity actually moved. In the worst "
+"case — every one of those hours landing on its least favourable quarter —"
+" that shifts the saving shown on this page by %(width)s. Treat it as a "
+"bound on how far the pricing could be off, not as a typical error: a real"
+" hour will sit somewhere inside its quarters, and this run cannot tell "
+"you where."
+msgstr ""
+
+#, python-format
+msgid ""
+"Your energy data is hourly, but the electricity market prices every 15 "
+"minutes, so the simulation cannot see when inside each priced hour your "
+"electricity actually moved. In the worst case — every priced hour landing"
+" on its least favourable quarter — that shifts the saving shown on this "
+"page by %(width)s. Treat it as a bound on how far the pricing could be "
+"off, not as a typical error: a real hour will sit somewhere inside its "
+"quarters, and this run cannot tell you where."
+msgstr ""
+
 msgid "Your energy use during the selected period"
 msgstr ""
 
@@ -1510,6 +1547,9 @@ msgid ""
 "household consumption is reconstructed: load = grid import − grid export "
 "+ solar produced. Intervals where the result is negative (a data problem)"
 " are clamped to zero."
+msgstr ""
+
+msgid "Your supplier bills"
 msgstr ""
 
 msgid "as your meter recorded them"

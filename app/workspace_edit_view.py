@@ -41,7 +41,9 @@ make the two controls mutually blocking. So `contracts` is built unconditionally
 `simulate_cost` gate at all. FIXED and VARIABLE stay rendered-but-disabled with their feature
 keys — the pending affordance, not absence. `params_view._pricing_view` did the same for panel
 ②'s copy of these radios; §2′.1 moved the box here and that function went with it, so this is
-now the only place the three contract types are offered. The same applies to `tlk_modes`.
+now the only place the three contract types are offered. The same applies to `tlk_modes`, and to
+`settlements` — which is built unconditionally for the same reason, but carries no pending entry
+and no feature key, because both of its answers are implemented.
 
 ## Which issues this screen may show
 
@@ -63,6 +65,7 @@ from __future__ import annotations
 from app.domain.simconfig import (
     Contract,
     SimulationConfig,
+    SupplierSettlement,
     TlkMode,
     ValidationResult,
     connection_capacity_kw_display,
@@ -171,6 +174,16 @@ _TLK_LABELS: dict[TlkMode, str] = {
     TlkMode.TIERED: _N("tiered by annual volume"),
 }
 _TLK_FEATURE_KEYS: dict[TlkMode, str] = {TlkMode.TIERED: "pricing_tlk_tiered"}
+
+# Supplier settlement period (§6.16). No pending treatment and no feature key, unlike the two
+# selectors above: both answers are implemented, and which one is stored decides only whether the
+# results screen admits an intra-hour price uncertainty. Labels name the BILLING period the user
+# can read off their contract rather than EPEX's settlement change, which is not what the answer
+# turns on — the help line carries that distinction.
+_SETTLEMENT_LABELS: dict[SupplierSettlement, str] = {
+    SupplierSettlement.HOURLY: _N("Hourly average"),
+    SupplierSettlement.QUARTER_HOURLY: _N("Every 15 minutes"),
+}
 
 
 def _fmt_fuse(fuse_a: float) -> str:
@@ -398,6 +411,15 @@ def edit_view(
         for m in TlkMode
     ]
 
+    settlements = [
+        {
+            "key": s.value,
+            "label": _SETTLEMENT_LABELS[s],
+            "selected": cfg.pricing.supplier_settlement == s,
+        }
+        for s in SupplierSettlement
+    ]
+
     grid_advanced = [field(path, places) for path, places in ADVANCED_GRID_FIELDS]
     pricing_advanced = {path: field(path, places) for path, places in ADVANCED_PRICING_FIELDS}
 
@@ -415,6 +437,7 @@ def edit_view(
         },
         "contracts": contracts,
         "tlk_modes": tlk_modes,
+        "settlements": settlements,
         "pricing_advanced": pricing_advanced,
         "pricing_overridden": _overridden_count(
             cfg, [p for p, _ in ADVANCED_PRICING_FIELDS], defaults
