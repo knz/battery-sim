@@ -15,7 +15,7 @@ local `_N` extraction marker so `pybabel extract` finds it; everything else here
 
 Main items:
     SeriesKind                 "energy" | "price".
-    Requirement                "required" | "conditional" | "cost_optional" | "optional".
+    Requirement                "required" | "conditional" | "optional".
     SlotSpec                   one §4.1 row: name, kind, requirement, gating flags, optional info blurb.
     SERIES_SLOTS               ordered tuple of SlotSpec, one per §4.1 row.
     SLOT_BY_NAME               name → SlotSpec lookup.
@@ -40,7 +40,7 @@ def _N(s: str) -> str:
 
 
 SeriesKind = Literal["energy", "price"]
-Requirement = Literal["required", "conditional", "cost_optional", "optional"]
+Requirement = Literal["required", "conditional", "optional"]
 
 
 @dataclass(frozen=True)
@@ -48,10 +48,9 @@ class SlotSpec:
     """One series slot (specs §4.1 row): its internal name, kind, and requirement level.
 
     `pv_only` marks a slot present only when the household declared PV (cfg.has_pv);
-    `battery_only` a slot present only when it declared an EXISTING battery (cfg.has_battery);
-    `cost_only` a slot offered only under cost simulation (cfg.simulate_cost). These gate whether
-    the slot appears in the mapping roster (specs §2.2), not whether an ingest carrying it is
-    accepted — a payload naming a valid slot is always parsed.
+    `battery_only` a slot present only when it declared an EXISTING battery (cfg.has_battery).
+    These gate whether the slot appears in the mapping roster (specs §2.2), not whether an ingest
+    carrying it is accepted — a payload naming a valid slot is always parsed.
 
     `info` is an optional one- or two-sentence explanation of why the slot is offered, shown by
     the picker's ⓘ affordance (a DaisyUI modal). It is the English source string / translation
@@ -65,7 +64,6 @@ class SlotSpec:
     requirement: Requirement
     pv_only: bool = False
     battery_only: bool = False
-    cost_only: bool = False
     info: str | None = None
 
 
@@ -103,9 +101,10 @@ SERIES_SLOTS: tuple[SlotSpec, ...] = (
             "assumes your existing battery is replaced by the one you configure."
         ),
     ),
+    # One price slot only. The §6.16 intra-hour bracket is DERIVED from this series where it is
+    # finer than the simulation grid (app/domain/simframe.py `_resample_price_stats`); it is never
+    # asked for as separate min/max series.
     SlotSpec("price_spot", "price", "required"),
-    SlotSpec("price_spot_min", "price", "cost_optional", cost_only=True),
-    SlotSpec("price_spot_max", "price", "cost_optional", cost_only=True),
     SlotSpec(
         "power_grid",
         "energy",

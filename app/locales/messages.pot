@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-31 14:03+0200\n"
+"POT-Creation-Date: 2026-08-03 12:37+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -1016,12 +1016,6 @@ msgstr ""
 msgid "Spot price"
 msgstr ""
 
-msgid "Spot price (max)"
-msgstr ""
-
-msgid "Spot price (min)"
-msgstr ""
-
 msgid "Spot price over this period"
 msgstr ""
 
@@ -1686,9 +1680,6 @@ msgstr ""
 msgid "not the nameplate figure"
 msgstr ""
 
-msgid "offered if you simulate costs"
-msgstr ""
-
 msgid "optional"
 msgstr ""
 
@@ -1766,10 +1757,10 @@ msgid "≈260 kWh/yr"
 msgstr ""
 
 msgid ""
-"● = required.  ○ = optional.  ◐ = required only if you have solar PV.  ◒ "
-"= offered only if you simulate costs (intra-hour price bracketing). Which"
-" rows appear comes from the answers above. Spot price drives the charge "
-"and discharge bands, so it is required whether or not you simulate costs."
+"● = required.  ○ = optional.  ◐ = required only if you have solar PV. "
+"Which rows appear comes from the answers above. Spot price drives the "
+"charge and discharge bands, so it is required whether or not you simulate"
+" costs."
 msgstr ""
 
 #, python-format

@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-31 14:03+0200\n"
+"POT-Creation-Date: 2026-08-03 12:37+0200\n"
 "PO-Revision-Date: 2026-07-23 20:40+0200\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: en\n"
@@ -1116,12 +1116,6 @@ msgstr "Source"
 msgid "Spot price"
 msgstr "Spot price"
 
-msgid "Spot price (max)"
-msgstr "Spot price (max)"
-
-msgid "Spot price (min)"
-msgstr "Spot price (min)"
-
 msgid "Spot price over this period"
 msgstr "Spot price over this period"
 
@@ -1950,9 +1944,6 @@ msgstr "not mapped"
 msgid "not the nameplate figure"
 msgstr ""
 
-msgid "offered if you simulate costs"
-msgstr "offered if you simulate costs"
-
 msgid "optional"
 msgstr "optional"
 
@@ -2030,11 +2021,15 @@ msgid "≈260 kWh/yr"
 msgstr "≈260 kWh/yr"
 
 msgid ""
-"● = required.  ○ = optional.  ◐ = required only if you have solar PV.  ◒ "
-"= offered only if you simulate costs (intra-hour price bracketing). Which"
-" rows appear comes from the answers above. Spot price drives the charge "
-"and discharge bands, so it is required whether or not you simulate costs."
+"● = required.  ○ = optional.  ◐ = required only if you have solar PV. "
+"Which rows appear comes from the answers above. Spot price drives the "
+"charge and discharge bands, so it is required whether or not you simulate"
+" costs."
 msgstr ""
+"● = required.  ○ = optional.  ◐ = required only if you have solar PV. "
+"Which rows appear comes from the answers above. Spot price drives the "
+"charge and discharge bands, so it is required whether or not you simulate"
+" costs."
 
 #, python-format
 msgid ""
@@ -2521,4 +2516,25 @@ msgstr "👍 I want this"
 #~ "error: a real hour will sit "
 #~ "somewhere inside its quarters, and this"
 #~ " run cannot tell you where."
+
+#~ msgid "Spot price (max)"
+#~ msgstr "Spot price (max)"
+
+#~ msgid "Spot price (min)"
+#~ msgstr "Spot price (min)"
+
+#~ msgid "offered if you simulate costs"
+#~ msgstr "offered if you simulate costs"
+
+#~ msgid ""
+#~ "● = required.  ○ = optional.  ◐"
+#~ " = required only if you have "
+#~ "solar PV.  ◒ = offered only if "
+#~ "you simulate costs (intra-hour price "
+#~ "bracketing). Which rows appear comes "
+#~ "from the answers above. Spot price "
+#~ "drives the charge and discharge bands,"
+#~ " so it is required whether or "
+#~ "not you simulate costs."
+#~ msgstr ""
 

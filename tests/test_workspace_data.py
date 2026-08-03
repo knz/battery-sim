@@ -246,6 +246,63 @@ def test_the_roster_carries_the_hooks_ha_fetch_js_depends_on(env):
     assert re.search(r'data-slot-sources="[^"]+"', html)
 
 
+@pytest.mark.parametrize("gone", ["price_spot_min", "price_spot_max"])
+def test_the_bracket_slots_are_out_of_the_vocabulary(gone):
+    """D3: the two intra-hour bracket slots are never asked for again.
+
+    §6.16's bracket is now DERIVED from `price_spot`'s own interval spacing
+    (simframe `_resample_price_stats`), so there is no user-supplied min/max series. The
+    vocabulary is the gate for ingest as well as for the roster: a payload naming one of these
+    would be rejected by `is_known_series`.
+    """
+    from app.domain.series_vocab import SERIES_SLOTS, SLOT_BY_NAME, is_known_series
+
+    assert gone not in SLOT_BY_NAME
+    assert not is_known_series(gone)
+    assert gone not in {s.name for s in SERIES_SLOTS}
+
+
+def test_the_slot_vocabulary_has_exactly_one_price_slot():
+    """The bracket is derived from ONE series, so a second price slot would have no consumer."""
+    from app.domain.series_vocab import SERIES_SLOTS
+
+    assert [s.name for s in SERIES_SLOTS if s.kind == "price"] == ["price_spot"]
+
+
+def test_the_cost_only_slot_vocabulary_is_gone():
+    """D6: `cost_only` / `cost_optional` existed only for the two bracket slots.
+
+    With those removed the flag would be permanently False and the requirement level would have
+    no members, so both leave `SlotSpec` rather than lingering as unreachable branches.
+    """
+    from app.domain.series_vocab import SlotSpec, SERIES_SLOTS
+
+    assert not hasattr(SlotSpec("x", "energy", "optional"), "cost_only")
+    assert all(s.requirement != "cost_optional" for s in SERIES_SLOTS)
+
+
+def test_the_roster_renders_no_row_for_the_removed_bracket_slots(env):
+    """The removal reaches the RENDERED page, not just the view-model.
+
+    The roster template is this project's least-covered layer, and a `cost_only` row was
+    rendered-but-hidden rather than omitted — so a leftover would have shipped as invisible
+    markup that `applySetupGating` could still un-hide. Asserting the served HTML is what pins
+    D3; the `◒` marker and its legend clause go with the rows.
+    """
+    client, mod = env
+    _seed(mod)
+    html = client.get("/w/w1/data").text
+    # The roster really rendered, so the absences below are not vacuous.
+    assert 'data-slot-row="price_spot"' in html
+    for gone in ("price_spot_min", "price_spot_max"):
+        assert gone not in html
+    assert "Spot price (min)" not in html
+    assert "Spot price (max)" not in html
+    assert "data-cost-only" not in html
+    assert "◒" not in html
+    assert "simulate costs (intra-hour price bracketing)" not in html
+
+
 def test_the_drawer_and_the_ha_modal_are_present_at_page_level(env):
     """§2′.5: the drawer stays a right-side overlay over this screen, with Confirm/Cancel intact."""
     client, mod = env
@@ -1709,3 +1766,64 @@ def test_a_price_npz_written_with_the_old_bracket_arrays_still_loads(env, tmp_pa
     back = next(f for f in loaded.frames if f.name == "price_spot")
     assert np.allclose(back.values, [0.20, 0.25, 0.30, 0.22])
     assert not hasattr(back, "value_min") and not hasattr(back, "value_max")
+
+
+def test_a_saved_bracket_slot_series_is_not_restored_after_the_slots_were_removed(env, tmp_path):
+    """D3's returning-user case: `price_spot_min`/`price_spot_max` rows already on disk.
+
+    Nothing deletes them, and `_restore_frames` reads `series_meta` BY NAME — so without a
+    vocabulary filter they would load into `LoadedDataset.frames` while being invisible in the
+    roster, which is built from SERIES_SLOTS. That is not inert: `normalize.grid_report` gives
+    every frame its own granularity row and `normalize.price_granularity_lost` counts every
+    `kind == "price"` frame, so the user would see a phantom series and a price-granularity
+    warning raised on a slot the UI no longer has.
+
+    The row and the .npz are deliberately left on disk; this pins the READ side only.
+    """
+    client, mod = env
+    dataset = mod["dataset"]
+    _seed(mod)
+
+    n = 4
+    idx = (np.arange(n).astype("timedelta64[s]") * 900
+           + np.datetime64("2026-01-01T00:00:00")).astype("datetime64[s]")
+    price = SeriesFrame("price_spot", "price", 3600, idx,
+                        np.array([0.20, 0.25, 0.30, 0.22]), np.zeros(n, dtype=QUALITY_DTYPE))
+    energy = _res_energy("grid_import_t1", 3600, n)
+    dataset.save_dataset([energy, price], _WIN, "test", [], None, "w1")
+
+    # Forge the pre-removal state: a 15-minute bracket series with its own row and .npz, exactly
+    # as `save_dataset` would have written it when the slot still existed.
+    orphan = tmp_path / "w1" / "series" / "price_spot_min.npz"
+    np.savez(
+        orphan,
+        index_s=idx.astype("datetime64[s]").astype(np.int64),
+        values=np.array([0.19, 0.24, 0.28, 0.21]),
+        quality=np.zeros(n, dtype=QUALITY_DTYPE),
+    )
+    with dataset.connect() as conn:
+        ds_id = conn.execute("SELECT MAX(id) FROM datasets").fetchone()[0]
+        conn.execute(
+            "INSERT INTO series_meta (dataset_id, workspace_id, name, kind, resolution_s, path,"
+            " source_type) VALUES (?, 'w1', 'price_spot_min', 'price', 900, ?, 'home_assistant')",
+            (ds_id, str(orphan)),
+        )
+
+    loaded = dataset.load_latest("w1")
+    assert loaded is not None
+    assert "price_spot_min" not in [f.name for f in loaded.frames]
+    assert "price_spot_min" not in loaded.series_sources
+    # The vocabulary members around it still load, so this is not an empty result.
+    assert {"price_spot", "grid_import_t1"} <= {f.name for f in loaded.frames}
+
+    # And the two diagnostics that read `kind == "price"` across all frames no longer see it.
+    from app.domain import normalize
+    report = normalize.grid_report(loaded.frames, loaded.window)
+    assert "price_spot_min" not in [s["name"] for s in report["series"]]
+    assert normalize.price_granularity_lost(loaded.frames, 3600) == {
+        "lost": False, "native_resolution_s": None
+    }
+
+    # The file itself is untouched: declining to load is not deleting the user's data.
+    assert orphan.exists()
+

@@ -14,7 +14,10 @@ Two homes, mirroring §5.1:
     the reader ignores them.
   * **SQLite** — a `datasets` row (window, source, fetched_at, and the run's size) and one
     `series_meta` row per series (name, kind, resolution_s, path). Reuses app/db.py's
-    connection/data-dir plumbing.
+    connection/data-dir plumbing. A row naming a series that has left the vocabulary — the
+    `price_spot_min` / `price_spot_max` bracket slots, removed once §6.16's bracket became
+    derived — is skipped on read; see `_restore_frames`. Neither the row nor its `.npz` is
+    deleted here.
 
 The run's size — `normalize.grid_facts`' `(grid_s, n_intervals)` — is computed at write time, by
 both save paths, and stored on the `datasets` row. It is derivable from the frames, so persisting
@@ -59,6 +62,7 @@ import numpy as np
 from app import config, db
 from app.domain.frames import QUALITY_DTYPE, SeriesFrame
 from app.domain.normalize import grid_facts
+from app.domain.series_vocab import is_known_series
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS datasets (
@@ -449,6 +453,17 @@ def _restore_frames(
     as None. That omission is unreachable from `load_latest` — `datasets.source_type` is NOT NULL,
     so its fallback always resolves — which is what keeps this refactor behaviour-preserving for
     the one caller that reads the mapping.
+
+    A row whose name is no longer in the series vocabulary is SKIPPED. This is not hypothetical:
+    a dataset saved before the §6.16 bracket became a derived quantity still carries
+    `price_spot_min` / `price_spot_max` rows and their `.npz` files. Nothing removes them, and
+    they would otherwise load into a dataset whose roster (built from SERIES_SLOTS) cannot show
+    them — an invisible frame that `normalize.grid_report` still lists as its own granularity row
+    and that `normalize.price_granularity_lost` still counts, since both filter on `kind` and
+    never on the vocabulary. The filter is here rather than in each consumer because the
+    vocabulary is what ingest already validates against, so "loaded" and "known" should not
+    diverge in the first place. The rows and files themselves are left on disk: deleting a user's
+    data is a separate, destructive decision from declining to use it.
     """
     metas = conn.execute(
         """SELECT name, kind, resolution_s, path, fine_resolution_s, fine_start, fine_end,
@@ -460,6 +475,8 @@ def _restore_frames(
     frames: list[SeriesFrame] = []
     series_sources: dict[str, str] = {}
     for name, kind, resolution_s, path, fine_res, fine_start, fine_end, s_source, stat_id in metas:
+        if not is_known_series(name):
+            continue
         p = Path(path)
         if p.exists():
             frame = _load_frame(p, name, kind, resolution_s)

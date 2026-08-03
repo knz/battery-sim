@@ -593,8 +593,6 @@
       var hide =
         (row.hasAttribute("data-pv-only") && !pv) ||
         (row.hasAttribute("data-battery-only") && !batt);
-      // cost_only rows are left exactly as the server rendered them: simulate_cost is a pending
-      // feature whose control is disabled, so it cannot change client-side.
       if (row.hasAttribute("data-pv-only") || row.hasAttribute("data-battery-only")) {
         row.classList.toggle("hidden", hide);
       }

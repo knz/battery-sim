@@ -553,14 +553,20 @@ def _data_page(
     ctx["workspace_id"] = ws.id
 
     cfg = simconfig_store.load(ws.id)
-    # The household box and the roster's gating read these three off `cfg`, the same keys panel ①
-    # is given. `simulate_cost` is included because the roster's two price-bracketing rows are
-    # gated on it — this screen does not draw that control (§2′.6 puts it on the results screen)
-    # but it must still honour the stored answer when deciding which rows to show.
+    # The household box and the roster's gating read these two off `cfg`, the same keys panel ① is
+    # given. They are the only two scope answers this screen renders anything from: the roster gates
+    # its solar row on `has_pv` and its two existing-battery rows on `has_battery`, and the
+    # household box draws a radio pair for each.
+    #
+    # `simulate_cost` used to be carried here as well, for the two price-bracketing roster rows
+    # that were gated on it. Those slots are gone (the §6.16 bracket is derived from `price_spot`
+    # rather than asked for), and no template reachable from this route reads the key any more —
+    # `_data_household.html` says in as many words that the cost toggle is NOT drawn here (§2′.6
+    # puts it on the results screen). So the key is not passed. The results route builds its own
+    # `ctx["cfg"]` and still carries it, which is where the toggle actually lives.
     ctx["cfg"] = {
         "has_pv": cfg.has_pv,
         "has_battery": cfg.has_battery,
-        "simulate_cost": cfg.simulate_cost,
     }
 
     # Two SEPARATE questions, and conflating them cost the quality box on this screen once

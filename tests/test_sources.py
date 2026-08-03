@@ -59,13 +59,6 @@ def test_energy_slot_offers_ha_only():
     assert [d.key for d in descriptors] == ["home_assistant"]
 
 
-def test_bracket_slot_offers_ha_only():
-    # price_spot_min is an HA measurement stat's own min; neither day-ahead source has a spread
-    # within an interval, so neither offers this slot.
-    descriptors = sources_for(SLOT_BY_NAME["price_spot_min"])
-    assert [d.key for d in descriptors] == ["home_assistant"]
-
-
 # --- registry: key lookup ------------------------------------------------------------------
 
 def test_get_source_by_key():

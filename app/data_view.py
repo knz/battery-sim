@@ -65,8 +65,6 @@ ROLE_LABEL: dict[str, str] = {
     "battery_charge": "Battery charge",
     "battery_discharge": "Battery discharge",
     "price_spot": "Spot price",
-    "price_spot_min": "Spot price (min)",
-    "price_spot_max": "Spot price (max)",
     "power_grid": "Grid power",
     "house_load": "House load",
 }
@@ -183,7 +181,7 @@ def panel_data_from(dataset: LoadedDataset) -> dict:
     # entry whether or not a series is present, so the user can pick a source for a slot that has
     # no data yet. A present slot carries its fetched entity string and persisted source; an
     # absent slot carries entity=None and source=None. The template gates the pv_only /
-    # battery_only / cost_only rows against the setup answers.
+    # battery_only rows against the setup answers.
     from app.domain.series_vocab import SERIES_SLOTS
 
     present = {f.name: f for f in frames}
@@ -215,7 +213,6 @@ def panel_data_from(dataset: LoadedDataset) -> dict:
                 ),
                 "pv_only": slot.pv_only,
                 "battery_only": slot.battery_only,
-                "cost_only": slot.cost_only,
                 # Slot-first provenance (specs §2.2): the source that produced this series (its
                 # descriptor key, or None when the slot is unfilled), and the sources the drawer
                 # may offer for this slot. Phase C's source-picker drawer renders these.

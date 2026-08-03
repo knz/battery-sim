@@ -34,8 +34,9 @@ from app.sources import entsoe_store
 from app.sources.base import SourceDescriptor
 
 # The only slot this source fills: NL day-ahead spot price (specs §4.1). It is a single price
-# series; it does not supply energy meters, nor the intra-interval min/max bracket slots
-# (a day-ahead series has one cleared price per interval and no spread within it).
+# series; it does not supply energy meters. A day-ahead series has one cleared price per
+# interval and no spread within it, so §6.16's intra-hour bracket comes from the interval
+# spacing of THIS series (simframe `_resample_price_stats`), not from anything extra here.
 _PRICE_SPOT_SLOT_NAME = "price_spot"
 
 # The bidding zone this source serves. The extracted dataset is NL-only.
@@ -69,8 +70,8 @@ class EntsoeSource:
     def available_for(self, slot: SlotSpec) -> bool:
         """True only for the price_spot slot: this is the NL day-ahead spot price and nothing else.
 
-        It does not fill energy slots, nor the price_spot_min/price_spot_max bracket slots (a
-        day-ahead series has a single cleared price per interval and no spread within it).
+        It does not fill energy slots. There is no separate bracket slot to fill either: the
+        §6.16 bracket is derived from this series' own interval spacing.
         """
         return slot.name == _PRICE_SPOT_SLOT_NAME
 

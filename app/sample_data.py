@@ -178,19 +178,16 @@ def _panel_data():
             "version": "HA 2026.6.2",
             "statistic_count": "1,284",
         },
-        # Series mapping table. `req` is one of required / conditional / cost_optional /
-        # optional, rendered as ● / ◐ / ◒ / ○.
+        # Series mapping table. `req` is one of required / conditional / optional, rendered as
+        # ● / ◐ / ○.
         #
         # The slot roster is derived from the setup band (§2.2): rows flagged `pv_only` show
-        # only when cfg.has_pv; rows flagged `battery_only` only when cfg.has_battery; rows
-        # flagged `cost_only` show only when cfg.simulate_cost.
-        # The two price-bracketing rows below are cost_only, so with this sample's
-        # simulate_cost=False they are absent; they appear when cost simulation is enabled.
+        # only when cfg.has_pv; rows flagged `battery_only` only when cfg.has_battery.
         # Each row carries its per-slot source provenance (specs §2.2 slot-first): `source` is
         # the descriptor key of the chosen source (or None for an unfilled slot), and `sources`
         # is the drawer's option list for that slot (built from the registry via _sources_for).
         # This sample shows a populated look: the grid/solar rows are Home Assistant, price_spot
-        # is the preset Energy-Charts source, and the optional/bracket rows are still unchosen.
+        # is the preset Energy-Charts source, and the optional rows are still unchosen.
         # The two corroboration rows (power_grid, house_load) carry an `info` blurb so the demo
         # previews the picker's ⓘ affordance; `_info_for` single-sources the text from SlotSpec.
         "mapping": [
@@ -202,8 +199,6 @@ def _panel_data():
             {"name": "battery_charge", "role": _N("Battery charge"), "req": "optional", "entity": None, "stat_id": None, "battery_only": True, "source": None, "sources": _sources_for("battery_charge")},
             {"name": "battery_discharge", "role": _N("Battery discharge"), "req": "optional", "entity": None, "stat_id": None, "battery_only": True, "source": None, "sources": _sources_for("battery_discharge")},
             {"name": "price_spot", "role": _N("Spot price"), "req": "required", "entity": "sensor.epex_spot_price", "stat_id": None, "source": "energy_charts", "sources": _sources_for("price_spot")},
-            {"name": "price_spot_min", "role": _N("Spot price (min)"), "req": "cost_optional", "entity": None, "cost_only": True, "source": None, "sources": _sources_for("price_spot_min")},
-            {"name": "price_spot_max", "role": _N("Spot price (max)"), "req": "cost_optional", "entity": None, "cost_only": True, "source": None, "sources": _sources_for("price_spot_max")},
             {"name": "power_grid", "role": _N("Grid power"), "req": "optional", "entity": None, "stat_id": None, "source": None, "sources": _sources_for("power_grid"), "info": _info_for("power_grid")},
             {"name": "house_load", "role": _N("House load"), "req": "optional", "entity": None, "stat_id": None, "source": None, "sources": _sources_for("house_load"), "info": _info_for("house_load")},
         ],

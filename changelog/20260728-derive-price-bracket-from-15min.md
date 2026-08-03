@@ -97,16 +97,11 @@ pessimistic), NOT by "charging vs everything else". With the correct split
 ## Current Status
 
 Steps 1–5 done and committed; the bracket is computed and its width surfaced as a results caveat,
-and the copy has been through one adversarial review round. Step 6a (D7) is done in the working
-tree, uncommitted; suite at 1264 passed, 2 skipped.
+and the copy has been through one adversarial review round. Steps 6a (D7) and 6b (D3, D6) are done
+in the working tree, uncommitted.
 
 **Remaining, in the order planned:**
 
-- **Step 6b — remove the two user-supplied slots** (D3): `price_spot_min` / `price_spot_max` and
-  the `cost_only` / `cost_optional` slot vocabulary (D6). This is the change the whole thread
-  started from; everything so far has been building the replacement so the slots can go without
-  losing the capability. D7's half — `SeriesFrame.value_min` / `value_max` and the ingest chain
-  behind them — is done; see step 6a below.
 - **Step 7 — spec updates.** Known touch points: `specs/05-data-formats.md:32-33`,
   `04-state-machine.md:109`, `06-home-assistant-ingestion.md:111-112`,
   `20-workspaces-ux.md:679`, `14-diagnostics.md`, `07-internal-representation.md`. §6.16 needs a
@@ -125,6 +120,194 @@ width and does not attach it to the saving as a ± interval, for the reason reco
 F1: the width exceeds the saving on realistic fixtures, where a ± reading invites the conclusion
 that the battery might lose money — a far stronger claim than a worst-case bound on the PRICING
 supports.
+
+### Step 6b — remove the two bracket SLOTS and the cost-only slot vocabulary (D3, D6) (done)
+
+The change the thread started from. Steps 1–5 built the replacement (the bracket is derived from
+`price_spot`'s own interval spacing and reported as a width), so the slots go without losing the
+capability.
+
+**D6 verified, not assumed.** A scan of `SERIES_SLOTS` confirms `price_spot_min` and
+`price_spot_max` were the only entries carrying `cost_only=True` or `requirement="cost_optional"`.
+So D6 is a mechanical consequence of D3, and the two had to be done in one pass — see the mutant
+table below, where splitting them is exactly what would have left an unreachable template branch.
+
+**Removed:**
+
+- `app/domain/series_vocab.py`: both `SlotSpec` entries; `SlotSpec.cost_only`; `"cost_optional"`
+  from the `Requirement` Literal. The remaining price slot carries a comment saying the bracket is
+  derived from it rather than asked for.
+- `app/data_view.py`: the two `ROLE_LABEL` entries and `"cost_only"` from the roster row dict.
+- `app/sample_data.py`: the two static mapping rows and the comments describing the gate.
+- `app/templates/_data_roster.html`: `row.cost_only` out of `row_hidden`, the `data-cost-only`
+  attribute, the `◒` marker branch, and the legend's `◒` clause. Header comment realigned.
+- `app/static/ha_fetch.js`: the comment in `applySetupGating` explaining why it does not act on
+  `data-cost-only`. No behavioural code — the attribute was never read.
+- `app/sources/entsoe.py`, `app/sources/energy_charts.py`: their comments named the removed slots.
+  Both `available_for` are allowlists keyed on `price_spot`, so nothing functional changed; the
+  reworded comments now say there is no separate bracket slot at all.
+- `tests/test_sources.py`: `test_bracket_slot_offers_ha_only` deleted (it indexed
+  `SLOT_BY_NAME["price_spot_min"]`). Its siblings at the same allowlist still cover both branches.
+- `app/main.py`: `simulate_cost` dropped from the configure-data route's `ctx["cfg"]`. **Found by
+  review, missed by every grep in this pass** — the comment justifying the key spelled neither
+  `cost_only` nor `price_spot_min`, and it was the only recorded reason for passing it: "the
+  roster's two price-bracketing rows are gated on it". That mechanism is gone. Verified before
+  deleting rather than assumed, which mattered: Jinja's default `Undefined` is silent, so a missed
+  consumer would have rendered falsy instead of raising and the suite would have stayed green. A
+  runtime probe wrapped `ctx["cfg"]` in a dict that records every key lookup and rendered the real
+  page through the route — `['has_battery', 'has_pv']`, nothing else. The results route builds its
+  own `ctx["cfg"]` and still carries `simulate_cost`, which is where the toggle lives (§2′.6).
+
+**The orphan-frame problem, measured and handled READ-side only.** A returning user's dataset still
+has `price_spot_min.npz` / `price_spot_max.npz` and their `series_meta` rows.
+`dataset._restore_frames` reads every row BY NAME with no vocabulary check, so those frames loaded
+into `LoadedDataset.frames` after the slots were gone — invisible in the roster (built from
+`SERIES_SLOTS`) but present. Reproduced on the real gitignored dataset at `data/local/series/`
+(read-only): eight frames restored before the filter, six after, and `normalize.grid_report` listed
+`price_spot_min` and `price_spot_max` as their own granularity rows in the panel-① table. That is
+the phantom-row half, it is real, and the filter fixes it.
+
+**Correction — the `price_granularity_lost` half of that claim was wrong as first written.** An
+earlier draft of this entry said the orphans also caused `normalize.price_granularity_lost` to
+return `{'lost': True, 'native_resolution_s': 900}` on the real dataset. It does return that — but
+it returns it *after* the filter too, on six frames. The real `price_spot` in that dataset is itself
+natively 900 s against an hourly grid, so the diagnostic fires legitimately on its own account and
+the orphans changed nothing about it. The measurement was taken and read as if it discriminated,
+which it did not.
+
+The mechanism itself is real, and is stated here as what it is — a constructed case, not a measured
+one. `price_granularity_lost` filters on `kind == "price"` across all frames and never on the
+vocabulary, so on a dataset whose `price_spot` is natively HOURLY, a 900 s orphan alone flips it:
+verified on hand-built frames, `{'lost': False, None}` for the hourly `price_spot` alone versus
+`{'lost': True, 900}` with the orphan added. No such dataset was to hand, so this remains a
+hypothesis about a reachable state rather than an observed defect.
+
+`choose_grid` / `effective_window` filter on energy series so the grid was unaffected — luck, not
+design.
+
+**Decision: a vocabulary filter in `_restore_frames`, and NO deletion of rows or files here.**
+Three reasons, and the alternatives were real:
+
+- The vocabulary is already what ingest validates against, so "loaded" and "known" should not
+  diverge in the first place. Filtering at the one place that turns rows into frames fixes every
+  consumer at once, rather than teaching `grid_report` and `price_granularity_lost` — and whatever
+  reads frames next — each to check separately.
+- A one-shot cleanup in `_migrate` was considered and rejected for THIS commit. `_migrate` only
+  ever ADDs columns and there is no version field on the dataset store, so a delete there is a new
+  kind of operation in a function whose contract is "idempotent forward-compatibility". More to the
+  point it is destructive and has a different failure mode from a vocabulary change: if the
+  filtering turns out to be wrong, nothing is lost; if a delete is wrong, the user's data is gone.
+- The filter also covers the general case (any future slot removal), which a cleanup keyed on two
+  hard-coded names does not.
+
+The cleanup is therefore **deliberately left out and recommended as a separate commit** if it is
+wanted at all. With the filter in place the orphan files are inert — they cost disk and nothing
+else — so the case for deleting them is housekeeping rather than correctness.
+
+**Catalogs.** Four msgids left the active catalogs through the documented Babel workflow
+(`--no-fuzzy-matching`, `--no-location`, exit codes checked on all three commands): "Spot price
+(min)", "Spot price (max)", "offered if you simulate costs", and the old roster legend. The legend
+is a REWORD rather than a deletion — it named `◒` and intra-hour bracketing — so it comes back as a
+new msgid with the clause dropped, and the old one is retained as a `#~` obsolete alongside the
+other three. The EN msgstr for the legend was EMPTY before this change (a pre-existing gap that
+made the English page fall back to the msgid); the replacement is filled rather than reproducing
+it. Dutch translated.
+
+The hand-filled msgstrs were verified to reproduce Babel's own wrapping: re-running `pybabel
+update` over the edited catalogs produced byte-identical files. One piece of incidental churn was
+kept — Babel re-wrapped the Dutch pricing-uncertainty caveat msgstr (identical text, different
+line breaks), the same normalisation step 5 recorded. No other unrelated churn appeared; the `.pot`
+diff is exactly the four msgids plus the timestamp.
+
+**Tests added** — four in `tests/test_workspace_data.py` (the vocabulary group) plus one for the
+orphan case:
+
+- `test_the_bracket_slots_are_out_of_the_vocabulary` (parametrised): absent from `SLOT_BY_NAME`,
+  `SERIES_SLOTS`, and rejected by `is_known_series` — which is the ingest gate, not only the roster.
+- `test_the_slot_vocabulary_has_exactly_one_price_slot`.
+- `test_the_cost_only_slot_vocabulary_is_gone` (D6): the field is off `SlotSpec` and no slot
+  carries the requirement level.
+- `test_the_roster_renders_no_row_for_the_removed_bracket_slots` — **the one that actually pins
+  D3.** The rest assert the view-model; this asserts the SERVED MARKUP. It matters here more than
+  usual because a `cost_only` row was rendered-and-hidden rather than omitted, so a leftover would
+  have shipped as invisible markup that `applySetupGating` could un-hide. It carries a positive
+  assertion (`data-slot-row="price_spot"` present) so the absences cannot pass vacuously.
+- `test_a_saved_bracket_slot_series_is_not_restored_after_the_slots_were_removed` — forges the
+  returning-user state (a real `.npz` plus a `series_meta` row via `dataset.connect()`), then reads
+  it back through the shipped `load_latest` and asserts both diagnostics are clean and the file is
+  still on disk.
+
+**Mutants** (each run alone against `test_workspace_data.py`, `test_sources.py`, `test_slot_load.py`,
+`test_i18n.py`):
+
+| Mutant | Result |
+| --- | --- |
+| `price_spot_min` re-added to `SERIES_SLOTS` | KILLED (3 tests) |
+| both bracket slots re-added | KILLED (4 tests) |
+| `SlotSpec.cost_only` field re-added | KILLED (the D6 test) |
+| `"cost_optional"` back in the `Requirement` Literal | **SURVIVED — equivalent** |
+| template's `◒` marker branch re-added, alone | SURVIVED |
+| template's `◒` marker branch re-added **+ one `sample_data.py` row set to `"cost_optional"`** | KILLED (the rendered-markup test) |
+| template's legend `◒` clause re-added | KILLED (the rendered-markup test) |
+| template emits `data-cost-only="1"` on every row | KILLED (the rendered-markup test) |
+| the vocabulary filter deleted from `_restore_frames` | KILLED (the orphan test) |
+| the vocabulary filter inverted to a no-op | KILLED (the orphan test) |
+| the two `ROLE_LABEL` entries re-added, alone | SURVIVED — dead dict entries |
+
+**Correction — the "the `◒` branch is unreachable" claim was wrong, and it is the more useful
+finding.** An earlier draft of this entry argued that mutant was equivalent, because no entry in
+`SERIES_SLOTS` carries `requirement == "cost_optional"` any more. That reasoning covers only one of
+the template's TWO producers of `row.req`:
+
+- `data_view.panel_data_from` derives `req` from `slot.requirement`, so it is vocabulary-driven and
+  the argument holds there;
+- `sample_data._panel_data()` supplies `req` as HARDCODED STRING LITERALS, and
+  `app/main.py` renders the configure-data screen from `sample_view()` whenever no dataset loads,
+  overwriting `ctx["data"]` only when one does. Both mappings are therefore live on that route.
+
+Demonstrated rather than argued: re-adding the branch AND setting one `sample_data.py` row's `req`
+to `"cost_optional"` fails `test_the_roster_renders_no_row_for_the_removed_bracket_slots`
+(1 failed / 95 passed in that file). The branch was reachable — via a hand-written string in a
+second file — so it was dead code kept alive by an argument that held for only one producer, not
+dead code that could not be reached at all. Removing it is still correct; the reason is different
+and stronger. A future contributor hand-adding a `req` value in `sample_data.py` gets no protection
+from the vocabulary argument, which is exactly why the rendered-markup assertion (and not the
+view-model ones) is what pins this.
+
+The same caveat applies to the `ROLE_LABEL` survivor: equivalent as measured, but its reachability
+is controlled from elsewhere too. `ROLE_LABEL` is consulted per `SERIES_SLOTS` entry, so an entry
+for a name outside the vocabulary is never looked up — restore the slot as well and it IS killed
+("both bracket slots re-added" above). "Equivalent" here means "equivalent given the rest of the
+tree as it stands", not "equivalent by construction".
+
+The `Requirement` Literal survivor IS genuinely equivalent: it is a type annotation with no runtime
+enforcement and nothing calls `get_args` on it, so restoring a member nothing takes cannot change
+behaviour.
+
+**On the D3+D6 coupling.** The original claim — that splitting D6 off would leave an unreachable
+template branch — needs the same correction. It would have left a branch that is reachable but
+unreachable-in-practice via the vocabulary, and reachable in fact via `sample_data.py`. The
+argument for doing them in one pass stands, but the hazard is the more ordinary one: a marker
+branch and a legend clause describing a requirement level no slot claims, kept honest only by
+whoever next edits the hand-written sample table.
+
+Suite: 1269 passed, 2 skipped (1264 before: −1 deleted, +6 new — five in the vocabulary group,
+counting the parametrised one twice, plus the orphan-restore test).
+
+**A false failure worth recording, because it looked exactly like a real order-dependency.** One
+full-suite run reported `test_a_saved_bracket_slot_series_is_not_restored_after_the_slots_were_removed`
+failing with the orphan present in `loaded.frames`, while the same test passed in isolation and
+under every pairing tried. The cause was operator error, not the code: that run had been launched
+in the BACKGROUND and the mutation harness was then run against the same working tree, so mutant B
+(both slots restored to `SERIES_SLOTS`) was live in the tree while the suite was still executing.
+File mtimes confirmed it. Re-run serially: 1269 passed, twice. The lesson for the next mutation
+round is procedural — a background suite run and a mutation harness must never share a working
+tree, and a surprising failure should have its timestamps checked before it is debugged as an
+interaction.
+
+Not done here: the spec updates (step 7). `specs/05-data-formats.md:32-33`,
+`04-state-machine.md:109`, `06-home-assistant-ingestion.md:111-112` and `20-workspaces-ux.md:679`
+still describe the two slots.
 
 ### Step 6a — remove `SeriesFrame.value_min` / `value_max` and the chain that fed them (done)
 
