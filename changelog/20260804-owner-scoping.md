@@ -248,17 +248,43 @@ The test suite is run after phases 2 and 3, with results reported as they come o
 
 ## 7. Current status
 
-**Phase 1 complete.** Phases 2–4 pending.
+**Phases 1–2 complete.** Phases 3–4 pending.
 
 - **Phase 0** — this file. Complete.
-- **Phase 1** — complete. `list_summaries` is owner-filtered with a required argument, `create`
-  and `_insert` carry an owner, and both flat routes take a principal. Reviewed: no blocking
-  findings. Suite green at 1271 passed / 2 skipped (the 2 are the known live-HA skips).
-- **Phases 2–4** — pending, as specified in §4.
+- **Phase 1** — complete, committed as `6273d23`. `list_summaries` is owner-filtered with a
+  required argument, `create` and `_insert` carry an owner, and both flat routes take a principal.
+  Reviewed: no blocking findings. Suite green at 1271 passed / 2 skipped (the 2 are the known
+  live-HA skips).
+- **Phase 2** — complete. Eight cross-owner tests covering the plan's five items, plus
+  `seed_workspace(owner_id=...)`. Suite green at 1279 passed / 2 skipped. Reviewed: no blocking
+  findings.
+- **Phases 3–4** — pending, as specified in §4.
+
+### Phase 2 was checked by mutation, not just by passing
+
+Because these tests exist to catch a regression that does not exist yet, passing proves little.
+Each was verified to *fail* when the protection it guards is removed — and the review re-ran the
+two highest-value mutations independently rather than accepting the report:
+
+| Mutation | Tests that fail |
+|---|---|
+| `WHERE owner_id = ?` dropped from `list_summaries` | list-filter and rendered-HTML tests |
+| `_authorize` returns `True` unconditionally | all four route 404s, plus the delete test |
+| `create` ignores its `owner_id` argument | all eight |
+
+Two properties worth recording, both confirmed against a legitimate owner's request rather than
+assumed. The four route 404s are discriminating: the same routes return 200 for the owning
+principal, and `POST /w/{id}/params` is deliberately outside `csrf.py`'s coverage, so a 403 cannot
+be masquerading as the 404. And the delete test's row-still-exists assertion goes through
+`workspaces.get`, which has no owner predicate — so it reads the row directly and cannot report
+"absent" because of the very filter under test.
 
 Deferred, not blocking:
 
 - Drop `create`'s `owner_id` default in phase 3 (D7), now listed in that phase's scope.
+- `POST /w/{id}/params`'s cross-owner case passes a `{"sections": "battery"}` body that the route
+  does not need — it returns 200 for the owner with no body at all. Harmless; it just makes the
+  parametrize list carry a third element for one case. Left as is.
 - Seven test lines in `test_workspace_data.py` and `test_workspace_list.py` now exceed 100
   characters from inlining `mod["workspaces"].OWNER_ID`. No linter enforces a limit and the files
   already had two such lines; a local `ws = mod["workspaces"]` binding would shorten them.

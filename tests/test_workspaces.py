@@ -25,6 +25,8 @@ from datetime import datetime, timezone
 import numpy as np
 import pytest
 
+from tests.conftest import seed_workspace
+
 
 @pytest.fixture()
 def mods(tmp_path, monkeypatch):
@@ -585,3 +587,122 @@ def test_concurrent_migrations_insert_exactly_one_row_and_none_of_them_raise(mod
     assert errors == [], f"migrate_local raced: {errors!r}"
     assert inserted.count(True) == 1, "more than one caller claimed to have adopted `local`"
     assert [s.id for s in workspaces.list_summaries(workspaces.OWNER_ID)] == ["local"]
+
+
+# ── Cross-owner invisibility (phase 2, changelog 20260804-owner-scoping.md) ────────────────────
+#
+# `get_principal()` stays hard-coded to `Principal(id="local")` (D2): there is still only one
+# principal in this build. What these tests pin is that ownership, once carried on a row, is
+# actually CHECKED — by `list_summaries`'s filter and by `_authorize` — rather than merely stored.
+# They exist so that whenever `get_principal` stops being constant, a missing filter fails here
+# first instead of silently leaking another owner's workspaces.
+
+
+def test_list_summaries_is_filtered_by_owner(mods):
+    """A workspace owned by `"other"` is invisible to `"local"` and visible to its own owner.
+
+    Both directions are asserted on the SAME row: a filter that vacuously returned `[]` for every
+    owner would still pass the first assertion, and a filter that ignored `owner_id` entirely
+    would still pass the second — only the pair together pins that the SQL predicate is doing the
+    work (D3).
+    """
+    _, _, _, workspaces = mods
+    workspaces.create("Someone else's analysis", workspace_id="mine-not-yours", owner_id="other")
+
+    assert workspaces.list_summaries(workspaces.OWNER_ID) == []
+    (card,) = workspaces.list_summaries("other")
+    assert card.id == "mine-not-yours"
+
+
+def test_the_workspace_list_page_omits_another_owners_workspace(mods):
+    """`GET /` renders only the requesting principal's cards (§2′.2), not every owner's.
+
+    `get_principal()` always returns `"local"` (D2), so a workspace seeded for `"other"` must
+    never appear on the rendered list. Checked both ways on the same response: the other
+    owner's `data-workspace-id` marker (present on the card's `<article>` and its two delete
+    buttons in `app/templates/_workspace_card.html`) must be entirely absent, while a workspace
+    seeded for `"local"` in the same test must still have its own `data-workspace-id` marker
+    present — otherwise an empty-for-unrelated-reasons page would pass vacuously.
+    """
+    from starlette.testclient import TestClient
+
+    _, _, _, workspaces = mods
+    seed_workspace(workspace_id="not-yours", owner_id="other")
+    workspaces.create("My own analysis", workspace_id="mine-too")
+
+    from app import main
+
+    client = TestClient(main.app)
+    html = client.get("/").text
+    assert 'data-workspace-id="not-yours"' not in html
+    assert 'data-workspace-id="mine-too"' in html
+
+
+@pytest.mark.parametrize("method,suffix,kwargs", [
+    ("get", "/results", {}),
+    ("get", "/edit", {}),
+    ("get", "/data", {}),
+    ("post", "/params", {"data": {"sections": "battery"}}),
+])
+def test_workspace_scoped_routes_404_on_another_owners_workspace(mods, method, suffix, kwargs):
+    """`_authorize` (app/deps.py) denies access as a 404, for every workspace-scoped route.
+
+    Pins `_authorize`'s EXISTING behaviour rather than adding any: a row belonging to `"other"`
+    must be indistinguishable from a workspace that does not exist at all, for the same reason
+    `deps.get_workspace`'s docstring gives — a workspace you may not use should not be
+    distinguishable from one that is simply absent.
+    """
+    from starlette.testclient import TestClient
+
+    _, _, _, workspaces = mods
+    workspaces.create("Someone else's analysis", workspace_id="not-yours", owner_id="other")
+
+    from app import main
+
+    client = TestClient(main.app)
+    r = getattr(client, method)(f"/w/not-yours{suffix}", **kwargs)
+    assert r.status_code == 404, f"{method.upper()} /w/not-yours{suffix} -> {r.status_code}"
+
+
+def test_delete_on_another_owners_workspace_redirects_and_leaves_the_row_intact(mods):
+    """`POST /w/{id}/delete` on someone else's workspace is a no-op redirect, not a 404 or a delete.
+
+    This is where `get_optional_workspace`'s deliberate 404-softening (for a double-submitted
+    deletion, app/deps.py) meets ownership, and it is untested before this: the dependency
+    resolves an unowned row to `None` exactly as it would an already-deleted one, so the route
+    redirects to the list — but the row itself must still be there afterwards, unlike a genuine
+    double-submission where there is truly nothing left. Both the redirect and the row's survival
+    are asserted, because either one failing alone would be the wrong kind of "safe": a 404 here
+    would at least not delete anything, and a silent delete would at least not confuse the caller
+    with a raw error.
+    """
+    from starlette.testclient import TestClient
+
+    _, _, _, workspaces = mods
+    workspaces.create("Someone else's analysis", workspace_id="not-yours", owner_id="other")
+
+    from app import main
+
+    client = TestClient(main.app)
+    r = client.post("/w/not-yours/delete", follow_redirects=False)
+    assert r.status_code == 303
+    assert r.headers["location"] == "/"
+    assert workspaces.get("not-yours") is not None
+
+
+def test_create_writes_the_principals_id_not_the_owner_constant(mods):
+    """`workspaces.create` records the CALLER'S owner, not the module constant `OWNER_ID`.
+
+    Phase 1 made `create` take an explicit `owner_id`; this pins that the value actually reaches
+    the row rather than `_insert` falling back to its own default (which is deliberately
+    `OWNER_ID`-defaulted for `migrate_local`, D7). `"other"` is chosen precisely because it is not
+    `OWNER_ID`, so a regression to the hard-coded constant is visible rather than accidentally
+    matching.
+    """
+    _, _, _, workspaces = mods
+    assert workspaces.OWNER_ID != "other"
+
+    wid = workspaces.create("Someone else's analysis", owner_id="other")
+
+    row = workspaces.get(wid)
+    assert row["owner_id"] == "other"

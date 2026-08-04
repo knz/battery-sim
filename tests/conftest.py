@@ -33,7 +33,8 @@ Main items:
     W                the `/w/local` prefix.
     w(suffix)        `W + suffix`; the workspace-scoped URL for the default workspace.
     page(id)         the URL of the three-panel page for a workspace (`GET /w/{id}/results`).
-    seed_workspace() create the workspace row (idempotent), under the CURRENT data dir.
+    seed_workspace() create the workspace row (idempotent), under the CURRENT data dir, for a
+                     given owner (default "local").
 """
 
 import atexit
@@ -115,15 +116,21 @@ def data_page(workspace_id: str = WORKSPACE_ID) -> str:
     return f"/w/{workspace_id}/data"
 
 
-def seed_workspace(workspace_id: str = WORKSPACE_ID, title: str = "Test workspace") -> str:
+def seed_workspace(
+    workspace_id: str = WORKSPACE_ID, title: str = "Test workspace", owner_id: str = "local"
+) -> str:
     """Create the workspace row so `deps.get_workspace` resolves it; return its id.
 
     Idempotent: returns the existing id when the row is already there, so a fixture may call it
     without checking. Imports `app.workspaces` lazily because the caller has usually just pointed
     `BATTERY_SIM_DATA_DIR` at a tmp path and the module resolves the data dir per call.
+
+    `owner_id` defaults to `"local"` — `get_principal()`'s hard-coded principal (changelog
+    20260804-owner-scoping.md) — so every existing caller keeps seeding a workspace the default
+    principal can see. A caller exercising cross-owner behaviour passes a different one.
     """
     from app import workspaces
 
     if workspaces.get(workspace_id) is None:
-        workspaces.create(title, workspace_id=workspace_id)
+        workspaces.create(title, workspace_id=workspace_id, owner_id=owner_id)
     return workspace_id
