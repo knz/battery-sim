@@ -242,7 +242,9 @@ Default parameter values shipped in `config.toml` are listed in
 The following are v1 requirements *because* they make multi-tenancy a later additive
 change rather than a rewrite:
 
-1. **Every persisted row carries `workspace_id`.** No table is implicitly global.
+1. **Every persisted row carries `workspace_id`.** No table is implicitly global. Every
+   read path filters on it too — an omitted filter reintroduces the leak the column exists
+   to prevent.
 
    **One deliberate exception: `feature_interest`.** Its primary key is `feature_key` alone,
    and its rows survive the deletion of every workspace, including the last. The reasoning is
@@ -260,9 +262,10 @@ change rather than a rewrite:
    saved in another. Any future candidate for the same treatment needs its own argument that
    the row is telemetry rather than user data.
 2. **`Workspace` is resolved via a FastAPI dependency**, never read from a global.
-   In v1 `get_principal()` returns a hard-coded `Principal(id="local")` and
-   `get_workspace()` returns the single workspace. Adding auth means replacing exactly
-   these two functions.
+   In v1 `get_principal()` returns a hard-coded `Principal(id="local")`, and
+   `get_workspace()` resolves the workspace named in the `/w/{workspace_id}/…` path and
+   checks it against the principal. Adding auth means replacing `get_principal()` alone —
+   `get_workspace()`'s ownership check already does its part unchanged.
 3. **No module-level mutable state.** Session state, run ids, debounce timers and caches
    live inside `SimulationService`, instantiated per workspace and held in a registry
    keyed by `workspace_id`.
@@ -274,8 +277,10 @@ change rather than a rewrite:
 7. **`owner_id` exists on `workspaces` from day one**, populated with `"local"`.
 
 Deliberately deferred: authentication, authorisation policy, quotas, per-user encryption
-keys, workspace sharing, migration of the v1 single workspace into a user account
-(a one-row `UPDATE` when the time comes).
+keys, workspace sharing, and attaching the existing `"local"` owner's workspaces to a real
+user account once one exists. `migrate_local` already adopted the pre-index installation
+into the workspaces table under that owner, and an owner can hold many workspaces, so this
+is no longer the one-row update it once was.
 
 ## 5.6 Named constants
 

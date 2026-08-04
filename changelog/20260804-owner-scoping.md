@@ -263,7 +263,7 @@ The test suite is run after phases 2 and 3, with results reported as they come o
 
 ## 7. Current status
 
-**Phases 1–3 complete.** Phase 4 pending.
+**Complete.** All four phases are built, reviewed and committed.
 
 - **Phase 0** — this file. Complete.
 - **Phase 1** — complete, committed as `6273d23`. `list_summaries` is owner-filtered with a
@@ -277,7 +277,10 @@ The test suite is run after phases 2 and 3, with results reported as they come o
   `create`'s `owner_id` now required per D7. Suite green at 1279 passed / 2 skipped — unchanged
   from phase 2, which is what a no-behaviour-change phase should produce. Reviewed: no blocking
   findings.
-- **Phase 4** — pending, as specified in §4.
+- **Phase 4** — complete. `specs/implementation-progress.md` records what is built and what is
+  absent; `specs/08-architecture.md` §5.5 invariant 1 now says queries must be owner-filtered, not
+  merely rows owner-tagged. Reviewed: no blocking findings. Two stale claims elsewhere in §5.5,
+  predating this work, were corrected while that list was open (see below).
 
 ### Phase 3 found two production call sites, and a mis-measured blast radius
 
@@ -328,6 +331,33 @@ Deferred, not blocking:
 - Seven test lines in `test_workspace_data.py` and `test_workspace_list.py` now exceed 100
   characters from inlining `mod["workspaces"].OWNER_ID`. No linter enforces a limit and the files
   already had two such lines; a local `ws = mod["workspaces"]` binding would shorten them.
+
+### Two stale §5.5 claims corrected in passing
+
+Found by the phase 4 review, both predating this work, both in the invariant list phase 4 was
+already editing:
+
+- Invariant 2 said "`get_workspace()` returns the single workspace", untrue since the workspaces
+  restructure — `deps.get_workspace` resolves the id from the `/w/{workspace_id}/…` path.
+- §5.5 described adopting the v1 workspace into a user account as "a one-row `UPDATE` when the
+  time comes". `migrate_local` has already run, and there are now N workspaces per owner.
+
+### What this leaves for whoever adds authentication
+
+The work deliberately stops one step short of a login. What remains, in the order it would matter:
+
+1. Replace `get_principal()` — the two-function change §5.5 invariant 2 promises. The cross-owner
+   tests from phase 2 are the guard for that swap.
+2. Build the session mechanism that does not exist: users table, credential storage, cookie
+   beyond `lang` (§3 finding 4).
+3. Revisit `app/csrf.py` (§3 finding 5). It is a header-only same-site check that deliberately
+   leaves `POST /w/{id}/params` uncovered; the docstring names the allow-when-both-headers-absent
+   branch as the first thing to change once the app stops being local-only.
+4. §5.3's per-workspace `ProcessPoolExecutor` (§3 finding 6) — confirmed still absent; `run_all`
+   is called synchronously from `results_view`, so one long simulation blocks every other request.
+
+Items 2–4 were out of scope throughout and are unstarted. Nothing here makes the app multi-user:
+there is one principal, hard-coded, and no authentication of any kind.
 
 ### Deviation from §4's commit plan
 

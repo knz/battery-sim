@@ -137,3 +137,33 @@ Built ([changelog 20260723-pending-affordance-impl](../changelog/20260723-pendin
 Storage note: this uses the standard-library `sqlite3` for the single counter table. The full
 six-table schema of [§5.1](08-architecture.md) is expected to move to SQLAlchemy when it lands;
 `feature_interest` migrates with it.
+
+## Owner scoping (built without authentication)
+
+Built ([changelog 20260804-owner-scoping](../changelog/20260804-owner-scoping.md)): workspace
+ownership is now carried *and checked*, not merely stored. `workspaces.list_summaries` takes a
+required `owner_id` and filters on it, `workspaces.create` takes an owner instead of writing a
+module constant, and both flat routes — `GET /` and `POST /workspaces` — take a principal and
+pass its id through. Cross-owner regression tests exist in `tests/test_workspaces.py` (the
+"Cross-owner invisibility" section): a workspace seeded under one owner is absent from another
+owner's list, absent from the rendered HTML, 404s on every workspace-scoped route, and survives
+a cross-owner delete attempt. These were checked by mutation — each test was confirmed to
+fail when the protection it guards is removed — so a future replacement of `get_principal` is
+guarded rather than merely hoped to be correct.
+
+`app/deps.get_principal()` still returns `Principal(id=workspaces.OWNER_ID)`, and
+`workspaces.OWNER_ID` is still `"local"`. There is exactly one principal in the running system
+and no data migration has run. This is deliberate, not an oversight left for later: with a single
+constant principal, every existing row remains owned by the only owner there is, so the scoping
+change above could land with no workspace becoming invisible and no row changing owner. Replacing
+`get_principal()` is still the whole job of adding authentication, per §5.5 invariant 2 — this
+phase did not touch that seam.
+
+What this explicitly did not build, and was never in scope: no users table, no sessions, no
+login, no credential storage of any kind. `app/csrf.py` is unchanged — it remains a header-only
+same-site check that deliberately leaves `POST /w/{id}/params` uncovered, and its docstring
+already names the allow-when-both-headers-are-absent branch as the first thing to revisit once
+the app stops being local-only; that reasoning stops holding once a second real principal
+exists. §5.3's per-workspace `ProcessPoolExecutor` also still does not exist — simulation
+continues to run inline on the request, which is fine for one user but means one long run
+blocks everyone once there is more than one.
