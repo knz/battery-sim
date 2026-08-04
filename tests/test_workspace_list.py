@@ -173,7 +173,7 @@ def test_the_migration_still_adopts_a_genuine_pre_index_installation(env):
 def test_the_connection_badge_is_built_from_the_config(env, phases, fuse_a, expected):
     """§2′.2: `phases × fuse_a`, derived from `GridConfig` and never typed."""
     client, mod = env
-    mod["workspaces"].create("Test", workspace_id="w1")
+    mod["workspaces"].create("Test", workspace_id="w1", owner_id=mod["workspaces"].OWNER_ID)
     cfg = mod["simconfig_store"].load("w1")
     cfg.grid.phases = phases
     cfg.grid.fuse_a = fuse_a
@@ -197,7 +197,7 @@ def test_the_contract_badge_is_the_enum_value_at_full_strength(env, simulate_cos
     contain its own text.
     """
     client, mod = env
-    mod["workspaces"].create("Test", workspace_id="w1")
+    mod["workspaces"].create("Test", workspace_id="w1", owner_id=mod["workspaces"].OWNER_ID)
     cfg = mod["simconfig_store"].load("w1")
     cfg.simulate_cost = simulate_cost
     mod["simconfig_store"].save(mod["simconfig_store"].clone(cfg), "w1")
@@ -231,10 +231,10 @@ def test_the_last_saved_badge_is_rendered_in_amsterdam_time(env):
 def test_a_card_with_data_states_the_three_roles_and_the_coverage(env):
     """§2′.2's info box: the three role facts, the coverage window and the size line."""
     client, mod = env
-    mod["workspaces"].create("Test", workspace_id="w1")
+    mod["workspaces"].create("Test", workspace_id="w1", owner_id=mod["workspaces"].OWNER_ID)
     mod["dataset"].save_dataset(
         [_energy("grid_import_t1"), _energy("grid_export_t1"), _energy("solar_production")],
-        (_WIN_START, _WIN_END), "test", [], None, "w1",
+        (_WIN_START, _WIN_END), "test", [], None, workspace_id="w1",
     )
 
     card = _card_html(client.get("/").text, "w1")
@@ -260,13 +260,13 @@ def test_pv_reads_not_applicable_rather_than_not_loaded_without_pv(env):
     grid rows stayed filled, which is the one thing it is supposed to catch.
     """
     client, mod = env
-    mod["workspaces"].create("Test", workspace_id="w1")
+    mod["workspaces"].create("Test", workspace_id="w1", owner_id=mod["workspaces"].OWNER_ID)
     cfg = mod["simconfig_store"].load("w1")
     cfg.has_pv = False
     mod["simconfig_store"].save(mod["simconfig_store"].clone(cfg), "w1")
     mod["dataset"].save_dataset(
         [_energy("grid_import_t1"), _energy("grid_export_t1")],
-        (_WIN_START, _WIN_END), "test", [], None, "w1",
+        (_WIN_START, _WIN_END), "test", [], None, workspace_id="w1",
     )
 
     card = _card_html(client.get("/").text, "w1")
@@ -290,7 +290,7 @@ def test_the_no_data_card_omits_results_and_delete_data(env):
     three that §2′.2 marks "always" are still there.
     """
     client, mod = env
-    mod["workspaces"].create("Test", workspace_id="w1")
+    mod["workspaces"].create("Test", workspace_id="w1", owner_id=mod["workspaces"].OWNER_ID)
 
     card = _card_html(client.get("/").text, "w1")
     assert "No data loaded yet." in card
@@ -307,9 +307,9 @@ def test_the_no_data_card_omits_results_and_delete_data(env):
 def test_a_card_with_data_offers_results_and_delete_data(env):
     """The other side of the branch above, so a card that omitted them ALWAYS would fail."""
     client, mod = env
-    mod["workspaces"].create("Test", workspace_id="w1")
+    mod["workspaces"].create("Test", workspace_id="w1", owner_id=mod["workspaces"].OWNER_ID)
     mod["dataset"].save_dataset(
-        [_energy("grid_import_t1")], (_WIN_START, _WIN_END), "test", [], None, "w1",
+        [_energy("grid_import_t1")], (_WIN_START, _WIN_END), "test", [], None, workspace_id="w1",
     )
 
     card = _card_html(client.get("/").text, "w1")
@@ -326,9 +326,9 @@ def test_the_card_actions_are_links_not_fetches(env):
     does not have — and would break every card action when a script fails to load.
     """
     client, mod = env
-    mod["workspaces"].create("Test", workspace_id="w1")
+    mod["workspaces"].create("Test", workspace_id="w1", owner_id=mod["workspaces"].OWNER_ID)
     mod["dataset"].save_dataset(
-        [_energy("grid_import_t1")], (_WIN_START, _WIN_END), "test", [], None, "w1",
+        [_energy("grid_import_t1")], (_WIN_START, _WIN_END), "test", [], None, workspace_id="w1",
     )
 
     card = _card_html(client.get("/").text, "w1")
@@ -402,13 +402,13 @@ def test_delete_data_keeps_the_config_and_drops_a_fetched_source_mapping(env):
     a staged mapping against. That is still checked, now as the narrower claim it always was.
     """
     client, mod = env
-    mod["workspaces"].create("Test", workspace_id="w1")
+    mod["workspaces"].create("Test", workspace_id="w1", owner_id=mod["workspaces"].OWNER_ID)
     cfg = mod["simconfig_store"].load("w1")
     cfg.battery.usable_capacity_kwh = 17.5
     mod["simconfig_store"].save(mod["simconfig_store"].clone(cfg), "w1")
     mod["dataset"].save_dataset(
         [_energy("grid_import_t1")], (_WIN_START, _WIN_END), "test", [],
-        {"grid_import_t1": "home_assistant"}, "w1",
+        {"grid_import_t1": "home_assistant"}, workspace_id="w1",
     )
     generation = mod["db"].bump_source_generation("w1")
 
@@ -447,9 +447,9 @@ def test_delete_data_does_not_advance_the_last_saved_badge(env):
     same reason §2′.10 forbids a data load doing it.
     """
     client, mod = env
-    mod["workspaces"].create("Test", workspace_id="w1")
+    mod["workspaces"].create("Test", workspace_id="w1", owner_id=mod["workspaces"].OWNER_ID)
     mod["dataset"].save_dataset(
-        [_energy("grid_import_t1")], (_WIN_START, _WIN_END), "test", [], None, "w1",
+        [_energy("grid_import_t1")], (_WIN_START, _WIN_END), "test", [], None, workspace_id="w1",
     )
     before = mod["workspaces"].get("w1")["updated_at"]
 
@@ -460,9 +460,9 @@ def test_delete_data_does_not_advance_the_last_saved_badge(env):
 def test_delete_analysis_removes_everything_keyed_by_the_id(env):
     """§2′.3: the workspace row, every keyed row, and the directory."""
     client, mod = env
-    mod["workspaces"].create("Test", workspace_id="w1")
+    mod["workspaces"].create("Test", workspace_id="w1", owner_id=mod["workspaces"].OWNER_ID)
     mod["dataset"].save_dataset(
-        [_energy("grid_import_t1")], (_WIN_START, _WIN_END), "test", [], None, "w1",
+        [_energy("grid_import_t1")], (_WIN_START, _WIN_END), "test", [], None, workspace_id="w1",
     )
     mod["db"].bump_source_generation("w1")
     directory = mod["simconfig_store"].config_path("w1").parent
@@ -486,7 +486,7 @@ def test_delete_analysis_leaves_feature_interest_alone(env):
     what this household wants, and that outlives the analysis it happened to be clicked from.
     """
     client, mod = env
-    mod["workspaces"].create("Test", workspace_id="w1")
+    mod["workspaces"].create("Test", workspace_id="w1", owner_id=mod["workspaces"].OWNER_ID)
     mod["db"].record_interest("csv_upload")
 
     client.post("/w/w1/delete")
@@ -524,8 +524,8 @@ def test_a_replayed_deletion_lands_on_the_list_and_deletes_nothing_else(env):
     afterwards.
     """
     client, mod = env
-    mod["workspaces"].create("Gone", workspace_id="w1")
-    mod["workspaces"].create("Kept", workspace_id="w2")
+    mod["workspaces"].create("Gone", workspace_id="w1", owner_id=mod["workspaces"].OWNER_ID)
+    mod["workspaces"].create("Kept", workspace_id="w2", owner_id=mod["workspaces"].OWNER_ID)
 
     assert client.post("/w/w1/delete", follow_redirects=False).status_code == 303
     replay = client.post("/w/w1/delete", follow_redirects=False)
@@ -564,7 +564,7 @@ def test_the_deletions_refuse_a_traversing_id_without_touching_the_filesystem(en
     workspace beside the traversing request is untouched.
     """
     client, mod = env
-    mod["workspaces"].create("Kept", workspace_id="w1")
+    mod["workspaces"].create("Kept", workspace_id="w1", owner_id=mod["workspaces"].OWNER_ID)
 
     assert client.post(route, follow_redirects=False).status_code == 404
     assert mod["workspaces"].get("w1") is not None
@@ -582,7 +582,7 @@ def test_a_path_unsafe_id_that_reaches_the_route_never_reaches_the_filesystem(en
     app's contract.
     """
     client, mod = env
-    mod["workspaces"].create("Kept", workspace_id="w1")
+    mod["workspaces"].create("Kept", workspace_id="w1", owner_id=mod["workspaces"].OWNER_ID)
 
     r = client.post(route, follow_redirects=False)
     assert r.status_code < 500, r.text
@@ -600,8 +600,8 @@ def test_the_list_is_ordered_most_recently_updated_first(env):
     time forever while the query still looked correct.
     """
     client, mod = env
-    mod["workspaces"].create("First", workspace_id="w1")
-    mod["workspaces"].create("Second", workspace_id="w2")
+    mod["workspaces"].create("First", workspace_id="w1", owner_id=mod["workspaces"].OWNER_ID)
+    mod["workspaces"].create("Second", workspace_id="w2", owner_id=mod["workspaces"].OWNER_ID)
 
     order = [s.id for s in mod["workspaces"].list_summaries(mod["workspaces"].OWNER_ID)]
     assert order == ["w2", "w1"], "a newly created workspace sorts first"
@@ -624,7 +624,7 @@ def test_an_invalid_params_submission_does_not_advance_the_badge(env):
     the previous save.
     """
     client, mod = env
-    mod["workspaces"].create("Test", workspace_id="w1")
+    mod["workspaces"].create("Test", workspace_id="w1", owner_id=mod["workspaces"].OWNER_ID)
     before = mod["workspaces"].get("w1")["updated_at"]
 
     r = client.post("/w/w1/params", data=_params_form(**{
@@ -641,12 +641,12 @@ def test_a_data_load_does_not_reorder_the_list(env):
     to the top — a list that reordered itself behind a load would be a surprise every time.
     """
     client, mod = env
-    mod["workspaces"].create("First", workspace_id="w1")
-    mod["workspaces"].create("Second", workspace_id="w2")
+    mod["workspaces"].create("First", workspace_id="w1", owner_id=mod["workspaces"].OWNER_ID)
+    mod["workspaces"].create("Second", workspace_id="w2", owner_id=mod["workspaces"].OWNER_ID)
     order = [s.id for s in mod["workspaces"].list_summaries(mod["workspaces"].OWNER_ID)]
 
     mod["dataset"].save_dataset(
-        [_energy("grid_import_t1")], (_WIN_START, _WIN_END), "test", [], None, "w1",
+        [_energy("grid_import_t1")], (_WIN_START, _WIN_END), "test", [], None, workspace_id="w1",
     )
     assert [s.id for s in mod["workspaces"].list_summaries(mod["workspaces"].OWNER_ID)] == order
 
@@ -689,7 +689,7 @@ def test_the_header_drops_the_workspace_badge_and_the_gear(env):
     list-only check.
     """
     client, mod = env
-    mod["workspaces"].create("Test", workspace_id="w1")
+    mod["workspaces"].create("Test", workspace_id="w1", owner_id=mod["workspaces"].OWNER_ID)
 
     for html in (client.get("/").text, client.get("/w/w1/results").text):
         assert "workspace: local" not in html
@@ -721,12 +721,12 @@ _STATE_CHANGING = ["/workspaces", "/w/w1/delete", "/w/w1/data/delete"]
 
 def _seed_for_csrf(mod):
     """A workspace with a config document and a dataset — something a forged POST could destroy."""
-    mod["workspaces"].create("Test", workspace_id="w1")
+    mod["workspaces"].create("Test", workspace_id="w1", owner_id=mod["workspaces"].OWNER_ID)
     cfg = mod["simconfig_store"].load("w1")
     cfg.battery.usable_capacity_kwh = 17.5
     mod["simconfig_store"].save(mod["simconfig_store"].clone(cfg), "w1")
     mod["dataset"].save_dataset(
-        [_energy("grid_import_t1")], (_WIN_START, _WIN_END), "test", [], None, "w1",
+        [_energy("grid_import_t1")], (_WIN_START, _WIN_END), "test", [], None, workspace_id="w1",
     )
 
 
@@ -874,7 +874,7 @@ def test_params_is_deliberately_not_covered(env):
     unstated behaviour.
     """
     client, mod = env
-    mod["workspaces"].create("Test", workspace_id="w1")
+    mod["workspaces"].create("Test", workspace_id="w1", owner_id=mod["workspaces"].OWNER_ID)
 
     r = client.post(
         "/w/w1/params",

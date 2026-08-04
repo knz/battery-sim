@@ -1484,7 +1484,7 @@ def _seed_reconstructable_dataset(workspace_id: str, *, has_pv: bool = False) ->
         [frame("grid_import_t1", 2.0), frame("grid_export_t1", 0.5)],
         (datetime(2026, 1, 1, tzinfo=timezone.utc),
          datetime(2026, 1, 3, tzinfo=timezone.utc)),
-        "test", [], None, workspace_id,
+        "test", [], None, workspace_id=workspace_id,
     )
 
 

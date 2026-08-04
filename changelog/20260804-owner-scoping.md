@@ -136,6 +136,16 @@ Verified by grep rather than estimated: **no `app/` call site** relies on a defa
 call sites are in tests, across five files — `test_params_route.py` (29), `test_workspaces.py`
 (19), `test_slot_load.py` (15), `test_ingest_ws.py` (10), `test_results_route.py` (3).
 
+> **This measurement was wrong, as phase 3 discovered.** It is left above as written, since the
+> correction is the useful record. The grep searched for *zero-argument* calls, which misses every
+> caller that passes a workspace id **positionally** — and those break too, once D5 makes the
+> parameter keyword-only. The real figures: ~111 sites in those same five files, and **ten further
+> files** the grep never implicated, because `save_dataset`, `upsert_series`, `simconfig_store.save`
+> / `.load` / `config_path` and `workspaces.create` are called throughout the suite. Two of the
+> missed sites were in `app/`, contradicting this section's first sentence — see the phase 3 record
+> in §7. The lesson for future scoping greps: a defaulted parameter has two classes of caller, and
+> only one of them is visible as an empty argument list.
+
 `.claude/worktrees/runtime-2/` holds near-duplicate copies of these files. It is a separate
 worktree and is left alone.
 
@@ -227,11 +237,13 @@ The test suite is run after phases 2 and 3, with results reported as they come o
 | `app/db.py` | 3 | drop two `workspace_id` defaults |
 | `app/dataset.py` | 3 | drop one default; two signatures keyword-only |
 | `app/simconfig_store.py` | 3 | drop five defaults |
-| `tests/test_params_route.py` | 3 | 29 call sites |
-| `tests/test_workspaces.py` | 3 | 19 call sites |
-| `tests/test_slot_load.py` | 3 | 15 call sites |
-| `tests/test_ingest_ws.py` | 3 | 10 call sites |
-| `tests/test_results_route.py` | 3 | 3 call sites |
+| `app/main.py` | 3 | two `asyncio.to_thread` sites pass `workspace_id=` as a keyword |
+| `tests/test_params_route.py` | 3 | ~30 call sites (planned 29) |
+| `tests/test_workspaces.py` | 3 | ~27 call sites, plus 5 `create` sites for D7 (planned 19) |
+| `tests/test_slot_load.py` | 3 | ~26 call sites (planned 15) |
+| `tests/test_ingest_ws.py` | 3 | ~16 call sites (planned 10) |
+| `tests/test_results_route.py` | 3 | ~12 call sites (planned 3) |
+| ten further test files | 3 | unplanned — see the correction in §3 |
 | `specs/implementation-progress.md` | 4 | record what is built and what remains |
 | `specs/08-architecture.md` | 4 | §5.5 invariant 1: queries, not just rows |
 
@@ -245,10 +257,13 @@ The test suite is run after phases 2 and 3, with results reported as they come o
 - *Review noted the filter could be satisfied vacuously.* Checked: the negative assertions
   (`== []`) sit alongside positive-count assertions on the same rows in the same files, so the
   filter is pinned from both directions and no test now passes because a row went missing.
+- *Phase 3's blast radius was under-measured by roughly a third, and missed two `app/` sites.*
+  The scoping grep matched only zero-argument calls; callers passing the id positionally are
+  equally broken by a keyword-only conversion. Corrected in §3.
 
 ## 7. Current status
 
-**Phases 1–2 complete.** Phases 3–4 pending.
+**Phases 1–3 complete.** Phase 4 pending.
 
 - **Phase 0** — this file. Complete.
 - **Phase 1** — complete, committed as `6273d23`. `list_summaries` is owner-filtered with a
@@ -258,7 +273,30 @@ The test suite is run after phases 2 and 3, with results reported as they come o
 - **Phase 2** — complete. Eight cross-owner tests covering the plan's five items, plus
   `seed_workspace(owner_id=...)`. Suite green at 1279 passed / 2 skipped. Reviewed: no blocking
   findings.
-- **Phases 3–4** — pending, as specified in §4.
+- **Phase 3** — complete. Ten `workspace_id` defaults dropped, two signatures keyword-only per D5,
+  `create`'s `owner_id` now required per D7. Suite green at 1279 passed / 2 skipped — unchanged
+  from phase 2, which is what a no-behaviour-change phase should produce. Reviewed: no blocking
+  findings.
+- **Phase 4** — pending, as specified in §4.
+
+### Phase 3 found two production call sites, and a mis-measured blast radius
+
+The plan asserted no `app/` caller relied on a default. Two did — `data_ingest_ws`
+(`app/main.py:1214`) and `load_slot` (`:1444`), both dispatching through `asyncio.to_thread` to
+`save_dataset` / `upsert_series` with the workspace id passed **positionally**. D5 makes those
+parameters keyword-only, so both broke. Fixed by passing `workspace_id=` as a keyword, which
+`to_thread` forwards to the target function.
+
+These were the only runtime-behaviour risk in an otherwise mechanical phase, so they were checked
+rather than assumed. The review mutated both sites back to positional and re-ran the suite: **14
+failures**, including the end-to-end route tests. The green suite is therefore real evidence for
+these two sites, not merely the absence of a signal.
+
+The remaining ~111 test call sites were machine-checked rather than eyeballed: every call to the
+eleven affected functions was AST-parsed at `943f6ba` and at the rewritten state, resolved to a
+full parameter→argument binding with the old defaults applied, and diffed pairwise. Exactly two
+bindings differ, both benign and both intentional. No test writes to a different workspace than it
+reads from.
 
 ### Phase 2 was checked by mutation, not just by passing
 
@@ -281,7 +319,9 @@ be masquerading as the 404. And the delete test's row-still-exists assertion goe
 
 Deferred, not blocking:
 
-- Drop `create`'s `owner_id` default in phase 3 (D7), now listed in that phase's scope.
+- ~~Drop `create`'s `owner_id` default in phase 3 (D7)~~ — done in phase 3.
+- Roughly ten test lines now exceed 110 characters, from inlining workspace-id constants at call
+  sites. No linter enforces a limit and the files already contained such lines. Not fixed.
 - `POST /w/{id}/params`'s cross-owner case passes a `{"sections": "battery"}` body that the route
   does not need — it returns 200 for the owner with no body at all. Harmless; it just makes the
   parametrize list carry a third element for one case. Left as is.

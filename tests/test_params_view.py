@@ -433,9 +433,9 @@ def test_persistence_round_trips_through_a_fresh_load(store):
             "topology.pv_coupling": "ac",
         })
     )
-    store.save(cfg)
+    store.save(cfg, store.db.WORKSPACE_ID)
 
-    back = store.load()
+    back = store.load(store.db.WORKSPACE_ID)
     assert back.battery.usable_capacity_kwh == 18.5
     assert back.battery.min_soc_pct == 5
     assert back.battery.max_charge_kw == 9
@@ -450,8 +450,8 @@ def test_persistence_round_trips_through_a_fresh_load(store):
 
 def test_an_absent_file_gives_appendix_a_defaults(store):
     """The state a workspace is in before anything has been configured."""
-    assert not store.config_path().exists()
-    assert store.load() == SimulationConfig()
+    assert not store.config_path(store.db.WORKSPACE_ID).exists()
+    assert store.load(store.db.WORKSPACE_ID) == SimulationConfig()
 
 
 def test_a_corrupt_file_gives_defaults_and_does_not_raise(store):
@@ -461,11 +461,11 @@ def test_a_corrupt_file_gives_defaults_and_does_not_raise(store):
     value that is not an object, a document whose groups are the wrong type, and an out-of-
     vocabulary enum.
     """
-    store.save(SimulationConfig())
+    store.save(SimulationConfig(), store.db.WORKSPACE_ID)
     for corrupt in ('{not json at all', '"a bare string"', '{"battery": 7}',
                     '{"policy": {"charge_policy": "P9"}}'):
-        store.config_path().write_text(corrupt, encoding="utf-8")
-        cfg = store.load()                       # must not raise
+        store.config_path(store.db.WORKSPACE_ID).write_text(corrupt, encoding="utf-8")
+        cfg = store.load(store.db.WORKSPACE_ID)                       # must not raise
         assert cfg.battery.usable_capacity_kwh == 10.0
         assert cfg.policy.charge_policy is ChargePolicy.P3
 
@@ -476,11 +476,11 @@ def test_an_unknown_key_is_ignored_and_a_missing_group_falls_back(store):
     The version is the SAME one this build writes — see the next test for what a different
     version does. What is asserted here is that extra keys and absent groups are tolerated.
     """
-    store.config_path().write_text(
+    store.config_path(store.db.WORKSPACE_ID).write_text(
         json.dumps({"version": 1, "battery": {"usable_capacity_kwh": 12.0}, "unknown": 1}),
         encoding="utf-8",
     )
-    cfg = store.load()
+    cfg = store.load(store.db.WORKSPACE_ID)
     assert cfg.battery.usable_capacity_kwh == 12.0    # the value it did carry
     assert cfg.grid.fuse_a == 25.0                    # the group it did not
     assert cfg.battery.min_soc_pct == 10.0            # the field it did not
@@ -495,16 +495,16 @@ def test_a_document_from_an_unknown_version_yields_defaults(store):
     field by field. An ABSENT version is still accepted as v1, so a hand-written minimal document
     parses.
     """
-    store.config_path().write_text(
+    store.config_path(store.db.WORKSPACE_ID).write_text(
         json.dumps({"version": 99, "battery": {"usable_capacity_kwh": 42.0}}),
         encoding="utf-8",
     )
-    assert store.load().battery.usable_capacity_kwh == 10.0    # the default, not 42
+    assert store.load(store.db.WORKSPACE_ID).battery.usable_capacity_kwh == 10.0    # the default, not 42
 
-    store.config_path().write_text(
+    store.config_path(store.db.WORKSPACE_ID).write_text(
         json.dumps({"battery": {"usable_capacity_kwh": 42.0}}), encoding="utf-8"
     )
-    assert store.load().battery.usable_capacity_kwh == 42.0    # no version → v1
+    assert store.load(store.db.WORKSPACE_ID).battery.usable_capacity_kwh == 42.0    # no version → v1
 
 
 def test_cost_only_params_are_retained_across_a_simulate_cost_toggle(store):
@@ -519,20 +519,20 @@ def test_cost_only_params_are_retained_across_a_simulate_cost_toggle(store):
     box": only the first may clear a stored True.
     """
     on = SimulationConfig(policy=PolicyConfig(economic_guard=True), simulate_cost=True)
-    store.save(on, guard_submitted=True)
-    assert store.load().economic_guard is True
+    store.save(on, store.db.WORKSPACE_ID, guard_submitted=True)
+    assert store.load(store.db.WORKSPACE_ID).economic_guard is True
 
     # Cost simulation off: the guard is forced off in effect, and the panel does not draw the box.
-    off = store.load()
+    off = store.load(store.db.WORKSPACE_ID)
     off.simulate_cost = False
-    store.save(off)                                   # an energy-only submission
-    assert store.load().economic_guard is False       # forced, per §6.7
+    store.save(off, store.db.WORKSPACE_ID)            # an energy-only submission
+    assert store.load(store.db.WORKSPACE_ID).economic_guard is False       # forced, per §6.7
 
     # Back on: the user's choice is restored, not reset.
-    again = store.load()
+    again = store.load(store.db.WORKSPACE_ID)
     again.simulate_cost = True
-    store.save(again)
-    assert store.load().economic_guard is True
+    store.save(again, store.db.WORKSPACE_ID)
+    assert store.load(store.db.WORKSPACE_ID).economic_guard is True
 
 
 def test_unticking_the_guard_under_cost_simulation_really_clears_it(store):
@@ -540,12 +540,13 @@ def test_unticking_the_guard_under_cost_simulation_really_clears_it(store):
     turned off. A submission that DREW the checkbox and did not tick it clears the stored True."""
     store.save(
         SimulationConfig(policy=PolicyConfig(economic_guard=True), simulate_cost=True),
+        store.db.WORKSPACE_ID,
         guard_submitted=True,
     )
-    cleared = store.load()
+    cleared = store.load(store.db.WORKSPACE_ID)
     cleared.policy.economic_guard = False
-    store.save(cleared, guard_submitted=True)
-    assert store.load().economic_guard is False
+    store.save(cleared, store.db.WORKSPACE_ID, guard_submitted=True)
+    assert store.load(store.db.WORKSPACE_ID).economic_guard is False
 
 
 def test_guard_was_submitted_needs_the_servers_agreement_not_only_the_forms_claim():
@@ -568,8 +569,8 @@ def test_guard_was_submitted_needs_the_servers_agreement_not_only_the_forms_clai
 
 
 def test_save_is_atomic_and_leaves_no_temp_file(store):
-    store.save(SimulationConfig())
-    leftovers = list(store.config_path().parent.glob("*.tmp"))
+    store.save(SimulationConfig(), store.db.WORKSPACE_ID)
+    leftovers = list(store.config_path(store.db.WORKSPACE_ID).parent.glob("*.tmp"))
     assert leftovers == []
 
 
@@ -592,7 +593,7 @@ def test_concurrent_saves_neither_raise_nor_corrupt_the_document(store):
     def hammer(capacity: float) -> None:
         for _ in range(30):
             try:
-                store.save(SimulationConfig(battery=BatteryConfig(usable_capacity_kwh=capacity)))
+                store.save(SimulationConfig(battery=BatteryConfig(usable_capacity_kwh=capacity)), store.db.WORKSPACE_ID)
             except BaseException as exc:  # noqa: BLE001 — the assertion is that there are none
                 failures.append(exc)
 
@@ -605,11 +606,11 @@ def test_concurrent_saves_neither_raise_nor_corrupt_the_document(store):
     assert failures == []
     # The winner is whichever replace landed last, but it must be a COMPLETE document from one
     # writer — never a blend or a truncation.
-    doc = json.loads(store.config_path().read_text(encoding="utf-8"))
+    doc = json.loads(store.config_path(store.db.WORKSPACE_ID).read_text(encoding="utf-8"))
     assert doc["battery"]["usable_capacity_kwh"] in (1.0, 2.0, 3.0)
-    assert store.load().battery.usable_capacity_kwh in (1.0, 2.0, 3.0)
+    assert store.load(store.db.WORKSPACE_ID).battery.usable_capacity_kwh in (1.0, 2.0, 3.0)
     # And no writer left its temp file behind.
-    assert list(store.config_path().parent.glob("*.tmp")) == []
+    assert list(store.config_path(store.db.WORKSPACE_ID).parent.glob("*.tmp")) == []
 
 
 def test_the_saved_document_uses_the_same_mode_as_the_rest_of_the_data_dir(store):
@@ -623,11 +624,11 @@ def test_the_saved_document_uses_the_same_mode_as_the_rest_of_the_data_dir(store
     """
     import stat
 
-    store.save(SimulationConfig())
-    control = store.config_path().parent / "control.txt"
+    store.save(SimulationConfig(), store.db.WORKSPACE_ID)
+    control = store.config_path(store.db.WORKSPACE_ID).parent / "control.txt"
     control.write_text("x", encoding="utf-8")
 
-    assert stat.S_IMODE(store.config_path().stat().st_mode) == stat.S_IMODE(
+    assert stat.S_IMODE(store.config_path(store.db.WORKSPACE_ID).stat().st_mode) == stat.S_IMODE(
         control.stat().st_mode
     )
 
@@ -1013,21 +1014,21 @@ def test_the_pricing_values_survive_an_energy_only_submission(store):
         "pricing.degradation_eur_per_kwh": "0.0250",
         "policy.economic_guard": "1",
     }))
-    store.save(configured, guard_submitted=True)
+    store.save(configured, store.db.WORKSPACE_ID, guard_submitted=True)
 
     # Turn cost simulation off through the band, submitting the form the panel then renders:
     # no `pricing` section, and none of the pricing fields.
     off = params_view.parse_form(
         _form(sections="setup battery grid charge discharge topology",
               **{"setup.simulate_cost": "no"}),
-        store.load(),
+        store.load(store.db.WORKSPACE_ID),
     )
     assert off.simulate_cost is False
-    store.save(off, guard_submitted=params_view.guard_was_submitted(
+    store.save(off, store.db.WORKSPACE_ID, guard_submitted=params_view.guard_was_submitted(
         {"sections": "setup battery grid charge discharge topology"}, configured
     ))
 
-    back = store.load()
+    back = store.load(store.db.WORKSPACE_ID)
     assert back.pricing.supplier_markup == 0.0777
     assert back.pricing.vat_rate == pytest.approx(0.09)
     assert back.pricing.feedin_beta == -0.02
@@ -1041,8 +1042,8 @@ def test_the_pricing_values_survive_an_energy_only_submission(store):
               **{"setup.simulate_cost": "yes"}),
         back,
     )
-    store.save(on_again)
-    restored = store.load()
+    store.save(on_again, store.db.WORKSPACE_ID)
+    restored = store.load(store.db.WORKSPACE_ID)
     assert restored.simulate_cost is True
     assert restored.pricing.supplier_markup == 0.0777
     assert restored.economic_guard is True     # the `retained` slot did its job

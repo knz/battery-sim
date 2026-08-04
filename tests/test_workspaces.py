@@ -25,6 +25,7 @@ from datetime import datetime, timezone
 import numpy as np
 import pytest
 
+from app import db
 from tests.conftest import seed_workspace
 
 
@@ -59,7 +60,7 @@ def _save_dataset(dataset, names=("grid_import_t1", "grid_export_t1", "solar_pro
         datetime(2025, 6, 1, tzinfo=timezone.utc),
         datetime(2025, 6, 3, tzinfo=timezone.utc),
     )
-    return dataset.save_dataset(frames, window, "home_assistant", [])
+    return dataset.save_dataset(frames, window, "home_assistant", [], workspace_id=db.WORKSPACE_ID)
 
 
 # ── Migration ────────────────────────────────────────────────────────────────────────────────
@@ -76,7 +77,7 @@ def test_migration_adopts_an_existing_config(mods):
     _, db, simconfig_store, workspaces = mods
     from app.domain.simconfig import SimulationConfig
 
-    simconfig_store.save(SimulationConfig())
+    simconfig_store.save(SimulationConfig(), db.WORKSPACE_ID)
 
     assert workspaces.migrate_local() is True
     row = workspaces.get(db.WORKSPACE_ID)
@@ -99,7 +100,7 @@ def test_migration_is_idempotent(mods):
     _, db, simconfig_store, workspaces = mods
     from app.domain.simconfig import SimulationConfig
 
-    simconfig_store.save(SimulationConfig(simulate_cost=True))
+    simconfig_store.save(SimulationConfig(simulate_cost=True), db.WORKSPACE_ID)
 
     assert workspaces.migrate_local() is True
     first = workspaces.get(db.WORKSPACE_ID)
@@ -107,7 +108,7 @@ def test_migration_is_idempotent(mods):
     assert workspaces.migrate_local() is False
     assert workspaces.get(db.WORKSPACE_ID) == first
     assert len(workspaces.list_summaries(workspaces.OWNER_ID)) == 1
-    assert simconfig_store.is_pricing_configured() is True
+    assert simconfig_store.is_pricing_configured(db.WORKSPACE_ID) is True
 
 
 def test_migration_sets_pricing_configured_from_simulate_cost(mods):
@@ -115,20 +116,20 @@ def test_migration_sets_pricing_configured_from_simulate_cost(mods):
     _, _, simconfig_store, workspaces = mods
     from app.domain.simconfig import SimulationConfig
 
-    simconfig_store.save(SimulationConfig(simulate_cost=True))
-    assert simconfig_store.is_pricing_configured() is False  # not set before migration
+    simconfig_store.save(SimulationConfig(simulate_cost=True), db.WORKSPACE_ID)
+    assert simconfig_store.is_pricing_configured(db.WORKSPACE_ID) is False  # not set before migration
 
     workspaces.migrate_local()
-    assert simconfig_store.is_pricing_configured() is True
+    assert simconfig_store.is_pricing_configured(db.WORKSPACE_ID) is True
 
 
 def test_migration_leaves_the_flag_false_without_cost_simulation(mods):
     _, _, simconfig_store, workspaces = mods
     from app.domain.simconfig import SimulationConfig
 
-    simconfig_store.save(SimulationConfig(simulate_cost=False))
+    simconfig_store.save(SimulationConfig(simulate_cost=False), db.WORKSPACE_ID)
     workspaces.migrate_local()
-    assert simconfig_store.is_pricing_configured() is False
+    assert simconfig_store.is_pricing_configured(db.WORKSPACE_ID) is False
 
 
 def test_migration_never_clears_a_set_pricing_configured(mods):
@@ -143,17 +144,17 @@ def test_migration_never_clears_a_set_pricing_configured(mods):
     _, _, simconfig_store, workspaces = mods
     from app.domain.simconfig import SimulationConfig
 
-    simconfig_store.save(SimulationConfig(simulate_cost=False), pricing_configured=True)
-    assert simconfig_store.is_pricing_configured() is True
+    simconfig_store.save(SimulationConfig(simulate_cost=False), db.WORKSPACE_ID, pricing_configured=True)
+    assert simconfig_store.is_pricing_configured(db.WORKSPACE_ID) is True
 
     assert workspaces.migrate_local() is True
-    assert simconfig_store.is_pricing_configured() is True
+    assert simconfig_store.is_pricing_configured(db.WORKSPACE_ID) is True
 
 
 def test_migration_does_not_overwrite_a_future_version_document(mods):
     """A document this build cannot read is adopted untouched, never rewritten with defaults.
 
-    `simconfig_store.load()` answers appendix-A defaults for a version other than 1 — deliberately,
+    `simconfig_store.load` answers appendix-A defaults for a version other than 1 — deliberately,
     so a future build's file is not misread as this one's. The migration used to save those
     defaults straight back, downgrading the document and discarding the user's parameters.
     """
@@ -162,7 +163,7 @@ def test_migration_does_not_overwrite_a_future_version_document(mods):
     _, _, simconfig_store, workspaces = mods
     from app.domain.simconfig import SimulationConfig
 
-    path = simconfig_store.config_path()
+    path = simconfig_store.config_path(db.WORKSPACE_ID)
     doc = simconfig_store.to_dict(SimulationConfig())
     doc["version"] = 2
     doc["battery"]["usable_capacity_kwh"] = 42.0
@@ -182,8 +183,8 @@ def test_migration_does_not_run_once_a_workspace_exists(mods):
     _, _, simconfig_store, workspaces = mods
     from app.domain.simconfig import SimulationConfig
 
-    simconfig_store.save(SimulationConfig())  # a `local` document exists on disk
-    workspaces.create("Something else")
+    simconfig_store.save(SimulationConfig(), db.WORKSPACE_ID)  # a `local` document exists on disk
+    workspaces.create("Something else", owner_id=workspaces.OWNER_ID)
 
     assert workspaces.migrate_local() is False
     assert [s.title for s in workspaces.list_summaries(workspaces.OWNER_ID)] == ["Something else"]
@@ -196,7 +197,7 @@ def test_summary_with_data(mods):
     dataset, db, simconfig_store, workspaces = mods
     from app.domain.simconfig import GridConfig, SimulationConfig
 
-    simconfig_store.save(SimulationConfig(has_pv=True, grid=GridConfig(phases=3, fuse_a=25)))
+    simconfig_store.save(SimulationConfig(has_pv=True, grid=GridConfig(phases=3, fuse_a=25)), db.WORKSPACE_ID)
     _save_dataset(dataset)
     workspaces.migrate_local()
 
@@ -221,7 +222,7 @@ def test_summary_without_data(mods):
     _, _, simconfig_store, workspaces = mods
     from app.domain.simconfig import SimulationConfig
 
-    simconfig_store.save(SimulationConfig())
+    simconfig_store.save(SimulationConfig(), db.WORKSPACE_ID)
     workspaces.migrate_local()
 
     (card,) = workspaces.list_summaries(workspaces.OWNER_ID)
@@ -236,7 +237,7 @@ def test_summary_without_pv_reports_not_applicable(mods):
     dataset, _, simconfig_store, workspaces = mods
     from app.domain.simconfig import SimulationConfig
 
-    simconfig_store.save(SimulationConfig(has_pv=False))
+    simconfig_store.save(SimulationConfig(has_pv=False), db.WORKSPACE_ID)
     _save_dataset(dataset, names=("grid_import_t1", "grid_export_t1"))
     workspaces.migrate_local()
 
@@ -255,7 +256,7 @@ def test_summary_without_pv_ignores_a_stray_solar_series(mods):
     dataset, _, simconfig_store, workspaces = mods
     from app.domain.simconfig import SimulationConfig
 
-    simconfig_store.save(SimulationConfig(has_pv=False))
+    simconfig_store.save(SimulationConfig(has_pv=False), db.WORKSPACE_ID)
     _save_dataset(dataset)  # includes solar_production
     workspaces.migrate_local()
 
@@ -268,8 +269,8 @@ def test_summaries_are_ordered_most_recently_updated_first(mods):
     """§2′.2's ordering, and §2′.10's rule that it follows the CONFIG's save time."""
     _, _, _, workspaces = mods
 
-    a = workspaces.create("A")
-    b = workspaces.create("B")
+    a = workspaces.create("A", owner_id=workspaces.OWNER_ID)
+    b = workspaces.create("B", owner_id=workspaces.OWNER_ID)
     workspaces.touch(a)  # a saved after b was created
 
     assert [s.id for s in workspaces.list_summaries(workspaces.OWNER_ID)] == [a, b]
@@ -296,7 +297,7 @@ def test_touch_moves_updated_at_and_rename_does_not(mods):
 
     _, _, _, workspaces = mods
 
-    wid = workspaces.create("Before")
+    wid = workspaces.create("Before", owner_id=workspaces.OWNER_ID)
     created = workspaces.get(wid)["updated_at"]
 
     workspaces.rename(wid, "After")
@@ -324,14 +325,14 @@ def test_delete_data_keeps_the_config_and_the_workspace(mods, tmp_path):
     dataset, db, simconfig_store, workspaces = mods
     from app.domain.simconfig import SimulationConfig
 
-    simconfig_store.save(SimulationConfig(has_pv=False))
+    simconfig_store.save(SimulationConfig(has_pv=False), db.WORKSPACE_ID)
     _save_dataset(dataset)
     workspaces.migrate_local()
 
     workspaces.delete_data(db.WORKSPACE_ID)
 
-    assert dataset.load_latest() is None
-    assert simconfig_store.config_path().exists()
+    assert dataset.load_latest(db.WORKSPACE_ID) is None
+    assert simconfig_store.config_path(db.WORKSPACE_ID).exists()
     assert workspaces.get(db.WORKSPACE_ID) is not None
     (card,) = workspaces.list_summaries(workspaces.OWNER_ID)
     assert card.data.loaded is False
@@ -343,7 +344,7 @@ def test_delete_removes_the_workspace_but_not_feature_interest(mods, tmp_path):
     dataset, db, simconfig_store, workspaces = mods
     from app.domain.simconfig import SimulationConfig
 
-    simconfig_store.save(SimulationConfig())
+    simconfig_store.save(SimulationConfig(), db.WORKSPACE_ID)
     _save_dataset(dataset)
     workspaces.migrate_local()
     db.record_interest("export_csv")
@@ -434,7 +435,7 @@ def test_a_crash_partway_through_delete_leaves_residue_not_a_gutted_workspace(mo
     from app.domain.simconfig import SimulationConfig
     import app.simconfig_store as store
 
-    store.save(SimulationConfig())
+    store.save(SimulationConfig(), db.WORKSPACE_ID)
     _save_dataset(dataset)
     workspaces.migrate_local()
     db.bump_source_generation(db.WORKSPACE_ID)
@@ -473,8 +474,8 @@ def test_postcode_round_trips(mods):
     _, _, simconfig_store, _ = mods
     from app.domain.simconfig import SimulationConfig
 
-    simconfig_store.save(SimulationConfig(postcode="1234 AB"))
-    assert simconfig_store.load().postcode == "1234 AB"  # stored as typed, unvalidated (§2′.4)
+    simconfig_store.save(SimulationConfig(postcode="1234 AB"), db.WORKSPACE_ID)
+    assert simconfig_store.load(db.WORKSPACE_ID).postcode == "1234 AB"  # stored as typed, unvalidated (§2′.4)
 
 
 def test_postcode_defaults_when_absent(mods):
@@ -500,19 +501,19 @@ def test_pricing_configured_round_trips_and_is_carried_forward(mods):
     _, _, simconfig_store, _ = mods
     from app.domain.simconfig import SimulationConfig
 
-    simconfig_store.save(SimulationConfig())
-    assert simconfig_store.is_pricing_configured() is False  # default on a new workspace
+    simconfig_store.save(SimulationConfig(), db.WORKSPACE_ID)
+    assert simconfig_store.is_pricing_configured(db.WORKSPACE_ID) is False  # default on a new workspace
 
-    simconfig_store.save(SimulationConfig(), pricing_configured=True)
-    assert simconfig_store.is_pricing_configured() is True
+    simconfig_store.save(SimulationConfig(), db.WORKSPACE_ID, pricing_configured=True)
+    assert simconfig_store.is_pricing_configured(db.WORKSPACE_ID) is True
 
     # An ordinary parameter save (no keyword) must not clear it.
-    simconfig_store.save(SimulationConfig(simulate_cost=False))
-    assert simconfig_store.is_pricing_configured() is True
+    simconfig_store.save(SimulationConfig(simulate_cost=False), db.WORKSPACE_ID)
+    assert simconfig_store.is_pricing_configured(db.WORKSPACE_ID) is True
 
     # An explicit False does clear it — the flag is settable both ways by its own screen.
-    simconfig_store.save(SimulationConfig(), pricing_configured=False)
-    assert simconfig_store.is_pricing_configured() is False
+    simconfig_store.save(SimulationConfig(), db.WORKSPACE_ID, pricing_configured=False)
+    assert simconfig_store.is_pricing_configured(db.WORKSPACE_ID) is False
 
 
 def test_pricing_configured_defaults_when_absent(mods):
@@ -524,16 +525,16 @@ def test_pricing_configured_defaults_when_absent(mods):
 
     doc = simconfig_store.to_dict(SimulationConfig(), pricing_configured=True)
     doc["retained"].pop("pricing_configured")
-    simconfig_store.config_path().write_text(json.dumps(doc), encoding="utf-8")
+    simconfig_store.config_path(db.WORKSPACE_ID).write_text(json.dumps(doc), encoding="utf-8")
 
-    assert simconfig_store.is_pricing_configured() is False  # absent reads as False
-    assert simconfig_store.load().postcode == ""             # and the document still loads
+    assert simconfig_store.is_pricing_configured(db.WORKSPACE_ID) is False  # absent reads as False
+    assert simconfig_store.load(db.WORKSPACE_ID).postcode == ""             # and the document still loads
 
 
 def test_pricing_configured_is_false_without_any_document(mods):
     """No stored config at all → blocked, which is the safe direction (§2′.6)."""
     _, _, simconfig_store, _ = mods
-    assert simconfig_store.is_pricing_configured() is False
+    assert simconfig_store.is_pricing_configured(db.WORKSPACE_ID) is False
 
 
 # ── The migration's check-then-act race (phase 2 review, should-fix 3) ───────────────────────
@@ -564,7 +565,7 @@ def test_concurrent_migrations_insert_exactly_one_row_and_none_of_them_raise(mod
 
     _, _, simconfig_store, workspaces = mods
     # A genuine pre-index installation: a config document under `local`, no workspaces row.
-    simconfig_store.save(simconfig_store.load("local"), "local")
+    simconfig_store.save(simconfig_store.load(db.WORKSPACE_ID), db.WORKSPACE_ID)
 
     errors: list[Exception] = []
     inserted: list[bool] = []
@@ -628,7 +629,7 @@ def test_the_workspace_list_page_omits_another_owners_workspace(mods):
 
     _, _, _, workspaces = mods
     seed_workspace(workspace_id="not-yours", owner_id="other")
-    workspaces.create("My own analysis", workspace_id="mine-too")
+    workspaces.create("My own analysis", workspace_id="mine-too", owner_id=workspaces.OWNER_ID)
 
     from app import main
 

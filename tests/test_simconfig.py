@@ -952,10 +952,10 @@ def test_has_battery_defaults_off_and_round_trips_through_the_store(tmp_path, mo
 
     assert SimulationConfig().has_battery is False, "appendix-A default: no existing battery"
 
-    store.save(SimulationConfig(has_battery=True))
-    assert store.load().has_battery is True
-    store.save(SimulationConfig(has_battery=False))
-    assert store.load().has_battery is False
+    store.save(SimulationConfig(has_battery=True), store.db.WORKSPACE_ID)
+    assert store.load(store.db.WORKSPACE_ID).has_battery is True
+    store.save(SimulationConfig(has_battery=False), store.db.WORKSPACE_ID)
+    assert store.load(store.db.WORKSPACE_ID).has_battery is False
 
 
 def test_clone_preserves_has_battery():
@@ -1461,7 +1461,7 @@ def test_pricing_survives_a_save_and_load_with_costs_off(tmp_path, monkeypatch):
     importlib.reload(store)
 
     custom = _non_default_pricing()
-    store.save(SimulationConfig(pricing=custom, simulate_cost=False))
-    loaded = store.load()
+    store.save(SimulationConfig(pricing=custom, simulate_cost=False), store.db.WORKSPACE_ID)
+    loaded = store.load(store.db.WORKSPACE_ID)
     for f in dataclasses.fields(PricingConfig):
         assert getattr(loaded.pricing, f.name) == getattr(custom, f.name), f.name

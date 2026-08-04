@@ -27,7 +27,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from app.domain.frames import QUALITY_DTYPE, SeriesFrame
-from tests.conftest import page, seed_workspace, w
+from tests.conftest import WORKSPACE_ID, page, seed_workspace, w
 
 _DAYS = 30
 _HOURS = _DAYS * 24
@@ -78,7 +78,7 @@ def client(tmp_path, monkeypatch):
         _series("solar_production", "energy", solar),
         _series("price_spot", "price", cheap_expensive),
     ]
-    dataset.save_dataset(frames, (_WIN_START, _WIN_END), "test", [], None)
+    dataset.save_dataset(frames, (_WIN_START, _WIN_END), "test", [], None, workspace_id=WORKSPACE_ID)
     # The routes are workspace-scoped now, and `TestClient(app)` outside a `with` block skips the
     # lifespan that would have adopted this data dir's workspace — so create the row explicitly.
     seed_workspace()
@@ -204,7 +204,7 @@ def test_a_valid_submission_persists_and_returns_the_panel(client):
     assert r.status_code == 200
     assert r.headers["X-Params-Valid"] == "1"
     assert 'id="panel-params"' in r.text          # the swap target root
-    assert simconfig_store.load().battery.usable_capacity_kwh == 20
+    assert simconfig_store.load(WORKSPACE_ID).battery.usable_capacity_kwh == 20
 
 
 def test_the_response_renders_the_submitted_values_back(client):
@@ -255,7 +255,7 @@ def test_an_invalid_submission_is_not_persisted_and_keeps_the_typed_value(client
     assert r.headers["X-Params-Valid"] == "0"
     assert 'value="not-a-number"' in r.text           # what they typed, still in the input
     assert 'data-field-error="battery.max_charge_kw"' in r.text
-    assert simconfig_store.load().battery.max_charge_kw == 5.0   # unchanged on disk
+    assert simconfig_store.load(WORKSPACE_ID).battery.max_charge_kw == 5.0   # unchanged on disk
 
 
 def test_an_invalid_submission_does_not_500(client):
@@ -317,7 +317,7 @@ def test_a_very_long_numeric_input_is_a_field_error_not_a_500(client, digits):
     assert r.status_code == 200
     assert r.headers["X-Params-Valid"] == "0"
     assert 'data-field-error="battery.usable_capacity_kwh"' in r.text
-    assert simconfig_store.load().battery.usable_capacity_kwh == 11    # unchanged on disk
+    assert simconfig_store.load(WORKSPACE_ID).battery.usable_capacity_kwh == 11    # unchanged on disk
 
 
 def test_a_forged_sections_value_cannot_clear_the_retained_guard(client):
@@ -334,20 +334,21 @@ def test_a_forged_sections_value_cannot_clear_the_retained_guard(client):
     # A stored guard, set under cost simulation, then parked by turning cost simulation off.
     simconfig_store.save(
         SimulationConfig(policy=PolicyConfig(economic_guard=True), simulate_cost=True),
+        WORKSPACE_ID,
         guard_submitted=True,
     )
-    parked = simconfig_store.load()
+    parked = simconfig_store.load(WORKSPACE_ID)
     parked.simulate_cost = False
-    simconfig_store.save(parked)
+    simconfig_store.save(parked, WORKSPACE_ID)
 
     r = client.post(w("/params"), data=_form(sections="battery grid charge discharge pricing"))
     assert r.status_code == 200
 
     # Still parked: re-enabling cost simulation must restore the user's tick.
-    restored = simconfig_store.load()
+    restored = simconfig_store.load(WORKSPACE_ID)
     restored.simulate_cost = True
-    simconfig_store.save(restored)
-    assert simconfig_store.load().economic_guard is True
+    simconfig_store.save(restored, WORKSPACE_ID)
+    assert simconfig_store.load(WORKSPACE_ID).economic_guard is True
 
 
 def test_panel_two_still_unticks_the_guard_and_still_carries_it_forward(client):
@@ -375,22 +376,22 @@ def test_panel_two_still_unticks_the_guard_and_still_carries_it_forward(client):
     assert "grid" not in rendered
 
     client.post(w("/params"), data=_cost_form(**{"policy.economic_guard": "1"}))
-    assert simconfig_store.load().economic_guard is True
+    assert simconfig_store.load(WORKSPACE_ID).economic_guard is True
 
     # Unticked: absent from the body, but the form still claims it drew the control.
     client.post(w("/params"), data=_cost_form())
-    assert simconfig_store.load().policy.economic_guard is False
+    assert simconfig_store.load(WORKSPACE_ID).policy.economic_guard is False
 
     client.post(w("/params"), data=_cost_form(**{"policy.economic_guard": "1"}))
-    assert simconfig_store.load().economic_guard is True
+    assert simconfig_store.load(WORKSPACE_ID).economic_guard is True
 
     energy_only = _form(sections="setup battery grid charge discharge topology",
                         **{"setup.simulate_cost": "no"})
     client.post(w("/params"), data=energy_only)
-    back_on = simconfig_store.load()
+    back_on = simconfig_store.load(WORKSPACE_ID)
     back_on.simulate_cost = True
-    simconfig_store.save(back_on)
-    assert simconfig_store.load().economic_guard is True
+    simconfig_store.save(back_on, WORKSPACE_ID)
+    assert simconfig_store.load(WORKSPACE_ID).economic_guard is True
 
 
 def test_dal_weekends_unticks_through_the_marker_that_claims_it(client):
@@ -411,12 +412,12 @@ def test_dal_weekends_unticks_through_the_marker_that_claims_it(client):
     assert "pricing_advanced" not in _rendered_sections(client)
 
     client.post(w("/params"), data=_cost_form(**{"pricing.dal_weekends": "1"}))
-    assert simconfig_store.load().pricing.dal_weekends is True
+    assert simconfig_store.load(WORKSPACE_ID).pricing.dal_weekends is True
 
     body = _cost_form()
     body.pop("pricing.dal_weekends")
     client.post(w("/params"), data=body)
-    assert simconfig_store.load().pricing.dal_weekends is False
+    assert simconfig_store.load(WORKSPACE_ID).pricing.dal_weekends is False
 
 
 def test_panel_two_still_clears_approximated_on_a_supported_topology(client):
@@ -431,7 +432,7 @@ def test_panel_two_still_clears_approximated_on_a_supported_topology(client):
     unsupported = _form(**{"grid.phases": "3", "topology.battery_phases": "one_phase",
                            "topology.approximated": "1"})
     client.post(w("/params"), data=unsupported)
-    assert simconfig_store.load().topology.approximated is True
+    assert simconfig_store.load(WORKSPACE_ID).topology.approximated is True
     # The gate is only honest if panel ② really claims `topology` here — a 3-phase connection is
     # what makes the selector, and therefore the checkbox, exist at all.
     assert "topology" in _rendered_sections(client, unsupported)
@@ -441,7 +442,7 @@ def test_panel_two_still_clears_approximated_on_a_supported_topology(client):
         data=_form(**{"grid.phases": "3", "topology.battery_phases": "three_phase",
                       "topology.approximated": "1"}),
     )
-    assert simconfig_store.load().topology.approximated is False
+    assert simconfig_store.load(WORKSPACE_ID).topology.approximated is False
 
 
 def test_an_unwritable_data_dir_reports_on_the_panel_rather_than_500ing(client, monkeypatch):
@@ -479,7 +480,7 @@ def test_a_body_that_is_not_a_form_never_500s_and_changes_nothing(client):
     client.post(w("/params"), data=_form(**{"battery.usable_capacity_kwh": "17"}))
     r = client.post(w("/params"), content=b"\x00\x01\x02", headers={"Content-Type": "text/plain"})
     assert r.status_code < 500
-    assert simconfig_store.load().battery.usable_capacity_kwh == 17
+    assert simconfig_store.load(WORKSPACE_ID).battery.usable_capacity_kwh == 17
 
 
 def test_band_overlap_warns_and_still_persists(client):
@@ -488,7 +489,7 @@ def test_band_overlap_warns_and_still_persists(client):
 
     r = client.post(w("/params"), data=_form(**{"policy.band_b": "0.500", "policy.band_c": "0.100"}))
     assert r.headers["X-Params-Valid"] == "1"
-    assert simconfig_store.load().policy.band_b == 0.5
+    assert simconfig_store.load(WORKSPACE_ID).policy.band_b == 0.5
     assert "overlap" in r.text.lower()
 
 
@@ -497,7 +498,7 @@ def test_a_corrupt_stored_config_still_renders_the_page(client):
     from app import simconfig_store
 
     client.post(w("/params"), data=_form())
-    simconfig_store.config_path().write_text("{ truncated", encoding="utf-8")
+    simconfig_store.config_path(WORKSPACE_ID).write_text("{ truncated", encoding="utf-8")
     rendered_page = client.get(page())
     assert rendered_page.status_code == 200
     # Appendix-A defaults, read off the fields themselves. This asserted the collapsed summary line
@@ -521,7 +522,7 @@ def test_an_unsupported_phase_topology_shows_the_soft_block(client):
     assert r.headers["X-Params-Valid"] == "1"            # SOFT block: the config is still valid
     assert "not fully supported in version 1" in r.text
     assert 'name="topology.approximated"' in r.text
-    assert simconfig_store.load().topology.approximated is False   # not continued yet
+    assert simconfig_store.load(WORKSPACE_ID).topology.approximated is False   # not continued yet
 
 
 def test_continuing_sets_topology_approximated(client):
@@ -532,7 +533,7 @@ def test_continuing_sets_topology_approximated(client):
         data=_form(**{"grid.phases": "3", "topology.battery_phases": "three_times_one_phase",
                       "topology.approximated": "1"}),
     )
-    assert simconfig_store.load().topology.approximated is True
+    assert simconfig_store.load(WORKSPACE_ID).topology.approximated is True
 
 
 def test_fixture_12_an_approximated_run_is_identical_to_the_three_phase_case(client):
@@ -553,14 +554,14 @@ def test_fixture_12_an_approximated_run_is_identical_to_the_three_phase_case(cli
 
     three_phase = _form(**{"grid.phases": "3", "topology.battery_phases": "three_phase"})
     client.post(w("/params"), data=three_phase)
-    assert simconfig_store.load().topology.approximated is False
+    assert simconfig_store.load(WORKSPACE_ID).topology.approximated is False
     supported_saving = _saved_kwh(client)
     supported_body = client.post(w("/results"), json={"period": "last_1_year"}).text
 
     approximated = _form(**{"grid.phases": "3", "topology.battery_phases": "one_phase",
                             "topology.approximated": "1"})
     client.post(w("/params"), data=approximated)
-    cfg = simconfig_store.load()
+    cfg = simconfig_store.load(WORKSPACE_ID)
 
     # (1) the flag is set, and it is the UNSUPPORTED topology that is stored.
     assert cfg.topology.approximated is True
@@ -691,7 +692,7 @@ def test_the_setup_band_radio_changes_simulate_cost_and_re_renders_the_panel(cli
     # Pricing box's fields as the assertion here — those moved to the edit screen (§2′.1), so a
     # re-render of THIS panel no longer contains them in either direction.
     on = client.post(w("/params"), data=_cost_form())
-    assert simconfig_store.load().simulate_cost is True
+    assert simconfig_store.load(WORKSPACE_ID).simulate_cost is True
     assert "pricing" in re.search(r'name="sections" value="([^"]*)"', on.text).group(1).split()
     assert 'name="policy.economic_guard"' in on.text
 
@@ -700,7 +701,7 @@ def test_the_setup_band_radio_changes_simulate_cost_and_re_renders_the_panel(cli
         data=_form(sections="setup battery grid charge discharge topology",
                    **{"setup.simulate_cost": "no"}),
     )
-    assert simconfig_store.load().simulate_cost is False
+    assert simconfig_store.load(WORKSPACE_ID).simulate_cost is False
     assert "pricing" not in re.search(r'name="sections" value="([^"]*)"', off.text).group(1).split()
     assert 'name="policy.economic_guard"' not in off.text
 
@@ -727,7 +728,7 @@ def test_every_pricing_field_persists_and_vat_converts_both_ways(client):
     }))
     assert r.headers["X-Params-Valid"] == "1"
 
-    pr = simconfig_store.load().pricing
+    pr = simconfig_store.load(WORKSPACE_ID).pricing
     assert pr.supplier_markup == 0.03
     assert pr.energy_tax_excl_vat == 0.1
     assert pr.vat_rate == pytest.approx(0.09)
@@ -755,7 +756,7 @@ def test_an_out_of_range_pricing_value_blocks_and_binds_to_its_input(client):
     r = client.post(w("/params"), data=_cost_form(**{"pricing.vat_rate": "300"}))
     assert r.status_code == 200
     assert r.headers["X-Params-Valid"] == "0"
-    assert simconfig_store.load().pricing.vat_rate == pytest.approx(0.21)   # unchanged on disk
+    assert simconfig_store.load(WORKSPACE_ID).pricing.vat_rate == pytest.approx(0.21)   # unchanged on disk
 
     # The INLINE binding — the raw string kept and keyed to its input — is the edit screen's half
     # since §2′.1 moved the field there, and it is asserted through that screen's own route in
@@ -854,19 +855,19 @@ def test_pricing_values_survive_turning_cost_simulation_off_and_on(client):
         "pricing.degradation_eur_per_kwh": "0.0250",
         "policy.economic_guard": "1",
     }))
-    assert simconfig_store.load().economic_guard is True
+    assert simconfig_store.load(WORKSPACE_ID).economic_guard is True
 
     energy_only = _form(sections="setup battery grid charge discharge topology",
                         **{"setup.simulate_cost": "no"})
     client.post(w("/params"), data=energy_only)
-    parked = simconfig_store.load()
+    parked = simconfig_store.load(WORKSPACE_ID)
     assert parked.simulate_cost is False
     assert parked.pricing.supplier_markup == 0.0777     # inert, but retained
     assert parked.pricing.vat_rate == pytest.approx(0.09)
     assert parked.economic_guard is False               # forced off in effect
 
     r = client.post(w("/params"), data=dict(energy_only, **{"setup.simulate_cost": "yes"}))
-    restored = simconfig_store.load()
+    restored = simconfig_store.load(WORKSPACE_ID)
     assert restored.simulate_cost is True
     assert restored.pricing.supplier_markup == 0.0777
     assert restored.pricing.degradation_eur_per_kwh == 0.025

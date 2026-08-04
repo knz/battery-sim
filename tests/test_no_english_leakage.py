@@ -336,8 +336,8 @@ def rendered(request):
             seed_workspace()
 
             frames, end, cfg_kw, topo = _frames_and_config(scenario)
-            dataset.save_dataset(frames, (_WIN_START, end), "test", [], None)
-            simconfig_store.save(_build_config(cfg_kw, topo))
+            dataset.save_dataset(frames, (_WIN_START, end), "test", [], None, workspace_id=dataset.db.WORKSPACE_ID)
+            simconfig_store.save(_build_config(cfg_kw, topo), simconfig_store.db.WORKSPACE_ID)
 
             import app.main as main
             importlib.reload(main)
@@ -804,14 +804,14 @@ def error_renders():
         cfg = SimulationConfig()
         cfg.grid.phases = 1
         cfg.grid.fuse_a = 20.0
-        simconfig_store.save(cfg)
+        simconfig_store.save(cfg, simconfig_store.db.WORKSPACE_ID)
         out["edit_off_list_connection"] = visible(
             client.get(edit_url, headers=hdr), "edit_off_list_connection"
         )
 
         # 2. An inline field error: an unparseable override on a field this screen DOES draw, so
         #    the message lands beside the input rather than at page level.
-        simconfig_store.save(SimulationConfig())
+        simconfig_store.save(SimulationConfig(), simconfig_store.db.WORKSPACE_ID)
         out["edit_inline_field_error"] = visible(
             client.post(
                 edit_url,
@@ -826,11 +826,11 @@ def error_renders():
         #    submission still comes back blocked, which is exactly the case the alert exists for.
         cfg = SimulationConfig()
         cfg.battery.usable_capacity_kwh = 0.0
-        simconfig_store.save(cfg)
+        simconfig_store.save(cfg, simconfig_store.db.WORKSPACE_ID)
         out["edit_other_errors"] = visible(
             client.post(edit_url, data=_edit_form(), headers=hdr), "edit_other_errors"
         )
-        simconfig_store.save(SimulationConfig())
+        simconfig_store.save(SimulationConfig(), simconfig_store.db.WORKSPACE_ID)
 
         # 4/5. Both save-error banners. The config validates and the write then fails, which is
         #      the only way either route sets the flag.

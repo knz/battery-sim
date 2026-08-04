@@ -160,7 +160,7 @@ def _workspace_dir(workspace_id: str) -> Path:
     return d
 
 
-def config_path(workspace_id: str = db.WORKSPACE_ID) -> Path:
+def config_path(workspace_id: str) -> Path:
     """Where this workspace's parameter set is stored."""
     return _workspace_dir(workspace_id) / _FILENAME
 
@@ -474,7 +474,7 @@ def _int_or_default(raw, default: int) -> int:
 # ── Read / write ─────────────────────────────────────────────────────────────────────────────
 
 
-def load(workspace_id: str = db.WORKSPACE_ID) -> SimulationConfig:
+def load(workspace_id: str) -> SimulationConfig:
     """The workspace's stored parameter set, or appendix-A defaults.
 
     **Never raises, for any reason.** Absent file, unreadable file, invalid JSON, a JSON value
@@ -493,7 +493,7 @@ def load(workspace_id: str = db.WORKSPACE_ID) -> SimulationConfig:
     return from_dict(doc)
 
 
-def is_document_readable(workspace_id: str = db.WORKSPACE_ID) -> bool:
+def is_document_readable(workspace_id: str) -> bool:
     """Whether the stored document is one this build can round-trip without losing values.
 
     `load()` never raises: it answers appendix-A defaults for an absent file, an unparseable one,
@@ -535,7 +535,7 @@ def _retained_block(workspace_id: str) -> dict:
     return block if isinstance(block, dict) else {}
 
 
-def is_pricing_configured(workspace_id: str = db.WORKSPACE_ID) -> bool:
+def is_pricing_configured(workspace_id: str) -> bool:
     """Whether the user has told us what they pay (specs/20-workspaces-ux.md §2′.6).
 
     The one reader is whether the cost toggle is Blocked. False on a workspace that has never
@@ -548,7 +548,7 @@ def is_pricing_configured(workspace_id: str = db.WORKSPACE_ID) -> bool:
 
 def save(
     cfg: SimulationConfig,
-    workspace_id: str = db.WORKSPACE_ID,
+    workspace_id: str,
     *,
     guard_submitted: bool = False,
     pricing_configured: bool | None = None,

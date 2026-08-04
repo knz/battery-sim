@@ -1214,7 +1214,7 @@ async def data_ingest_ws(
                     dataset_id = await asyncio.to_thread(
                         dataset.save_dataset,
                         frames, window, session.source or "home_assistant", warnings, sources_map,
-                        workspace.id,
+                        workspace_id=workspace.id,
                     )
                     # A persisted fetch is the one event that advances the source generation
                     # (specs §2.2): it establishes new server-side authority, so any client's
@@ -1442,7 +1442,7 @@ async def load_slot(
         ) from exc
 
     dataset_id = await asyncio.to_thread(
-        dataset.upsert_series, frame, source_key, window, ws.id
+        dataset.upsert_series, frame, source_key, window, workspace_id=ws.id
     )
     report = normalize.grid_report([frame], window)
     return JSONResponse(

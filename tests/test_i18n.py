@@ -629,6 +629,7 @@ def seeded_client(tmp_path, monkeypatch):
         ],
         (datetime(2026, 1, 1, tzinfo=timezone.utc), datetime(2026, 2, 10, tzinfo=timezone.utc)),
         "test", [], None,
+        workspace_id=dataset.db.WORKSPACE_ID,
     )
 
     from app import main

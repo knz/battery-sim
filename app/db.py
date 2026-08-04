@@ -84,8 +84,8 @@ Main items:
     _Connection               the subclass making `with conn:` an explicit, nesting transaction.
     record_interest(key)      upsert a click; returns True if this was the first click for the key.
     interest_count(key)       read a key's count (used by tests; never shown to the user, §2.1).
-    source_generation(...)    read the workspace's current source generation (0 if never fetched).
-    bump_source_generation()  increment it (called only on a persisted HA fetch); returns the new value.
+    source_generation(ws)     read the workspace's current source generation (0 if never fetched).
+    bump_source_generation(ws)  increment it (called only on a persisted HA fetch); returns the new value.
 """
 
 import sqlite3
@@ -95,8 +95,9 @@ from pathlib import Path
 from app import config
 
 # The id of the workspace an existing single-workspace installation migrates to
-# (app/workspaces.migrate_local). Still the default of every workspace-parameterised call in the
-# persistence layer; phase 1 of the workspaces restructure gives those parameters real values.
+# (app/workspaces.migrate_local). Named explicitly by migrate_local and by test fixtures; the
+# workspace-parameterised calls in the persistence layer no longer default to it (owner-scoping
+# changelog phase 3) — every caller must pass a workspace_id.
 WORKSPACE_ID = "local"
 
 _DB_FILENAME = "feature_interest.db"
@@ -344,7 +345,7 @@ def interest_count(feature_key: str) -> int:
     return row[0] if row else 0
 
 
-def source_generation(workspace_id: str = WORKSPACE_ID) -> int:
+def source_generation(workspace_id: str) -> int:
     """The workspace's current source generation, or 0 if it has never been fetched (specs §2.2).
 
     Rendered into the page so the browser can compare it against the generation its locally-saved
@@ -358,7 +359,7 @@ def source_generation(workspace_id: str = WORKSPACE_ID) -> int:
     return row[0] if row else 0
 
 
-def bump_source_generation(workspace_id: str = WORKSPACE_ID) -> int:
+def bump_source_generation(workspace_id: str) -> int:
     """Increment and return the workspace's source generation (specs §2.2).
 
     Called once per persisted Home Assistant fetch (main.py ingest `done`). A first bump inserts

@@ -124,9 +124,10 @@ def test_save_dataset_records_per_series_sources(dataset):
     dataset.save_dataset(
         frames, win, "home_assistant", [],
         sources={"price_spot": "energy_charts"},  # grid_import_t1 falls back to dataset source
+        workspace_id=dataset.db.WORKSPACE_ID,
     )
 
-    loaded = dataset.load_latest()
+    loaded = dataset.load_latest(dataset.db.WORKSPACE_ID)
     assert loaded is not None
     assert loaded.series_sources == {
         "grid_import_t1": "home_assistant",  # fallback to the dataset-level source
@@ -139,8 +140,8 @@ def test_save_dataset_without_sources_falls_back_everywhere(dataset):
     """The existing WS ingest path passes no `sources`; every series gets the dataset source."""
     frames = [_energy_frame("grid_import_t1", 1.0)]
     win = (datetime(2024, 3, 1, tzinfo=UTC), datetime(2024, 3, 2, tzinfo=UTC))
-    dataset.save_dataset(frames, win, "home_assistant", [])
-    loaded = dataset.load_latest()
+    dataset.save_dataset(frames, win, "home_assistant", [], workspace_id=dataset.db.WORKSPACE_ID)
+    loaded = dataset.load_latest(dataset.db.WORKSPACE_ID)
     assert loaded.series_sources == {"grid_import_t1": "home_assistant"}
 
 
@@ -152,17 +153,18 @@ def test_upsert_series_replaces_one_and_keeps_others(dataset):
     dataset.save_dataset(
         [_energy_frame("grid_import_t1", 1.0), _energy_frame("price_spot", 0.2)],
         win, "home_assistant", [],
+        workspace_id=dataset.db.WORKSPACE_ID,
     )
-    ds_before = dataset.load_latest()
+    ds_before = dataset.load_latest(dataset.db.WORKSPACE_ID)
     original_id = ds_before.id
 
     # A new price frame with different values and a wider window.
     new_price = _energy_frame("price_spot", 9.9)  # kind is irrelevant to the merge mechanics
     later_win = (datetime(2024, 3, 1, tzinfo=UTC), datetime(2024, 3, 5, tzinfo=UTC))
-    ds_id = dataset.upsert_series(new_price, "energy_charts", later_win)
+    ds_id = dataset.upsert_series(new_price, "energy_charts", later_win, workspace_id=dataset.db.WORKSPACE_ID)
 
     assert ds_id == original_id  # merged into the SAME dataset, not a new one
-    loaded = dataset.load_latest()
+    loaded = dataset.load_latest(dataset.db.WORKSPACE_ID)
     names = {f.name for f in loaded.frames}
     assert names == {"grid_import_t1", "price_spot"}  # the meter survived
     # The price series was replaced (new first value), not appended.
@@ -188,11 +190,12 @@ def test_upsert_series_three_series_survival(dataset):
     dataset.save_dataset(
         [_energy_frame("grid_import_t1", 1.0), _energy_frame("grid_export_t1", 2.0)],
         win, "home_assistant", [],
+        workspace_id=dataset.db.WORKSPACE_ID,
     )
-    dataset.upsert_series(_energy_frame("price_spot", 0.2), "energy_charts", win)
-    dataset.upsert_series(_energy_frame("grid_export_t1", 7.7), "home_assistant", win)
+    dataset.upsert_series(_energy_frame("price_spot", 0.2), "energy_charts", win, workspace_id=dataset.db.WORKSPACE_ID)
+    dataset.upsert_series(_energy_frame("grid_export_t1", 7.7), "home_assistant", win, workspace_id=dataset.db.WORKSPACE_ID)
 
-    loaded = dataset.load_latest()
+    loaded = dataset.load_latest(dataset.db.WORKSPACE_ID)
     assert {f.name for f in loaded.frames} == {"grid_import_t1", "grid_export_t1", "price_spot"}
     export = next(f for f in loaded.frames if f.name == "grid_export_t1")
     assert abs(export.values[0] - 7.7) < 1e-9  # B was replaced, not the original 2.0
@@ -206,11 +209,11 @@ def test_upsert_series_three_series_survival(dataset):
 def test_upsert_series_naive_window_into_aware_dataset(dataset):
     """A naive merge window must not crash against an aware stored window (regression, §4.4)."""
     aware_win = (datetime(2024, 3, 1, tzinfo=UTC), datetime(2024, 3, 5, tzinfo=UTC))
-    dataset.save_dataset([_energy_frame("grid_import_t1", 1.0)], aware_win, "home_assistant", [])
+    dataset.save_dataset([_energy_frame("grid_import_t1", 1.0)], aware_win, "home_assistant", [], workspace_id=dataset.db.WORKSPACE_ID)
     # A naive window (no tzinfo) — dataset._as_utc normalises both sides before min()/max().
     naive_win = (datetime(2024, 3, 1), datetime(2024, 3, 8))
-    dataset.upsert_series(_energy_frame("price_spot", 0.3), "energy_charts", naive_win)
-    loaded = dataset.load_latest()
+    dataset.upsert_series(_energy_frame("price_spot", 0.3), "energy_charts", naive_win, workspace_id=dataset.db.WORKSPACE_ID)
+    loaded = dataset.load_latest(dataset.db.WORKSPACE_ID)
     assert {f.name for f in loaded.frames} == {"grid_import_t1", "price_spot"}
     # Window widened to the union; the naive end was read as UTC.
     assert loaded.window[1] == datetime(2024, 3, 8, tzinfo=UTC)
@@ -218,12 +221,12 @@ def test_upsert_series_naive_window_into_aware_dataset(dataset):
 
 def test_upsert_series_standalone_when_no_dataset(dataset):
     """With no dataset yet, upsert creates one holding just this series."""
-    assert dataset.load_latest() is None
+    assert dataset.load_latest(dataset.db.WORKSPACE_ID) is None
     frame = _energy_frame("price_spot", 0.3)
     win = (datetime(2024, 3, 1, tzinfo=UTC), datetime(2024, 3, 2, tzinfo=UTC))
-    ds_id = dataset.upsert_series(frame, "energy_charts", win)
+    ds_id = dataset.upsert_series(frame, "energy_charts", win, workspace_id=dataset.db.WORKSPACE_ID)
 
-    loaded = dataset.load_latest()
+    loaded = dataset.load_latest(dataset.db.WORKSPACE_ID)
     assert loaded is not None
     assert loaded.id == ds_id
     assert {f.name for f in loaded.frames} == {"price_spot"}
@@ -246,6 +249,7 @@ def test_upsert_series_rolls_back_and_keeps_the_existing_series(dataset):
     dataset.save_dataset(
         [_energy_frame("grid_import_t1", 1.0), _energy_frame("price_spot", 0.2)],
         win, "home_assistant", [],
+        workspace_id=dataset.db.WORKSPACE_ID,
     )
 
     # Fail exactly where the regression bites: after the DELETE, before the replacement lands.
@@ -258,11 +262,11 @@ def test_upsert_series_rolls_back_and_keeps_the_existing_series(dataset):
     dataset._insert_series_meta = boom
     try:
         with pytest.raises(RuntimeError):
-            dataset.upsert_series(_energy_frame("price_spot", 9.9), "energy_charts", win)
+            dataset.upsert_series(_energy_frame("price_spot", 9.9), "energy_charts", win, workspace_id=dataset.db.WORKSPACE_ID)
     finally:
         dataset._insert_series_meta = real
 
-    loaded = dataset.load_latest()
+    loaded = dataset.load_latest(dataset.db.WORKSPACE_ID)
     assert loaded is not None
     # The pre-existing series survived the failed replacement: still listed, still loadable.
     assert {f.name for f in loaded.frames} == {"grid_import_t1", "price_spot"}
@@ -311,7 +315,7 @@ def test_save_dataset_rolls_back_leaving_no_partial_dataset(dataset):
     dataset._insert_series_meta = fail_on_second
     try:
         with pytest.raises(RuntimeError):
-            dataset.save_dataset(frames, win, "home_assistant", [])
+            dataset.save_dataset(frames, win, "home_assistant", [], workspace_id=dataset.db.WORKSPACE_ID)
     finally:
         dataset._insert_series_meta = real
 
@@ -319,7 +323,7 @@ def test_save_dataset_rolls_back_leaving_no_partial_dataset(dataset):
     with dataset._connect() as conn:
         assert conn.execute("SELECT COUNT(*) FROM datasets").fetchone()[0] == 0
         assert conn.execute("SELECT COUNT(*) FROM series_meta").fetchone()[0] == 0
-    assert dataset.load_latest() is None
+    assert dataset.load_latest(dataset.db.WORKSPACE_ID) is None
 
 
 # --- 4. endpoint: load price_spot from energy_charts over an in-range historical window --------
@@ -343,7 +347,7 @@ def test_load_endpoint_attaches_price_from_committed_data(client):
     assert body["intervals"] > 0
     assert "grid" in body
 
-    loaded = dataset.load_latest()
+    loaded = dataset.load_latest(dataset.db.WORKSPACE_ID)
     assert loaded is not None
     assert "price_spot" in {f.name for f in loaded.frames}
     assert loaded.series_sources["price_spot"] == "energy_charts"
@@ -358,14 +362,14 @@ def test_load_endpoint_does_not_bump_source_generation(client):
     tc, main, dataset = client
     from app import db
 
-    assert db.source_generation() == 0
+    assert db.source_generation(db.WORKSPACE_ID) == 0
     resp = tc.post(
         w("/data/slot/price_spot/load"),
         json={"source": "energy_charts", "window": _HIST_WINDOW},
     )
     assert resp.status_code == 200, resp.text
     # Unchanged: the load merged a series but issued no new generation.
-    assert db.source_generation() == 0
+    assert db.source_generation(db.WORKSPACE_ID) == 0
 
 
 def test_load_endpoint_merges_into_existing_dataset(client):
@@ -374,7 +378,7 @@ def test_load_endpoint_merges_into_existing_dataset(client):
     # Seed an existing dataset (as the WS ingest path would leave one).
     frames = [_energy_frame("grid_import_t1", 1.0)]
     win = (datetime(2024, 3, 1, tzinfo=UTC), datetime(2024, 3, 5, tzinfo=UTC))
-    dataset.save_dataset(frames, win, "home_assistant", [])
+    dataset.save_dataset(frames, win, "home_assistant", [], workspace_id=dataset.db.WORKSPACE_ID)
 
     resp = tc.post(
         w("/data/slot/price_spot/load"),
@@ -382,7 +386,7 @@ def test_load_endpoint_merges_into_existing_dataset(client):
     )
     assert resp.status_code == 200, resp.text
 
-    loaded = dataset.load_latest()
+    loaded = dataset.load_latest(dataset.db.WORKSPACE_ID)
     assert {f.name for f in loaded.frames} == {"grid_import_t1", "price_spot"}
     assert loaded.series_sources["grid_import_t1"] == "home_assistant"
     assert loaded.series_sources["price_spot"] == "energy_charts"
@@ -396,7 +400,7 @@ def test_load_endpoint_naive_window_into_aware_dataset(client):
     """
     tc, main, dataset = client
     win = (datetime(2024, 3, 1, tzinfo=UTC), datetime(2024, 3, 5, tzinfo=UTC))
-    dataset.save_dataset([_energy_frame("grid_import_t1", 1.0)], win, "home_assistant", [])
+    dataset.save_dataset([_energy_frame("grid_import_t1", 1.0)], win, "home_assistant", [], workspace_id=dataset.db.WORKSPACE_ID)
 
     # Window strings carry NO offset — the exact shape that used to crash.
     resp = tc.post(
@@ -405,7 +409,7 @@ def test_load_endpoint_naive_window_into_aware_dataset(client):
               "window": {"start": "2024-03-01T00:00:00", "end": "2024-03-05T00:00:00"}},
     )
     assert resp.status_code == 200, resp.text
-    loaded = dataset.load_latest()
+    loaded = dataset.load_latest(dataset.db.WORKSPACE_ID)
     assert {f.name for f in loaded.frames} == {"grid_import_t1", "price_spot"}
 
 

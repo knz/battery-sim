@@ -65,7 +65,7 @@ def env(tmp_path, monkeypatch):
 
 def _seed(mod, workspace_id: str = "w1", title: str = "Our house"):
     """Create the workspace row and return its (appendix-A default) config."""
-    mod["workspaces"].create(title, workspace_id=workspace_id)
+    mod["workspaces"].create(title, workspace_id=workspace_id, owner_id=mod["workspaces"].OWNER_ID)
     return mod["simconfig_store"].load(workspace_id)
 
 

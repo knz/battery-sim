@@ -88,7 +88,7 @@ def test_valid_ingest_persists_and_reports(client):
     assert price["reconciliation"] == "exact"
 
     # It restored: load_latest returns the frames with the right names.
-    loaded = dataset.load_latest()
+    loaded = dataset.load_latest(dataset.db.WORKSPACE_ID)
     assert loaded is not None
     names = {f.name for f in loaded.frames}
     assert names == {"grid_import_t1", "grid_export_t1", "price_spot"}
@@ -130,7 +130,7 @@ def test_a_price_row_with_the_old_four_element_shape_still_ingests(client):
         result = ws.receive_json()
 
     assert result["type"] == "result", result
-    loaded = dataset.load_latest()
+    loaded = dataset.load_latest(dataset.db.WORKSPACE_ID)
     assert loaded is not None
     price = next(f for f in loaded.frames if f.name == "price_spot")
     # The means landed; the two trailing elements left no trace on the frame.
@@ -185,7 +185,7 @@ def test_unknown_series_is_rejected(client):
     assert msg["type"] == "error"
     assert "unknown series" in msg["message"]
     # Nothing persisted.
-    assert dataset.load_latest() is None
+    assert dataset.load_latest(dataset.db.WORKSPACE_ID) is None
 
 
 def test_rows_before_series_is_rejected(client):
@@ -237,7 +237,7 @@ def test_two_resolutions_are_not_differenced_together(client):
     # No ambiguous-decrease warning: the two resolutions were never differenced across.
     assert not any(w["code"] == "AMBIGUOUS_REGISTER_DECREASE" for w in result["warnings"])
 
-    loaded = dataset.load_latest()
+    loaded = dataset.load_latest(dataset.db.WORKSPACE_ID)
     frame = next(f for f in loaded.frames if f.name == "grid_import_t1")
     assert frame.resolution_s == 3600           # main frame is hourly
     assert frame.fine_resolution_s == 300       # fine copy recorded
@@ -308,21 +308,21 @@ def test_fetch_bumps_source_generation(client):
     tc, main, dataset = client
     from app import db
 
-    assert db.source_generation() == 0
+    assert db.source_generation(db.WORKSPACE_ID) == 0
     # Before any fetch the page renders generation 0.
     assert '<script id="source-generation" type="application/json">0</script>' in tc.get(data_page()).text
 
     with tc.websocket_connect(w("/data/ingest/ws")) as ws:
         result = _drive_valid_ingest(ws)
     assert result["generation"] == 1
-    assert db.source_generation() == 1
+    assert db.source_generation(db.WORKSPACE_ID) == 1
     assert '<script id="source-generation" type="application/json">1</script>' in tc.get(data_page()).text
 
     # A second fetch bumps again — this is what makes another client's stored customization stale.
     with tc.websocket_connect(w("/data/ingest/ws")) as ws:
         result = _drive_valid_ingest(ws)
     assert result["generation"] == 2
-    assert db.source_generation() == 2
+    assert db.source_generation(db.WORKSPACE_ID) == 2
 
 
 # The historical window the committed Energy-Charts CSVs cover, so a backend load hits no network.
@@ -353,7 +353,7 @@ def test_fetch_reifies_ha_and_backend_into_one_dataset(client):
         result = ws.receive_json()
 
     assert result["type"] == "result"
-    loaded = dataset.load_latest()
+    loaded = dataset.load_latest(dataset.db.WORKSPACE_ID)
     names = {f.name for f in loaded.frames}
     assert names == {"grid_import_t1", "price_spot"}          # BOTH survive
     assert loaded.series_sources["grid_import_t1"] == "home_assistant"
@@ -371,7 +371,7 @@ def test_fetch_with_only_a_backend_slot(client):
         result = ws.receive_json()
 
     assert result["type"] == "result"
-    loaded = dataset.load_latest()
+    loaded = dataset.load_latest(dataset.db.WORKSPACE_ID)
     assert {f.name for f in loaded.frames} == {"price_spot"}
     assert loaded.series_sources["price_spot"] == "energy_charts"
 
@@ -398,7 +398,7 @@ def test_fetch_backend_failure_is_all_or_nothing(client):
 
     assert msg["type"] == "error"
     # Nothing persisted — the HA series did not sneak through.
-    assert dataset.load_latest() is None
+    assert dataset.load_latest(dataset.db.WORKSPACE_ID) is None
 
 
 # ── The setup-band answers ride on the header and are committed by the fetch (§2.1) ──────────
@@ -428,13 +428,13 @@ def test_the_fetch_commits_the_setup_answers(client):
     tc, main, _dataset = client
     import app.simconfig_store as store
 
-    assert store.load().has_pv is True          # appendix-A defaults before any fetch
-    assert store.load().has_battery is False
+    assert store.load(store.db.WORKSPACE_ID).has_pv is True    # appendix-A defaults before any fetch
+    assert store.load(store.db.WORKSPACE_ID).has_battery is False
 
     with tc.websocket_connect(w("/data/ingest/ws")) as ws:
         assert _drive_with_setup(ws, has_pv=False, has_battery=True)["type"] == "result"
 
-    cfg = store.load()
+    cfg = store.load(store.db.WORKSPACE_ID)
     assert cfg.has_pv is False
     assert cfg.has_battery is True
 
@@ -447,11 +447,11 @@ def test_a_header_without_the_setup_fields_leaves_the_stored_answers_alone(clien
     import app.simconfig_store as store
     from app.domain.simconfig import SimulationConfig
 
-    store.save(SimulationConfig(has_pv=False, has_battery=True))
+    store.save(SimulationConfig(has_pv=False, has_battery=True), store.db.WORKSPACE_ID)
     with tc.websocket_connect(w("/data/ingest/ws")) as ws:
         assert _drive_valid_ingest(ws)["type"] == "result"   # no has_pv/has_battery in its header
 
-    cfg = store.load()
+    cfg = store.load(store.db.WORKSPACE_ID)
     assert cfg.has_pv is False
     assert cfg.has_battery is True
 
@@ -467,11 +467,11 @@ def test_committing_no_pv_normalises_the_stored_coupling(client):
 
     store.save(SimulationConfig(
         has_pv=True, topology=TopologyConfig(pv_coupling=PvCoupling.DC_HYBRID)
-    ))
+    ), store.db.WORKSPACE_ID)
     with tc.websocket_connect(w("/data/ingest/ws")) as ws:
         assert _drive_with_setup(ws, has_pv=False)["type"] == "result"
 
-    cfg = store.load()
+    cfg = store.load(store.db.WORKSPACE_ID)
     assert cfg.has_pv is False
     assert cfg.pv_coupling is None
     assert cfg.coupling is Coupling.AC

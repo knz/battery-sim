@@ -90,7 +90,7 @@ a startup sweep this app does not otherwise need. The reasoning is in `delete`.
 Main items:
     DataFacts                 the five dataset facts a card states, or `loaded=False`.
     WorkspaceSummary          one card: row fields, three config badges, DataFacts.
-    create(title, ...)        insert a new workspace for an owner; returns its id.
+    create(title, ..., *, owner_id)  insert a new workspace for an owner; returns its id.
     get(id)                   one workspace row, or None.
     list_summaries(owner_id)  every workspace owned by owner_id, as a card, most recently
                               updated first.
@@ -212,7 +212,7 @@ def _insert(conn, wid: str, title: str, owner_id: str = OWNER_ID) -> str:
     return wid
 
 
-def create(title: str, workspace_id: str | None = None, owner_id: str = OWNER_ID) -> str:
+def create(title: str, workspace_id: str | None = None, *, owner_id: str) -> str:
     """Insert a workspace for `owner_id` and return its id.
 
     The id is opaque and generated (a uuid4 hex) unless the caller names one, which only tests
@@ -220,8 +220,10 @@ def create(title: str, workspace_id: str | None = None, owner_id: str = OWNER_ID
     reason documented there. `created_at` and `updated_at` start equal, so a workspace that has
     never been saved still sorts and badges sensibly.
 
-    `owner_id` defaults to the module constant so existing callers — there is only ever one owner
-    today — are unaffected; `POST /workspaces` (app/main.py) passes the requesting principal's id.
+    `owner_id` is required and keyword-only: its only production caller, `POST /workspaces` in
+    `app/main.py`, already passes the requesting principal's id explicitly, so a default would
+    exist only to spare test fixtures (owner-scoping changelog, D7). `_insert` keeps a defaulted
+    owner because `migrate_local` has no principal to name for the pre-index workspace.
     """
     with db.connect() as conn:
         return _insert(conn, workspace_id or uuid.uuid4().hex, title, owner_id)

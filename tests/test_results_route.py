@@ -75,7 +75,7 @@ def client(tmp_path, monkeypatch):
         _energy("grid_import_t1", 2.0),   # 2 kWh/h × 720 h = 1,440 kWh imported
         _energy("grid_export_t1", 0.0),
     ]
-    dataset.save_dataset(frames, (_WIN_START, _WIN_END), "test", [], None)
+    dataset.save_dataset(frames, (_WIN_START, _WIN_END), "test", [], None, workspace_id=WORKSPACE_ID)
     # The routes are workspace-scoped now, and `TestClient(app)` outside a `with` block skips the
     # lifespan that would have adopted this data dir's workspace — so create the row explicitly.
     seed_workspace()
@@ -133,6 +133,7 @@ def test_grid_import_baseline_row_info_button_renders(tmp_path, monkeypatch):
         [_energy("grid_import_t1", 2.0), _energy("grid_export_t1", 1.0),
          _energy("solar_production", 3.0)],
         (_WIN_START, _WIN_END), "test", [], None,
+        workspace_id=WORKSPACE_ID,
     )
     seed_workspace()
     from app import main
@@ -508,10 +509,11 @@ def cost_client(tmp_path, monkeypatch):
             _price_frame("price_spot", prices),
         ],
         (_WIN_START, _WIN_END), "test", [], None,
+        workspace_id=WORKSPACE_ID,
     )
     cfg = SimulationConfig()
     cfg.simulate_cost = True
-    simconfig_store.save(cfg)
+    simconfig_store.save(cfg, WORKSPACE_ID)
     seed_workspace()
 
     from app import main
@@ -550,7 +552,7 @@ def test_cost_section_absent_and_affordance_offered_when_simulate_cost_is_off(co
     client, store = cost_client
     from app.domain.simconfig import SimulationConfig
 
-    store.save(SimulationConfig(), pricing_configured=True)  # simulate_cost defaults to False
+    store.save(SimulationConfig(), WORKSPACE_ID, pricing_configured=True)  # simulate_cost defaults to False
     r = client.post(w("/results"), json={"period": "last_1_week"})
     assert r.status_code == 200
     assert "Cost savings" not in r.text
@@ -587,7 +589,7 @@ def test_the_invitation_points_at_the_contract_when_the_toggle_is_blocked(cost_c
     from app.domain.simconfig import SimulationConfig
 
     # simulate_cost off AND no contract configured: the Blocked branch.
-    store.save(SimulationConfig(), pricing_configured=False)
+    store.save(SimulationConfig(), WORKSPACE_ID, pricing_configured=False)
     r = client.post(w("/results"), json={"period": "last_1_week"})
     assert r.status_code == 200
     # The box is still there and still asks its question — §2′.7's hold.
@@ -616,7 +618,7 @@ def test_fixture_18_the_rendered_energy_half_is_unchanged_by_the_toggle(cost_cli
     from app.domain.simconfig import SimulationConfig
 
     on = client.post(w("/results"), json={"period": "last_1_week"}).text
-    store.save(SimulationConfig())
+    store.save(SimulationConfig(), WORKSPACE_ID)
     off = client.post(w("/results"), json={"period": "last_1_week"}).text
 
     # Everything above the COST SAVINGS divider. With cost off the divider is absent, so the
@@ -670,7 +672,7 @@ def test_the_monthly_chart_gains_a_euro_option_rather_than_swapping_the_kwh_one(
     assert node["ytitle"] != node["eur_ytitle"]
 
     from app.domain.simconfig import SimulationConfig
-    store.save(SimulationConfig())
+    store.save(SimulationConfig(), WORKSPACE_ID)
     off = client.post(w("/results"), json={"period": "last_1_week"}).text
     assert 'data-chart-view="eur"' not in off
     assert "Monthly savings (€)" not in off
@@ -746,11 +748,11 @@ def test_the_money_box_is_gated_on_simulate_cost_as_well_as_on_with_benchmark(co
     from app import dataset, results_view, simconfig_store
     from app.domain.simconfig import SimulationConfig
 
-    loaded = dataset.load_latest()
+    loaded = dataset.load_latest(WORKSPACE_ID)
     window = results_view.resolve_window(loaded, period="last_1_week")
 
     # cost on, benchmark not asked for → no DP was paid for, so no box.
-    r = results_view.results_from(loaded, window, cfg=simconfig_store.load())
+    r = results_view.results_from(loaded, window, cfg=simconfig_store.load(WORKSPACE_ID))
     assert "cost_benchmark" not in r
     assert r["cost"] is not None   # the cheap euro figures are there either way
 
@@ -763,7 +765,7 @@ def test_the_money_box_is_gated_on_simulate_cost_as_well_as_on_with_benchmark(co
 
     # both → both boxes.
     r = results_view.results_from(
-        loaded, window, cfg=simconfig_store.load(), with_benchmark=True
+        loaded, window, cfg=simconfig_store.load(WORKSPACE_ID), with_benchmark=True
     )
     assert "benchmark" in r and "cost_benchmark" in r
     assert r["cost_benchmark"]["title"] == "Benchmark: money saved"
@@ -808,7 +810,7 @@ def test_the_cost_tint_marks_the_cost_section_and_not_the_energy_one(cost_client
     # (`test_the_setup_band_toggle_carries_the_cost_tint` in tests/test_params_route.py).
     from app.domain.simconfig import SimulationConfig
 
-    store.save(SimulationConfig())
+    store.save(SimulationConfig(), WORKSPACE_ID)
     off = client.post(w("/results"), json={"period": "last_1_week"}).text
     # Exactly one tinted thing, and it is the toggle's label.
     tinted = re.findall(r'cost-label[^>]*>\s*([^<]+?)\s*<', off)
@@ -870,11 +872,12 @@ def uncertainty_client(tmp_path, monkeypatch):
             _price_frame_15min("price_spot", quarters),
         ],
         (_WIN_START, _WIN_END), "test", [], None,
+        workspace_id=WORKSPACE_ID,
     )
     cfg = SimulationConfig()
     cfg.simulate_cost = True
     cfg.pricing.supplier_settlement = SupplierSettlement.QUARTER_HOURLY
-    simconfig_store.save(cfg)
+    simconfig_store.save(cfg, WORKSPACE_ID)
     seed_workspace()
 
     from app import main
@@ -940,7 +943,7 @@ def test_the_caveat_leaves_the_page_when_the_supplier_bills_hourly(uncertainty_c
 
     cfg = SimulationConfig()
     cfg.simulate_cost = True                 # cost section still present…
-    store.save(cfg)                          # …but settlement back to the HOURLY default
+    store.save(cfg, WORKSPACE_ID)            # …but settlement back to the HOURLY default
     body = client.post(w("/results"), json={"period": "last_1_week"}).text
     assert "Cost savings" in body            # the fixture still prices the run
     assert "the electricity market prices every 15 minutes" not in body

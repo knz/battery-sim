@@ -99,7 +99,7 @@ def two(tmp_path, monkeypatch):
         seed_workspace(wid, title=f"workspace {wid}")
         dataset.save_dataset(
             [_energy("grid_import_t1", 2.0), _energy("grid_export_t1", 0.0)],
-            (_WIN_START, _WIN_END), "test", [], None, wid,
+            (_WIN_START, _WIN_END), "test", [], None, workspace_id=wid,
         )
 
     from app import main
@@ -218,7 +218,7 @@ def test_a_dataset_loaded_into_one_workspace_is_invisible_to_another(tmp_path, m
     seed_workspace(_B, title="workspace B")
     dataset.save_dataset(
         [_energy("grid_import_t1", 2.0), _energy("grid_export_t1", 0.0)],
-        (_WIN_START, _WIN_END), "test", [], None, _B,
+        (_WIN_START, _WIN_END), "test", [], None, workspace_id=_B,
     )
 
     from app import main

@@ -89,7 +89,7 @@ def env(tmp_path, monkeypatch):
 
 def _seed(mod, workspace_id: str = "w1", title: str = "Our house"):
     """Create the workspace row and return its (appendix-A default) config."""
-    mod["workspaces"].create(title, workspace_id=workspace_id)
+    mod["workspaces"].create(title, workspace_id=workspace_id, owner_id=mod["workspaces"].OWNER_ID)
     return mod["simconfig_store"].load(workspace_id)
 
 
@@ -131,7 +131,7 @@ def _seed_dataset(mod, workspace_id: str = "w1") -> None:
     """Persist a minimal grid-meter dataset, so the data-dependent boxes have something to show."""
     mod["dataset"].save_dataset(
         [_energy("grid_import_t1", 2.0), _energy("grid_export_t1", 0.0)],
-        _WIN, "test", [], None, workspace_id,
+        _WIN, "test", [], None, workspace_id=workspace_id,
     )
 
 
@@ -379,7 +379,7 @@ def test_a_dataset_with_no_simulatable_grid_keeps_the_quality_box(env):
     client, mod = env
     _seed(mod)
     mod["dataset"].save_dataset(
-        [_price("price_spot", 0.10)], _WIN, "test", [], None, "w1"
+        [_price("price_spot", 0.10)], _WIN, "test", [], None, workspace_id="w1"
     )
 
     html = client.get("/w/w1/data").text
@@ -654,7 +654,7 @@ def test_a_successful_save_advances_updated_at(env):
     """
     client, mod = env
     _seed(mod)
-    mod["workspaces"].create("Second", workspace_id="w2")
+    mod["workspaces"].create("Second", workspace_id="w2", owner_id=mod["workspaces"].OWNER_ID)
     # w2 was touched last, so it leads.
     assert [s.id for s in mod["workspaces"].list_summaries(mod["workspaces"].OWNER_ID)] == ["w2", "w1"]
 
@@ -675,7 +675,7 @@ def test_a_save_that_stored_nothing_does_not_advance_updated_at(env):
     """
     client, mod = env
     _seed(mod)
-    mod["workspaces"].create("Second", workspace_id="w2")
+    mod["workspaces"].create("Second", workspace_id="w2", owner_id=mod["workspaces"].OWNER_ID)
     assert [s.id for s in mod["workspaces"].list_summaries(mod["workspaces"].OWNER_ID)] == ["w2", "w1"]
 
     r = client.post("/w/w1/data", data={}, follow_redirects=False)
@@ -999,7 +999,7 @@ def _full_dataset(mod, workspace_id: str = "w1", extra=()) -> None:
     """Import + export T1, plus whatever `extra` series the case under test needs."""
     frames = [_energy("grid_import_t1", 2.0), _energy("grid_export_t1", 0.5)]
     frames += [_energy(name, 0.5) for name in extra]
-    mod["dataset"].save_dataset(frames, _WIN, "test", [], None, workspace_id)
+    mod["dataset"].save_dataset(frames, _WIN, "test", [], None, workspace_id=workspace_id)
 
 
 def _answers(mod, *, has_pv: bool, has_battery: bool, workspace_id: str = "w1") -> None:
@@ -1081,7 +1081,7 @@ def test_a_missing_grid_import_blocks_and_names_it(env):
     _seed(mod)
     _answers(mod, has_pv=False, has_battery=False)
     mod["dataset"].save_dataset(
-        [_energy("grid_export_t1", 0.5)], _WIN, "test", [], None, "w1"
+        [_energy("grid_export_t1", 0.5)], _WIN, "test", [], None, workspace_id="w1"
     )
 
     html = client.get("/w/w1/data?mode=wizard").text
@@ -1097,7 +1097,7 @@ def test_a_missing_grid_export_blocks_and_names_it(env):
     _seed(mod)
     _answers(mod, has_pv=False, has_battery=False)
     mod["dataset"].save_dataset(
-        [_energy("grid_import_t1", 2.0)], _WIN, "test", [], None, "w1"
+        [_energy("grid_import_t1", 2.0)], _WIN, "test", [], None, workspace_id="w1"
     )
 
     html = client.get("/w/w1/data?mode=wizard").text
@@ -1236,7 +1236,7 @@ def test_there_is_no_minimum_duration(env):
         [_energy("grid_import_t1", 2.0, n=3), _energy("grid_export_t1", 0.5, n=3)],
         (datetime(2026, 1, 1, tzinfo=timezone.utc),
          datetime(2026, 1, 1, 3, tzinfo=timezone.utc)),
-        "test", [], None, "w1",
+        "test", [], None, workspace_id="w1",
     )
 
     assert not _is_blocked(client.get("/w/w1/data?mode=wizard").text)
@@ -1430,7 +1430,7 @@ def test_the_gate_and_the_cards_data_facts_agree_on_their_shared_roles(env, load
     _answers(mod, has_pv=has_pv, has_battery=False)
     if loaded:
         mod["dataset"].save_dataset(
-            [_energy(name, 1.0) for name in loaded], _WIN, "test", [], None, "w1"
+            [_energy(name, 1.0) for name in loaded], _WIN, "test", [], None, workspace_id="w1"
         )
 
     from app import data_screen_view
@@ -1533,7 +1533,7 @@ def test_the_card_reports_the_same_run_size_as_the_results_screen(env, frames, w
     client, mod = env
     _seed(mod)
     _answers(mod, has_pv=True, has_battery=False)
-    mod["dataset"].save_dataset(list(frames), window, "test", [], None, "w1")
+    mod["dataset"].save_dataset(list(frames), window, "test", [], None, workspace_id="w1")
 
     from app.domain import normalize
 
@@ -1557,7 +1557,7 @@ def test_the_interval_count_is_not_the_stored_window_divided_by_the_resolution(e
               datetime(2026, 1, 3, tzinfo=timezone.utc))
     mod["dataset"].save_dataset(
         [_res_energy("grid_import_t1", 900, 192), _res_energy("solar_production", 3600, 3)],
-        window, "test", [], None, "w1",
+        window, "test", [], None, workspace_id="w1",
     )
 
     facts = _card_facts(mod)
@@ -1584,14 +1584,14 @@ def test_merging_one_series_updates_the_stored_run_size(env):
     window = (datetime(2026, 1, 1, tzinfo=timezone.utc),
               datetime(2026, 1, 3, tzinfo=timezone.utc))
     mod["dataset"].save_dataset(
-        [_res_energy("grid_import_t1", 900, 192)], window, "test", [], None, "w1"
+        [_res_energy("grid_import_t1", 900, 192)], window, "test", [], None, workspace_id="w1"
     )
     before = _card_facts(mod)
     assert before.intervals == 192, before.intervals
 
     # A three-hour solar series narrows the coverage intersection the count is measured over.
     mod["dataset"].upsert_series(
-        _res_energy("solar_production", 3600, 3), "test", window, "w1"
+        _res_energy("solar_production", 3600, 3), "test", window, workspace_id="w1"
     )
 
     from app.domain import normalize
@@ -1620,7 +1620,7 @@ def test_a_row_written_before_the_columns_existed_falls_back_to_the_old_derivati
               datetime(2026, 1, 3, tzinfo=timezone.utc))
     mod["dataset"].save_dataset(
         [_res_energy("grid_import_t1", 900, 192), _res_energy("solar_production", 3600, 3)],
-        window, "test", [], None, "w1",
+        window, "test", [], None, workspace_id="w1",
     )
     assert _card_facts(mod).intervals == 3
 
@@ -1665,7 +1665,7 @@ def test_the_migration_adds_the_columns_to_a_pre_existing_datasets_table(env):
     mod["dataset"].save_dataset(
         [_res_energy("grid_import_t1", 900, 192)],
         (datetime(2026, 1, 1, tzinfo=timezone.utc), datetime(2026, 1, 3, tzinfo=timezone.utc)),
-        "test", [], None, "w1",
+        "test", [], None, workspace_id="w1",
     )
     assert _card_facts(mod).intervals == 192
 
@@ -1746,7 +1746,7 @@ def test_a_price_npz_written_with_the_old_bracket_arrays_still_loads(env, tmp_pa
     price = SeriesFrame("price_spot", "price", 3600, idx,
                         np.array([0.20, 0.25, 0.30, 0.22]), np.zeros(n, dtype=QUALITY_DTYPE))
     energy = _res_energy("grid_import_t1", 3600, n)
-    dataset.save_dataset([energy, price], _WIN, "test", [], None, "w1")
+    dataset.save_dataset([energy, price], _WIN, "test", [], None, workspace_id="w1")
 
     # Re-write the price .npz in the pre-removal shape: the three current arrays plus the two
     # bracket arrays the old writer appended.
@@ -1790,7 +1790,7 @@ def test_a_saved_bracket_slot_series_is_not_restored_after_the_slots_were_remove
     price = SeriesFrame("price_spot", "price", 3600, idx,
                         np.array([0.20, 0.25, 0.30, 0.22]), np.zeros(n, dtype=QUALITY_DTYPE))
     energy = _res_energy("grid_import_t1", 3600, n)
-    dataset.save_dataset([energy, price], _WIN, "test", [], None, "w1")
+    dataset.save_dataset([energy, price], _WIN, "test", [], None, workspace_id="w1")
 
     # Forge the pre-removal state: a 15-minute bracket series with its own row and .npz, exactly
     # as `save_dataset` would have written it when the slot still existed.

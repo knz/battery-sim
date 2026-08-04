@@ -45,8 +45,8 @@ this is what lets a backend-loaded price attach to an existing HA-fetched energy
 
 Main items:
     connect()                                                    a connection with both schemas.
-    save_dataset(frames, window, source, warnings, sources, workspace_id) -> int  persist; id.
-    upsert_series(frame, source_key, window, workspace_id) -> int          merge one series in.
+    save_dataset(frames, window, source, warnings, sources, *, workspace_id) -> int  persist; id.
+    upsert_series(frame, source_key, window, *, workspace_id) -> int   merge one series in.
     load_latest(workspace_id) -> LoadedDataset | None                     restore on startup.
     LoadedDataset                                                         frames + window + meta.
 """
@@ -266,7 +266,8 @@ def save_dataset(
     source_type: str,
     warnings: list[dict],
     sources: dict[str, str] | None = None,
-    workspace_id: str = db.WORKSPACE_ID,
+    *,
+    workspace_id: str,
 ) -> int:
     """Persist frames + metadata; return the new dataset id (specs §3.5 LOAD_SUCCEEDED).
 
@@ -322,7 +323,8 @@ def upsert_series(
     frame: SeriesFrame,
     source_key: str,
     window: tuple[datetime, datetime] | None = None,
-    workspace_id: str = db.WORKSPACE_ID,
+    *,
+    workspace_id: str,
 ) -> int:
     """Merge one freshly-loaded `frame` into the latest dataset, or create one for it alone.
 
@@ -505,7 +507,7 @@ def _store_grid_facts(conn, dataset_id: int, frames: list[SeriesFrame], window) 
     )
 
 
-def load_latest(workspace_id: str = db.WORKSPACE_ID) -> LoadedDataset | None:
+def load_latest(workspace_id: str) -> LoadedDataset | None:
     """Restore the most recent dataset for a workspace, or None if there is none (specs §3.5)."""
     import json
 
