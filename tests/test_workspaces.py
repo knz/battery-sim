@@ -67,7 +67,7 @@ def test_migration_skips_a_fresh_installation(mods):
     """No config and no dataset on disk → no phantom workspace (§2′.10)."""
     _, _, _, workspaces = mods
     assert workspaces.migrate_local() is False
-    assert workspaces.list_summaries() == []
+    assert workspaces.list_summaries(workspaces.OWNER_ID) == []
 
 
 def test_migration_adopts_an_existing_config(mods):
@@ -104,7 +104,7 @@ def test_migration_is_idempotent(mods):
 
     assert workspaces.migrate_local() is False
     assert workspaces.get(db.WORKSPACE_ID) == first
-    assert len(workspaces.list_summaries()) == 1
+    assert len(workspaces.list_summaries(workspaces.OWNER_ID)) == 1
     assert simconfig_store.is_pricing_configured() is True
 
 
@@ -168,7 +168,7 @@ def test_migration_does_not_overwrite_a_future_version_document(mods):
 
     # The workspace is still adopted — the document exists, so there is something to adopt.
     assert workspaces.migrate_local() is True
-    assert len(workspaces.list_summaries()) == 1
+    assert len(workspaces.list_summaries(workspaces.OWNER_ID)) == 1
 
     on_disk = json.loads(path.read_text(encoding="utf-8"))
     assert on_disk["version"] == 2
@@ -184,7 +184,7 @@ def test_migration_does_not_run_once_a_workspace_exists(mods):
     workspaces.create("Something else")
 
     assert workspaces.migrate_local() is False
-    assert [s.title for s in workspaces.list_summaries()] == ["Something else"]
+    assert [s.title for s in workspaces.list_summaries(workspaces.OWNER_ID)] == ["Something else"]
 
 
 # ── list_summaries ───────────────────────────────────────────────────────────────────────────
@@ -198,7 +198,7 @@ def test_summary_with_data(mods):
     _save_dataset(dataset)
     workspaces.migrate_local()
 
-    (card,) = workspaces.list_summaries()
+    (card,) = workspaces.list_summaries(workspaces.OWNER_ID)
     assert (card.phases, card.fuse_a) == (3, 25)
     assert card.contract == "dynamic"  # the enum VALUE verbatim (§2.3)
     assert card.data.loaded is True
@@ -222,7 +222,7 @@ def test_summary_without_data(mods):
     simconfig_store.save(SimulationConfig())
     workspaces.migrate_local()
 
-    (card,) = workspaces.list_summaries()
+    (card,) = workspaces.list_summaries(workspaces.OWNER_ID)
     assert card.data.loaded is False
     assert card.data.window is None
     assert card.data.intervals is None
@@ -238,7 +238,7 @@ def test_summary_without_pv_reports_not_applicable(mods):
     _save_dataset(dataset, names=("grid_import_t1", "grid_export_t1"))
     workspaces.migrate_local()
 
-    (card,) = workspaces.list_summaries()
+    (card,) = workspaces.list_summaries(workspaces.OWNER_ID)
     assert card.data.pv_applicable is False
     assert card.data.pv_production is False
     assert card.data.grid_consumption is True
@@ -257,7 +257,7 @@ def test_summary_without_pv_ignores_a_stray_solar_series(mods):
     _save_dataset(dataset)  # includes solar_production
     workspaces.migrate_local()
 
-    (card,) = workspaces.list_summaries()
+    (card,) = workspaces.list_summaries(workspaces.OWNER_ID)
     assert card.data.pv_applicable is False
     assert card.data.pv_production is False
 
@@ -270,10 +270,10 @@ def test_summaries_are_ordered_most_recently_updated_first(mods):
     b = workspaces.create("B")
     workspaces.touch(a)  # a saved after b was created
 
-    assert [s.id for s in workspaces.list_summaries()] == [a, b]
+    assert [s.id for s in workspaces.list_summaries(workspaces.OWNER_ID)] == [a, b]
 
     workspaces.touch(b)
-    assert [s.id for s in workspaces.list_summaries()] == [b, a]
+    assert [s.id for s in workspaces.list_summaries(workspaces.OWNER_ID)] == [b, a]
 
 
 def test_touch_moves_updated_at_and_rename_does_not(mods):
@@ -331,7 +331,7 @@ def test_delete_data_keeps_the_config_and_the_workspace(mods, tmp_path):
     assert dataset.load_latest() is None
     assert simconfig_store.config_path().exists()
     assert workspaces.get(db.WORKSPACE_ID) is not None
-    (card,) = workspaces.list_summaries()
+    (card,) = workspaces.list_summaries(workspaces.OWNER_ID)
     assert card.data.loaded is False
     assert not (tmp_path / db.WORKSPACE_ID / "series").exists()
 
@@ -349,7 +349,7 @@ def test_delete_removes_the_workspace_but_not_feature_interest(mods, tmp_path):
     workspaces.delete(db.WORKSPACE_ID)
 
     assert workspaces.get(db.WORKSPACE_ID) is None
-    assert workspaces.list_summaries() == []
+    assert workspaces.list_summaries(workspaces.OWNER_ID) == []
     assert not (tmp_path / db.WORKSPACE_ID).exists()
     assert db.interest_count("export_csv") == 1
 
@@ -454,7 +454,7 @@ def test_a_crash_partway_through_delete_leaves_residue_not_a_gutted_workspace(mo
 
     # The workspace is gone from the index — the user's request, as far as it got.
     assert workspaces.get(db.WORKSPACE_ID) is None
-    assert workspaces.list_summaries() == []
+    assert workspaces.list_summaries(workspaces.OWNER_ID) == []
     # Its data rows are still on disk, and that is the accepted residue: unreachable, because
     # nothing lists the workspace they belong to. The inverse — a listed workspace with no data —
     # is what the previous ordering produced and what this ordering exists to avoid.
@@ -584,4 +584,4 @@ def test_concurrent_migrations_insert_exactly_one_row_and_none_of_them_raise(mod
 
     assert errors == [], f"migrate_local raced: {errors!r}"
     assert inserted.count(True) == 1, "more than one caller claimed to have adopted `local`"
-    assert [s.id for s in workspaces.list_summaries()] == ["local"]
+    assert [s.id for s in workspaces.list_summaries(workspaces.OWNER_ID)] == ["local"]

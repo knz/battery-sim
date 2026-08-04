@@ -128,8 +128,12 @@ def _authorize(principal: Principal, row: dict) -> bool:
 
     v1 is single-user, so this is `owner_id` equality against the one principal there is, which is
     always true for anything `workspaces.create` wrote. It is a named function rather than an
-    inline comparison because it is the whole of the authorization surface: adding accounts means
-    changing this and `get_principal`, per §5.5 invariant 2.
+    inline comparison because it is the whole of the authorization surface FOR ACCESS TO A SINGLE
+    WORKSPACE: adding accounts means changing this and `get_principal`, per §5.5 invariant 2.
+
+    It is not the only owner-scoping site, though: `workspaces.list_summaries(owner_id)` filters
+    the LIST the same way this filters access to one row, and the two have to be kept in sync by
+    hand since neither calls the other.
 
     A failure is reported as 404, not 403 — a workspace you may not use should not be
     distinguishable from one that does not exist.

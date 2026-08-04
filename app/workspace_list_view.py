@@ -1,6 +1,6 @@
 """The view-model for the workspace list screen (specs/20-workspaces-ux.md §2′.2).
 
-`app/workspaces.list_summaries()` already returns exactly the facts a card states — three config
+`app/workspaces.list_summaries(owner_id)` already returns exactly the facts a card states — three config
 badges and five dataset facts — and deliberately reads them from SQLite metadata alone, without
 loading a single `.npz`. What it does NOT do is decide how any of them is written, and that is
 this module's whole job: turn a `WorkspaceSummary` into a dict `_workspace_card.html` can render
@@ -216,7 +216,7 @@ def card(summary: WorkspaceSummary) -> dict:
 
 
 def cards(summaries: list[WorkspaceSummary]) -> list[dict]:
-    """The whole list, in the order `workspaces.list_summaries()` returned it.
+    """The whole list, in the order `workspaces.list_summaries(owner_id)` returned it.
 
     That order is most-recently-updated first (§2′.2), decided by SQL rather than here — a view
     that re-sorted would be a second definition of the ordering rule and could drift from the

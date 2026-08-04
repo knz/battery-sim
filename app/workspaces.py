@@ -88,14 +88,15 @@ Stated rather than fixed — the residue is wasted disk, not a wrong answer, and
 a startup sweep this app does not otherwise need. The reasoning is in `delete`.
 
 Main items:
-    DataFacts            the five dataset facts a card states, or `loaded=False`.
-    WorkspaceSummary     one card: row fields, three config badges, DataFacts.
-    create(title, ...)   insert a new workspace; returns its id.
-    get(id)              one workspace row, or None.
-    list_summaries()     every workspace as a card, most recently updated first.
-    rename(id, title)    set the title (does NOT touch updated_at — a rename is not a save).
-    touch(id)            bump `updated_at` to now; called on config save only.
-    delete(id)           remove the workspace, its rows and its directory.
+    DataFacts                 the five dataset facts a card states, or `loaded=False`.
+    WorkspaceSummary          one card: row fields, three config badges, DataFacts.
+    create(title, ...)        insert a new workspace for an owner; returns its id.
+    get(id)                   one workspace row, or None.
+    list_summaries(owner_id)  every workspace owned by owner_id, as a card, most recently
+                              updated first.
+    rename(id, title)         set the title (does NOT touch updated_at — a rename is not a save).
+    touch(id)                 bump `updated_at` to now; called on config save only.
+    delete(id)                remove the workspace, its rows and its directory.
     delete_data(id)      remove its dataset rows and series files, keeping the config.
     migrate_local()      idempotent startup migration of the pre-index single workspace.
 """
@@ -191,32 +192,39 @@ def _parse(ts: str) -> datetime:
     return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
 
 
-def _insert(conn, wid: str, title: str) -> str:
+def _insert(conn, wid: str, title: str, owner_id: str = OWNER_ID) -> str:
     """The INSERT alone, on a caller-supplied connection.
 
     Split out of `create` so `migrate_local` can run its emptiness check and its insert inside ONE
     transaction on ONE connection — the check-then-act race that shape otherwise has is documented
     there. Every other caller goes through `create`, which opens its own connection.
+
+    `owner_id` defaults to the module constant because `migrate_local` is adopting the pre-index
+    single workspace, which has no other owner to name (D2 in the owner-scoping changelog);
+    `create` always passes one explicitly.
     """
     now = _now()
     conn.execute(
         """INSERT INTO workspaces (id, owner_id, title, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?)""",
-        (wid, OWNER_ID, title, now, now),
+        (wid, owner_id, title, now, now),
     )
     return wid
 
 
-def create(title: str, workspace_id: str | None = None) -> str:
-    """Insert a workspace and return its id.
+def create(title: str, workspace_id: str | None = None, owner_id: str = OWNER_ID) -> str:
+    """Insert a workspace for `owner_id` and return its id.
 
     The id is opaque and generated (a uuid4 hex) unless the caller names one, which only tests
     do now — the migration inserts through `_insert` on its own connection, for the transaction
     reason documented there. `created_at` and `updated_at` start equal, so a workspace that has
     never been saved still sorts and badges sensibly.
+
+    `owner_id` defaults to the module constant so existing callers — there is only ever one owner
+    today — are unaffected; `POST /workspaces` (app/main.py) passes the requesting principal's id.
     """
     with db.connect() as conn:
-        return _insert(conn, workspace_id or uuid.uuid4().hex, title)
+        return _insert(conn, workspace_id or uuid.uuid4().hex, title, owner_id)
 
 
 def get(workspace_id: str) -> dict | None:
@@ -340,8 +348,13 @@ def _data_facts(conn, workspace_id: str, has_pv: bool) -> DataFacts:
     )
 
 
-def list_summaries() -> list[WorkspaceSummary]:
-    """Every workspace as a card, most recently updated first (§2′.2).
+def list_summaries(owner_id: str) -> list[WorkspaceSummary]:
+    """Every workspace owned by `owner_id`, as a card, most recently updated first (§2′.2).
+
+    Required rather than defaulted or optional: an `owner_id: str | None = None` meaning "all
+    owners" was considered and rejected, because an optional filter is exactly how the
+    missing-filter bug this scoping closes would get reintroduced (D3 in the owner-scoping
+    changelog). `GET /` (app/main.py) passes the requesting principal's id.
 
     One SQLite connection for the whole list, plus one small JSON read per workspace for the
     config badges. Ordering is by `updated_at` descending — the configuration's save time, so
@@ -356,15 +369,16 @@ def list_summaries() -> list[WorkspaceSummary]:
     with dataset.connect() as conn:
         rows = conn.execute(
             """SELECT id, owner_id, title, created_at, updated_at FROM workspaces
-               ORDER BY updated_at DESC, id ASC"""
+               WHERE owner_id = ? ORDER BY updated_at DESC, id ASC""",
+            (owner_id,),
         ).fetchall()
-        for wid, owner_id, title, created_at, updated_at in rows:
+        for wid, row_owner_id, title, created_at, updated_at in rows:
             cfg = simconfig_store.load(wid)
             summaries.append(
                 WorkspaceSummary(
                     id=wid,
                     title=title,
-                    owner_id=owner_id,
+                    owner_id=row_owner_id,
                     created_at=_parse(created_at),
                     updated_at=_parse(updated_at),
                     phases=cfg.grid.phases,

@@ -100,8 +100,11 @@ lives under `/w/{workspace_id}/…` and resolves its workspace through `deps.get
 (specs/08-architecture.md §5.1, §5.5 invariant 2) instead of defaulting to the module constant
 `db.WORKSPACE_ID`. Four routes stay FLAT, each for its own reason:
 
-  * `GET /` — the list. It is ABOUT every workspace, so it belongs to none.
-  * `POST /workspaces` — creates one; there is no id to scope it by yet.
+  * `GET /` — the list. It is ABOUT every workspace, so it belongs to none — but it is still
+    scoped to the requesting principal (`Depends(deps.get_principal)`), which
+    `workspaces.list_summaries(owner_id)` filters by (owner-scoping phase 1).
+  * `POST /workspaces` — creates one; there is no id to scope it by yet, but the created row is
+    owned by the requesting principal, the same dependency passed to `workspaces.create`.
   * `POST /feature-interest/{key}` — installation-wide since phase 0 (§2′.10, app/db.py).
   * `GET /lang/{code}` — sets a cookie; there is nothing workspace-shaped about a language.
 
@@ -241,13 +244,15 @@ CONFIG = config.load()
 
 
 @app.get("/", response_class=HTMLResponse)
-def workspace_list(request: Request):
+def workspace_list(
+    request: Request, principal: Annotated[deps.Principal, Depends(deps.get_principal)]
+):
     """The workspace list — the app's home screen (specs/20-workspaces-ux.md §2′.2).
 
-    One card per workspace, most recently updated first. The ordering is
-    `workspaces.list_summaries()`'s SQL (`ORDER BY updated_at DESC`), not anything decided here,
-    and `updated_at` is the CONFIGURATION's save time — so loading data never reorders the list
-    (§2′.10). `POST /w/{id}/params` is what advances it.
+    One card per workspace OWNED BY THE REQUESTING PRINCIPAL, most recently updated first. The
+    ordering is `workspaces.list_summaries(owner_id)`'s SQL (`ORDER BY updated_at DESC`), not anything
+    decided here, and `updated_at` is the CONFIGURATION's save time — so loading data never
+    reorders the list (§2′.10). `POST /w/{id}/params` is what advances it.
 
     **The empty list is a real state, not an error.** A fresh installation has no workspaces and
     the screen draws its invitation to create the first one. Phase 1's lifespan created a `local`
@@ -262,7 +267,7 @@ def workspace_list(request: Request):
     locale = i18n.resolve_locale(request)
     return HTMLResponse(
         i18n.env_for(locale).get_template("workspaces.html").render(
-            cards=workspace_list_view.cards(workspaces.list_summaries()),
+            cards=workspace_list_view.cards(workspaces.list_summaries(principal.id)),
             lang={
                 "current": locale,
                 "options": [{"code": c, "label": c.upper()} for c in i18n.SUPPORTED],
@@ -272,8 +277,9 @@ def workspace_list(request: Request):
 
 
 @app.post("/workspaces", dependencies=[Depends(csrf.require_same_site)])
-def create_workspace():
-    """Create a workspace and redirect into it (§2′.2's `[ + New analysis ]`).
+def create_workspace(principal: Annotated[deps.Principal, Depends(deps.get_principal)]):
+    """Create a workspace owned by the requesting principal and redirect into it
+    (§2′.2's `[ + New analysis ]`).
 
     **POST, not GET, and a redirect afterwards.** Creating writes, so it is not a navigation; and
     redirect-after-POST means a reload of the destination does not create a second workspace.
@@ -293,7 +299,7 @@ def create_workspace():
     written to the database once and a stored string cannot follow the user's later language
     toggle. The user renames it on step 1, which is the first field there (§2′.4).
     """
-    workspace_id = workspaces.create(workspaces.DEFAULT_TITLE)
+    workspace_id = workspaces.create(workspaces.DEFAULT_TITLE, owner_id=principal.id)
     return RedirectResponse(f"/w/{workspace_id}/edit?mode=wizard", status_code=303)
 
 

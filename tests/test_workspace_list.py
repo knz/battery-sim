@@ -139,7 +139,7 @@ def test_a_fresh_install_shows_the_empty_list_not_a_phantom_workspace(env):
         r = client.get("/")
     assert r.status_code == 200
     assert "data-workspace-card" not in r.text
-    assert mod["workspaces"].list_summaries() == []
+    assert mod["workspaces"].list_summaries(mod["workspaces"].OWNER_ID) == []
 
 
 def test_the_migration_still_adopts_a_genuine_pre_index_installation(env):
@@ -365,7 +365,7 @@ def test_creating_a_workspace_redirects_into_it(env):
     location = r.headers["location"]
     assert re.fullmatch(r"/w/[0-9a-f]{32}/edit\?mode=wizard", location), location
     # The row exists and the destination renders, rather than 404ing from `deps.get_workspace`.
-    assert len(mod["workspaces"].list_summaries()) == 1
+    assert len(mod["workspaces"].list_summaries(mod["workspaces"].OWNER_ID)) == 1
     assert client.get(location).status_code == 200
     # And it really rendered the wizard: step 1's footer, not the card path's.
     assert "Next" in client.get(location).text
@@ -491,7 +491,7 @@ def test_delete_analysis_leaves_feature_interest_alone(env):
 
     client.post("/w/w1/delete")
 
-    assert mod["workspaces"].list_summaries() == []
+    assert mod["workspaces"].list_summaries(mod["workspaces"].OWNER_ID) == []
     with mod["db"].connect() as conn:
         rows = conn.execute(
             "SELECT feature_key FROM feature_interest WHERE feature_key = ?", ("csv_upload",)
@@ -531,7 +531,7 @@ def test_a_replayed_deletion_lands_on_the_list_and_deletes_nothing_else(env):
     replay = client.post("/w/w1/delete", follow_redirects=False)
     assert replay.status_code == 303
     assert replay.headers["location"] == "/"
-    assert [s.id for s in mod["workspaces"].list_summaries()] == ["w2"]
+    assert [s.id for s in mod["workspaces"].list_summaries(mod["workspaces"].OWNER_ID)] == ["w2"]
 
 
 def test_an_unknown_workspace_still_404s_where_there_is_no_end_state_to_reach(env):
@@ -603,13 +603,13 @@ def test_the_list_is_ordered_most_recently_updated_first(env):
     mod["workspaces"].create("First", workspace_id="w1")
     mod["workspaces"].create("Second", workspace_id="w2")
 
-    order = [s.id for s in mod["workspaces"].list_summaries()]
+    order = [s.id for s in mod["workspaces"].list_summaries(mod["workspaces"].OWNER_ID)]
     assert order == ["w2", "w1"], "a newly created workspace sorts first"
 
     r = client.post("/w/w1/params", data=_params_form())
     assert r.headers["X-Params-Valid"] == "1"
 
-    assert [s.id for s in mod["workspaces"].list_summaries()] == ["w1", "w2"]
+    assert [s.id for s in mod["workspaces"].list_summaries(mod["workspaces"].OWNER_ID)] == ["w1", "w2"]
     # And the rendered list agrees with the query — a template that iterated in another order
     # would pass the assertion above and still show the wrong screen.
     html = client.get("/").text
@@ -643,12 +643,12 @@ def test_a_data_load_does_not_reorder_the_list(env):
     client, mod = env
     mod["workspaces"].create("First", workspace_id="w1")
     mod["workspaces"].create("Second", workspace_id="w2")
-    order = [s.id for s in mod["workspaces"].list_summaries()]
+    order = [s.id for s in mod["workspaces"].list_summaries(mod["workspaces"].OWNER_ID)]
 
     mod["dataset"].save_dataset(
         [_energy("grid_import_t1")], (_WIN_START, _WIN_END), "test", [], None, "w1",
     )
-    assert [s.id for s in mod["workspaces"].list_summaries()] == order
+    assert [s.id for s in mod["workspaces"].list_summaries(mod["workspaces"].OWNER_ID)] == order
 
 
 def _params_form(**overrides) -> dict:

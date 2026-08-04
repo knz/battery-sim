@@ -656,13 +656,13 @@ def test_a_successful_save_advances_updated_at(env):
     _seed(mod)
     mod["workspaces"].create("Second", workspace_id="w2")
     # w2 was touched last, so it leads.
-    assert [s.id for s in mod["workspaces"].list_summaries()] == ["w2", "w1"]
+    assert [s.id for s in mod["workspaces"].list_summaries(mod["workspaces"].OWNER_ID)] == ["w2", "w1"]
 
     client.post(
         "/w/w1/data", data={"setup_haspv": "0", "setup_hasbattery": "1"},
         follow_redirects=False,
     )
-    assert [s.id for s in mod["workspaces"].list_summaries()] == ["w1", "w2"]
+    assert [s.id for s in mod["workspaces"].list_summaries(mod["workspaces"].OWNER_ID)] == ["w1", "w2"]
 
 
 def test_a_save_that_stored_nothing_does_not_advance_updated_at(env):
@@ -676,11 +676,11 @@ def test_a_save_that_stored_nothing_does_not_advance_updated_at(env):
     client, mod = env
     _seed(mod)
     mod["workspaces"].create("Second", workspace_id="w2")
-    assert [s.id for s in mod["workspaces"].list_summaries()] == ["w2", "w1"]
+    assert [s.id for s in mod["workspaces"].list_summaries(mod["workspaces"].OWNER_ID)] == ["w2", "w1"]
 
     r = client.post("/w/w1/data", data={}, follow_redirects=False)
     assert r.status_code == 303
-    assert [s.id for s in mod["workspaces"].list_summaries()] == ["w2", "w1"]
+    assert [s.id for s in mod["workspaces"].list_summaries(mod["workspaces"].OWNER_ID)] == ["w2", "w1"]
 
 
 def test_the_post_leaves_settings_it_does_not_draw_alone(env):
@@ -833,7 +833,7 @@ def test_a_failing_save_does_not_advance_updated_at(env):
     """The badge reports when the configuration was last STORED, and nothing was."""
     client, mod = env
     _seed(mod)
-    before = mod["workspaces"].list_summaries()[0].updated_at
+    before = mod["workspaces"].list_summaries(mod["workspaces"].OWNER_ID)[0].updated_at
 
     def boom(*_a, **_k):
         raise OSError("read-only file system")
@@ -847,7 +847,7 @@ def test_a_failing_save_does_not_advance_updated_at(env):
     finally:
         mod["main"]._write_setup_answers = original
 
-    assert mod["workspaces"].list_summaries()[0].updated_at == before
+    assert mod["workspaces"].list_summaries(mod["workspaces"].OWNER_ID)[0].updated_at == before
 
 
 def test_the_never_raises_writer_still_never_raises(env):
@@ -1436,7 +1436,7 @@ def test_the_gate_and_the_cards_data_facts_agree_on_their_shared_roles(env, load
     from app import data_screen_view
 
     missing = data_screen_view.load_gate(set(loaded), has_pv=has_pv, has_battery=False)
-    facts = [s for s in mod["workspaces"].list_summaries() if s.id == "w1"][0].data
+    facts = [s for s in mod["workspaces"].list_summaries(mod["workspaces"].OWNER_ID) if s.id == "w1"][0].data
 
     # `DataFacts.loaded` false means every other field is meaningless and left at its default
     # (its own docstring), so the comparison is only defined when something is loaded.
@@ -1469,7 +1469,7 @@ def _res_energy(name: str, res_s: int, n: int, start: str = "2026-01-01T00:00:00
 
 
 def _card_facts(mod, workspace_id: str = "w1"):
-    return [s for s in mod["workspaces"].list_summaries() if s.id == workspace_id][0].data
+    return [s for s in mod["workspaces"].list_summaries(mod["workspaces"].OWNER_ID) if s.id == workspace_id][0].data
 
 
 # Each case is (label, frames, requested window). The assertion is the same for all of them and
