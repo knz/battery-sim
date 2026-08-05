@@ -87,10 +87,46 @@ it now passes at each commit rather than only at the tip.
 A safety branch `backup-pre-css-rebase` was created before the rewrite; it can be deleted
 once the force-push is confirmed good.
 
+## Requirements Change: narrow the Tailwind source globs
+
+Mid-task the user asked for an additional commit narrowing the scan patterns — fixing
+obstacle 3 at its root rather than relying on a prose convention in this file.
+
+`app/static/src/app.tailwind.css` now reads `@import 'tailwindcss' source(none)` with a
+single explicit `@source '../../templates/**/*.html'`. `source(none)` disables Tailwind
+v4's automatic project-wide detection, so class names come from the template markup and
+nowhere else. Confirmed against the Tailwind v4 docs rather than from memory. The
+templates are the complete set of sources: no `.py` file in the tree emits a
+`class="..."` attribute.
+
+Effect on the output: 141 selectors and 43% of the file disappear (169182 → 96603
+bytes) — daisyUI components (`menu`, `dock`, `diff`, `alert-info`, `btn-success`, …) and
+utilities (`italic`, `capitalize`, `cursor-*-resize`, and junk like `m-374`) that
+auto-detection had been pulling in from `node_modules` and other stray files.
+
+Checked before keeping the change, because a 43% reduction could equally be a
+regression:
+
+- Every dropped selector was cross-checked against every `class="..."` token in the
+  templates. None are referenced. The one apparent hit (`btn`) was an artifact of the
+  checking regex mis-splitting daisyUI's compound selectors; `.btn` base rules are
+  present in both files (5 occurrences each).
+- The full suite passes — 1421 passed, 25 skipped — including the Playwright smoke tests
+  that render real pages.
+- Two consecutive rebuilds produce byte-identical output, so the result is deterministic.
+
+The trade-off is now recorded in the stylesheet's header comment: a class used only from
+outside `app/templates/` will no longer be generated and needs its own `@source` line.
+With the narrowing in place, the wording note at the top of this file is belt-and-braces
+rather than load-bearing — this file is no longer scanned.
+
 ## Current Status
 
-CSS drift resolved and verified. Remaining: commit this changelog, force-push the
-rewritten branch to PR #8, and confirm the `css-freshness` job goes green.
+Two commits added on top of the rewritten branch:
 
-The `pytest` job was still in progress during this work and its result has not been
-assessed here — it is a separate question from the CSS gate.
+- `fc128d0` — this changelog.
+- `6b46c36` — the source-glob narrowing plus the regenerated CSS.
+
+Remaining: force-push to PR #8 and confirm CI. Both the `css-freshness` and `pytest`
+jobs are expected to pass; the local suite is green and the freshness gate was verified
+at every commit.
