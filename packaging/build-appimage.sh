@@ -396,11 +396,22 @@ chmod +x "$APPDIR/AppRun"
 APP_VERSION="$(
     grep -oE '__version__ *= *"[^"]+"' "$ROOT/app/__init__.py" | grep -oE '"[^"]+"' | tr -d '"'
 )"
-BUNDLED_BUILD_INFO="$(find "$BUNDLE/_internal" -name '_build_info.py*' -path '*/app/*' 2>/dev/null | head -1)"
-BUILD_SHA="$(
-    grep -oE "BUILD_SHA *= *['\"][^'\"]+['\"]" "${BUNDLED_BUILD_INFO:-/dev/null}" 2>/dev/null |
-        grep -oE "['\"][^'\"]+['\"]" | tr -d "'\"" || true
-)"
+# `_build_info.py` is collected as DATA by the spec precisely so it can be read here — the
+# imported copy is compiled into the PYZ archive and is not a file. If this path is ever missing,
+# that collection has been removed or renamed, and the message below is the thing that says so
+# rather than a version string that quietly loses its SHA.
+BUNDLED_BUILD_INFO="$BUNDLE/_internal/app/_build_info.py"
+BUILD_SHA=""
+if [ -f "$BUNDLED_BUILD_INFO" ]; then
+    BUILD_SHA="$(
+        grep -oE "BUILD_SHA *= *['\"][^'\"]+['\"]" "$BUNDLED_BUILD_INFO" |
+            grep -oE "['\"][^'\"]+['\"]" | tr -d "'\"" || true
+    )"
+else
+    echo "    note: $BUNDLED_BUILD_INFO is absent; the desktop entry will carry no commit SHA." >&2
+    echo "          (the spec's DATAS list is what collects it — check that it still does)" >&2
+fi
+
 if [ -n "$BUILD_SHA" ] && [ "$BUILD_SHA" != "unknown" ]; then
     DESKTOP_VERSION="${APP_VERSION}+g${BUILD_SHA}"
 else

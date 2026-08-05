@@ -62,6 +62,17 @@ DATAS = [
     (str(ROOT / "app" / "static"), "app/static"),
     (str(ROOT / "app" / "locales"), "app/locales"),
     (str(ROOT / "app" / "data"), "app/data"),
+    # `app/_build_info.py` is ALSO collected as data, in addition to being imported as a module.
+    # The application reads it by importing it — that copy lives in the PYZ archive, compiled,
+    # and is not a file anyone can look at. Packaging steps that run AFTER PyInstaller need to
+    # read the SHA out of the finished bundle: `build-appimage.sh` puts it in the .desktop
+    # entry's X-AppImage-Version, and it is the only way to ask "which commit is this bundle?"
+    # of an artifact you have been handed.
+    #
+    # Measured, not assumed: the first version of this change had build-appimage.sh grep for
+    # `_internal/app/_build_info.py`, and a real build produced no such file — the lookup found
+    # nothing every time and silently fell back to a version string with no SHA in it.
+    (str(ROOT / "app" / "_build_info.py"), "app"),
 ]
 
 

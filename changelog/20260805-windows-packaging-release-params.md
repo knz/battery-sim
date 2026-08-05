@@ -155,6 +155,14 @@ new plumbing in both.
 - The restore trap silently did nothing on the first real build: `app/_build_info.py` was still
   untracked, so `git checkout --` failed and `|| true` swallowed it. Rewritten to test for
   TRACKED (`git ls-files --error-unmatch`) and to warn rather than swallow.
+- **The AppImage would have shipped without its SHA, silently.** `build-appimage.sh` read
+  `_internal/app/_build_info.py` as a file, but PyInstaller compiles imported modules into the
+  PYZ archive and writes no such file — the lookup found nothing on every build and fell back to
+  a version string with no SHA. Found by inspecting a real bundle, not by a failing test: nothing
+  failed, the label was just quietly wrong. Fixed by ALSO collecting the module via the spec's
+  DATAS list; the script now says so loudly when the path is absent, and
+  `tests/test_packaged.py::test_the_build_info_module_is_readable_as_a_FILE_in_the_bundle`
+  fails if the collection is ever removed (verified by deleting the file and watching it fail).
 - PyInstaller's `versioninfo` module imports `win32api` and cannot be imported on Linux at all,
   so the rendered resource cannot be parse-validated off Windows. Tests assert its structure and
   compile it as a Python expression instead; full validation waits for a Windows run.
@@ -170,6 +178,16 @@ new plumbing in both.
 - `tests/test_desktop.py`: 63 passed. `tests/test_packaging_metadata.py`: 21 passed.
 - `packaging/build_info.py` exercised on all three paths: CI (`GITHUB_SHA` truncated to 7),
   git (`c3ceef3`), and a non-repo directory (`unknown`, exit 0).
+- **The stamp/restore cycle, end to end.** A build stamps `028361c` into the bundle while
+  `git status` afterwards is clean and the source tree reads `"unknown"` again — the split the
+  design depends on. The trap was also confirmed to have been broken before the file was
+  tracked, which is what prompted rewriting it to warn instead of swallowing the failure.
+- **A real AppImage**, built and inspected: the packaged `.desktop` entry carries
+  `X-AppImage-Version=0.1.0+g028361c`, and appimagetool (which runs `desktop-file-validate`)
+  accepted it.
+- The packaged verification suites against that artifact: `tests/test_appimage.py`,
+  `tests/test_packaged.py`, `tests/test_packaged_ingest.py` — 27 passed, no skips.
+- Full suite: 1367 passed, 24 skipped.
 
 ## NOT verified (needs a Windows host)
 
