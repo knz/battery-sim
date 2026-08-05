@@ -130,6 +130,50 @@ saying they are kept as received rather than maintained, with the pointer to the
 supersedes them — otherwise two loose files in `docs/` are unreachable by navigation and read
 as stale duplicates of the spec.
 
+## Security-warnings page rewrite
+
+User prompt, verbatim:
+
+> let's rewrite the "security warnings" docs page. right now it's too verbose, it's not
+> user-focused. The overall structure should be: "If you are on platform X, and you see Y, do
+> Z" (one section per platform; in each section 1 or 2 paragraphs "If you see this" then "do
+> this"). Aim for conciseness. Then a "Why" sub-section with a "details" block which is folded
+> in by default.
+
+**Structure applied to both languages identically**, so the two trees stay mirrors: intro, one
+section per platform in Linux → macOS → Windows order, each as *What you see* / *What to do*,
+then a single `## Why` holding one `<details>` block collapsed by default.
+
+**Procedurally load-bearing material stayed visible.** Three items read as explanation but are
+actually steps, and folding them would have broken the instructions:
+
+- macOS requires a *failed* open attempt before **Open Anyway** appears, and the button expires
+  after about an hour. Both are preconditions for the steps working at all.
+- The Windows **Unblock** checkbox in file Properties is the fallback when **Run anyway** does
+  not appear.
+- Smart App Control is the one case where there is no "do Z" — a reader who hits it needs to
+  know the page has no answer for them, not to discover that inside a fold.
+
+**The caution passage was split** (user's call, asked because it is the page's one piece of
+genuine caution and burying it entirely would have been a substantive change, not a
+concision one): one sentence stays in the macOS steps — the override is a real risk and is only
+reasonable if you can account for where your download came from — while Apple's own phrasing
+("the most common way a Mac gets infected") and the reasoning move into the fold.
+
+**The vendor-sourcing footer moved into the fold** (also the user's call). It stays checkable
+and still invites reports of drift, but no longer competes with the instructions.
+
+**A one-line platform jumper, not a bulleted TOC.** The user asked for a TOC at the top; with
+only four sections a vertical list would restate what is already on screen, so it took the same
+inline form the install pages open with (`Linux · macOS · Windows`, plus the Why). The install
+pages keep their bulleted list because they have nine sections. Anchors verified against the
+rendered slugs: `#macos` for `## macOS`, `#waarom` for `## Waarom`.
+
+**Dropped:** the summary table, which restated all three sections a third time; the "what
+unsigned means" section as prose (compressed to two sentences in the fold); the standalone
+"this path has been narrowing" and "what SmartScreen is actually judging" headings, folded into
+the Why as short paragraphs.
+
 ## Files modified
 
 **Created**
