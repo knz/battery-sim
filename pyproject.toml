@@ -1,6 +1,20 @@
+# Project metadata and build configuration.
+#
+# The version is DYNAMIC and read out of `app/__init__.py` by hatchling, so `app.__version__`
+# is the single place the string exists — see that module for why the app reads it from source
+# rather than from `importlib.metadata` (a PyInstaller bundle does not reliably carry the
+# .dist-info directory that lookup needs).
+#
+# `[project.scripts]` installs `battery-sim` as a console entry point calling the same
+# `app.desktop:main` that `python -m app` and the future frozen build call.
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "battery-sim"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -12,6 +26,19 @@ dependencies = [
     "python-multipart>=0.0.20",
     "uvicorn[standard]>=0.51.0",
 ]
+
+[project.scripts]
+battery-sim = "app.desktop:main"
+
+[tool.hatch.version]
+path = "app/__init__.py"
+
+# Named explicitly: the project has no src layout and several top-level directories
+# (specs/, tests/, changelog/), so hatchling's auto-detection has nothing unambiguous to
+# infer from. `app/` includes its templates, static files, locales and data by default —
+# hatchling ships everything under a listed package directory that is not excluded.
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
 
 [dependency-groups]
 dev = [
