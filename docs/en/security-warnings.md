@@ -19,24 +19,23 @@ The macOS and Windows steps are written from those vendor pages, NOT from observ
 project's own builds on those systems — the release jobs for both are new. Treat a reader's
 report of different on-screen wording as more authoritative than this page.
 
+The fold deliberately holds only what a signature is and what the check does not prove, ending
+on the sponsor pointer. Earlier drafts also carried the per-platform reasoning and the sourcing
+note above; both were cut for length. The sourcing above is now the only record of where these
+claims come from, so keep it current when the steps change.
+
 Tone constraint: this page must not read as "click through the scary dialog".
 Dutch counterpart: ../nl/beveiligingswaarschuwingen.md.
 -->
 
 # Security warnings when you open the app
 
-The app is not code-signed, so macOS and Windows warn you the first time you open it. Find your
-platform below.
-
-**Go straight to your platform:** [Linux](#linux) · [macOS](#macos) · [Windows](#windows) —
-or read [why these warnings appear](#why).
-
-## Linux
-
-**What you see:** nothing. There is no warning and no confirmation.
-
-Once you have made the AppImage executable with `chmod +x`, it just runs. See
+The app is not code-signed, so macOS and Windows warn you the first time you open it. On Linux
+there is no warning and nothing to do. For the download and unpacking steps themselves, see
 [Installing and running](install.md).
+
+**Go straight to your platform:** [macOS](#macos) · [Windows](#windows) — or read
+[why these warnings appear](#why).
 
 ## macOS
 
@@ -89,34 +88,6 @@ They do **not** say the app was examined and found harmful. The check is about p
 content — an unsigned honest program and an unsigned harmful one look identical to these
 systems, which is why they warn rather than decide.
 
-That cuts both ways, and the warning is doing a real job. Apple's own page says overriding it is
-the most common way a Mac gets infected with malware, which is fair: most people who click past
-that dialog do so for a program they know nothing about. The reason to proceed here is not that
-the warning is a nuisance, but that you can check the provenance yourself — you know where you
-downloaded the file, the source code is public, and you can build it yourself if you would
-rather not trust a download at all.
-
-**Linux has no gate** because it distributes software differently: trust normally comes from
-your distribution's package repositories, which are signed as a whole, rather than from
-per-file stamps on web downloads. A file you fetched yourself is your own responsibility.
-
-**On macOS the path keeps narrowing.** The right-click override is gone, the button moved into
-System Settings, it expires after about an hour, and it now asks for your password. Expect
-further tightening — on macOS a signature is closer to required than to nice to have, which is
-the strongest argument for [funding one](sponsor.md).
-
-**On Windows it fades on its own.** Per Microsoft's developer documentation, SmartScreen weighs
-whether the file is signed by a publisher it recognises and whether this exact file has been
-downloaded by enough people without trouble. An unsigned file starts at zero on both, and
-because reputation attaches to the exact file, every new release starts from zero again. So the
-warning softens as a release circulates and returns with the next one.
-
-[Why the app is unsigned, and what changing that would cost](sponsor.md).
-
-*Checked against vendor documentation on 2026-08-05: Apple's Mac User Guide entry "Open a Mac
-app from an unidentified developer", and Microsoft Learn's "SmartScreen reputation for Windows
-app developers". These behaviours change between OS releases. If your screen does not match what
-is written here, those two pages are the places to check, and please report the difference so
-this page can be corrected.*
+To remove the security warnings, consider [sponsoring the project](sponsor.md).
 
 </details>

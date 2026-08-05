@@ -19,6 +19,12 @@ De stappen voor macOS en Windows komen uit die leveranciersdocumentatie en NIET 
 van de eigen builds op die systemen — de release-jobs daarvoor zijn nieuw. Meldt een lezer een
 andere tekst op het scherm, dan weegt die melding zwaarder dan deze pagina.
 
+De vouw bevat bewust alleen wat een handtekening is en wat de controle níét aantoont, met de
+verwijzing naar sponsoring als afsluiting. Eerdere versies hadden daar ook de uitleg per
+platform en de bronvermelding staan; beide zijn geschrapt vanwege de lengte. De bronvermelding
+hierboven is nu de enige vastlegging van waar deze beweringen vandaan komen — houd die actueel
+zodra de stappen wijzigen.
+
 Toon: deze pagina mag niet lezen als "klik maar door die enge melding heen".
 Register: informeel je/jouw, conform changelog/20260725-nl-register-consistency.md.
 Engelse tegenhanger: ../en/security-warnings.md.
@@ -27,17 +33,11 @@ Engelse tegenhanger: ../en/security-warnings.md.
 # Beveiligingswaarschuwingen bij het openen van de app
 
 De app is niet digitaal ondertekend, dus macOS en Windows waarschuwen je de eerste keer dat je
-hem opent. Zoek hieronder je eigen platform op.
+hem opent. Op Linux krijg je geen waarschuwing en hoef je niets te doen. Voor het downloaden en
+uitpakken zelf, zie [Installeren en starten](installatie.md).
 
-**Direct naar jouw platform:** [Linux](#linux) · [macOS](#macos) · [Windows](#windows) — of lees
+**Direct naar jouw platform:** [macOS](#macos) · [Windows](#windows) — of lees
 [waarom deze waarschuwingen verschijnen](#waarom).
-
-## Linux
-
-**Wat je ziet:** niets. Geen waarschuwing en geen bevestiging.
-
-Zodra je de AppImage met `chmod +x` uitvoerbaar hebt gemaakt, start hij gewoon. Zie
-[Installeren en starten](installatie.md).
 
 ## macOS
 
@@ -97,37 +97,7 @@ niet over inhoud — een niet-ondertekend eerlijk programma en een niet-ondertek
 programma zijn voor deze systemen niet uit elkaar te houden, en precies daarom waarschuwen ze in
 plaats van te beslissen.
 
-Dat snijdt aan twee kanten, en die waarschuwing doet echt zijn werk. Apple schrijft er zelf bij
-dat dit omzeilen de meest voorkomende manier is waarop een Mac malware oploopt, en dat is
-terecht: de meeste mensen die door zo'n venster heen klikken doen dat voor een programma waar ze
-niets van weten. De reden om hier door te gaan is niet dat de melding lastig is, maar dat je de
-herkomst zelf kunt nagaan — je weet waar je het bestand vandaan hebt gehaald, de broncode is
-openbaar, en je kunt hem desnoods zelf bouwen als je een download liever niet vertrouwt.
-
-**Linux heeft geen drempel** omdat software daar anders verspreid wordt: vertrouwen komt uit de
-pakketbronnen van je distributie, die als geheel ondertekend zijn, en niet uit een stempel per
-bestand dat je van het web plukt. Iets wat je zelf hebt opgehaald, geldt als je eigen
-verantwoordelijkheid.
-
-**Op macOS wordt de route steeds smaller.** De omweg via de rechtermuisknop is weg, de knop zit
-nu in Systeeminstellingen, hij vervalt na ongeveer een uur, en er wordt om je wachtwoord
-gevraagd. Het ligt voor de hand dat het verder wordt aangescherpt — op macOS is een certificaat
-daarmee eerder noodzakelijk dan mooi meegenomen, en dat is het sterkste argument om er [geld
-voor bij elkaar te brengen](sponsor.md).
-
-**Op Windows slijt het vanzelf.** Volgens Microsofts eigen ontwikkelaarsdocumentatie weegt
-SmartScreen of het bestand ondertekend is door een uitgever die het herkent, en of precies dit
-bestand al door genoeg mensen zonder problemen is gedownload. Een niet-ondertekend bestand
-begint op beide punten bij nul, en omdat die reputatie aan het exacte bestand hangt, begint elke
-nieuwe versie weer bij nul. De waarschuwing wordt dus milder naarmate een versie langer rondgaat,
-en komt bij de volgende versie terug.
-
-[Waarom de app niet ondertekend is, en wat daaraan veranderen zou kosten](sponsor.md).
-
-*Gecontroleerd tegen documentatie van de leveranciers op 2026-08-05: Apple's
-Mac-gebruikershandleiding, onderwerp "Open a Mac app from an unidentified developer", en
-"SmartScreen reputation for Windows app developers" op Microsoft Learn. Dit gedrag verandert per
-OS-versie. Ziet jouw scherm er anders uit dan hier beschreven, dan zijn die twee pagina's de
-plek om te kijken — en laat het vooral weten, dan kan deze pagina worden bijgewerkt.*
+Wil je van de beveiligingswaarschuwingen af, overweeg dan om [het project te
+steunen](sponsor.md).
 
 </details>

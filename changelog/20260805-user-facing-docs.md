@@ -169,6 +169,27 @@ inline form the install pages open with (`Linux · macOS · Windows`, plus the W
 pages keep their bulleted list because they have nine sections. Anchors verified against the
 rendered slugs: `#macos` for `## macOS`, `#waarom` for `## Waarom`.
 
+**The Linux section was then removed**, on the user's instruction, since it described no
+problem and prescribed no action. Two facts it carried were kept rather than lost with it: that
+Linux shows no warning at all moved into the opening sentence, so a Linux reader learns they
+have nothing to do instead of finding their platform simply absent; and the section's link to
+the install page — which turned out to be the only route from this page back to the rest of the
+docs — moved to the same intro. The folded Why still explains why Linux has no gate, which the
+intro now asserts. Nothing links to the removed heading.
+
+**The fold was then cut to two paragraphs**, on the user's instruction: what a code signature is
+and what the warnings therefore say, plus what they do *not* say (provenance, not content). The
+per-platform reasoning (why Linux has no gate, macOS tightening, SmartScreen reputation decay)
+and the vendor-sourcing footnote were removed, and the fold now closes on "To remove the
+security warnings, consider [sponsoring the project](sponsor.md)".
+
+Two consequences, flagged to the user at the time and recorded here rather than reopened:
+
+- The visible caution in the macOS steps was written terse *because* the fold expanded on it.
+  It now stands alone — still accurate, but no longer backed by Apple's own phrasing.
+- The sourcing footnote was what told a reader whose screen differs where to check. It survives
+  only in the files' header comments, which were updated to say they are now the sole record.
+
 **Dropped:** the summary table, which restated all three sections a third time; the "what
 unsigned means" section as prose (compressed to two sentences in the fold); the standalone
 "this path has been narrowing" and "what SmartScreen is actually judging" headings, folded into
