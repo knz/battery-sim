@@ -66,10 +66,18 @@
 #
 # ## Action versions
 #
-# checkout v7 / upload-artifact v7 / download-artifact v8 / setup-uv v9 / action-gh-release v3,
-# all current as of 2026-08-05, each checked against the action's own action.yml rather than
-# assumed. Note that upload-artifact and download-artifact are NOT on matched majors — they are
-# released independently, so picking the same number for both is wrong.
+# checkout v7 / upload-artifact v7 / download-artifact v8 / setup-uv v7 / setup-node v7 /
+# action-gh-release v3, each verified against the tags that actually exist on the action's
+# repository (`git ls-remote --tags`), not against a version someone believed was current.
+#
+# That distinction is not pedantry. The first PR to run this workflow failed with "Unable to
+# resolve action astral-sh/setup-uv@v9, unable to find version v9" — the pin had been taken from
+# research that reported a version which does not exist, and nothing before a real run catches
+# that. Re-checking every pin afterwards also turned up setup-node pinned a major behind. If a
+# version here is ever changed, confirm the tag exists first.
+#
+# Note that upload-artifact and download-artifact are NOT on matched majors — they are released
+# independently, so picking the same number for both is wrong.
 #
 # Older majors are avoided because Node.js 20 is being removed from the runner images (reportedly
 # around 2026-09-16 — moderately confirmed, not from an authoritative changelog), which breaks
@@ -148,7 +156,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v9
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
           python-version: "3.12"
@@ -268,7 +276,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v9
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
           python-version: "3.12"
