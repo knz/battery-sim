@@ -31,10 +31,6 @@ The short version: builds are published on the
 **macOS** (Apple silicon and Intel) and **Windows**. None of them is signed, so macOS and
 Windows [show a warning on first open](docs/en/security-warnings.md).
 
-Some features are specified but not yet built; the app marks those controls *pending* and
-explains what is missing. The current state is tracked in
-[docs/specs/implementation-progress.md](docs/specs/implementation-progress.md).
-
 ## Licence
 
 **GNU Affero General Public License v3.0 only** (`AGPL-3.0-only`). The full text is in
