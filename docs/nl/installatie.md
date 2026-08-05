@@ -14,6 +14,20 @@ De app draait op je eigen computer. Hij leest je gegevens uit Home Assistant of 
 CSV-exports, rekent lokaal, en laat het resultaat in een venster zien. Er gaat niets naar
 buiten, en de app belt niet naar huis.
 
+**Direct naar jouw platform:** [Linux](#linux-downloaden-en-starten) ·
+[macOS](#macos-downloaden-en-starten) · [Windows](#windows-downloaden-en-starten)
+
+Op deze pagina:
+
+- [Wat je nodig hebt](#wat-je-nodig-hebt)
+- [Welke platforms er zijn](#welke-platforms-er-zijn)
+- [Linux: downloaden en starten](#linux-downloaden-en-starten)
+- [macOS: downloaden en starten](#macos-downloaden-en-starten)
+- [Windows: downloaden en starten](#windows-downloaden-en-starten)
+- [Als het venster niet opengaat](#als-het-venster-niet-opengaat)
+- [Eén melding die je kunt negeren](#eén-melding-die-je-kunt-negeren)
+- [Waar de app je gegevens bewaart](#waar-de-app-je-gegevens-bewaart)
+
 ## Wat je nodig hebt
 
 - Een computer met Linux, macOS of Windows (zie [Welke platforms er

@@ -12,6 +12,20 @@ The app runs on your own computer. It reads your Home Assistant data or your CSV
 does its calculation locally, and shows you the result in a window. Nothing is uploaded, and
 the app does not phone home.
 
+**Go straight to your platform:** [Linux](#linux-download-and-run) ·
+[macOS](#macos-download-and-run) · [Windows](#windows-download-and-run)
+
+On this page:
+
+- [What you need](#what-you-need)
+- [Which platforms exist](#which-platforms-exist)
+- [Linux: download and run](#linux-download-and-run)
+- [macOS: download and run](#macos-download-and-run)
+- [Windows: download and run](#windows-download-and-run)
+- [If the window does not open](#if-the-window-does-not-open)
+- [One message you can ignore](#one-message-you-can-ignore)
+- [Where the app keeps your data](#where-the-app-keeps-your-data)
+
 ## What you need
 
 - A computer running Linux, macOS or Windows (see [Which platforms
