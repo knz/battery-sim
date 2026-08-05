@@ -18,7 +18,7 @@ app/summary_view.py (the real §6.3/§6.11 figures over the persisted frames); t
 empty-state-free demo shape and the shared shape contract in tests/test_data_summary.py. The
 template itself guards on `data_summary` being present.
 
-Current variant: the app default — has_pv=True, simulate_cost=False (energy only). These two
+Current variant: the app default — has_pv=True, simulate_cost=True (energy and cost). These two
 choices are the setup band (docs/specs/02-ux-wireframes.md §2.1); they drive which series/slots
 panel ① asks for, which boxes panel ② shows, and which sections panel ③ renders. They are NOT
 sample data any more: main.py reads them off the persisted SimulationConfig and renders them

@@ -42,7 +42,10 @@
  * <select>) write ONLY to a drawer-local `draft = { slot, source, statId }`. The committed per-slot
  * state lives in `slotState[name] = { source, statId, kind }` and is the ONLY thing updateSlotButton
  * and mappedSlots read. openDrawer seeds `draft` from the committed slotState (so the current choice
- * shows pre-selected) without touching slotState. A single Confirm button commits:
+ * shows pre-selected) without touching slotState; a slot with NO committed source gets a default
+ * staged into the draft by renderSourceList (defaultSourceFor — Home Assistant when offered), which
+ * keeps the checked radio and draft.source in agreement and lets the entity <select> populate. That
+ * staging is still not a commit. A single Confirm button commits:
  *       * HA source   → writes draft → slotState, refreshes the row label, closes. No reload.
  *       * backend     → the SAME thing, minus the entity. Neither branch calls the server: the
  *                       drawer is a pure staging surface and Fetch history reifies both kinds.
@@ -482,10 +485,18 @@
       opt.value = id; opt.textContent = id;
       sel.appendChild(opt);
     });
-    // Preselect: the draft's current id, else a heuristic guess. The guess is a staged default —
-    // shown pre-selected in the dropdown and stored in draft.statId, but NOT committed; it only
-    // reaches slotState (and the row label) on Confirm. Nothing here touches slotState.
-    var pick = draft.statId || guessId(slotName, statIds[kind]) || "";
+    // Preselect: the slot's chosen id when this instance offers it, else a heuristic guess. The
+    // guess is a staged default — shown pre-selected in the dropdown and stored in draft.statId,
+    // but NOT committed; it only reaches slotState (and the row label) on Confirm. Nothing here
+    // touches slotState.
+    //
+    // A chosen id wins over the guess, but only if the CONNECTED instance actually offers it. An
+    // id the instance does not have is not a usable choice — it cannot be shown (assigning an
+    // absent value to a <select> silently leaves it at "") and it cannot be fetched — so falling
+    // back to the guess beats presenting an empty picker. This is what a stale mapping looks like:
+    // a slot pointing at an entity from another Home Assistant, or one since renamed.
+    var offered = draft.statId && statIds[kind].indexOf(draft.statId) !== -1;
+    var pick = (offered ? draft.statId : guessId(slotName, statIds[kind])) || "";
     sel.value = pick;
     draft.statId = sel.value;
     updateConfirmEnabled();
@@ -863,8 +874,10 @@
     drawerSources = [];
     try { drawerSources = JSON.parse(btn.getAttribute("data-slot-sources") || "[]"); } catch (e) { drawerSources = []; }
 
-    // Start with the entity picker hidden; onSelectSource reveals it for the HA radio (if the
-    // slot's current source is HA, renderSourceList re-checks that radio and calls onSelectSource).
+    // Start with the entity picker hidden; onSelectSource reveals it for the HA radio.
+    // renderSourceList re-checks the radio for the slot's current source and calls onSelectSource —
+    // and for a slot with no source yet it stages a default first, so that path runs on a fresh
+    // slot too rather than leaving every radio unchecked.
     if (drawerHaEntity) drawerHaEntity.classList.add("hidden");
     drawerBackendStatus.textContent = "";
 
@@ -895,10 +908,35 @@
     if (lastFocus) { try { lastFocus.focus(); } catch (e) { /* ignore */ } }
   }
 
+  // Pick the source to stage for a slot that has none committed yet. Prefer the first
+  // browser_fetch (Home Assistant) option, else the first source offered at all. Returns null when
+  // the slot offers nothing selectable.
+  //
+  // Why this exists: without it a fresh slot leaves draft.source null, so NO radio matches at
+  // render time, onSelectSource never fires, and the entity <select> is never populated — while the
+  // drawer still LOOKS like Home Assistant is chosen. That mismatch between what the drawer shows
+  // and what the draft holds is what kept a successful "Test connection" from filling the select.
+  function defaultSourceFor(sources) {
+    if (!sources || !sources.length) return null;
+    for (var i = 0; i < sources.length; i++) {
+      if (sources[i].kind === "browser_fetch") return sources[i];
+    }
+    return sources[0];
+  }
+
   // Render the radio list for the current slot's sources, plus the pending "Upload CSV" option.
+  //
+  // A slot with no committed source gets one STAGED here (defaultSourceFor) before the radios are
+  // built, so the pre-checked radio and draft.source agree. This is staging only: slotState and the
+  // row label are still untouched until Confirm, exactly as for a user-clicked radio.
   function renderSourceList(sources) {
     drawerList.textContent = "";
     haConfigBtn = null;
+
+    if (!draft.source) {
+      var def = defaultSourceFor(sources);
+      if (def) draft.source = def.key;
+    }
 
     sources.forEach(function (s) {
       var label = document.createElement("label");

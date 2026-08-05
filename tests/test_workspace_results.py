@@ -336,6 +336,31 @@ def test_the_cost_section_links_to_the_contract_on_the_edit_screen(with_data):
     assert "data-cost-invitation" not in html, "the cost-off invitation must not render with cost on"
 
 
+def test_the_energy_section_links_to_the_data_screen(with_data):
+    """The "Your energy use" band offers a way back to the dataset behind its figures.
+
+    The counterpart of the Cost-savings link to `/w/{id}/edit#contract`: that one leads to the
+    rates, this one to the data. Unlike it, this link does not depend on cost state — the energy
+    band renders whenever `results.data_summary` does — so `with_data` here is only about having a
+    real dataset to summarise.
+    """
+    client, _mod = with_data
+
+    html = _get(client)
+    link = re.search(r"<a[^>]*data-energy-edit-data[^>]*>", html)
+    assert link, "the energy band must offer a link to the data screen"
+    assert 'href="/w/w1/data"' in link.group(0), link.group(0)
+
+    # Placement, not merely presence: the link belongs to the band's HEADING, so it must sit
+    # between that heading and the first figure below it — not after the cards, which is where
+    # rendering it beside the macro call rather than through the macro's `action` slot puts it.
+    heading = html.index("Your energy use during the selected period")
+    first_figure = html.index("as your meter recorded them", heading)
+    assert heading < link.start() < first_figure, (
+        "the link must render under the divider heading, above the figures"
+    )
+
+
 def test_the_contract_link_is_absent_when_cost_is_off(with_data):
     """The counterpart: with cost OFF there is no Cost savings section, so no link from it.
 
@@ -343,7 +368,13 @@ def test_the_contract_link_is_absent_when_cost_is_off(with_data):
     the same destination. Pinning both halves is what makes "mutually exclusive by cost state" a
     tested claim rather than a comment.
     """
-    client, _mod = with_data  # appendix A leaves simulate_cost off
+    client, mod = with_data
+
+    # Stored, not inherited: appendix A defaults `simulate_cost` ON since §8.18, and cost being
+    # OFF is the premise of this test.
+    cfg = mod["simconfig_store"].load("w1")
+    cfg.simulate_cost = False
+    mod["simconfig_store"].save(cfg, "w1")
 
     html = _get(client)
     assert "data-cost-edit-contract" not in html
@@ -634,6 +665,8 @@ def test_the_checked_radio_follows_the_stored_answer(env):
                 return re.search(r'value="([^"]+)"', r).group(1)
         raise AssertionError("neither radio is checked")
 
+    # Set rather than inherited: §8.18 defaults `simulate_cost` ON, and this half asserts "no".
+    cfg.simulate_cost = False
     mod["simconfig_store"].save(cfg, "w1", pricing_configured=True)
     assert checked(_get(client)) == "no"
 
@@ -1065,6 +1098,40 @@ def test_answering_no_to_the_cost_toggle_actually_turns_it_off(env):
     r = client.post("/w/w1/params", data=body)
     assert r.status_code == 200 and r.headers["X-Params-Valid"] == "1"
     assert mod["simconfig_store"].load("w1").simulate_cost is False
+
+
+def test_the_cost_toggle_changes_nothing_the_advanced_pane_counts(env):
+    """Flipping the cost toggle must not make "More settings" report a changed setting.
+
+    The reported bug: the toggle carries `form="params-form"`, so flipping it POSTs every control
+    on the screen — including `topology.pv_coupling`, whose radio renders `checked`. `parse_form`
+    re-derives `battery.coupling` from that field, so while the two shipped defaults disagreed
+    (`pv_coupling` at `dc_hybrid`, `coupling` at `ac`) the first flip in EITHER direction rewrote
+    the stored `battery.coupling` and the pane's badge went 0 → 1 about a setting the user never
+    touched. See changelog/20260805-cost-toggle-changes-coupling.md.
+
+    Asserted through the whole cycle, and on the COUNT rather than on `battery.coupling` alone: the
+    count is what the user sees, and any other field that acquires the same defect should fail here
+    too. `test_the_two_coupling_defaults_agree` pins the underlying invariant.
+    """
+    client, mod = env
+    cfg = _seed(mod)
+    mod["simconfig_store"].save(cfg, "w1", pricing_configured=True)
+
+    from app import results_screen_view
+
+    def count() -> int:
+        return results_screen_view.advanced_changed_count(mod["simconfig_store"].load("w1"))
+
+    assert count() == 0, "a freshly seeded workspace is all defaults"
+
+    for answer in ("yes", "no", "yes"):
+        body = _form_body(_get(client))
+        body["setup.simulate_cost"] = answer
+        r = client.post("/w/w1/params", data=body)
+        assert r.status_code == 200 and r.headers["X-Params-Valid"] == "1"
+        assert mod["simconfig_store"].load("w1").simulate_cost is (answer == "yes")
+        assert count() == 0, f"toggling cost to {answer!r} changed an advanced setting"
 
 
 def test_a_blocked_toggles_radios_are_not_submittable(env):

@@ -270,13 +270,20 @@ def test_issue_messages_carry_no_literal_percent_sign():
 
 
 def test_summary_line_is_computed_from_the_config():
-    """The wireframe shape, from real values — not the sample literal it replaced."""
+    """The wireframe shape, from real values — not the sample literal it replaced.
+
+    The final clause is the DEFAULT config's cost mode, so it reads as the contract name rather
+    than `energy only` since §8.18 defaulted `simulate_cost` on.
+    """
     assert params_view.summary_line(SimulationConfig()) == (
-        "10.0 kWh · 5.0/5.0 kW · 90% · charge P3 · discharge D1 · energy only"
+        "10.0 kWh · 5.0/5.0 kW · 90% · charge P1 · discharge D1 · dynamic"
     )
+    assert params_view.summary_line(SimulationConfig(simulate_cost=False)).endswith("energy only")
 
 
 def test_summary_line_moves_with_the_config():
+    """The battery and policy fields are what moves here; the cost mode is pinned rather than
+    left to the default, so this stays about the fields it names."""
     cfg = params_view.parse_form(
         _form(**{
             "battery.usable_capacity_kwh": "20",
@@ -287,6 +294,7 @@ def test_summary_line_moves_with_the_config():
             "policy.discharge_policy": "D3",
         })
     )
+    cfg.simulate_cost = False
     assert params_view.summary_line(cfg) == (
         "20.0 kWh · 7.0/3.0 kW · 85% · charge P2 · discharge D3 · energy only"
     )
@@ -467,7 +475,7 @@ def test_a_corrupt_file_gives_defaults_and_does_not_raise(store):
         store.config_path(store.db.WORKSPACE_ID).write_text(corrupt, encoding="utf-8")
         cfg = store.load(store.db.WORKSPACE_ID)                       # must not raise
         assert cfg.battery.usable_capacity_kwh == 10.0
-        assert cfg.policy.charge_policy is ChargePolicy.P3
+        assert cfg.policy.charge_policy is ChargePolicy.P1
 
 
 def test_an_unknown_key_is_ignored_and_a_missing_group_falls_back(store):

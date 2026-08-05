@@ -20,7 +20,7 @@ words, and both of these settings materially change the numbers.
   How is your PV connected to the battery?
 
   ┌───────────────────────────────┐   ┌───────────────────────────────┐
-  │ ( • ) DC-coupled / hybrid     │   │ (   ) AC-coupled              │
+  │ (   ) DC-coupled / hybrid     │   │ ( • ) AC-coupled              │
   │                               │   │                               │
   │   ┌────┐   DC   ┌──────────┐  │   │  ┌────┐    ┌─────┐            │
   │   │ PV │───────►│ hybrid   │  │   │  │ PV │───►│ PV  │───┐        │

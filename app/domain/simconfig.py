@@ -610,7 +610,7 @@ def connection_capacity_kw_display(phases: int, fuse_a: float) -> float:
 class PolicyConfig:
     """Charge and discharge policy with their price bands (§2.3, §6.6, §6.7).
 
-        charge_policy / discharge_policy   §6.6 / §6.7. Defaults P3 and D1 — appendix A does not
+        charge_policy / discharge_policy   §6.6 / §6.7. Defaults P1 and D1 — appendix A does not
                       tabulate these, but §2.3's wireframe preselects them and app/sample_data.py
                       renders that; sourced to §2.3, not to appendix A.
         band_a / band_b   charge when `A <= spot <= B` (§6.6), against the BARE spot price.
@@ -637,7 +637,7 @@ class PolicyConfig:
     Both bands live in one object because §7.3 check 12 is a check across the two of them.
     """
 
-    charge_policy: ChargePolicy = ChargePolicy.P3
+    charge_policy: ChargePolicy = ChargePolicy.P1
     discharge_policy: DischargePolicy = DischargePolicy.D1
     band_a: float = -0.050
     band_b: float = 0.040
@@ -651,7 +651,7 @@ class PolicyConfig:
 class TopologyConfig:
     """The installation topology (§2.5; `topology` in the §4.5 result object).
 
-        pv_coupling   the illustrated §2.5(a) choice. Appendix A default `dc_hybrid`, FORCED to
+        pv_coupling   the illustrated §2.5(a) choice. Appendix A default `ac`, FORCED to
                       None when `has_pv` is false — §2.5: "Set cfg.coupling = ac and
                       topology.pv_coupling = null". Same arrangement as `economic_guard`: the raw
                       choice is stored here, `SimulationConfig.pv_coupling` applies the forcing on
@@ -673,9 +673,18 @@ class TopologyConfig:
 
     `pv_coupling` duplicates `BatteryConfig.coupling` by design: the former is the user's answer to
     an illustrated question and is reported in the result object, the latter is what §6.8 reads.
+
+    **The two defaults must AGREE, and that is a constraint, not a coincidence.** `parse_form`
+    re-derives `battery.coupling` from `topology.pv_coupling` on every submission that carries the
+    selector (app/params_view.py), and the results screen's cost toggle submits the whole parameter
+    form. So while the defaults disagreed — `pv_coupling` at `dc_hybrid` against `coupling` at `ac`
+    — merely flipping the cost toggle rewrote the stored `battery.coupling` to `dc_hybrid` and the
+    "More settings" pane then reported `1 changed from default` about a setting the user never
+    touched. Changing one of these defaults without the other reintroduces exactly that.
+    See changelog/20260805-cost-toggle-changes-coupling.md.
     """
 
-    pv_coupling: PvCoupling | None = PvCoupling.DC_HYBRID
+    pv_coupling: PvCoupling | None = PvCoupling.AC
     battery_phases: BatteryPhases = BatteryPhases.THREE_PHASE
     approximated: bool = False
 
@@ -773,8 +782,9 @@ class SimulationConfig:
                       used to reconstruct house load net of it (§6.3). It says nothing about the
                       battery being SIMULATED — panel ②'s battery is a replacement, so no part of
                       the dispatch core reads this flag.
-        simulate_cost appendix A default false — energy-only, so a first result needs no contract
-                      knowledge (§8.18). It gates the whole `pricing` group: panel ② hides the
+        simulate_cost appendix A default true — the wizard asks for the contract on its first
+                      step, so a workspace reaching the results screen has already answered it
+                      (§8.18). It gates the whole `pricing` group: panel ② hides the
                       box, §6.5 skips the pricing package outright, and `validate()` runs no
                       pricing check. What it does NOT do is clear any of those parameters.
         dp_soc_levels / dp_action_levels   §6.12's DP discretisation, appendix A's 101 and 41.
@@ -800,7 +810,7 @@ class SimulationConfig:
     pricing: PricingConfig = field(default_factory=PricingConfig)
     has_pv: bool = True
     has_battery: bool = False
-    simulate_cost: bool = False
+    simulate_cost: bool = True
     # §6.12's DP discretisation, appendix A: `dp_soc_levels` 101, `dp_action_levels` 41, both
     # "shared by both perfect-foresight runs". They sit flat on SimulationConfig rather than in one
     # of the four groups because the groups mirror panel-②'s form boxes one-to-one and these are not

@@ -39,6 +39,7 @@ import numpy as np
 import pytest
 
 from app.i18n import format_num, month_abbr
+from app import results_view
 from app.results_view import PERIOD_DAYS, resolve_window, results_from
 from tests.test_data_summary import (
     HOURS,
@@ -644,15 +645,30 @@ def test_results_state_the_parameter_set_they_were_computed_under():
     assert not any("every savings figure is zero" in c for c in _caveats(r))
     assert not any("not wired up yet" in c for c in _caveats(r))
     assert any(
-        "10 kWh usable" in c and "5/5 kW" in c and "charge P3" in c for c in _caveats(r)
+        "10 kWh usable" in c and "5/5 kW" in c and "charge P1" in c for c in _caveats(r)
     )
+
+
+def _grid_charging_cfg():
+    """A config that grid-charges inside the band — P3, explicitly, not the shipped default.
+
+    The three tests below share one scenario: import 2 kWh/h with no PV export and a flat spot
+    price inside the charge band, so the battery fills from the grid and never empties. That is
+    what produces the negative saving, the SoC drift and the floored self-sufficiency they check.
+    The shipped default is P1 (solar surplus only), which grid-charges nothing and would leave all
+    three fixtures inert, so the policy is stated here rather than inherited.
+    """
+    from app.domain.simconfig import ChargePolicy, PolicyConfig, SimulationConfig
+
+    return SimulationConfig(policy=PolicyConfig(charge_policy=ChargePolicy.P3))
 
 
 def test_results_reports_a_negative_saving_honestly():
     """§7.2 item 9: a battery that costs kWh is correct output and must read as a cost.
 
-    Setup: import 2 kWh/h, export 0, NO PV, and a flat spot price of 0.02 €/kWh — inside the
-    default charge band [−0.050, 0.040] and below the default discharge band [0.180, 9.999]. So
+    Setup: import 2 kWh/h, export 0, NO PV, charge policy P3 (see `_grid_charging_cfg`), and a
+    flat spot price of 0.02 €/kWh — inside the default charge band [−0.050, 0.040] and below the
+    default discharge band [0.180, 9.999]. So
     P3 grid-charges whenever the band is open, and D2 never fires (D1 serves the deficit, but the
     battery is charging, not discharging: §6.7's netting resolves the two and charge wins).
 
@@ -677,7 +693,7 @@ def test_results_reports_a_negative_saving_honestly():
         _energy("grid_export_t1", 0.0),
         _price("price_spot", 0.02),
     ])
-    r = results_from(ds, (_WIN_START, _WIN_END))
+    r = results_from(ds, (_WIN_START, _WIN_END), cfg=_grid_charging_cfg())
     assert r is not None
 
     charged_ac = 5.0 / _ETA
@@ -718,7 +734,7 @@ def test_soc_drift_caveat_fires_when_the_battery_ends_more_charged():
         _energy("grid_export_t1", 0.0),
         _price("price_spot", 0.02),
     ])
-    r = results_from(ds, (_WIN_START, _WIN_END))
+    r = results_from(ds, (_WIN_START, _WIN_END), cfg=_grid_charging_cfg())
     assert any("more charged than it started" in c for c in _caveats(r))
 
 
@@ -769,7 +785,7 @@ def test_self_sufficiency_display_clamp_fires_with_its_caveat():
         _energy("grid_export_t1", 0.0),
         _price("price_spot", 0.02),
     ])
-    r = results_from(ds, (_WIN_START, _WIN_END))
+    r = results_from(ds, (_WIN_START, _WIN_END), cfg=_grid_charging_cfg())
     assert r is not None
     ss = next(k for k in r["kpis"] if k["title"] == "SELF-SUFFICIENCY")
     assert _en(ss["value"]).endswith("→ 0%"), "a negative self-sufficiency must display as 0%"
@@ -777,12 +793,11 @@ def test_self_sufficiency_display_clamp_fires_with_its_caveat():
 
     # The underlying metric is untouched — the clamp is presentation only.
     from app.domain.metrics import energy_metrics
-    from app.domain.simconfig import SimulationConfig
     from app.domain.simframe import simulation_frame
     from app.domain.simulate import run_all
 
     frame = simulation_frame(ds, (_WIN_START, _WIN_END))
-    cfg = SimulationConfig()
+    cfg = _grid_charging_cfg()
     m = energy_metrics(run_all(frame, cfg), frame, cfg)
     assert m.self_sufficiency_battery == pytest.approx(-0.108, abs=1e-3)
 
@@ -1173,6 +1188,171 @@ def test_resolve_window_all_presets_known():
         assert end > start
 
 
+# ── default_window: the trailing year ∩ grid coverage ∩ PV coverage ───────────────────────────
+#
+# Step 1 is the `last_1_year` preset (data-anchored, per §7.4); step 2 narrows to the solar series'
+# own coverage when one is mapped. The third return value is what the ribbon preselects: True only
+# when step 2 changed nothing AND step 1 was a full 365 days.
+
+
+def _with_solar(ds, *, start_day: int, days: int):
+    """Attach an hourly `solar_production` frame spanning `days` from `_COV_START + start_day`."""
+    from app.domain.frames import QUALITY_DTYPE, SeriesFrame
+
+    n = days * 24
+    origin = np.datetime64("2026-01-01T00:00:00") + np.timedelta64(start_day * 86400, "s")
+    idx = (np.arange(n).astype("timedelta64[s]") * 3600 + origin).astype("datetime64[s]")
+    ds.frames.append(
+        SeriesFrame("solar_production", "energy", 3600, idx, np.full(n, 0.5),
+                    np.zeros(n, dtype=QUALITY_DTYPE))
+    )
+    ds.series_sources["solar_production"] = "test"
+    return ds
+
+
+def test_default_window_no_pv_full_year_is_the_preset():
+    # 400 days of grid data, no solar mapped: step 1 gives a full 365-day window and step 2 is
+    # skipped, so the ribbon preselects the `last 1 year` preset.
+    ds = _long_dataset(400)
+    start, end, is_preset = results_view.default_window(ds)
+    assert (start, end) == resolve_window(ds, period="last_1_year")
+    assert is_preset is True
+
+
+def test_default_window_no_pv_short_history_is_custom():
+    # Only 200 days of grid data: step 1 clamps to coverage start, so the window is not a full year
+    # and no preset describes it → custom.
+    ds = _long_dataset(200)
+    start, end, is_preset = results_view.default_window(ds)
+    assert (start, end) == resolve_window(ds, period="last_1_year")
+    assert is_preset is False
+
+
+def test_default_window_narrows_start_to_pv_coverage():
+    # The usual solar case: PV mapped only part-way through the meter history. The default starts
+    # where PV starts, and reads as custom because no preset spans that.
+    #
+    # NOTE the end: `_long_dataset`'s advertised window stops at 2027-01-01 and `effective_window`
+    # clips frame coverage to it, so grid coverage ends at day 365 however many frames were built.
+    ds = _with_solar(_long_dataset(400), start_day=300, days=100)
+    start, end, is_preset = results_view.default_window(ds)
+    assert start == _COV_START + timedelta(days=300)
+    assert end == _COV_START + timedelta(days=365)
+    assert is_preset is False
+
+
+def test_default_window_pv_covering_the_whole_year_keeps_the_preset():
+    # PV present for the entire trailing year: step 2 is a no-op, so the preset survives. This is
+    # the "more than a year of PV" case.
+    ds = _with_solar(_long_dataset(400), start_day=0, days=400)
+    start, end, is_preset = results_view.default_window(ds)
+    assert (start, end) == resolve_window(ds, period="last_1_year")
+    assert is_preset is True
+
+
+def test_default_window_long_pv_but_short_grid_is_still_custom():
+    # 200 days of GRID data with PV covering all of it. Step 2 changes nothing, yet step 1 never
+    # reached a full year — so `is_preset` must be False. Ample PV alone does not make it a preset.
+    ds = _with_solar(_long_dataset(200), start_day=0, days=200)
+    _, _, is_preset = results_view.default_window(ds)
+    assert is_preset is False
+
+
+def test_default_window_pv_ending_early_pulls_the_end_back():
+    # A PV sensor that stopped reporting before the meter did: the intersection moves the END, so
+    # the default window ends before the data does.
+    ds = _with_solar(_long_dataset(400), start_day=100, days=100)
+    start, end, is_preset = results_view.default_window(ds)
+    assert start == _COV_START + timedelta(days=100)
+    assert end == _COV_START + timedelta(days=200)
+    assert is_preset is False
+
+
+def test_default_window_partial_pv_overlap_narrows_to_the_overlap():
+    # PV covering only the first 20 days of a 365-day window. That is still an overlap, so the
+    # default narrows to it rather than keeping the grid window — the figures on the screen then
+    # all rest on real PV data, which is the point of step 2.
+    ds = _with_solar(_long_dataset(400), start_day=0, days=20)
+    start, end, is_preset = results_view.default_window(ds)
+    assert start == _COV_START
+    assert end == _COV_START + timedelta(days=20)
+    assert is_preset is False
+
+
+def test_default_window_disjoint_pv_keeps_the_grid_window():
+    # PV coverage entirely OUTSIDE the trailing year: the meter runs 2026, the PV frame sits in
+    # 2025 (a re-mapped sensor whose history predates the meter's). Intersecting would leave
+    # nothing to simulate, so step 1's grid-only window stands.
+    from app.domain.frames import QUALITY_DTYPE, SeriesFrame
+
+    ds = _long_dataset(400)
+    n = 20 * 24
+    origin = np.datetime64("2025-01-01T00:00:00")
+    idx = (np.arange(n).astype("timedelta64[s]") * 3600 + origin).astype("datetime64[s]")
+    ds.frames.append(
+        SeriesFrame("solar_production", "energy", 3600, idx, np.full(n, 0.5),
+                    np.zeros(n, dtype=QUALITY_DTYPE))
+    )
+    start, end, _ = results_view.default_window(ds)
+    assert (start, end) == resolve_window(ds, period="last_1_year")
+
+
+# ── coverage_gaps: which mapped series fall short of the window ───────────────────────────────
+
+
+def test_coverage_gaps_empty_when_every_series_spans_the_window():
+    ds = _long_dataset(400)
+    window = resolve_window(ds, period="last_30_days")
+    assert results_view.coverage_gaps(ds, window) == []
+
+
+def test_coverage_gaps_reports_a_short_series_with_its_span():
+    # PV mapped part-way through, window = the full grid coverage → solar is short at the start.
+    ds = _with_solar(_long_dataset(400), start_day=300, days=100)
+    window = (_COV_START, _COV_START + timedelta(days=400))
+    gaps = results_view.coverage_gaps(ds, window)
+    assert [g["series"] for g in gaps] == ["solar_production"]
+    assert gaps[0]["label"] == "Solar production"
+    assert gaps[0]["covered_from"] == "2026-10-28"  # _COV_START + 300 days
+
+
+def test_coverage_gaps_includes_price_series():
+    # A price series that starts after the meter data qualifies the COST rows, so it must be
+    # reported even though it is not an energy series.
+    from app.domain.frames import QUALITY_DTYPE, SeriesFrame
+
+    ds = _long_dataset(400)
+    n = 100 * 24
+    origin = np.datetime64("2026-01-01T00:00:00") + np.timedelta64(300 * 86400, "s")
+    idx = (np.arange(n).astype("timedelta64[s]") * 3600 + origin).astype("datetime64[s]")
+    ds.frames.append(
+        SeriesFrame("price_spot", "price", 3600, idx, np.full(n, 0.1),
+                    np.zeros(n, dtype=QUALITY_DTYPE))
+    )
+    window = (_COV_START, _COV_START + timedelta(days=400))
+    assert [g["series"] for g in results_view.coverage_gaps(ds, window)] == ["price_spot"]
+
+
+def test_coverage_gaps_is_bounds_only_not_interior_holes():
+    # A DOCUMENTED limitation, pinned so it is not mistaken for a bug: a series with a hole in the
+    # middle still spans the window by its first/last timestamp, so it is NOT reported.
+    from app.domain.frames import QUALITY_DTYPE, SeriesFrame
+
+    ds = _long_dataset(400)
+    # Two hourly blocks with a 50-day hole between them, but bounds covering the whole window.
+    a = np.arange(24 * 10)
+    b = np.arange(24 * 10) + 24 * 60
+    off = np.concatenate([a, b]).astype("timedelta64[s]") * 3600
+    idx = (off + np.datetime64("2026-01-01T00:00:00")).astype("datetime64[s]")
+    n = len(idx)
+    ds.frames.append(
+        SeriesFrame("house_load", "energy", 3600, idx, np.full(n, 1.0),
+                    np.zeros(n, dtype=QUALITY_DTYPE))
+    )
+    window = (_COV_START, _COV_START + timedelta(days=1))
+    assert [g["series"] for g in results_view.coverage_gaps(ds, window)] == []
+
+
 # ── The capture ratio's PRESENTATION, and the four shapes it must distinguish ─────────────────
 #
 # Background: §6.12's terminal constraint is ASYMMETRIC with the policy run — the DP must end at or
@@ -1385,7 +1565,7 @@ def test_drift_threshold_is_soc_drift_warn_frac_not_a_second_constant():
 # warning applies — run D and run E are ~2.3 s per pass — so `with_benchmark=True` appears only in
 # the tests that are about the boxes, and never over a long window.
 
-from app.domain.simconfig import SimulationConfig  # noqa: E402
+from app.domain.simconfig import ChargePolicy, PolicyConfig, SimulationConfig  # noqa: E402
 from app.i18n import num  # noqa: E402
 from app.results_view import (  # noqa: E402
     WATERFALL_DISPLAY_EPS_EUR,
@@ -1400,9 +1580,38 @@ def _cost_cfg(**kw) -> SimulationConfig:
     `simulate_cost` is set AFTER construction deliberately: `SimulationConfig` applies its forcing
     on READ (the `economic_guard` property), so this is the same state a user's persisted config
     reaches through panel ②, not a special constructor path.
+
+    The charge policy is pinned to P3 rather than left at the shipped default. These are cost and
+    caveat tests: they need the battery to charge from the grid inside the band, because that is
+    what puts a price spread on the bill for §6.10 and D10 to have anything to say about. The
+    shipped default is P1 (solar surplus only), which grid-charges nothing, so leaning on it here
+    would silently empty the fixtures.
     """
-    cfg = SimulationConfig(**kw)
+    cfg = _energy_cfg(**kw)
     cfg.simulate_cost = True
+    return cfg
+
+
+def _energy_cfg(**kw) -> SimulationConfig:
+    """The same config as `_cost_cfg` with cost simulation OFF — the other half of the toggle.
+
+    The charge policy is pinned to P3 rather than left at the shipped default. These are cost and
+    caveat tests: they need the battery to charge from the grid inside the band, because that is
+    what puts a price spread on the bill for §6.10 and D10 to have anything to say about. The
+    shipped default is P1 (solar surplus only), which grid-charges nothing, so leaning on it here
+    would silently empty the fixtures.
+
+    It matters that the cost-off half comes from here and not from a bare `SimulationConfig()`:
+    several tests below assert that the energy blocks are bit-identical across the toggle, which
+    only holds if the two configs differ in `simulate_cost` ALONE.
+
+    `simulate_cost` is set explicitly rather than inherited. §8.18 defaulted it ON, so a bare
+    construction is now the COST half — this helper would otherwise return the wrong side of the
+    toggle it exists to name.
+    """
+    kw.setdefault("policy", PolicyConfig(charge_policy=ChargePolicy.P3))
+    cfg = SimulationConfig(**kw)
+    cfg.simulate_cost = False
     return cfg
 
 
@@ -1445,7 +1654,7 @@ def test_fixture_18_every_energy_block_is_bit_identical_across_the_cost_toggle()
     value, and those are exactly the two ways a "figure already on screen" can move.
     """
     ds = _cost_dataset()
-    off = results_from(ds, (_WIN_START, _WIN_END), cfg=SimulationConfig())
+    off = results_from(ds, (_WIN_START, _WIN_END), cfg=_energy_cfg())
     on = results_from(ds, (_WIN_START, _WIN_END), cfg=_cost_cfg())
     assert off is not None and on is not None
 
@@ -1524,7 +1733,7 @@ def test_fixture_18_the_per_interval_soc_trace_is_bit_identical():
     ds = _cost_dataset()
     frame = simulation_frame(ds, (_WIN_START, _WIN_END))
     assert frame is not None
-    off = run_all(frame, SimulationConfig())
+    off = run_all(frame, _energy_cfg())
     on = run_all(frame, _cost_cfg())
     for run in ("a", "b", "c"):
         np.testing.assert_array_equal(
@@ -1545,7 +1754,7 @@ def test_fixture_18_the_energy_benchmark_is_bit_identical_across_the_toggle():
     One day of hourly data, so the two DP passes are cheap.
     """
     ds = _cost_dataset()
-    off = results_from(ds, (_WIN_START, _WIN_END), cfg=SimulationConfig(), with_benchmark=True)
+    off = results_from(ds, (_WIN_START, _WIN_END), cfg=_energy_cfg(), with_benchmark=True)
     on = results_from(ds, (_WIN_START, _WIN_END), cfg=_cost_cfg(), with_benchmark=True)
     assert off is not None and on is not None
     assert [(r["label"], _en(r["value"]), r["frac"], r["dot"]) for r in off["benchmark"]["rows"]] \
@@ -1569,7 +1778,7 @@ def test_fixture_19_cost_is_absent_wholesale_never_zero():
     checks the failure mode §4.5 names — a present-but-empty `cost` would satisfy a naive
     falsiness test while still handing the template eight rows to draw.
     """
-    r = results_from(_cost_dataset(), (_WIN_START, _WIN_END), cfg=SimulationConfig())
+    r = results_from(_cost_dataset(), (_WIN_START, _WIN_END), cfg=_energy_cfg())
     assert r is not None
     assert r["cost"] is None
     assert r["monthly_saved_eur"] is None
@@ -2006,7 +2215,7 @@ def test_the_cost_section_is_absent_and_the_affordance_offered_when_cost_is_off(
     rendered page is; here we pin the condition the template branches on.
     """
     ds = _cost_dataset()
-    off = results_from(ds, (_WIN_START, _WIN_END), cfg=SimulationConfig())
+    off = results_from(ds, (_WIN_START, _WIN_END), cfg=_energy_cfg())
     on = results_from(ds, (_WIN_START, _WIN_END), cfg=_cost_cfg())
     assert off is not None and on is not None
     assert not off["cost"]
@@ -2019,7 +2228,7 @@ def test_the_euro_caveats_appear_only_with_cost_simulation_on():
     which fixture 18 above asserts; this is the other half of that statement.
     """
     ds = _cost_dataset()
-    off = _caveats(results_from(ds, (_WIN_START, _WIN_END), cfg=SimulationConfig()))
+    off = _caveats(results_from(ds, (_WIN_START, _WIN_END), cfg=_energy_cfg()))
     on = _caveats(results_from(ds, (_WIN_START, _WIN_END), cfg=_cost_cfg()))
     assert len(on) > len(off)
     added = " ".join(c for c in on if c not in off)
@@ -2065,6 +2274,7 @@ def test_the_negative_saving_caveat_stops_disclaiming_euros_once_euros_exist():
         _price("price_spot", _PRICES),
     ])
     cfg = SimulationConfig()
+    cfg.simulate_cost = False               # the default is ON since §8.18; this is the off half
     cfg.battery.usable_capacity_kwh = 0.5   # tiny store, so standby dominates
     off = results_from(ds, (_WIN_START, _WIN_END), cfg=cfg)
     cfg_on = SimulationConfig()
@@ -2311,6 +2521,7 @@ def test_an_all_nan_price_window_yields_no_width_rather_than_nan():
 def test_the_width_is_absent_when_cost_simulation_is_off():
     """A euro figure has no meaning without the euro pipeline, whatever the settlement says."""
     cfg = SimulationConfig()
+    cfg.simulate_cost = False   # the default is ON since §8.18
     cfg.pricing.supplier_settlement = SupplierSettlement.QUARTER_HOURLY
     r = results_from(_bracket_dataset(), (_WIN_START, _WIN_END), cfg=cfg)
     assert r is not None
@@ -2778,6 +2989,7 @@ def test_the_caveat_is_absent_on_every_run_that_has_no_width():
 
     # (c) cost simulation off: there is no euro figure to qualify.
     cost_off = SimulationConfig()
+    cost_off.simulate_cost = False   # the default is ON since §8.18
     cost_off.pricing.supplier_settlement = SupplierSettlement.QUARTER_HOURLY
     no_cost = results_from(ds, (_WIN_START, _WIN_END), cfg=cost_off)
     assert no_cost["price_bracket"] is None

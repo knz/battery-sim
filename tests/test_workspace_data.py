@@ -316,6 +316,40 @@ def test_the_drawer_and_the_ha_modal_are_present_at_page_level(env):
         assert f'id="{node_id}"' in html, f"missing #{node_id}"
 
 
+def test_an_empty_workspace_claims_no_entity_bindings(env):
+    """The empty state must not hand the drawer the SAMPLE's entity mappings.
+
+    `_data_page` seeds its context from `sample_view()`, and the sample depicts a FILLED screen:
+    its mapping rows carry `source: "home_assistant"` and ids like
+    `sensor.electricity_meter_import_t1`. Left in place on a workspace with no dataset, those reach
+    the roster as `data-slot-source` / `data-slot-stat-id`, and `ha_fetch.js` believes them — it
+    seeds `draft.statId` from the attribute, which suppresses the entity guess and leaves the
+    picker showing an id that exists on no real Home Assistant. That was the reported bug: a
+    successful "Test connection" followed by an empty entity select.
+
+    The rows themselves must survive (the roster still renders every slot's role, marker and
+    sources), so this asserts the provenance is gone rather than the roster.
+    """
+    client, mod = env
+    _seed(mod)
+    html = client.get("/w/w1/data").text
+
+    assert 'data-slot="grid_import_t1"' in html, "the roster must still render its slots"
+    assert re.search(r'data-slot-stat-id="[^"]+"', html) is None, (
+        "an empty workspace must claim no statistic id for any slot"
+    )
+    assert re.search(r'data-slot-source="[^"]+"', html) is None, (
+        "an empty workspace must claim no committed source for any slot"
+    )
+    # The specific ids the sample ships, named so a future sample rename cannot quietly re-leak.
+    for sample_id in (
+        "sensor.electricity_meter_import_t1",
+        "sensor.electricity_meter_export_t1",
+        "sensor.solar_total_production",
+    ):
+        assert sample_id not in html, f"sample entity {sample_id} leaked into an empty workspace"
+
+
 def test_the_screen_loads_ha_fetch_js_and_its_runtime_context(env):
     """The script, plus the two JSON blocks it reads: the i18n strings and the generation."""
     client, mod = env

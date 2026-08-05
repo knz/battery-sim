@@ -165,6 +165,10 @@ Main items:
     PERIOD_DAYS               preset name → span in days (§7.4 predefined ranges).
     min_annualisation_days    below this a window is too short to annualise (specs appendix-a, §7.4).
     resolve_window(dataset, *, period, start, end) -> (start, end)   the window resolver.
+    default_window(dataset) -> (start, end, is_preset)   the window the results screen opens on:
+                              the trailing year ∩ grid coverage, then ∩ PV coverage when mapped.
+    coverage_gaps(dataset, window) -> [{series, label, ...}]   mapped series that do not span the
+                              window (BOUNDS only — interior holes are not detected).
     results_from(dataset, window) -> dict | None   the panel-③ view-model, or None.
     _cost_block / _cost_benchmark_block / _monthly_saved_eur   the §2.4 COST SAVINGS section.
     WATERFALL_DISPLAY_EPS_EUR  below this a waterfall line is dropped from the DISPLAY only.
@@ -200,7 +204,8 @@ from app.domain.reconcile import (
 from app.domain.simconfig import SimulationConfig, SupplierSettlement
 from app.domain.simframe import simulation_frame
 from app.domain.simulate import run_all
-from app.data_view import _fmt_res, _res_msg
+from app.domain.series_vocab import SERIES_SLOTS, SLOT_BY_NAME
+from app.data_view import ROLE_LABEL, _fmt_res, _res_msg
 from app.i18n import format_num, msg as _msg, msg_n as _msg_n, num
 from app.sample_data import _N
 from app.summary_view import data_summary_from
@@ -247,6 +252,18 @@ PERIOD_DAYS: dict[str, int] = {
 # `period_selected: "1 year"` (sample_data._panel_results). Documented so the choice is not a
 # surprise — a caller wanting full coverage passes an explicit range instead.
 DEFAULT_PERIOD = "last_1_year"
+
+# The request token for "recompute the data-derived opening window" (`default_window`). It is NOT
+# in PERIOD_DAYS and `resolve_window` does not accept it, deliberately: every other preset is a
+# SPAN in days, while this one is a RULE (trailing year ∩ grid coverage ∩ PV coverage) whose answer
+# moves with the data. Keeping it out of that dict is what stops it being treated as a fixed span
+# somewhere down the line. The routes branch on it before reaching `resolve_window`.
+#
+# Stored as `{"preset": "default"}` like any other preset, which is what makes it re-derive on
+# every load rather than freezing the dates it happened to resolve to when it was picked — the
+# reason a user reaches for it ("put me back on the known-good period") is the reason it must not
+# be stored as a range.
+PERIOD_DEFAULT = "default"
 
 # The label the selector highlights when the window came from an EXPLICIT RANGE rather than a
 # preset. It is not a span: no number of days makes a range "custom", which is exactly why the
@@ -358,6 +375,111 @@ def resolve_window(
         # Degenerate coverage (zero-length dataset window); nothing to span.
         raise ValueError("dataset coverage is empty")
     return w_start, w_end
+
+
+# The solar slot, by name. The default window narrows to this series' coverage when it is mapped
+# (step 2 below); `_pv_coverage_mask` reads the same frame for the self-consumption row.
+_SOLAR_SLOT = "solar_production"
+
+
+def default_window(dataset: LoadedDataset) -> tuple[datetime, datetime, bool]:
+    """The window the results screen opens on, and whether it is the `last_1_year` PRESET.
+
+    Two steps, in order:
+
+      1. The trailing year INTERSECTED with grid-meter coverage. That is exactly
+         `resolve_window(period="last_1_year")` — but only because "the last year" here means the
+         year ending at the DATA's end (§7.4 anchoring), not at wall-clock now(), and because
+         "consumption/production data" means the four grid registers (`_WINDOW_SLOTS`). Under a
+         wall-clock reading this step would be a different computation: a dataset that ends six
+         months ago would yield a half-length window rather than a full year of data. The two
+         readings coincide only when the data runs up to the present, so the equivalence is a
+         consequence of the anchoring rule, not a structural fact.
+
+      2. If a solar series is mapped and non-empty, intersect with ITS coverage too. This is a
+         plain interval intersection, so PV can move the START forward (the usual case: PV mapped
+         part-way through the meter history) and can also pull the END back, when a PV sensor
+         stopped reporting before the meter did. The default window can therefore end before the
+         data does, which is intended: it is the span over which every figure on the screen —
+         including the PV-dependent ones — rests on real data.
+
+    An EMPTY intersection keeps step 1's window. A solar series disjoint from the trailing year
+    would otherwise leave nothing to simulate, and a grid-only window is the useful answer there.
+
+    The third element says whether this window IS the `last_1_year` span: True only when step 2
+    changed nothing AND step 1 spanned the full 365 days. Both conditions are needed — with 400
+    days of PV but 200 days of grid data, step 2 is a no-op yet the window is a 200-day one that no
+    span-preset describes. Callers pass it to `results_from` as `custom_range=not is_preset`, which
+    governs whether the date fields start open; which BUTTON lights up is stated separately, via
+    `period_selected=PERIOD_DEFAULT` (see `main._derived_default`), since the "default" button
+    describes this window whether or not it happens to coincide with a span.
+
+    Note this is DERIVED state, recomputed from the data on every load, and is deliberately not
+    persisted — see `simconfig_store.load_results_period`. Storing it would freeze it against a
+    later re-fetch, which is the one thing the preset/custom split exists to prevent.
+    """
+    w_start, w_end = resolve_window(dataset, period=DEFAULT_PERIOD)
+    full_year = (w_end - w_start).days >= PERIOD_DAYS[DEFAULT_PERIOD]
+
+    solar = next((f for f in dataset.frames if f.name == _SOLAR_SLOT), None)
+    cov = solar.coverage() if solar is not None else None
+    if cov is None:
+        return w_start, w_end, full_year
+
+    p_start = max(w_start, _as_utc(cov[0]))
+    p_end = min(w_end, _as_utc(cov[1]))
+    if p_end <= p_start:
+        # Disjoint (or degenerate) PV coverage: keep the grid-only window rather than nothing.
+        return w_start, w_end, full_year
+
+    narrowed = (p_start, p_end) != (w_start, w_end)
+    return p_start, p_end, full_year and not narrowed
+
+
+def coverage_gaps(
+    dataset: LoadedDataset, window: tuple[datetime, datetime]
+) -> list[dict]:
+    """The mapped series whose coverage does not span the whole `window`, in vocabulary order.
+
+    Drives the "some data is unavailable over this period" warning under the period card. Each
+    entry is `{"series", "label", "covered_from", "covered_to"}` — `label` a translation msgid from
+    `data_view.ROLE_LABEL` (so the warning names roles, not slot ids), the two dates ISO strings or
+    None for a series with no coverage at all. Empty list → no warning.
+
+    **BOUNDS ONLY, and this is a real limitation.** A series counts as short when the window
+    extends past its first or last timestamp. Interior holes — a sensor that dropped out for a
+    fortnight mid-history and came back — are NOT detected: `SeriesFrame.coverage()` reports the
+    first and last interval and nothing about what lies between, and finding gaps would mean
+    scanning each index for spacing above its native resolution. So a clean bill of health here
+    means "every series starts before and ends after this window", not "every interval is present".
+
+    ALL mapped series are considered, price as well as energy: a spot-price series that starts
+    after the meter data is exactly the case where the cost figures quietly rest on less data than
+    the energy ones, and the point of the warning is to say so before the reader trusts a number.
+    """
+    w_start, w_end = window
+    gaps: list[dict] = []
+    # Vocabulary order rather than frame order, so the warning lists series the same way the rest
+    # of the UI does regardless of what order the ingest happened to attach them in.
+    by_name = {f.name: f for f in dataset.frames}
+    for name in [s.name for s in SERIES_SLOTS if s.name in by_name] + [
+        n for n in by_name if n not in SLOT_BY_NAME
+    ]:
+        frame = by_name[name]
+        cov = frame.coverage()
+        if cov is not None:
+            c_start, c_end = _as_utc(cov[0]), _as_utc(cov[1])
+            if c_start <= w_start and c_end >= w_end:
+                continue
+        gaps.append(
+            {
+                "series": name,
+                "label": ROLE_LABEL.get(name, name),
+                "covered_from": cov[0].date().isoformat() if cov else None,
+                "covered_to": cov[1].date().isoformat() if cov else None,
+            }
+        )
+    return gaps
 
 
 def _period_selected_for(dataset: LoadedDataset, window: tuple[datetime, datetime]) -> str:
@@ -1470,6 +1592,7 @@ def results_from(
     cfg: SimulationConfig | None = None,
     with_benchmark: bool = False,
     custom_range: bool = False,
+    period_selected: str | None = None,
 ) -> dict | None:
     """Build the panel-③ ENERGY SAVINGS view-model over `window` from a real run (specs §2.4).
 
@@ -1489,6 +1612,12 @@ def results_from(
     The battery figures come from runs A/B/C over a `SimulationFrame` under `cfg` — the caller's
     persisted panel-② parameter set, or appendix-A defaults when it is None (nothing configured
     yet). See the module comment, and for the sign, clamp and omit rules the presentation obeys.
+
+    **`period_selected` overrides which selector button is highlighted**, for the one caller that
+    knows something the window cannot express: `PERIOD_DEFAULT`. Its resolved window is an ordinary
+    pair of datetimes, indistinguishable after the fact from a range the user typed, so only the
+    route that honoured the request can say it came from the "default" button. Left None everywhere
+    else, which keeps the existing `custom_range`-or-nearest-span rule intact.
 
     **`custom_range` says the window came from an explicit start/end, not a preset.** The window
     itself cannot answer that — it is two datetimes, and `_period_selected_for` can only map a span
@@ -2175,8 +2304,13 @@ def results_from(
         "period_run": period_run,
         # An explicit range is stated, not inferred: `_period_selected_for` maps a SPAN back to the
         # nearest preset and so can only ever answer with a preset. See PERIOD_SELECTED_CUSTOM.
+        # `period_selected` overrides both, for the one button whose window is neither a span nor a
+        # typed range — PERIOD_DEFAULT, whose resolved window is indistinguishable from a custom
+        # range once computed, so only the caller that honoured the request can say it was that.
         "period_selected": (
-            PERIOD_SELECTED_CUSTOM if custom_range else _period_selected_for(dataset, eff)
+            period_selected
+            if period_selected is not None
+            else (PERIOD_SELECTED_CUSTOM if custom_range else _period_selected_for(dataset, eff))
         ),
         # The window's two ends as `<input type=date>` values (YYYY-MM-DD), so the selector can put
         # the applied range back into the fields it hides by default. The EFFECTIVE window, after
@@ -2184,6 +2318,12 @@ def results_from(
         # was typed, which is the honest answer when a requested end lies past the data.
         "period_start_date": eff[0].date().isoformat(),
         "period_end_date": eff[1].date().isoformat(),
+        # The mapped series that do not span the whole window (`coverage_gaps`). A list, possibly
+        # empty; the template renders its small-print warning only when it is non-empty. Computed
+        # against the EFFECTIVE window for the same reason the date fields are: it describes the
+        # span actually simulated, not the one requested. It is a property of the window, so it
+        # appears for the computed default and for custom ranges as much as for preset clicks.
+        "period_coverage_gaps": coverage_gaps(dataset, eff),
         "data_summary": data_summary,
         "kpis": kpis,
         "energy_breakdown": energy_breakdown,

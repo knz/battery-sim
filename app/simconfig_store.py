@@ -32,10 +32,10 @@ construction: a broken stored config must not take the page down. It is NOT a si
 the user's values — a file that parses gives back exactly what it holds, including values that
 `validate()` will report as blocking.
 
-## The `retained` block: two slots, for two things that are not parameters of a run
+## The `retained` block: three slots, for things that are not parameters of a run
 
-**It is not the home of "the cost-only parameters" as a class.** It holds exactly two entries,
-for two different and individually argued reasons, and neither generalises to a third without
+**It is not the home of "the cost-only parameters" as a class.** It holds exactly three entries,
+for three different and individually argued reasons, and none generalises to a fourth without
 the same argument being made again.
 
 ### `retained.economic_guard` — the ONE field the config object normalises away
@@ -106,11 +106,28 @@ the household (config document, plain field) or describes the user's progress th
 the stored value forward" — rather than to `False`. Only the edit-workspace save passes a bool.
 The same default is what implements "never cleared automatically": no other save can unset it.
 
+### `retained.results_period` — a UI selection, not a fact about the household
+
+The period the results screen opens on: `{"preset": token}` or `{"start", "end"}`. Like
+`pricing_configured` it is not a simulation parameter — no §6 algorithm reads it, `validate()` has
+no rule for it — but it is here for a reason of its own, and the two are not interchangeable.
+`pricing_configured` records that the user PASSED a point in the UI; this records a CHOICE they
+made and will expect to find again. It is nearest to `postcode` in spirit, and the reason it is
+NOT a plain top-level field like `postcode` is that `postcode` describes the household while this
+describes the user's view of it: the same data under the same contract is legitimately looked at
+over a fortnight or over a year, and switching between them is not a change to the household.
+
+It is stored discriminated by KIND — the preset token, not the dates the preset resolved to — so
+that re-fetching a dataset moves a preset window while leaving a typed range alone. `to_dict`
+carries it forward verbatim and never writes it; its writer is `save_results_period`, which
+rewrites this one slot without serialising a `SimulationConfig` it does not have.
+
 Main items:
     config_path(workspace_id)     the JSON document's path.
     load(workspace_id)            the stored config, or appendix-A defaults on ANY failure.
     is_document_readable(ws)      whether the stored document is safe to read-modify-write.
     is_pricing_configured(ws)     the §2′.6 flag; False when unknown.
+    load_results_period(ws) / save_results_period(ws, period)   the remembered results window.
     save(cfg, ..., guard_submitted, pricing_configured)  write it atomically (temp + replace).
     to_dict(cfg, retained, ...) / from_dict(d)   the serialisation, exposed for tests.
     clone(cfg)                    a copy, for deriving a candidate without touching the stored one.
@@ -213,10 +230,17 @@ def to_dict(
         keep_configured = bool(prior.get("pricing_configured", False))
     else:
         keep_configured = bool(pricing_configured)
+    # `results_period` is carried forward VERBATIM and is never written by this function: it is
+    # set by its own writer (`save_results_period`) and no caller of `to_dict` knows the value.
+    # The `retained` block is rebuilt from named keys rather than copied wholesale, so a key with
+    # no line here is silently dropped on the next parameter save — which is exactly what used to
+    # make the user's chosen period vanish the first time they pressed Calculate.
+    keep_period = prior.get("results_period")
     return {
         "retained": {
             "economic_guard": keep_guard,
             "pricing_configured": keep_configured,
+            **({"results_period": keep_period} if isinstance(keep_period, dict) else {}),
         },
         "version": _VERSION,
         "postcode": str(cfg.postcode or ""),
@@ -544,6 +568,94 @@ def is_pricing_configured(workspace_id: str) -> bool:
     blocked, which is the safe direction.
     """
     return bool(_retained_block(workspace_id).get("pricing_configured", False))
+
+
+def load_results_period(workspace_id: str) -> dict | None:
+    """The results screen's remembered period for this workspace, or None if never chosen.
+
+    Two shapes, discriminated by KIND rather than by the resolved dates:
+
+        {"preset": "last_1_year"}                  a preset button, RE-RESOLVED on every load
+        {"start": "<iso>", "end": "<iso>"}         an explicit range, kept verbatim
+
+    The distinction is the whole point of the field. Storing only the resolved `(start, end)` of a
+    preset would freeze it: re-fetching a dataset that now reaches further back would leave the
+    screen on the old window, when what the user asked for was "the last year" — a question whose
+    answer moves. So a preset stores its TOKEN and is re-resolved against current coverage, while a
+    range the user typed is theirs and is returned unchanged.
+
+    Absent until the user actually touches the ribbon. The computed opening window
+    (`results_view.default_window`) is derived state and is deliberately NOT written here — see
+    that function's note.
+
+    Never raises: a missing, unreadable or malformed document reads as "nothing chosen", and the
+    caller then falls back to the computed default. Returns None for anything that is not one of
+    the two shapes above, so a half-written entry cannot reach `resolve_window`.
+    """
+    block = _retained_block(workspace_id).get("results_period")
+    if not isinstance(block, dict):
+        return None
+    preset = block.get("preset")
+    if isinstance(preset, str) and preset:
+        return {"preset": preset}
+    start, end = block.get("start"), block.get("end")
+    if isinstance(start, str) and isinstance(end, str) and start and end:
+        return {"start": start, "end": end}
+    return None
+
+
+def save_results_period(workspace_id: str, period: dict) -> None:
+    """Remember the results screen's period for this workspace (see `load_results_period`).
+
+    Writes ONLY the `retained.results_period` slot, leaving every other key in the document byte
+    for byte as it was. It deliberately does not go through `save()`: that function serialises a
+    whole `SimulationConfig`, and this writer has none — the period is not a parameter of a run,
+    and rewriting the parameter set as a side effect of clicking a preset button would be a real
+    hazard (it would materialise appendix-A defaults into a document the user had never saved).
+
+    Atomic, by the same mkstemp + os.replace as `save()`, so a crash mid-write cannot truncate the
+    parameter set. Silently does nothing when the document cannot be READ or written: the period is
+    a convenience, and failing a recompute because a preference could not be stored would trade a
+    working screen for a remembered one.
+
+    **A missing document is CREATED**, holding this slot and nothing else. The obvious alternative
+    — no document, no preference — silently drops the choice of any user who fetches data and picks
+    a period before ever saving the parameter screen, which is the ordinary first visit rather than
+    a corner case. What must not happen is materialising appendix-A DEFAULTS into a document the
+    user never saved: `load()` would then read them back as though they had been chosen, and
+    `is_document_readable` would call the file authoritative. So the created document carries the
+    `retained` block alone. `from_dict` fills every absent group from appendix A, which is what an
+    empty document already means, and `to_dict` on the next real save rebuilds the rest.
+    """
+    try:
+        path = config_path(workspace_id)
+        doc: dict = {}
+        if path.exists():
+            with path.open("r", encoding="utf-8") as fh:
+                doc = json.load(fh)
+            if not isinstance(doc, dict):
+                return
+        else:
+            path.parent.mkdir(parents=True, exist_ok=True)
+        retained = doc.get("retained")
+        doc["retained"] = {
+            **(retained if isinstance(retained, dict) else {}),
+            "results_period": period,
+        }
+        payload = json.dumps(doc, indent=2, sort_keys=False)
+        fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".tmp")
+        tmp = Path(tmp_name)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(payload)
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.chmod(tmp, 0o666 & ~_umask())
+            os.replace(tmp, path)
+        finally:
+            tmp.unlink(missing_ok=True)
+    except Exception:
+        return
 
 
 def save(

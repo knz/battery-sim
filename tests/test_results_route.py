@@ -48,6 +48,19 @@ from tests.conftest import (
     w,
 )
 
+def _energy_only_cfg():
+    """A config with cost simulation OFF, named rather than inherited.
+
+    §8.18 defaulted `simulate_cost` ON, so a bare `SimulationConfig()` is now the COST half. Every
+    call site below wants the other one, and says so through this helper.
+    """
+    from app.domain.simconfig import SimulationConfig
+
+    cfg = SimulationConfig()
+    cfg.simulate_cost = False
+    return cfg
+
+
 # A fixed hourly window so totals are exact: 30 days × 24 h of 1 h intervals from 2026-01-01 UTC.
 _DAYS = 30
 _HOURS = _DAYS * 24
@@ -311,6 +324,11 @@ def test_results_data_glance_styled_like_energy_savings(client):
     # Panel ③'s copy is framed to match the "Energy savings" section below it (§2.4): a
     # `divider divider-start` heading and NO card frame around the figures. Both dividers carry
     # the same classes, so the two sections read as peers.
+    from app import simconfig_store
+
+    # Energy-only, so the count below is exactly the two sections this test names. With cost
+    # simulation on — the default since §8.18 — the COST SAVINGS divider is a third.
+    simconfig_store.save(_energy_only_cfg(), WORKSPACE_ID)
     r = client.post(w("/results"), json={"period": "last_1_week"})
     divider_cls = 'class="divider divider-start text-xs font-semibold uppercase tracking-wider'
     # Two dividers: the glance section and Energy savings, identically styled.
@@ -649,7 +667,7 @@ def test_cost_section_absent_and_affordance_offered_when_simulate_cost_is_off(co
     client, store = cost_client
     from app.domain.simconfig import SimulationConfig
 
-    store.save(SimulationConfig(), WORKSPACE_ID, pricing_configured=True)  # simulate_cost defaults to False
+    store.save(_energy_only_cfg(), WORKSPACE_ID, pricing_configured=True)
     r = client.post(w("/results"), json={"period": "last_1_week"})
     assert r.status_code == 200
     assert "Cost savings" not in r.text
@@ -686,7 +704,7 @@ def test_the_invitation_points_at_the_contract_when_the_toggle_is_blocked(cost_c
     from app.domain.simconfig import SimulationConfig
 
     # simulate_cost off AND no contract configured: the Blocked branch.
-    store.save(SimulationConfig(), WORKSPACE_ID, pricing_configured=False)
+    store.save(_energy_only_cfg(), WORKSPACE_ID, pricing_configured=False)
     r = client.post(w("/results"), json={"period": "last_1_week"})
     assert r.status_code == 200
     # The box is still there and still asks its question — §2′.7's hold.
@@ -715,7 +733,7 @@ def test_fixture_18_the_rendered_energy_half_is_unchanged_by_the_toggle(cost_cli
     from app.domain.simconfig import SimulationConfig
 
     on = client.post(w("/results"), json={"period": "last_1_week"}).text
-    store.save(SimulationConfig(), WORKSPACE_ID)
+    store.save(_energy_only_cfg(), WORKSPACE_ID)
     off = client.post(w("/results"), json={"period": "last_1_week"}).text
 
     # Everything above the COST SAVINGS divider. With cost off the divider is absent, so the
@@ -769,7 +787,7 @@ def test_the_monthly_chart_gains_a_euro_option_rather_than_swapping_the_kwh_one(
     assert node["ytitle"] != node["eur_ytitle"]
 
     from app.domain.simconfig import SimulationConfig
-    store.save(SimulationConfig(), WORKSPACE_ID)
+    store.save(_energy_only_cfg(), WORKSPACE_ID)
     off = client.post(w("/results"), json={"period": "last_1_week"}).text
     assert 'data-chart-view="eur"' not in off
     assert "Monthly savings (€)" not in off
@@ -828,6 +846,11 @@ def test_the_benchmark_response_is_a_bare_energy_box_when_cost_is_off(client):
     consumed before this increment. Pinned so the two-box shape cannot become unconditional and
     silently change what an energy-only install receives.
     """
+    from app import simconfig_store
+
+    # Cost off is the POINT of this test, so it is stored rather than inherited from the shipped
+    # default — which §8.18 flipped ON.
+    simconfig_store.save(_energy_only_cfg(), WORKSPACE_ID)
     r = client.post(w("/results/benchmark"), json={"period": "last_1_week"})
     assert r.status_code == 200
     assert "data-slot=" not in r.text
@@ -855,7 +878,7 @@ def test_the_money_box_is_gated_on_simulate_cost_as_well_as_on_with_benchmark(co
 
     # cost off, benchmark asked for → run D ran, run E did not.
     r = results_view.results_from(
-        loaded, window, cfg=SimulationConfig(), with_benchmark=True
+        loaded, window, cfg=_energy_only_cfg(), with_benchmark=True
     )
     assert "benchmark" in r
     assert "cost_benchmark" not in r
@@ -907,7 +930,7 @@ def test_the_cost_tint_marks_the_cost_section_and_not_the_energy_one(cost_client
     # (`test_the_setup_band_toggle_carries_the_cost_tint` in tests/test_params_route.py).
     from app.domain.simconfig import SimulationConfig
 
-    store.save(SimulationConfig(), WORKSPACE_ID)
+    store.save(_energy_only_cfg(), WORKSPACE_ID)
     off = client.post(w("/results"), json={"period": "last_1_week"}).text
     # Exactly one tinted thing, and it is the toggle's label.
     tinted = re.findall(r'cost-label[^>]*>\s*([^<]+?)\s*<', off)
@@ -948,11 +971,17 @@ def uncertainty_client(tmp_path, monkeypatch):
     `SupplierSettlement.QUARTER_HOURLY` opens D10's gate (with the default HOURLY the hourly price
     IS what the household paid and there is nothing to caveat). Returns the client and the store
     so a test can close the gate and re-request against the same data.
+
+    The charge policy is pinned to P3 for the same reason: the width is a property of what the
+    battery BUYS inside the band, and the shipped default P1 (solar surplus only) grid-charges
+    nothing, so inheriting it would leave the caveat with no spread to describe.
     """
     monkeypatch.setenv("BATTERY_SIM_DATA_DIR", str(tmp_path))
 
     from app import dataset, simconfig_store
-    from app.domain.simconfig import SimulationConfig, SupplierSettlement
+    from app.domain.simconfig import (
+        ChargePolicy, PolicyConfig, SimulationConfig, SupplierSettlement,
+    )
 
     # Four quarters per hour with a wide, asymmetric intra-hour spread, so the hourly mean sits
     # well inside [min, max] and the width is comfortably above the whole-euro display threshold.
@@ -971,7 +1000,7 @@ def uncertainty_client(tmp_path, monkeypatch):
         (_WIN_START, _WIN_END), "test", [], None,
         workspace_id=WORKSPACE_ID,
     )
-    cfg = SimulationConfig()
+    cfg = SimulationConfig(policy=PolicyConfig(charge_policy=ChargePolicy.P3))
     cfg.simulate_cost = True
     cfg.pricing.supplier_settlement = SupplierSettlement.QUARTER_HOURLY
     simconfig_store.save(cfg, WORKSPACE_ID)
@@ -1044,3 +1073,257 @@ def test_the_caveat_leaves_the_page_when_the_supplier_bills_hourly(uncertainty_c
     body = client.post(w("/results"), json={"period": "last_1_week"}).text
     assert "Cost savings" in body            # the fixture still prices the run
     assert "the electricity market prices every 15 minutes" not in body
+
+
+# ── The opening window: default, remembered choice, and re-fetch behaviour ────────────────────
+#
+# The `client` fixture's dataset is 30 days of hourly grid data with no PV, so `default_window`
+# resolves to the full coverage and reads as CUSTOM (30 days is not a full year). That is itself
+# worth pinning: the ribbon opens on "custom" whenever the data is shorter than a year.
+
+
+def _active_preset(html: str) -> str | None:
+    """The token of the preset button carrying btn-active in the period card, or None."""
+    m = re.search(r'class="btn btn-sm btn-active"\s+data-period="([^"]+)"', html)
+    return m.group(1) if m else None
+
+
+def test_opening_window_shows_the_derived_default_on_a_short_history(client):
+    """30 days of data: no SPAN preset describes it, and the screen opens on the derived window.
+
+    Since the "default" button was added, that is the button highlighted — it names the window in
+    force, where "custom" only ever meant "none of the spans fit". The date fields consequently
+    stay COLLAPSED on a first visit; they are still pre-filled with the window, so opening them
+    shows what is in force rather than blank fields.
+    """
+    body = client.get(page()).text
+    assert _active_preset(body) == "default"
+    assert not re.search(r'id="results-period-custom"\s+class="btn btn-sm btn-active"', body)
+    assert 'value="2026-01-01"' in body and 'value="2026-01-31"' in body
+
+
+def test_preset_choice_is_remembered_across_a_reload(client):
+    """A preset click is stored as its TOKEN and comes back on the next page load."""
+    client.post(w("/results"), json={"period": "last_1_week"})
+    from app import simconfig_store
+    assert simconfig_store.load_results_period(WORKSPACE_ID) == {"preset": "last_1_week"}
+    assert _active_preset(client.get(page()).text) == "last_1_week"
+
+
+def test_custom_range_is_remembered_across_a_reload(client):
+    """A typed range is stored as dates and comes back as custom, not snapped to a preset."""
+    client.post(w("/results"), json={
+        "start": "2026-01-05T00:00:00+00:00",
+        "end": "2026-01-12T00:00:00+00:00",
+    })
+    from app import simconfig_store
+    stored = simconfig_store.load_results_period(WORKSPACE_ID)
+    assert stored is not None and "start" in stored
+    body = client.get(page()).text
+    assert _active_preset(body) is None
+    assert 'value="2026-01-05"' in body and 'value="2026-01-12"' in body
+
+
+def test_a_remembered_preset_follows_a_refetch(client):
+    """The point of storing the TOKEN: re-fetching data that reaches further back moves the window.
+
+    The stored preset is `last_1_week`, anchored to the coverage END. Replacing the dataset with
+    one ending later must move the window with it rather than pin it to the old dates.
+    """
+    client.post(w("/results"), json={"period": "last_1_week"})
+    from app import dataset
+
+    n = 30 * 24
+    idx = (np.arange(n).astype("timedelta64[s]") * 3600
+           + np.datetime64("2026-06-01T00:00:00")).astype("datetime64[s]")
+    frames = [
+        SeriesFrame("grid_import_t1", "energy", 3600, idx, np.full(n, 2.0),
+                    np.zeros(n, dtype=QUALITY_DTYPE)),
+        SeriesFrame("grid_export_t1", "energy", 3600, idx, np.zeros(n),
+                    np.zeros(n, dtype=QUALITY_DTYPE)),
+    ]
+    dataset.save_dataset(frames, (datetime(2026, 6, 1, tzinfo=timezone.utc),
+                                  datetime(2026, 7, 1, tzinfo=timezone.utc)),
+                         "test", [], None, workspace_id=WORKSPACE_ID)
+
+    body = client.get(page()).text
+    assert _active_preset(body) == "last_1_week"
+    assert "2026-06-" in body            # the window moved to the new coverage
+
+
+def test_a_stored_range_outside_new_coverage_flips_to_the_year_preset(client):
+    """A typed range with no overlap after a re-fetch: fall back to `last_1_year` AND make that
+    the stored choice, so the fallback is sticky rather than re-derived on every load."""
+    client.post(w("/results"), json={
+        "start": "2026-01-05T00:00:00+00:00",
+        "end": "2026-01-12T00:00:00+00:00",
+    })
+    from app import dataset, simconfig_store
+
+    # New data a year later — the stored January-2026 range does not overlap it at all.
+    n = 30 * 24
+    idx = (np.arange(n).astype("timedelta64[s]") * 3600
+           + np.datetime64("2027-06-01T00:00:00")).astype("datetime64[s]")
+    frames = [
+        SeriesFrame("grid_import_t1", "energy", 3600, idx, np.full(n, 2.0),
+                    np.zeros(n, dtype=QUALITY_DTYPE)),
+        SeriesFrame("grid_export_t1", "energy", 3600, idx, np.zeros(n),
+                    np.zeros(n, dtype=QUALITY_DTYPE)),
+    ]
+    dataset.save_dataset(frames, (datetime(2027, 6, 1, tzinfo=timezone.utc),
+                                  datetime(2027, 7, 1, tzinfo=timezone.utc)),
+                         "test", [], None, workspace_id=WORKSPACE_ID)
+
+    body = client.get(page()).text
+    # The STORED choice is now the preset — that is the sticky part being pinned here.
+    assert simconfig_store.load_results_period(WORKSPACE_ID) == {"preset": "last_1_year"}
+    # The window resolved from it covers the new data, and the ribbon shows a preset rather than
+    # the custom fields. Which preset is highlighted is `_period_selected_for`'s pre-existing
+    # nearest-span mapping, not this feature's: `last_1_year` clamps to the 30 days that exist, so
+    # the nearest label is "1 month". Assert the shape, not that one label.
+    assert _active_preset(body) is not None
+    assert "2027-06-" in body
+
+
+def test_the_benchmark_fetch_does_not_overwrite_a_stored_preset(client):
+    """The benchmark route re-sends the RESOLVED window as an explicit start/end. If that were
+    recorded, loading the benchmark box would silently convert the user's preset into a frozen
+    custom range — so only /results writes, and this pins it."""
+    client.post(w("/results"), json={"period": "last_1_week"})
+    client.post(w("/results/benchmark"), json={
+        "start": "2026-01-24T00:00:00+00:00",
+        "end": "2026-01-31T00:00:00+00:00",
+    })
+    from app import simconfig_store
+    assert simconfig_store.load_results_period(WORKSPACE_ID) == {"preset": "last_1_week"}
+
+
+# ── The "default" button: reset to the data-derived window ───────────────────────────────────
+
+
+def test_the_default_button_is_offered_and_active_on_a_first_visit(client):
+    """It leads the ribbon, and it is what reads as active before the user has chosen anything —
+    the screen IS showing the derived window, so that is the button that describes it."""
+    body = client.get(page()).text
+    assert 'data-period="default"' in body
+    assert _active_preset(body) == "default"
+
+
+def test_the_default_button_recomputes_and_is_remembered(client):
+    """Pressing it stores the TOKEN, so the rule (not the dates it resolved to today) is what
+    comes back."""
+    r = client.post(w("/results"), json={"period": "default"})
+    assert r.status_code == 200
+    from app import simconfig_store
+    assert simconfig_store.load_results_period(WORKSPACE_ID) == {"preset": "default"}
+    assert _active_preset(r.text) == "default"
+    assert _active_preset(client.get(page()).text) == "default"
+
+
+def test_the_default_button_resets_a_custom_range(client):
+    """The reason it exists: get back to the known-good period after typing a range."""
+    client.post(w("/results"), json={
+        "start": "2026-01-05T00:00:00+00:00",
+        "end": "2026-01-12T00:00:00+00:00",
+    })
+    client.post(w("/results"), json={"period": "default"})
+    from app import simconfig_store
+    assert simconfig_store.load_results_period(WORKSPACE_ID) == {"preset": "default"}
+    body = client.get(page()).text
+    assert _active_preset(body) == "default"
+    # Back to the full coverage of the fixture's 30 days, not the 7 typed days.
+    assert 'value="2026-01-01"' in body and 'value="2026-01-31"' in body
+
+
+def test_the_remembered_default_re_derives_after_a_refetch(client):
+    """The point of storing the token: the window follows the data rather than freezing."""
+    client.post(w("/results"), json={"period": "default"})
+    from app import dataset
+
+    n = 20 * 24
+    idx = (np.arange(n).astype("timedelta64[s]") * 3600
+           + np.datetime64("2026-09-01T00:00:00")).astype("datetime64[s]")
+    frames = [
+        SeriesFrame("grid_import_t1", "energy", 3600, idx, np.full(n, 2.0),
+                    np.zeros(n, dtype=QUALITY_DTYPE)),
+        SeriesFrame("grid_export_t1", "energy", 3600, idx, np.zeros(n),
+                    np.zeros(n, dtype=QUALITY_DTYPE)),
+    ]
+    dataset.save_dataset(frames, (datetime(2026, 9, 1, tzinfo=timezone.utc),
+                                  datetime(2026, 9, 21, tzinfo=timezone.utc)),
+                         "test", [], None, workspace_id=WORKSPACE_ID)
+
+    body = client.get(page()).text
+    assert _active_preset(body) == "default"
+    assert 'value="2026-09-01"' in body and 'value="2026-09-21"' in body
+
+
+def test_the_default_button_narrows_to_pv_coverage(tmp_path, monkeypatch):
+    """End to end through the route: with PV mapped part-way through, "default" lands on the PV
+    window rather than the whole meter history."""
+    monkeypatch.setenv("BATTERY_SIM_DATA_DIR", str(tmp_path))
+    from app import dataset
+
+    pv_n = 10 * 24
+    pv_idx = (np.arange(pv_n).astype("timedelta64[s]") * 3600
+              + np.datetime64("2026-01-20T00:00:00")).astype("datetime64[s]")
+    frames = [
+        _energy("grid_import_t1", 2.0),
+        _energy("grid_export_t1", 0.5),
+        SeriesFrame("solar_production", "energy", 3600, pv_idx, np.full(pv_n, 0.4),
+                    np.zeros(pv_n, dtype=QUALITY_DTYPE)),
+    ]
+    dataset.save_dataset(frames, (_WIN_START, _WIN_END), "test", [], None,
+                         workspace_id=WORKSPACE_ID)
+    seed_workspace()
+    from app import main
+    client = TestClient(main.app)
+
+    body = client.post(w("/results"), json={"period": "default"}).text
+    assert 'value="2026-01-20"' in body     # PV start, not the meter's 2026-01-01
+    assert _active_preset(body) == "default"
+
+
+def test_default_combined_with_a_range_is_a_400(client):
+    """It is still a preset for mutual-exclusivity purposes, not an escape hatch."""
+    r = client.post(w("/results"), json={
+        "period": "default", "start": "2026-01-05T00:00:00+00:00",
+    })
+    assert r.status_code == 400
+
+
+# ── The coverage warning on the rendered page ─────────────────────────────────────────────────
+
+
+def test_coverage_warning_absent_when_every_series_spans_the_window(client):
+    assert "results-coverage-warning" not in client.get(page()).text
+
+
+def test_coverage_warning_names_a_short_series(tmp_path, monkeypatch):
+    """A PV series mapped part-way through: the warning appears, names the role, and states the
+    span PV actually covers."""
+    monkeypatch.setenv("BATTERY_SIM_DATA_DIR", str(tmp_path))
+    from app import dataset
+
+    pv_n = 10 * 24
+    pv_idx = (np.arange(pv_n).astype("timedelta64[s]") * 3600
+              + np.datetime64("2026-01-20T00:00:00")).astype("datetime64[s]")
+    frames = [
+        _energy("grid_import_t1", 2.0),
+        _energy("grid_export_t1", 0.5),
+        SeriesFrame("solar_production", "energy", 3600, pv_idx, np.full(pv_n, 0.4),
+                    np.zeros(pv_n, dtype=QUALITY_DTYPE)),
+    ]
+    dataset.save_dataset(frames, (_WIN_START, _WIN_END), "test", [], None,
+                         workspace_id=WORKSPACE_ID)
+    seed_workspace()
+    from app import main
+    client = TestClient(main.app)
+
+    # Ask for the full 30 days explicitly, so the window is wider than PV's coverage.
+    body = client.post(w("/results"), json={
+        "start": _WIN_START.isoformat(), "end": _WIN_END.isoformat(),
+    }).text
+    assert "results-coverage-warning" in body
+    assert "Solar production" in body
+    assert "2026-01-20" in body

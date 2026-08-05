@@ -264,9 +264,12 @@
     the daytime-export heuristic; or make it an unset radio group that must be answered
     before the run proceeds, which costs one click for everyone and removes the guess
     entirely. The third is the recommendation if panel ② can afford the friction.
-    **Decide together with §8.18** — these are the two toggles that shape what panel ②
-    asks for, and making both unset costs the user two clicks before any result appears,
-    which is a different friction calculation from making one unset.
+    **This is now decided on its own**, not jointly with §8.18. The two questions were paired
+    because both toggles shaped what panel ② asked for, so making both unset would have cost the
+    user two clicks before any result appeared. [§2′.7](20-workspaces-ux.md#27-where-the-setup-bands-questions-went)
+    dissolved the setup band and moved `simulate_cost` to the results screen, leaving `has_pv`
+    on panel ② alone — there is no longer a shared friction budget to trade off, and §8.18 is
+    settled regardless.
     → [§2.3](02-ux-wireframes.md#23-panel--parameter-configuration-expanded),
     [appendix-a-defaults.md](appendix-a-defaults.md)
 
@@ -284,19 +287,36 @@
     [§2.3](02-ux-wireframes.md#without-pv),
     [experiment X9](19-prototype-experiments.md#x9--does-the-policy-matrix-have-a-stable-winner)
 
-18. **Default for `simulate_cost`.** Defaulted to `false`, so a first-time user reaches an
-    energy-only result without entering a single euro figure — which is what protects the
-    five-minute cold-start criterion in
-    [§1.6](01-product-brief.md#16-success-criteria), since the alternative asks a user who
-    has just connected Home Assistant to also know their supply rate, their feed-in terms
-    and the current energy tax. The cost of the default is that cost simulation is the more
-    compelling half of the product and some users will never find the toggle. The results
-    panel carries an explicit affordance for this reason
-    ([§2.4](02-ux-wireframes.md#panel--without-cost-simulation)), but an affordance is weaker than
-    a default. Options: keep `false`; default to `true` and accept the configuration
-    burden on first run; or leave it unset and require an answer, as
-    [§8.16](17-open-questions.md) contemplates for `has_pv`. Decide together with §8.16.
-    → [§2.3](02-ux-wireframes.md#23-panel--parameter-configuration-expanded),
+18. **Default for `simulate_cost` — decided: `true`.** It was `false` for most of this
+    package's life, so that a first-time user reached an energy-only result without entering a
+    single euro figure, which protected the five-minute cold-start criterion in
+    [§1.6](01-product-brief.md#16-success-criteria). **That premise no longer holds.** The
+    three-step wizard ([§2′.8](20-workspaces-ux.md#28-the-footer-and-the-two-entry-points))
+    puts the edit-workspace screen — the one carrying the Contract box — at step 1, ahead of
+    the results screen, and every successful save of it sets `pricing.configured`
+    ([§2′.6](20-workspaces-ux.md#a-contract-configured-is-an-explicit-flag)). A workspace created
+    through `[ + New analysis ]` has therefore already been asked what it pays by the time any
+    result is drawn, so defaulting to `false` no longer buys a shorter cold start; it only
+    withholds the answer the user just gave, on the more compelling half of the product
+    ("some users will never find the toggle", the cost this entry always named).
+
+    **The accepted cost.** `pricing.configured` records that the user *passed* the contract
+    screen, not that they engaged with it — the flag deliberately does not diff against
+    appendix A's defaults, for the reasons §2′.6 gives. A user who tabs through step 1 will see
+    euro figures derived from default rates they never read. This is accepted rather than fixed:
+    the figures are on screen and editable, the Contract box is one click away via the cost
+    section's own link, and the alternative — deriving the flag from a diff — is the fragile
+    approach §2′.6 rejected in both directions.
+
+    **Not adopted:** leaving it unset and requiring an answer. That option existed to be weighed
+    against the same treatment of `has_pv` (§8.16); with the wizard already routing every new
+    workspace through the contract screen, a required answer adds a click and removes no guess.
+
+    Existing workspaces are unaffected — the default governs new configs only, and §2′.10's
+    migration sets `pricing.configured` from a workspace's stored `simulate_cost` rather than
+    overwriting it.
+    → [§2′.6](20-workspaces-ux.md#the-cost-toggle-and-its-precondition),
+    [§2′.7](20-workspaces-ux.md#27-where-the-setup-bands-questions-went),
     [appendix-a-defaults.md](appendix-a-defaults.md)
 
 19. **Two perfect-foresight runs when cost is simulated.** The benchmark that bounds the

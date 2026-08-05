@@ -99,12 +99,14 @@ for. But two things follow:
 - **Households with and without solar PV.** PV series are optional; the household declares
   which case applies, and the requirements, policies, topology choices, metrics and
   diagnostics that depend on PV are adjusted accordingly.
-- **Cost simulation as an opt-in.** The household declares whether it wants money figures
-  as well as energy figures (`cfg.simulate_cost`, answered on the results screen above the
-  sections it adds, [§2′.7](20-workspaces-ux.md#27-where-the-setup-bands-questions-went),
-  default **off**). With it off, the contract, tax, VAT and feed-in configuration is not asked
-  for, the money results are not produced, and the app is usable end to end without any
-  euro figure. See the note on what the toggle does and does not remove, below.
+- **Cost simulation, on by default and switchable off.** The household declares whether it
+  wants money figures as well as energy figures (`cfg.simulate_cost`, answered on the results
+  screen above the sections it adds,
+  [§2′.7](20-workspaces-ux.md#27-where-the-setup-bands-questions-went), default **on** —
+  [§8.18](17-open-questions.md), because the wizard asks for the contract before any result is
+  drawn). With it off, the contract, tax, VAT and feed-in configuration is not asked for, the
+  money results are not produced, and the app is usable end to end without any euro figure.
+  See the note on what the toggle does and does not remove, below.
 - Reconstruction of the battery-free household load, including stripping out an
   already-installed battery if its sensors are provided.
 - Mixed-resolution input data, normalised onto a single uniform simulation grid.

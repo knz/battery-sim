@@ -4,17 +4,35 @@
  * output is app/static/app.css, which is what the browser loads and what is committed. Edit
  * this file for custom styles, then regenerate. Do not edit app/static/app.css by hand.
  *
- * Tailwind v4 is CSS-first: there is no tailwind.config.js. Content sources are
- * auto-detected; the `@source` line pins template scanning explicitly since the templates
- * live outside this file's directory. daisyUI is loaded as a v4 plugin via `@plugin`.
+ * Tailwind v4 is CSS-first: there is no tailwind.config.js. Automatic source detection is
+ * DISABLED via `source(none)`, and the single `@source` glob below is the only place class
+ * names are read from. daisyUI is loaded as a v4 plugin via `@plugin`.
+ *
+ * Why source(none) rather than Tailwind's automatic detection: auto-detection scans the
+ * whole project, so ANY file that happens to contain something shaped like a utility class
+ * — prose in a changelog, a docs example, a string in a script — silently adds a rule to
+ * the generated output. That is not hypothetical; a changelog entry describing a CSS bug
+ * put a rule into app.css by quoting the class name, which then failed the css-freshness
+ * CI gate (see changelog/20260806-ci-app-css-drift.md). Templates are the only thing that
+ * renders class attributes here — no .py file emits `class="..."` — so scanning exactly
+ * the templates makes the output a function of the markup and nothing else.
+ *
+ * The narrowing also dropped ~43% of the generated file (169182 -> 96603 bytes): 141
+ * selectors that no template references, pulled in from node_modules and other stray
+ * files. Every dropped selector was cross-checked against the templates before the change
+ * was kept; none were in use, and the full test suite (including the Playwright smoke
+ * tests that render real pages) passes.
+ *
+ * The consequence to know about: a class used ONLY from somewhere other than an .html file
+ * under app/templates/ will no longer be generated. Add an `@source` line if that changes.
  *
  * Custom rules below cover the few widgets daisyUI does not provide directly: the
  * illustrated radio-card selectors (§2.5), the benchmark bars (§2.4), the tabular figure
  * columns, and the .cost-label / .cost-field pair that tints the cost-simulation controls.
  */
 
-@import 'tailwindcss';
-@source '../../templates';
+@import 'tailwindcss' source(none);
+@source '../../templates/**/*.html';
 
 @plugin 'daisyui' {
   themes: light --default, dark --prefersdark;

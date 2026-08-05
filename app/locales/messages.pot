@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-05 22:59+0200\n"
+"POT-Creation-Date: 2026-08-05 23:36+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -817,6 +817,11 @@ msgstr ""
 msgid "One conversion PV→battery"
 msgstr ""
 
+msgid "One series does not cover this whole period:"
+msgid_plural "Some series do not cover this whole period:"
+msgstr[0] ""
+msgstr[1] ""
+
 msgid "Only a label, so you can tell your analyses apart."
 msgstr ""
 
@@ -1330,6 +1335,9 @@ msgstr ""
 msgid "Type"
 msgstr ""
 
+msgid "Update your data →"
+msgstr ""
+
 msgid "Upload CSV"
 msgstr ""
 
@@ -1641,6 +1649,9 @@ msgid_plural "days"
 msgstr[0] ""
 msgstr[1] ""
 
+msgid "default"
+msgstr ""
+
 msgid "disabled"
 msgstr ""
 
@@ -1714,6 +1725,9 @@ msgid "needs attention"
 msgstr ""
 
 msgid "net of your existing battery"
+msgstr ""
+
+msgid "no data"
 msgstr ""
 
 msgid "none detected"

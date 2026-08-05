@@ -16,7 +16,7 @@
 | `standby_w` | 30 | ≈ 260 kWh/yr — material, routinely omitted |
 | `coupling` | `ac` | |
 | `has_pv` | `true` | The common case among likely users; asked explicitly, never inferred — see [§8.16](17-open-questions.md) |
-| `simulate_cost` | `false` | Energy-only by default, so a first result needs no contract knowledge — see [§8.18](17-open-questions.md) |
+| `simulate_cost` | `true` | The wizard asks for the contract at step 1, so a new workspace has already answered before any result is drawn — see [§8.18](17-open-questions.md) |
 | `initial_soc_pct` | 50 | |
 | `phases` | 1 | |
 | `fuse_a` | 25 | → 5.75 kW (1×25 A) / 17.3 kW (3×25 A) |
@@ -35,7 +35,7 @@
 | `degradation_eur_per_kwh` | 0.0 | Disabled |
 | `allow_grid_export` | false | |
 | `economic_guard` | false | Policies stay literal by default |
-| `pv_coupling` | `dc_hybrid` | Most new installs are hybrid; ask, do not assume. Forced to `null` when `has_pv = false` |
+| `pv_coupling` | `ac` | Must match `coupling` above: `parse_form` derives `coupling` from this field on every submission carrying the selector, so a disagreement rewrites `coupling` when an unrelated control is used. Forced to `null` when `has_pv = false` |
 | `battery_phases` | `three_phase` | Only offered when connection is 3-phase |
 | `supplier_settlement` | `hourly` | Most NL dynamic suppliers still bill hourly averages |
 | `epoch_detection` | on | PV/battery commissioning |
@@ -84,11 +84,11 @@ Everything not in that list applies in both modes. The band parameters in partic
 [§2.3](02-ux-wireframes.md#23-panel--parameter-configuration-expanded)) are dispatch
 parameters and are asked for in both modes, as is the spot price series itself.
 
-Five of these defaults are themselves open questions: `degradation_eur_per_kwh`
+Four of these defaults are themselves open questions: `degradation_eur_per_kwh`
 ([§8.3](17-open-questions.md)), `pv_capacity_change_detection`
 ([§8.13](17-open-questions.md)), `feedin_floor_period`
-([§8.14](17-open-questions.md)), `has_pv` ([§8.16](17-open-questions.md)) and
-`simulate_cost` ([§8.18](17-open-questions.md)).
+([§8.14](17-open-questions.md)) and `has_pv` ([§8.16](17-open-questions.md)).
+`simulate_cost` was a fifth until [§8.18](17-open-questions.md) settled it at `true`.
 
 The 2026 constants above are drawn from
 [background E-A](18-dutch-electricity-background.md#appendix-e-a--quick-reference-2026),
