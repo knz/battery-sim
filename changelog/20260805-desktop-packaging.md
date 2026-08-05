@@ -1240,3 +1240,252 @@ Open, with no recommendation attached:
 - **Wiring both packaged suites into CI**, carried over from §12.10 and now covering two artifacts.
 - **The GTK teardown warnings on window close** (§13.8) — cosmetic, but they are the kind of thing
   that masks a real one later.
+
+## 14. Phase 5 — packaged Home Assistant WebSocket verification
+
+Implemented 2026-08-05 for levels 1 and 2. **Level 3 is written but NOT RUN**, and with it the
+premise the whole desktop direction rests on remains unverified — see §14.6, which should be read
+before this section is taken as closing R1.
+
+Three levels, as scoped:
+
+1. raw `ws://` against both packaged artifacts (automated);
+2. a recorded HA row batch replayed against the packaged server (automated);
+3. a run against the user's real Home Assistant (a written procedure, to be run by the user).
+
+### 14.1 What was added
+
+- `tests/test_packaged_ingest.py` — 5 tests, parametrized over each artifact the environment names,
+  so a run with both gates set executes 10. Gated on `BATTERY_SIM_PACKAGED_BINARY` **and/or**
+  `BATTERY_SIM_APPIMAGE`, the same env-var idiom as the two packaged files beside it.
+- `changelog/20260805-ha-verification-procedure.md` — the level-3 procedure.
+
+No application source changed. `app/`, `packaging/`, `pyproject.toml` and `uv.lock` are untouched
+by this phase, as they were by phases 3 and 4. Changes are left **unstaged and uncommitted**.
+
+### 14.2 D13 — one file parametrized over both artifacts, rather than a file per artifact
+
+The task described level 1 as running against "both the onedir binary and the AppImage". That could
+have been two files, or an addition to each of the two existing ones. It is one file with a
+`params`-ed fixture instead, for a reason that turned out to be load-bearing rather than cosmetic:
+**the AppImage had never had a WebSocket opened against it at all.**
+
+`tests/test_appimage.py` asserts on the *payload* — typelibs, `gi`'s location, WebKit's helpers —
+and its single end-to-end check drives the image with `--no-browser` over HTTP. `tests/test_packaged.py`
+does open a raw `ws://`, but only ever against the onedir bundle. So the AppImage's repack — a
+different `sys.path`, a relocated `_internal/`, an AppRun that rewrites the environment — sat
+between a working ingest route and the artifact the user is actually given, with nothing checking
+it. That gap is now measured rather than argued: see §14.4, where a deliberately broken AppImage
+passes `tests/test_appimage.py` 7/7.
+
+The parametrization keeps the artifact label in the pytest id, so a failure names which artifact
+broke without anyone decoding a path.
+
+### 14.3 Level 1 — how much it is actually worth, stated honestly
+
+The task asked whether level 1 still adds value beyond the phase-3 finding that pinning
+`ws="websockets-sansio"` turns a missing WebSocket module into a hard `ModuleNotFoundError` at
+startup. **It is partly redundant, and the redundancy was measured rather than reasoned about.**
+
+A bundle was rebuilt with `uvicorn.protocols.websockets.websockets_sansio_impl` dropped from
+`hiddenimports` and `websockets` added to `excludes` — phase 3's sabotage, reproduced. The result
+against `tests/test_packaged_ingest.py` was **5 errors, all at the fixture**:
+
+```
+uvicorn/config.py:487 → import_from_string → websockets_sansio_impl.py:15
+ModuleNotFoundError: No module named 'websockets'
+the server did not become ready in time
+```
+
+So for *that* failure mode level 1 adds nothing: the server does not start, and every test in every
+packaged file fails first. §12.6's conclusion holds and this phase confirms it independently.
+
+**What level 1 does still cover is narrower, and it is real.** The failure it uniquely guards is an
+implementation that imports and upgrades but cannot carry a frame *outbound*. A bundle was built
+with the route's two `ws.send_json` calls suppressed (the `progress` frame and the `error` frame),
+leaving everything else intact. Results:
+
+| suite | onedir | AppImage |
+|---|---|---|
+| `tests/test_packaged.py` | 1 failed / 8 passed | (n/a — no AppImage gate) |
+| `tests/test_appimage.py` | (n/a) | **7 passed** |
+| `tests/test_packaged_ingest.py` | 3 failed / 2 passed | **3 failed / 2 passed** |
+
+The middle row is the finding. **An AppImage whose ingest protocol cannot answer passes the entire
+existing AppImage suite.** On the onedir bundle `tests/test_packaged.py::test_the_websocket_route_works`
+does catch it, so level 1's contribution there is duplicated coverage rather than new coverage —
+worth saying plainly. On the AppImage it is the only thing watching.
+
+Note also which two tests survived that sabotage: the upgrade test and the 404-handshake test both
+passed, because the handshake was never broken. That is the intended discrimination — a handshake
+check and a frame check answer different questions, and folding them into one assertion would have
+lost exactly the distinction phase 3 §12.11 warns about.
+
+**A third, cheaper sabotage was attempted first and did not work**, which is worth recording so it
+is not retried. Moving `_internal/websockets/` aside in a bundle copy changed nothing — 5 passed.
+That directory holds only the compiled `speedups` extension; the pure-Python `websockets` modules
+live in the PYZ archive inside the executable. File-removal sabotage does not reach them, and a
+rebuild from a modified spec is the only way to sabotage an import in this bundle layout.
+
+### 14.4 Level 2 — replay, and the read-back that is the point of it
+
+`tests/test_ingest_ws.py::_drive_valid_ingest` already replays a recorded HA row batch, so the DATA
+was reused: the same three hourly series (a cumulative import register, a cumulative export
+register, a spot price) over the same two-hour window, and the same `stat_id`. The *driver* was not
+reusable — that helper drives a FastAPI `TestClient` with synchronous `send_json`/`receive_json`,
+which speaks ASGI directly and performs no HTTP upgrade at all, while level 2 needs an async
+`websockets` client against a separate frozen process. So the batch is copied with a comment saying
+why, and the assertions on the `result` frame mirror
+`test_valid_ingest_persists_and_reports` deliberately: the packaged build must produce the same
+answer the source tree does, and the source tree's expectation is pinned by a test that runs on
+every ordinary pytest invocation.
+
+The second level-2 test is the one that earns its place. It re-reads the persisted dataset out of a
+**separate HTTP request** to the configure-data screen, so two independent code paths have to agree
+and the write must have reached disk in the frozen process's per-user data directory rather than
+only an in-memory session.
+
+**Sabotage-checked, and it discriminates cleanly.** A bundle was built with `stat_id` forced to
+`None` on persistence — frames still flow, the `result` frame is still correct, only the read-back
+is wrong:
+
+| suite | result |
+|---|---|
+| `tests/test_packaged.py` | **9 passed** |
+| `tests/test_packaged_ingest.py` | **1 failed** / 4 passed — the read-back test, alone |
+
+Exactly one test fails and it is the right one. This is the failure class no other packaged test
+observes: the socket exchange succeeds and reports success, and the data is quietly wrong.
+
+The workspace fixture here is **function-scoped**, unlike the module-scoped one in
+`tests/test_packaged.py`. Level 2 persists a dataset and then asserts on the screen that renders
+it; sharing one workspace across tests would let an earlier ingest satisfy a later assertion.
+
+### 14.5 The 404 trap, now pinned in executable form
+
+§10 recorded that an unknown workspace id fails the ingest route's **handshake** with an HTTP 404
+rather than with an in-protocol error, and warned that a test which skipped seeding would report a
+packaging bug that is not there. `test_level1_an_unknown_workspace_fails_the_handshake` now asserts
+that behaviour directly, and asserts on the **status code** rather than merely on "it failed" — a
+bundle genuinely lacking WebSocket support also fails that connection, but with a different shape.
+The intent is that the next person to meet this reads a passing test instead of rediscovering it.
+
+### 14.6 Level 3 — WRITTEN, NOT RUN
+
+`changelog/20260805-ha-verification-procedure.md`. It is a checklist for the user to run against
+their own Home Assistant, and **nothing in it has been executed**.
+
+The question it exists to answer:
+
+> Does `ws://` from a page served at `http://127.0.0.1:<port>` reach a **plain-HTTP** LAN Home
+> Assistant, and does HA's origin check accept that origin?
+
+**R1 remains PARTIALLY verified and this phase does not change that.** The earlier probe succeeded
+but ran against an HA served over `https://`, so what it exercised was `wss://`. The plain-HTTP LAN
+case — the configuration §2.1 identifies as the common default and as the specific thing hosting
+broke — is still untested. Levels 1 and 2 do not touch it: they prove our own ingest socket works
+in the packaged artifacts, which is the *backend* half. The HA half runs in the browser and needs a
+real HA.
+
+Two things the procedure had to get right, and they are the reason it is not shorter:
+
+- **Which case the user is exercising is not obvious from the UI.** `app/static/ha_fetch.js`
+  derives the HA scheme from what is typed into the base-URL field, and a **bare** host silently
+  becomes `https://` (around line 331). So a user who types `192.168.x.x:8123` gets `wss://` and
+  would report a pass on the case that was already proven. Step 0 makes them check with `curl`
+  first and record which case they ran, and says what to do when HA is https-only — including that
+  the decisive case may not be testable without reconfiguring HA, in which case the honest outcome
+  is "still unverified" rather than a substituted `wss://` result.
+
+- **The failure is otherwise unobservable.** The HA fetch runs in the browser/webview, so its
+  console is inside the pywebview window.
+
+### 14.7 How JS console output can be observed — investigated
+
+- **`--browser` mode is the practical answer**, and the procedure says so. It opens the user's
+  normal browser with full devtools and a network pane that shows the WebSocket frames.
+  **Verified**: the AppImage was run with `--browser` and printed
+  `Home Battery Simulator on http://127.0.0.1:8231/`, answering 200. So `--browser` serves the
+  **same origin and the same scheme** as the native window, which makes it a valid proxy for the
+  origin question — the only thing it does not exercise is the WebKit renderer itself. (The probe
+  process was terminated by its exact PID.)
+
+- **The shipped pywebview window has no inspector.** pywebview supports one — `webview.start()`
+  takes `debug: bool = False`, and pywebview 6.2.1's `webview/platforms/gtk.py` sets
+  `enable_developer_extras = True` under it and, with its default `OPEN_DEVTOOLS_IN_DEBUG`, calls
+  `get_inspector().show()`. But `app/desktop.py::_show_window` does not pass `debug` and there is
+  no CLI flag for it, so right-click → Inspect Element is not available today. **Verified by
+  reading both sources; NOT verified by opening an inspector** (this venv cannot import `gi`).
+  AppRun forwards `"$@"` to the frozen launcher, so a future `--debug` flag would reach the
+  AppImage unchanged. Adding one is a small change and was deliberately **not** made here — it is
+  application source, and this phase changed none.
+
+- **Environment variables do not substitute.** The inspector is gated on the
+  `enable_developer_extras` WebKitSettings property, which is what `debug=True` sets; there is no
+  env var that flips it. The inspector UI is compiled into `libwebkit2gtk` on this build (no
+  separate gresource file was found), so it would travel with the AppImage if it were enabled.
+
+- **stderr works in both modes** and carries the launcher's own output, but never JS console
+  output.
+
+### 14.8 Test numbers
+
+Measured, per file. The full suite was **not** run, on the standing instruction that it carries
+slow benchmarks; §11.6's figure remains stale and this phase does not update it.
+
+Good artifacts:
+
+- `uv run pytest tests/test_packaged_ingest.py -q`, both gates unset → **5 skipped** in 0.02s.
+- `BATTERY_SIM_PACKAGED_BINARY=dist/battery-sim/battery-sim …` → **5 passed** in 1.40s.
+- `BATTERY_SIM_APPIMAGE=dist/Home-Battery-Simulator-x86_64.AppImage …` → **5 passed** in 1.27s.
+- both gates together → **10 passed** in 2.62s.
+- `BATTERY_SIM_PACKAGED_BINARY=… uv run pytest tests/test_packaged.py -q` → **9 passed** in 1.31s.
+- `BATTERY_SIM_APPIMAGE=… uv run pytest tests/test_appimage.py -q` → **7 passed** in 1.86s.
+- `uv run pytest tests/test_desktop.py tests/test_ingest_ws.py -q` → **75 passed** in 13.65s
+  (58 + 17; both unchanged, as expected — no application source changed).
+
+Sabotaged artifacts (each rebuilt, tested, then deleted; the spec and `app/` were restored and
+`git status` confirmed clean before the good bundle was rebuilt):
+
+| sabotage | `test_packaged.py` | `test_appimage.py` | `test_packaged_ingest.py` |
+|---|---|---|---|
+| WebSocket impl dropped from the spec | — | — | 5 errors (server will not start) |
+| outbound `progress`+`error` frames suppressed | 1 failed / 8 passed | **7 passed** | 3 failed / 2 passed (both artifacts) |
+| `stat_id` dropped on persistence | **9 passed** | — | **1 failed** / 4 passed |
+| `_internal/websockets/` moved aside | — | — | 5 passed (does not sabotage — see §14.3) |
+
+The two bold cells are what justifies the file: an existing suite fully green on an artifact that is
+broken in a way this phase's tests catch.
+
+### 14.9 What is NOT verified
+
+- **The plain-HTTP LAN Home Assistant premise.** The headline gap. Level 3 is unrun; R1 stays
+  PARTIALLY verified, on a `wss://` probe. Everything phases 1-5 built assumes a browser rule
+  (an `http://127.0.0.1` page may open `ws://` to a LAN host) that has been read from
+  documentation here and never measured against a real HA.
+- **The HA fetch from inside the pywebview window**, at the launcher's own port. Levels 1 and 2
+  drive the artifacts with `--no-browser`; nothing here opened the native window.
+- **That the inspector actually opens under `debug=True`.** Reasoned from two sources, not run.
+- **Whether the earlier probe's origin acceptance survives a non-8000 port.** The procedure will
+  answer this incidentally (the launcher defaults to 8137), but it has not been answered.
+- **Everything §13.11 lists** — portability off this machine, the other chart tabs, a full
+  simulation run in the packaged build, localStorage persistence across a restart, macOS and
+  Windows, startup time, FUSE-less operation. Phase 5 touched none of them.
+
+### 14.10 Status and what is open
+
+Levels 1 and 2 are complete: both packaged artifacts accept a raw `ws://` upgrade, answer a
+server-originated frame, replay a recorded HA row batch, and persist it where a separate HTTP
+request can read it back. The tests are sabotage-checked and discriminate between failure modes
+rather than merely being non-vacuous. Changes are **unstaged and uncommitted**.
+
+Open, with no recommendation attached:
+
+- **Running level 3.** It needs the user's own Home Assistant and it is the only item here that
+  bears on whether the direction is sound.
+- **A `--debug` flag on the launcher**, passing `debug=True` to `webview.start()`, if the native
+  window is ever to be diagnosable on its own terms rather than through `--browser`. Small; it is
+  application source, so it was not done unasked.
+- **Wiring all three packaged suites into CI**, carried forward from §12.10 and §13.12 and now
+  covering a third file.
+- **The container build for portability** (D12), unchanged from §13.12.
