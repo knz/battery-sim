@@ -4,15 +4,40 @@ A locally-run web app that retrospectively simulates what a home battery would h
 Dutch household, using that household's own historical data under the post-2027 Dutch regime.
 See [`specs/README.md`](specs/README.md) for the full specification.
 
+## For households — using the app
+
+**The rest of this README is for people working on the app.** If you just want to run it,
+start here instead:
+
+- **[Installing and running](docs/en/install.md)** — [Installeren en starten](docs/nl/installatie.md)
+- **[The security warnings your OS shows](docs/en/security-warnings.md)** — [Beveiligingswaarschuwingen](docs/nl/beveiligingswaarschuwingen.md)
+- **[Supporting the project](docs/en/sponsor.md)** — [Het project steunen](docs/nl/sponsor.md)
+
+Those pages exist in English and Dutch; the index is [`docs/README.md`](docs/README.md).
+
+The short version: there is a **Linux AppImage** — download it, `chmod +x`, run it. **No macOS
+or Windows build has been produced yet.** Neither desktop build is signed, which is what the
+security-warnings page is about.
+
 ## Status
 
-**Frontend visual scaffold** (first increment). The three-panel UI
-([specs/02-ux-wireframes.md](specs/02-ux-wireframes.md)) renders from a *static sample
-view-model* — it shows the intended shape of the product but is **not yet wired to feature
-logic**: no data ingestion, simulation, or pricing. Numbers on screen are placeholders.
+**Both the energy and the cost paths are complete end to end.** Panel ② configures a battery
+and, behind the cost opt-in, a contract; panel ③ simulates against the household's own
+persisted data and reports what it would have saved in kWh and in euros, each bounded by its
+own §6.12 perfect-foresight benchmark. The per-area breakdown is in
+[specs/implementation-progress.md](specs/implementation-progress.md), which is the file to
+trust over this paragraph.
 
-The rendered variant is the app default: solar PV on, cost simulation off (energy only), so
-the Pricing box and the COST SAVINGS results section are absent by design.
+Known limits, from that same file: the cost path carries **only the DYNAMIC contract type**
+(FIXED and VARIABLE are pending controls, blocked on §6.4's `tariff_zone`), terugleverkosten
+are FLAT only, and CSV ingestion, configuration epochs and per-interval CSV export are not
+built. Controls that are specified but not yet built render *pending* — disabled, with a `[?]`
+button explaining what is missing.
+
+**Desktop packaging** is at phase 7: a PyInstaller `onedir` build wrapped as an AppImage with
+WebKit2GTK bundled, verified to open its native window on a machine with no WebKit installed.
+Built against glibc 2.39, so it needs Ubuntu 24.04 or newer. macOS and Windows are planned but
+not built. The record is `changelog/20260805-desktop-packaging.md`.
 
 ## Stack
 
@@ -188,4 +213,26 @@ app/
 tests/
   screenshot.py         launch + screenshot helper
   test_smoke.py         Playwright smoke tests
+docs/
+  en/, nl/              user-facing documentation (install, security warnings, sponsorship)
 ```
+
+## Licence
+
+**GNU Affero General Public License v3.0 only** (`AGPL-3.0-only`). The full text is in
+[LICENSE](LICENSE); `pyproject.toml` declares it as a PEP 639 SPDX expression.
+
+The AGPL's distinguishing clause is §13: if you run a modified version and let other people use
+it over a network, those users are entitled to the source of your modified version. Running the
+app on your own machine for yourself — which is what it is designed for — triggers nothing.
+
+## Supporting the project
+
+The desktop builds are unsigned, which is why macOS and Windows warn about them. What signing
+would cost and what it would actually fix is set out in
+[docs/en/sponsor.md](docs/en/sponsor.md) ([Nederlands](docs/nl/sponsor.md)).
+
+This invitation lives in the documentation and in this README, and **deliberately nowhere in
+the application itself**: the app makes no outbound network calls except to the user's own Home
+Assistant ([specs/01-product-brief.md](specs/01-product-brief.md) §1.5), and a sponsor link in
+the window would be the first outward-facing affordance the product has.

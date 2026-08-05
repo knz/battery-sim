@@ -1828,3 +1828,139 @@ What remains, none of them adopted here:
   probably not, but nothing was measured; the claim here is only that the window opens and the
   results screen renders.
 - **The user's real desktop.** Everything above is Xvfb on this build host.
+
+## 17. Phase 8 — user-facing documentation, and a licence
+
+### 17.1 What was asked
+
+Write documentation for the *household*, not the developer; add a LICENSE; fill in the
+placeholder metadata in `pyproject.toml`; and put a sponsorship invitation in the docs.
+Three decisions arrived already taken and were implemented rather than re-argued: **AGPL-3.0**,
+**sponsorship in docs and README only — never in the app UI**, and **bilingual EN/NL docs**.
+
+The instruction attached to the sponsorship placement is worth restating because it is a
+product constraint, not a preference: `specs/01-product-brief.md:186` and
+`specs/15-data-quality-and-limits.md` §7.5 rule out telemetry and outward-facing affordances,
+and the app's only outbound call is opt-in and endpoint-less by default. A "Sponsor" link in
+the window would be the first outward-facing affordance the product has, so it goes in files
+a user reads *about* the app, not in the app. Nothing under `app/` was touched.
+
+### 17.2 What was written
+
+- `LICENSE` — the full GNU AGPL-3.0 text, unmodified, with the copyright line filled in.
+- `docs/README.md` — a two-line index pointing at the two language trees.
+- `docs/en/install.md`, `docs/nl/installatie.md` — how a household downloads and runs the app.
+- `docs/en/security-warnings.md`, `docs/nl/beveiligingswaarschuwingen.md` — what each OS shows,
+  what it means, and the steps through it.
+- `docs/en/sponsor.md`, `docs/nl/sponsor.md` — the signing-cost invitation.
+- `README.md` — a new "For households" section at the top of the body, above the developer
+  material, plus a Licence section. The developer content is unchanged apart from the Status
+  section (see 17.5).
+- `pyproject.toml` — `description` and `license`.
+
+### 17.3 D15 — AGPL-3.0 expressed as an SPDX string, not a classifier
+
+`license = "AGPL-3.0-only"` plus `license-files = ["LICENSE"]`, which is PEP 639 form.
+Hatchling supports PEP 639 and this is the form it documents; the older
+`license = {text = ...}` table and the `License ::` trove classifier are both deprecated under
+PEP 639, and mixing a classifier with an SPDX expression is an error for build backends that
+implement the PEP. `-only` rather than the bare `AGPL-3.0`, because the bare form is ambiguous
+about the "or later" clause and SPDX deprecated it.
+
+The `description` placeholder ("Add your description here") was replaced with a one-line
+statement drawn from `specs/01-product-brief.md` §1.1.
+
+### 17.4 What was VERIFIED about OS behaviour, and what came from §7
+
+§7 of this file was written as a deferred-decision note and is broadly right, but two of its
+statements needed correcting and one needed sharpening. Sources are Apple's and Microsoft's own
+documentation; Context7 was consulted and has nothing on OS-level Gatekeeper/SmartScreen
+behaviour, which is outside what it indexes (it covers library and framework docs).
+
+- **macOS — confirmed and made more precise.** Apple's Mac User Guide ("Open a Mac app from an
+  unidentified developer") documents the current path as: attempt to open, be refused, then
+  System Settings → Privacy & Security → Security → Open, then **Open Anyway**, then
+  **authenticate with the login password**. Two details §7 did not carry: the password prompt,
+  and that Apple states the Open Anyway button is only offered **for about an hour** after the
+  refused launch attempt. The Control-click "Open" override that used to work was removed in
+  macOS 15 Sequoia and has not returned in macOS 26 Tahoe. Apple's own page also says plainly
+  that overriding this is "the most common way that a Mac gets infected with malware" — the
+  docs quote that rather than talking around it.
+- **Windows — §7's framing was too favourable to signing.** Microsoft's *SmartScreen reputation
+  for Windows app developers* (learn.microsoft.com, page dated 2026-05) states that a signed
+  binary **still shows the warning** until the file hash or publisher certificate accumulates
+  reputation — "several weeks and hundreds of clean installs". It also states that EV
+  certificates no longer bypass SmartScreen, which they once did. So on Windows a certificate
+  buys a displayed publisher name and a reputation signal that carries across releases; it does
+  not buy a clean first download. The docs say this rather than implying a purchase removes the
+  dialog. Additionally: Windows 11's **Smart App Control**, where enabled, blocks unsigned
+  binaries outright with no Run-anyway path — a harder gate than SmartScreen, and worth naming.
+- **Windows certificates — §7's "hardware token or cloud HSM since 2023" holds**, and traces to
+  the CA/Browser Forum baseline requirement effective 2023-06-01 that non-EV (OV) code-signing
+  keys be generated in and non-exportable from a FIPS 140-2 level 2 / CC EAL4+ module.
+- **The cheap CI-signing route has been renamed.** Azure **Trusted Signing** is now **Azure
+  Artifact Signing**; Microsoft Learn's overview carries the new name with a 2026-01 date and
+  `smartscreen-reputation.md` prices it at approximately **USD 10/month**. Microsoft's public
+  pricing page currently renders the tier names (Basic 5,000 signatures, Premium 100,000) but
+  not the dollar figures, so the figure is Microsoft's own documentation rather than the
+  price sheet. Eligibility is the part to check before relying on it: general availability
+  covers US, Canadian, EU and UK businesses, self-employed individuals are now accepted, and
+  free/trial/sponsored Azure subscriptions are not supported. The EU coverage is what makes it
+  plausible here at all.
+- **Apple Developer Program USD 99/yr — confirmed** against Apple's own membership-comparison
+  page, which also confirms Developer ID and notarization are included in the paid tier and
+  absent from a free Apple Account.
+- **Linux — no gate.** Not researched, because it is a property of the artifact rather than of a
+  vendor policy: an AppImage carries no signature check, and phases 4–6 of this file record it
+  launching from a bare container. The docs say so plainly, since it is genuinely the easiest
+  of the three and understating that would be its own inaccuracy.
+
+Net effect on §7: its macOS position stands and hardens (a certificate there is closer to
+required than cosmetic, and the escape hatch has a one-hour timer on it); its Windows position
+softens (a certificate removes friction over time rather than removing the dialog).
+
+### 17.5 Two smaller judgements
+
+- **The README Status section was stale** — it described a "frontend visual scaffold … not yet
+  wired to feature logic", which `specs/implementation-progress.md` contradicts: both the energy
+  and cost paths are complete end to end as of 2026-07-25. Rewritten from that file plus this
+  changelog's phase records, and confined to what those two sources actually state — built
+  paths, the DYNAMIC-only contract limitation, and Linux as the only produced desktop artifact.
+- **The docs do not document `uv run uvicorn`.** That is the README's job and repeating it in a
+  household-facing page invites a reader to install Python. The docs describe the AppImage only,
+  and say explicitly that macOS and Windows builds do not yet exist — the security-warning page
+  for those two platforms is written as advance notice, and labelled as such, rather than as
+  instructions for a download that is not there.
+
+### 17.6 Dutch
+
+Written as Dutch, not translated from the English page — the two trees say the same things in a
+different order where Dutch prefers a different order. Register follows
+`changelog/20260725-nl-register-consistency.md`: informal `je`/`jouw` throughout, `jouw` only
+where there is contrastive stress, `hebben` conjugated informally (`je hebt`, not `u heeft`).
+Untranslated by intention: OS button labels ("Open Anyway", "Run anyway", "Privacy & Security"),
+since a Dutch reader running an English-language macOS needs the string on their own screen, and
+the Dutch pages give the Dutch UI label alongside where the OS is localised.
+
+### 17.7 What still needs the user
+
+- **The sponsorship channel does not exist.** There is no `.github/`, no `FUNDING.yml`, no
+  account. `docs/en/sponsor.md` and `docs/nl/sponsor.md` are written so a URL drops into one
+  marked placeholder line per file and nothing else changes. Choosing the platform — GitHub
+  Sponsors, Ko-fi, Open Collective, a bank transfer — is the user's decision and was not made
+  here.
+- **The download URL is also a placeholder.** `docs/*/install*.md` has no release URL because no
+  release exists; the AppImage is a local build artifact (`dist/`) today.
+- **The copyright holder line in `LICENSE`** names Raphael Poss from the git config. Change it
+  if the intended holder differs.
+
+### 17.8 Not verified
+
+- **The macOS and Windows procedures were not executed.** Neither platform is available here and
+  neither build exists yet. Everything in the macOS and Windows pages is from vendor
+  documentation, and the pages say which vendor page each claim comes from so a reader hitting
+  something different knows where to look.
+- **Whether Azure Artifact Signing would actually accept this project.** Eligibility is read off
+  the docs; no application was made.
+- **Nothing executable was changed**, so no tests were run. `pyproject.toml` gained two static
+  metadata fields; `uv.lock` was not regenerated and does not depend on them.

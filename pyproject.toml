@@ -7,6 +7,9 @@
 #
 # `[project.scripts]` installs `battery-sim` as a console entry point calling the same
 # `app.desktop:main` that `python -m app` and the future frozen build call.
+#
+# The project is AGPL-3.0-only. The licence is declared as a PEP 639 SPDX expression rather
+# than a classifier — see the comment on the `license` field for why.
 
 [build-system]
 requires = ["hatchling"]
@@ -15,8 +18,15 @@ build-backend = "hatchling.build"
 [project]
 name = "battery-sim"
 dynamic = ["version"]
-description = "Add your description here"
+description = "Retrospectively simulates what a home battery would have saved a Dutch household, from that household's own historical data, under the post-2027 Dutch regime"
 readme = "README.md"
+# PEP 639 form: an SPDX expression as a string, plus the files it refers to. Hatchling
+# canonicalises the expression at build time and rejects an invalid one, so a typo fails the
+# build rather than shipping. The deprecated alternatives — a `{text = ...}` table, or a
+# `License ::` trove classifier — are deliberately not used; under PEP 639 a classifier
+# alongside an SPDX expression is an error.
+license = "AGPL-3.0-only"
+license-files = ["LICENSE"]
 requires-python = ">=3.12"
 dependencies = [
     "babel>=2.18.0",
