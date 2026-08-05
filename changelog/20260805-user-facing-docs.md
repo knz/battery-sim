@@ -99,6 +99,37 @@ comments say does not fully exist yet.
 - No GitHub release exists yet, so every download link points at a releases page that is
   currently empty.
 
+## Root-level file tidy-up
+
+User prompts, verbatim (recorded per `docs/specs/AGENTS.md`, which requires the human user's
+original prompts in the changelog whenever files in the specs directory are updated):
+
+> move `followups.md` to `docs/specs/`; remove `todo.txt`; move the `dutch-electricity-*`
+> explainers to `docs/`
+
+Asked where the explainers should land — `docs/specs/`, alongside the spec that cites them as
+its source, or loose in `docs/` as literally asked. The user chose **`docs/` top level**.
+
+**`todo.txt` removed.** Checked its contents first: 12 lines, seven spec change requests, all
+marked `[x]`, each traceable to a changelog entry that implemented it
+(`20260723-contract-type-naming.md`, `-optional-cost-simulation.md`, `-csv-series-prompt.md`,
+`-per-series-granularity-overview.md`, `-regime-mixing-scope.md`,
+`-not-implemented-affordance.md`). Nothing outstanding, and `git rm` keeps it in history. Its
+standing guidance — prefer rewriting a paragraph over annotating what changed, since there are
+no existing users — is quoted in several of those changelog entries, so it survives the file.
+
+**`followups.md` → `docs/specs/followups.md`.** It is a running list of deferred work and open
+decisions against the spec, so it belongs with the spec rather than at the root. Added to the
+companion-files table in `docs/specs/README.md`, which already listed
+`implementation-progress.md` as a non-spec living document.
+
+**The explainers → `docs/`.** `docs/specs/18-dutch-electricity-background.md` states
+"Incorporated from `dutch-electricity-explainer.md`", so the explainer is an absorbed source
+document rather than a maintained one. Both are now listed in `docs/README.md` under a heading
+saying they are kept as received rather than maintained, with the pointer to the spec file that
+supersedes them — otherwise two loose files in `docs/` are unreachable by navigation and read
+as stale duplicates of the spec.
+
 ## Files modified
 
 **Created**

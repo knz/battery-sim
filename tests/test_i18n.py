@@ -588,7 +588,7 @@ def test_the_number_filters_are_bound_to_their_own_locale_on_every_environment()
 def seeded_client(tmp_path, monkeypatch):
     """A TestClient over a synthetic dataset, for the tests that need REAL rendered figures.
 
-    Seeded rather than read from the developer's `./data`, for the reason `followups.md` H13
+    Seeded rather than read from the developer's `./data`, for the reason `docs/specs/followups.md` H13
     gives: a test driven from whatever data happens to be on the machine covers something
     different on every machine, and covers nothing at all in a fresh checkout or in CI, where
     `POST /results` has no dataset and answers 409.

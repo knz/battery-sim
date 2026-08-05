@@ -15,7 +15,7 @@ Scope note. `GET /` renders panel ③ from the sample view-model, which understa
 the live figures come from `POST /results` and `POST /results/benchmark`, and those are where the
 runtime strings are built. All three are exercised here for that reason.
 
-Second scope note (`followups.md` J3). The scenario renders below are all DEFAULT renders: a
+Second scope note (`docs/specs/followups.md` J3). The scenario renders below are all DEFAULT renders: a
 stored dataset and a stored config, fetched with GET (or a valid POST). A screen's error and
 edge states — an off-list connection, a blocking submission, a failed write, a blocked wizard
 step — carry prose that no default render reaches, so the scan saw none of it. Those are covered
@@ -95,7 +95,7 @@ FORBIDDEN_FRAGMENTS = [
 # BATTERY_SIM_DATA_DIR. The developer's real ./data is never read. That is the point: which boxes
 # and caveats a Dutch page renders depends entirely on the stored dataset and config, so scanning
 # whatever the developer happens to have made the test's coverage vary per machine
-# (`followups.md` H13) — green here proved nothing about anyone else's machine, or about CI.
+# (`docs/specs/followups.md` H13) — green here proved nothing about anyone else's machine, or about CI.
 #
 # The scenarios are chosen from the branches that gate user-visible prose, and there are several
 # because a number of those branches are MUTUALLY EXCLUSIVE — no single run can show both sides:
@@ -424,7 +424,7 @@ def test_the_scenarios_between_them_render_a_lot_of_prose(rendered):
 
     A scan asserts the ABSENCE of English, so it passes trivially against a page that rendered
     nothing — an empty fallback, a 200 carrying an error stub, a dataset that stopped simulating.
-    That is the failure mode `followups.md` H13 describes, and the one this whole rewrite exists
+    That is the failure mode `docs/specs/followups.md` H13 describes, and the one this whole rewrite exists
     to remove, so it is asserted rather than assumed.
 
     The thresholds are deliberately loose: this is a floor against collapse, not a golden-output
@@ -669,7 +669,7 @@ def test_validation_messages_are_dutch(code, tmp_path, monkeypatch):
     )
 
 
-# ── The error and edge states (`followups.md` J3) ─────────────────────────────────────────────
+# ── The error and edge states (`docs/specs/followups.md` J3) ─────────────────────────────────────────────
 #
 # Everything above renders a screen in its ORDINARY state: a stored config, a stored dataset,
 # fetched with GET. Several surfaces only exist on the way OUT of a bad submission or an

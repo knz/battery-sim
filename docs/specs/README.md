@@ -104,6 +104,7 @@ These apply to every file in this package and are not restated in full elsewhere
 | [appendix-a-defaults.md](appendix-a-defaults.md) | Every default parameter value with its rationale | Everyone |
 | [appendix-b-glossary.md](appendix-b-glossary.md) | Dutch energy terminology and abbreviations | Everyone |
 | [implementation-progress.md](implementation-progress.md) | Living build record: which controls are pending and their feature keys (not a spec) | Implementers |
+| [followups.md](followups.md) | Running list of deferred work, review findings and open decisions, filed by section (not a spec) | Implementers, product owner |
 
 ---
 

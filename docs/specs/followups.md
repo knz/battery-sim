@@ -776,7 +776,7 @@ and is a product call.
 
 **L1. `RESULTS_STALE` does not dim the previous results; the app has never implemented it.**
 §2′.6 says "`RESULTS_STALE` still renders the previous results dimmed rather than blanking them"
-([§3.1](docs/specs/04-state-machine.md)), and the word "still" is doing work the code does not back: the
+([§3.1](04-state-machine.md)), and the word "still" is doing work the code does not back: the
 pre-restructure `index.html` did not dim either, so nothing regressed — the spec point has simply
 never been built. What IS implemented is the other half: `#results-recalculating` is un-hidden for
 the duration of a recompute, the previous panel stays in the DOM, and a refused recompute leaves the

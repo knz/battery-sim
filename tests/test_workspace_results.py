@@ -1223,7 +1223,7 @@ def test_a_refused_recompute_keeps_the_previous_figures_rather_than_blanking_the
     "`RESULTS_STALE` still renders the previous results dimmed rather than blanking them", and the
     app has never dimmed anything — the pre-4.2 page did not either, so §2′.6's "still" is honoured
     literally and phase 4.2 changed nothing here. The half that IS implemented (not blanking) is
-    what this test covers; the dimming is an open spec point, recorded in `followups.md`, not a
+    what this test covers; the dimming is an open spec point, recorded in `docs/specs/followups.md`, not a
     regression. The test was renamed because a green test named for `RESULTS_STALE` dimming reads as
     coverage of a thing that does not exist.
     """
