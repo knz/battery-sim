@@ -35,7 +35,7 @@
 | `degradation_eur_per_kwh` | 0.0 | Disabled |
 | `allow_grid_export` | false | |
 | `economic_guard` | false | Policies stay literal by default |
-| `pv_coupling` | `dc_hybrid` | Most new installs are hybrid; ask, do not assume. Forced to `null` when `has_pv = false` |
+| `pv_coupling` | `ac` | Must match `coupling` above: `parse_form` derives `coupling` from this field on every submission carrying the selector, so a disagreement rewrites `coupling` when an unrelated control is used. Forced to `null` when `has_pv = false` |
 | `battery_phases` | `three_phase` | Only offered when connection is 3-phase |
 | `supplier_settlement` | `hourly` | Most NL dynamic suppliers still bill hourly averages |
 | `epoch_detection` | on | PV/battery commissioning |

@@ -94,7 +94,10 @@ _APPENDIX_A_DEFAULTS = [
     ("grid.max_export_kw", None),  # appendix A: "= import", i.e. follow, not a number
     ("policy.allow_grid_export", False),
     ("policy.economic_guard", False),
-    ("topology.pv_coupling", PvCoupling.DC_HYBRID),
+    # Must equal `battery.coupling` above. See that field's note in `TopologyConfig` and
+    # changelog/20260805-cost-toggle-changes-coupling.md: `parse_form` derives `battery.coupling`
+    # from this one, so a disagreement lets an unrelated submission rewrite a stored setting.
+    ("topology.pv_coupling", PvCoupling.AC),
     ("topology.battery_phases", BatteryPhases.THREE_PHASE),
     ("has_pv", True),
     ("simulate_cost", False),
@@ -528,6 +531,25 @@ def test_pv_coupling_is_null_without_pv():
     # Forcing the battery coupling to AC is not an approximation: eta_c_dc multiplies chg_pv only,
     # which is identically zero without PV.
     assert cfg.coupling is Coupling.AC
+
+
+def test_the_two_coupling_defaults_agree():
+    """`topology.pv_coupling` and `battery.coupling` must ship with the SAME answer.
+
+    Not a restatement of the two table rows above — this pins the INVARIANT between them, which is
+    what the table cannot express. `params_view.parse_form` derives `battery.coupling` from
+    `topology.pv_coupling` on every submission that carries the selector, and the results screen's
+    cost toggle submits the whole parameter form. So while the two defaults disagreed, flipping
+    that toggle rewrote the stored `battery.coupling` and the "More settings" pane reported
+    "1 changed from default" about a setting the user never touched
+    (changelog/20260805-cost-toggle-changes-coupling.md).
+
+    Asserted as an equality between the two rather than against a literal, so that a future change
+    of the shipped coupling stays green as long as it moves BOTH.
+    """
+    cfg = SimulationConfig()
+    assert cfg.topology.pv_coupling is not None
+    assert cfg.battery.coupling.value == cfg.topology.pv_coupling.value
 
 
 def test_pv_coupling_is_kept_with_pv():

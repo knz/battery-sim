@@ -792,7 +792,7 @@ offering to restrict the window is future work.
 │  └────────────────────────────────────────────────────────────────────────┘  │
 │                                                                              │
 │  ┌─ Installation topology ────────────────────────────── [see §2.5] ─────┐  │
-│  │  PV coupling      ( • ) DC-coupled / hybrid   (   ) AC-coupled         │  │
+│  │  PV coupling      (   ) DC-coupled / hybrid   ( • ) AC-coupled         │  │
 │  │                   (shown only when you have PV)                        │  │
 │  │  Battery phases   ( • ) 3-phase inverter      (shown for 3-phase only) │  │
 │  │  Both are chosen from illustrated options, not from these labels.      │  │

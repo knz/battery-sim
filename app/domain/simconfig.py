@@ -651,7 +651,7 @@ class PolicyConfig:
 class TopologyConfig:
     """The installation topology (§2.5; `topology` in the §4.5 result object).
 
-        pv_coupling   the illustrated §2.5(a) choice. Appendix A default `dc_hybrid`, FORCED to
+        pv_coupling   the illustrated §2.5(a) choice. Appendix A default `ac`, FORCED to
                       None when `has_pv` is false — §2.5: "Set cfg.coupling = ac and
                       topology.pv_coupling = null". Same arrangement as `economic_guard`: the raw
                       choice is stored here, `SimulationConfig.pv_coupling` applies the forcing on
@@ -673,9 +673,18 @@ class TopologyConfig:
 
     `pv_coupling` duplicates `BatteryConfig.coupling` by design: the former is the user's answer to
     an illustrated question and is reported in the result object, the latter is what §6.8 reads.
+
+    **The two defaults must AGREE, and that is a constraint, not a coincidence.** `parse_form`
+    re-derives `battery.coupling` from `topology.pv_coupling` on every submission that carries the
+    selector (app/params_view.py), and the results screen's cost toggle submits the whole parameter
+    form. So while the defaults disagreed — `pv_coupling` at `dc_hybrid` against `coupling` at `ac`
+    — merely flipping the cost toggle rewrote the stored `battery.coupling` to `dc_hybrid` and the
+    "More settings" pane then reported `1 changed from default` about a setting the user never
+    touched. Changing one of these defaults without the other reintroduces exactly that.
+    See changelog/20260805-cost-toggle-changes-coupling.md.
     """
 
-    pv_coupling: PvCoupling | None = PvCoupling.DC_HYBRID
+    pv_coupling: PvCoupling | None = PvCoupling.AC
     battery_phases: BatteryPhases = BatteryPhases.THREE_PHASE
     approximated: bool = False
 
