@@ -384,6 +384,11 @@
     </form>
   </main>
 
+  {# The site footer — privacy statement, attribution, licence, and the warranty dialog it opens.
+     Shared by all four screens; see `_footer.html` on why it is an include in four places rather
+     than a base template (there is no base template here). #}
+  {% include "_footer.html" %}
+
   {# ── The unsaved-changes dialog (§2′.8). Page-level, for the same top-layer reason workspace_results.html
        documents at its own #slot-info-dialog. `[ Keep editing ]` has the default focus: the safe
        option is the one Enter takes. Shown only when the form is actually dirty — an

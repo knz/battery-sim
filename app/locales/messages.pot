@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-05 19:04+0200\n"
+"POT-Creation-Date: 2026-08-05 20:20+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -21,6 +21,12 @@ msgstr ""
 msgid ""
 "\"%(title)s\" and everything in it — the configuration, the loaded data "
 "and the results — will be deleted."
+msgstr ""
+
+#, python-format
+msgid ""
+"%(app)s is a digital creation of %(author)s. %(warranty)s. Licensed as "
+"%(license)s. %(source)s."
 msgstr ""
 
 #, python-format
@@ -573,6 +579,9 @@ msgstr ""
 msgid "From"
 msgstr ""
 
+msgid "GNU AGPL v3"
+msgstr ""
+
 msgid "GRID IMPORT SAVED"
 msgstr ""
 
@@ -780,6 +789,9 @@ msgid ""
 "resolution."
 msgstr ""
 
+msgid "NO WARRANTY"
+msgstr ""
+
 msgid "Name"
 msgstr ""
 
@@ -894,6 +906,12 @@ msgid "Produced"
 msgstr ""
 
 msgid "RESULTS"
+msgstr ""
+
+msgid "Raphael Poss"
+msgstr ""
+
+msgid "Read the full licence"
 msgstr ""
 
 #, python-format
@@ -1016,6 +1034,9 @@ msgstr ""
 msgid "Source"
 msgstr ""
 
+msgid "Source code available"
+msgstr ""
+
 msgid "Spot price"
 msgstr ""
 
@@ -1068,6 +1089,15 @@ msgstr ""
 msgid "Thanks. We have recorded that you want this."
 msgstr ""
 
+msgid ""
+"That matters here in one specific way. This simulator is a retrospective "
+"calculator: it estimates what a battery would have done over a past "
+"period, using your own measurements and an assumed future tariff regime. "
+"It does not predict what a battery will save you, and it is not financial"
+" advice. Check its assumptions against your own contract before spending "
+"money on the strength of a number it shows you."
+msgstr ""
+
 #, python-format
 msgid ""
 "The battery ended the period %(drift)s less charged than it started. That"
@@ -1100,6 +1130,11 @@ msgid ""
 "something a perfectly-informed battery could reproduce: the benchmark "
 "must return the battery to the state of charge it started from, and your "
 "policy did not. There is no capture ratio to report for this period."
+msgstr ""
+
+msgid ""
+"The binding text is sections 15 and 16 of the licence, which this summary"
+" does not replace."
 msgstr ""
 
 msgid ""
@@ -1218,6 +1253,9 @@ msgstr ""
 msgid "This answer decides whether the app reports euros as well as kWh."
 msgstr ""
 
+msgid "This application does not collect your data and does not send it remotely."
+msgstr ""
+
 #, python-format
 msgid ""
 "This battery imported %(extra)s MORE from the grid than the same "
@@ -1271,6 +1309,14 @@ msgid ""
 "it."
 msgstr ""
 
+msgid ""
+"This program is provided as is, without warranty of any kind, express or "
+"implied — including any implied warranty that it is fit to sell or fit "
+"for your particular purpose. The entire risk as to its quality and "
+"performance is yours. If it turns out to be defective, you bear the cost "
+"of any servicing, repair or correction."
+msgstr ""
+
 msgid "Title"
 msgstr ""
 
@@ -1280,6 +1326,12 @@ msgstr ""
 msgid ""
 "To put a euro figure on your savings, the app needs to know what you pay "
 "for electricity — your contract type and its rates."
+msgstr ""
+
+msgid ""
+"To the extent the law allows, the author is not liable for any damages "
+"arising from its use — including lost data, lost money, or losses you "
+"suffer by acting on what it tells you."
 msgstr ""
 
 msgid "Token"
@@ -1320,6 +1372,9 @@ msgid "Variable"
 msgstr ""
 
 msgid "Want to know what this is worth in euros?"
+msgstr ""
+
+msgid "What \"no warranty\" means"
 msgstr ""
 
 msgid "Where the energy comes from"
