@@ -5,13 +5,13 @@ simulate_cost=False) are present or absent as the wireframes require. This is de
 about structure, not exact numbers — the numbers are static sample data and will be replaced
 when the domain layer lands.
 
-It also covers the pending affordance (specs/02-ux-wireframes.md §2.1): the pending
+It also covers the pending affordance (docs/specs/02-ux-wireframes.md §2.1): the pending
 controls open the "Not built yet" dialog, the thumbs-up acknowledges in place, and the
-counter route (specs/08-architecture.md §5.1) upserts once per key and 404s an unknown key.
+counter route (docs/specs/08-architecture.md §5.1) upserts once per key and 404s an unknown key.
 The server runs against a throwaway data directory so the counter DB and the generated
 config.toml never touch the working tree.
 
-Phase 5's wizard adds three here (specs/20-workspaces-ux.md §2′.8): the walk from step 1 to step
+Phase 5's wizard adds three here (docs/specs/20-workspaces-ux.md §2′.8): the walk from step 1 to step
 3, and two that genuinely need a browser. The first is the Blocked `[ Next → ]` on step 2 —
 markup alone cannot establish that a Blocked control READS as blocked, since phase 4 shipped a
 message present in the DOM and invisible on the page, so that test asserts a real bounding box,
@@ -22,7 +22,7 @@ cannot be reproduced at route level at all.
 One test here is about the BROWSER's storage rather than the page's markup:
 `test_ha_fetch_scopes_its_slot_store_per_workspace` pins that `ha_fetch.js` keys its slot store
 per workspace and discards the pre-workspaces global `ha.slots`
-(specs/20-workspaces-ux.md §2′.11). It belongs in a real browser because what it checks is what
+(docs/specs/20-workspaces-ux.md §2′.11). It belongs in a real browser because what it checks is what
 that module DOES at load, which no source-level assertion can observe.
 
     uv run pytest tests/test_smoke.py
@@ -655,7 +655,7 @@ def test_thumbsup_acknowledges_in_place(page):
     page.keyboard.press("Escape")
 
 
-# ── Feature-interest counter route (specs/08-architecture.md §5.1) ─────────────
+# ── Feature-interest counter route (docs/specs/08-architecture.md §5.1) ─────────────
 
 
 def _post(url: str) -> int:
@@ -865,7 +865,7 @@ def test_the_blocked_cost_toggle_reads_as_blocked_and_its_way_out_resolves(brows
     context.close()
 
 
-# ── The workspace list (specs/20-workspaces-ux.md §2′.2, §2′.3) ──────────────────────────────
+# ── The workspace list (docs/specs/20-workspaces-ux.md §2′.2, §2′.3) ──────────────────────────────
 #
 # Phase 2's new screen, driven in a real browser rather than only through route tests. The reason
 # is the one the previous two phases both learned the hard way: a route test seeds its own

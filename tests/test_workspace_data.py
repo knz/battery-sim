@@ -1,4 +1,4 @@
-"""The configure-data screen and its two routes (specs/20-workspaces-ux.md §2′.5, §2′.8, §2′.11).
+"""The configure-data screen and its two routes (docs/specs/20-workspaces-ux.md §2′.5, §2′.8, §2′.11).
 
 Phase 4.1 added `GET /w/{id}/data` and `POST /w/{id}/data`: panel ① promoted to a screen of its
 own. Most of that screen is a MOVE — the roster, the drawer, the HA modal, the quality box and the

@@ -1,4 +1,4 @@
-"""The series vocabulary and slot metadata (specs/05-data-formats.md §4.1).
+"""The series vocabulary and slot metadata (docs/specs/05-data-formats.md §4.1).
 
 The closed set of internal series names, shared by the Home Assistant and CSV paths. On the HA
 path these name the rows of the mapping table; a fetched statistic is bound to one of these

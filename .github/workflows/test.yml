@@ -38,7 +38,7 @@
 # ## Why app.css freshness is a blocking job rather than a build step
 #
 # `app/static/app.css` is COMMITTED, and the app needs no Node at runtime (see package.json and
-# specs/08-architecture.md §5.1). That is a deliberate trade: it keeps the runtime and the
+# docs/specs/08-architecture.md §5.1). That is a deliberate trade: it keeps the runtime and the
 # packaged bundle free of a JS toolchain, at the price of a file that can drift from the Tailwind
 # sources that generate it. Regenerating it here and diffing is what makes the drift visible. The
 # job does not commit the result — CI writing to the branch would hide the drift instead of

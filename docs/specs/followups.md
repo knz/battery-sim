@@ -165,7 +165,7 @@ now exists, so this is answerable.
 
 **B8. The display-precision rule and 230 V are inferred, not specified.** "2 dp below 10 kW, 1 dp
 at/above" and the 230 V mains figure are each pinned by the same two published figures and appear
-nowhere in `specs/`.
+nowhere in `docs/specs/`.
 *Origin:* `20260724-panel3-battery-simulation.md` (Phase 2 follow-ups).
 
 ## C. Simulation, benchmark and metrics
@@ -178,7 +178,7 @@ running the A/B/C simulation and bucketing `saved_kwh` per month.
 
 **C2. Two chart tabs are pending affordances, not implementations.** "SoC + price" and "Energy
 flows" now carry the §2.1 pending affordance with keys `chart_soc_price` and `chart_energy_flows`
-in `app/features.py`. Named as newly pending in `specs/implementation-progress.md`.
+in `app/features.py`. Named as newly pending in `docs/specs/implementation-progress.md`.
 *Origin:* `20260724-panel3-battery-simulation.md` (Phase 7),
 `20260725-spec-corrections-from-implementation.md`.
 
@@ -381,7 +381,7 @@ registers — that needs register data this increment does not wire up.
 tariff also applies on nationally recognised public holidays (≈ 8–10 days/year); §6.4's mask prices
 them as `NORMAAL` and the spec records this as a known watch item rather than a defect. Inherited by
 H1's implementer, not created by it.
-*Origin:* `specs/09-ingest-algorithms.md` §6.4, carried forward.
+*Origin:* `docs/specs/09-ingest-algorithms.md` §6.4, carried forward.
 
 **H3. Deferred cost-adjacent features, each unbuilt and each spec'd.** §6.16 price bracket
 (`price_bracket` stays null), §6.13's euro-basis resolution bias (`resolution_bias_pct_eur` stays

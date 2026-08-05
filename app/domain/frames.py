@@ -4,7 +4,7 @@ After ingest, every input series (a meter register, a price, a power reading) be
 `SeriesFrame`: a UTC, interval-start, left-closed datetime index; a numpy value array (kWh in
 the interval for energy, EUR/kWh valid-from for price); the series' *native* resolution; and a
 per-interval quality bitfield. The simulation later reconciles many of these onto one grid
-(specs/07-internal-representation.md §4.4 `SimulationFrame`), but that is a later increment —
+(docs/specs/07-internal-representation.md §4.4 `SimulationFrame`), but that is a later increment —
 this module is only the per-series frame that the data-import path produces.
 
 `resolution_s` is the spacing at which the series was actually recorded, before any
@@ -30,7 +30,7 @@ SeriesKind = Literal["energy", "price"]
 
 
 class QualityFlags(IntFlag):
-    """Per-interval quality bitfield (specs/07-internal-representation.md §4.4).
+    """Per-interval quality bitfield (docs/specs/07-internal-representation.md §4.4).
 
     Stored as one uint16 per interval alongside the values. `OK` is the zero value so an
     untouched interval carries no set bits. The remaining bits record what ingest did to an
@@ -54,7 +54,7 @@ QUALITY_DTYPE = np.uint16
 
 @dataclass
 class SeriesFrame:
-    """One ingested series, normalised (specs/07-internal-representation.md §4.4).
+    """One ingested series, normalised (docs/specs/07-internal-representation.md §4.4).
 
     Fields mirror the spec's `SeriesFrame` exactly:
         name          the internal series name (specs §4.1 vocabulary), e.g. "grid_import_t1".

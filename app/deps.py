@@ -1,6 +1,6 @@
 """Request-scoped dependencies: who is asking, and which workspace they are asking about.
 
-This is the seam specs/08-architecture.md §5.1 names in its diagram — `deps.py` with
+This is the seam docs/specs/08-architecture.md §5.1 names in its diagram — `deps.py` with
 `get_principal()` and `get_workspace(principal, id)` — and §5.5 invariant 2 requires: *"`Workspace`
 is resolved via a FastAPI dependency, never read from a global. In v1 `get_principal()` returns a
 hard-coded `Principal(id="local")` and `get_workspace()` returns the single workspace. Adding auth

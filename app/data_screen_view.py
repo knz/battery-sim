@@ -1,4 +1,4 @@
-"""The view-model for the configure-data screen (specs/20-workspaces-ux.md §2′.5, §2′.8).
+"""The view-model for the configure-data screen (docs/specs/20-workspaces-ux.md §2′.5, §2′.8).
 
 `GET /w/{id}/data` and `POST /w/{id}/data` render and write the one thing on that screen the
 server persists: the household's two scope answers, `has_pv` and `has_battery`. Everything else the

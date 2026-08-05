@@ -1,4 +1,4 @@
-"""The view-model for the workspace list screen (specs/20-workspaces-ux.md §2′.2).
+"""The view-model for the workspace list screen (docs/specs/20-workspaces-ux.md §2′.2).
 
 `app/workspaces.list_summaries(owner_id)` already returns exactly the facts a card states — three config
 badges and five dataset facts — and deliberately reads them from SQLite metadata alone, without
@@ -23,7 +23,7 @@ rather than being rounded into a different fuse. The badge is a msgid with two h
 translator can reorder or respace it; it is not concatenated from fragments.
 
 **The last-saved badge is Europe/Amsterdam**, per §2′.2, while everything stored and computed is
-UTC (specs/README.md). This module is the boundary where that conversion happens for the list, and
+UTC (docs/specs/README.md). This module is the boundary where that conversion happens for the list, and
 it is the only place the list screen knows about a timezone. The written form is
 `YYYY-MM-DD HH:MM` — ISO date plus a 24-hour clock, the same reasoning `data_view._fmt_date`
 gives for staying ISO in both locales: 07-24 and 24-07 are the same day written two ways and a
@@ -64,7 +64,7 @@ from app.sample_data import _N
 from app.workspaces import WorkspaceSummary
 
 DISPLAY_TZ = ZoneInfo("Europe/Amsterdam")
-"""The timezone every timestamp on this screen is written in (§2′.2, specs/README.md).
+"""The timezone every timestamp on this screen is written in (§2′.2, docs/specs/README.md).
 
 Storage and computation are UTC throughout; display is Europe/Amsterdam. The list is one of the
 few screens that shows a stored instant directly rather than a derived figure, so the conversion

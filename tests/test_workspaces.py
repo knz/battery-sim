@@ -1,4 +1,4 @@
-"""Unit tests for phase 0 of the workspaces restructure (specs/20-workspaces-ux.md §2′.2, §2′.10).
+"""Unit tests for phase 0 of the workspaces restructure (docs/specs/20-workspaces-ux.md §2′.2, §2′.10).
 
 Covered here:
 

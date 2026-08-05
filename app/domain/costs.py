@@ -266,7 +266,7 @@ def waterfall(
 ) -> list[WaterfallLine]:
     """§6.10's eight-line decomposition of the euro saving, in §6.10's order.
 
-    The invariant, which is fixture 4 in specs/16-validation-harness.md and is asserted directly in
+    The invariant, which is fixture 4 in docs/specs/16-validation-harness.md and is asserted directly in
     `tests/test_costs.py`:
 
         sum(waterfall) == cost(A) - cost(C) - degradation   +/- CLOSURE_TOL

@@ -437,7 +437,7 @@ def test_the_websocket_route_works(packaged_server, _seeded_workspace):
 
 
 def test_the_bundle_carries_no_development_directories():
-    """`external_data/`, `node_modules/`, `tests/` and `specs/` must not be in the bundle.
+    """`external_data/`, `node_modules/`, `tests/` and `docs/specs/` must not be in the bundle.
 
     A cheap structural assertion next to `build-linux.sh`'s size gate. The gate catches a large
     leak by weight; this catches a small one by name, and names which directory leaked rather than

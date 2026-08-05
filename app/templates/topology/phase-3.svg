@@ -1,4 +1,4 @@
-<!-- 3-phase battery inverter (specs/03-topology-selector.md §2.5b).
+<!-- 3-phase battery inverter (docs/specs/03-topology-selector.md §2.5b).
      The ONLY topology version 1 models. Selecting it clears topology.approximated.
      240×160 viewBox, single currentColor stroke at 2px, no fills, no external deps. -->
 <svg viewBox="0 0 240 160" role="img" aria-label="Three-phase inverter: L1, L2 and L3 all connect into one battery inverter. Supported in version 1." xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round">

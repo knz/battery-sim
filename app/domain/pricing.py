@@ -24,7 +24,7 @@ and the reason `compensation` is returned separately from `p_export_net`. Writin
 
 The first is always ≥ the second, because clamping discards every negative term individually
 while the aggregate lets them offset positive ones. Moving to the legally correct rule therefore
-REDUCES modelled feed-in revenue. That is fixture 13 in specs/16-validation-harness.md, and
+REDUCES modelled feed-in revenue. That is fixture 13 in docs/specs/16-validation-harness.md, and
 `tests/test_pricing.py` asserts the ordering directly rather than trusting the algebra.
 
 **2. The top-up is not foldable into `p_export_net`.** §6.5 point 1 and §6.10's "why the top-up

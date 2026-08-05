@@ -1,4 +1,4 @@
-<!-- Grid-coupled battery, no PV (specs/03-topology-selector.md §2.5a′).
+<!-- Grid-coupled battery, no PV (docs/specs/03-topology-selector.md §2.5a′).
      Shown in place of the PV-coupling pair when has_pv is false. There is nothing to choose —
      the option is single and preselected — but it is rendered so a user who has just said they
      have no solar can see that the app understood them.

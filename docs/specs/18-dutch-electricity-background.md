@@ -9,7 +9,7 @@
 > [09-ingest-algorithms.md](09-ingest-algorithms.md), which implements Part E1;
 > [appendix-b-glossary.md](appendix-b-glossary.md) for the terms in short form.
 
-**Source version:** 1.0, 22 July 2026. Incorporated from `dutch-electricity-explainer.md`.
+**Source version:** 1.0, 22 July 2026. Incorporated from `docs/dutch-electricity-explainer.md`.
 
 **Scope.** Electricity only, small connections (kleinverbruik, ≤ 3×80 A). Gas, heat and
 large connections are out of scope. Written for someone building or using software that

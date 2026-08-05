@@ -1,6 +1,6 @@
 """Internationalisation for the UI (English / Dutch).
 
-The app is server-rendered (specs/08-architecture.md §5.1), so translation happens on the
+The app is server-rendered (docs/specs/08-architecture.md §5.1), so translation happens on the
 server via gettext: templates call `_('...')`, and this module resolves the active locale per
 request and installs the matching catalog on the Jinja environment before rendering.
 

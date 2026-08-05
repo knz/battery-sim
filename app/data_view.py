@@ -1,4 +1,4 @@
-"""Panel ① view-model from a persisted dataset (specs/02-ux-wireframes.md §2.2).
+"""Panel ① view-model from a persisted dataset (docs/specs/02-ux-wireframes.md §2.2).
 
 Bridges the persisted `LoadedDataset` (app/dataset.py) to the dict the `_panel_data.html`
 template consumes. Before this increment the template rendered a static sample

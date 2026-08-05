@@ -1,4 +1,4 @@
-"""Runtime configuration for the Home Battery Simulator (specs/08-architecture.md §5.4).
+"""Runtime configuration for the Home Battery Simulator (docs/specs/08-architecture.md §5.4).
 
 Resolves the data directory and reads `config.toml` from it. In this increment the only
 config that matters is the feature-interest egress pair:

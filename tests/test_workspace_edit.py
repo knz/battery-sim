@@ -1,4 +1,4 @@
-"""The edit-workspace screen and its two routes (specs/20-workspaces-ux.md §2′.4, §2′.6, §2′.8).
+"""The edit-workspace screen and its two routes (docs/specs/20-workspaces-ux.md §2′.4, §2′.6, §2′.8).
 
 Phase 3 added `GET /w/{id}/edit` and `POST /w/{id}/edit`: the household's fixed facts — title,
 postcode, grid connection and contract. What these tests pin is the part a status code cannot

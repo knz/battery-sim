@@ -21,7 +21,7 @@ Invariants from §5.1, asserted by this module in place of a fixture:
 
 Invariant 1 says every persisted row carries `workspace_id` and no table is implicitly global.
 `feature_interest` is a **deliberate exception**, recorded as such in §5.5 and argued in
-specs/20-workspaces-ux.md §2′.10: the row records that *this household* wants a feature, which
+docs/specs/20-workspaces-ux.md §2′.10: the row records that *this household* wants a feature, which
 is a fact about the person using the app rather than about any one analysis. Keying it per
 workspace made the counter answer the wrong question — the same person could register the same
 wish three times from three analyses, and deleting a workspace would retract a signal the user

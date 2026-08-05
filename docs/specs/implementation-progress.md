@@ -121,7 +121,7 @@ authoritative list is `app/features.py` (`FEATURE_KEYS`); the templates carry th
 
 ## Backend status
 
-Built ([changelog 20260723-pending-affordance-impl](../changelog/20260723-pending-affordance-impl.md)):
+Built ([changelog 20260723-pending-affordance-impl](../../changelog/20260723-pending-affordance-impl.md)):
 
 - `feature_interest(feature_key, count, last_clicked_at)` in a local SQLite file under the
   data dir (`app/db.py`), upsert-once per `feature_key`. This table is installation-wide, not
@@ -140,7 +140,7 @@ six-table schema of [§5.1](08-architecture.md) is expected to move to SQLAlchem
 
 ## Owner scoping (built without authentication)
 
-Built ([changelog 20260804-owner-scoping](../changelog/20260804-owner-scoping.md)): workspace
+Built ([changelog 20260804-owner-scoping](../../changelog/20260804-owner-scoping.md)): workspace
 ownership is now carried *and checked*, not merely stored. `workspaces.list_summaries` takes a
 required `owner_id` and filters on it, `workspaces.create` takes an owner instead of writing a
 module constant, and both flat routes — `GET /` and `POST /workspaces` — take a principal and

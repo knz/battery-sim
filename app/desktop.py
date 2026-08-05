@@ -64,7 +64,7 @@ machine". That sentence is true only while the socket is on the loopback. Bound 
 every machine on the LAN can delete the user's workspaces with a header-free POST, and the
 `csrf` module's one deliberate hole becomes an unauthenticated remote delete.
 
-specs/15-data-quality-and-limits.md §7.5 requires the same thing from the other direction:
+docs/specs/15-data-quality-and-limits.md §7.5 requires the same thing from the other direction:
 "Bind to 127.0.0.1 by default. If the user wants LAN access, make them change the [setting]" —
 and this launcher offers no such setting, so the loopback is the only reachable configuration.
 """
@@ -924,7 +924,7 @@ def main(argv: list[str] | None = None) -> int:
     """Entry point for `python -m app`, for the `battery-sim` script, and for the frozen build."""
     # FIRST statement of the entry point, before argument parsing and before any import that
     # might spawn. A no-op today — nothing in the codebase uses multiprocessing — but
-    # specs/08-architecture.md §5.3 specifies a `ProcessPoolExecutor` with one worker per
+    # docs/specs/08-architecture.md §5.3 specifies a `ProcessPoolExecutor` with one worker per
     # workspace for the simulation runs. On Windows and on macOS's spawn start method, a frozen
     # child process re-executes the bundle's entry point; without `freeze_support()` that child
     # runs `main()` again, launches its own server and spawns its own children. Adding it now

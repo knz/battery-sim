@@ -45,7 +45,7 @@ battery-sim = "app.desktop:main"
 path = "app/__init__.py"
 
 # Named explicitly: the project has no src layout and several top-level directories
-# (specs/, tests/, changelog/), so hatchling's auto-detection has nothing unambiguous to
+# (docs/specs/, tests/, changelog/), so hatchling's auto-detection has nothing unambiguous to
 # infer from. `app/` includes its templates, static files, locales and data by default —
 # hatchling ships everything under a listed package directory that is not excluded.
 [tool.hatch.build.targets.wheel]

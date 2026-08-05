@@ -1,6 +1,6 @@
 /*
  * ha_fetch.js — browser-side Home Assistant fetch + the slot-first source-picker drawer
- * (specs/06-home-assistant-ingestion.md, specs/02-ux-wireframes.md §2.2).
+ * (docs/specs/06-home-assistant-ingestion.md, docs/specs/02-ux-wireframes.md §2.2).
  *
  * Two responsibilities live here now:
  *
@@ -81,7 +81,7 @@
  * localStorage is browser-local by design (same as the URL/token): a PRE-FETCH customization does
  * not follow you across browsers. A FETCHED slot does, because it lives server-side.
  *
- * Workspace scoping (specs/20-workspaces-ux.md §2′.11, specs/08-architecture.md §5.1). The data
+ * Workspace scoping (docs/specs/20-workspaces-ux.md §2′.11, docs/specs/08-architecture.md §5.1). The data
  * routes are under `/w/{id}/…`, and localStorage splits along the same line — but not uniformly,
  * because the two things stored here answer different questions:
  *
@@ -120,7 +120,7 @@
   var HA_FINE_WINDOW_DAYS = 10;   // trailing days fetched at 5-minute resolution
   var HA_CHUNK_DAYS = 90;         // max days per statistics_during_period call (frame-size cap)
   var HISTORY_DAYS = 730;         // how far back to request hourly (long-term stats never purge)
-  // The connection stays GLOBAL, deliberately (specs/20-workspaces-ux.md §2′.11): one household,
+  // The connection stays GLOBAL, deliberately (docs/specs/20-workspaces-ux.md §2′.11): one household,
   // one Home Assistant. Every workspace analyses the same house's data, so re-entering the URL and
   // the long-lived token per analysis would be friction with nothing behind it. They remain
   // browser-only either way (§7.5).
@@ -133,7 +133,7 @@
   if (!conn) return;  // panel not on this page
 
   // Which workspace this page is showing (workspace_data.html's <body data-workspace-id>). The routes are
-  // workspace-scoped (specs/08-architecture.md §5.1); the ingest WebSocket path is rendered
+  // workspace-scoped (docs/specs/08-architecture.md §5.1); the ingest WebSocket path is rendered
   // server-side onto the roster's data-ingest-ws, so this id is needed here only to key the slot
   // store below.
   var WORKSPACE_ID = document.body.getAttribute("data-workspace-id") || "";

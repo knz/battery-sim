@@ -1,9 +1,9 @@
 """FastAPI application entry point for the Home Battery Simulator.
 
-This is the web layer described in specs/08-architecture.md §5.1. In this first increment it
-did one thing: serve a single-page three-panel UI (specs/02-ux-wireframes.md) rendered from a
+This is the web layer described in docs/specs/08-architecture.md §5.1. In this first increment it
+did one thing: serve a single-page three-panel UI (docs/specs/02-ux-wireframes.md) rendered from a
 *static* sample view-model (app/sample_data.py). It has since grown a domain layer, persistence
-and — through the workspaces restructure (specs/20-workspaces-ux.md) — four screens instead of
+and — through the workspaces restructure (docs/specs/20-workspaces-ux.md) — four screens instead of
 one. The sample view-model survives as the EMPTY STATE each screen falls back to before any data
 is loaded.
 
@@ -14,20 +14,20 @@ never mutated, so mixed-locale concurrent requests cannot cross-contaminate. The
 a language toggle that posts to /lang/{code}, which sets the `lang` cookie.
 
 Beyond the scaffold, this layer now serves the pending affordance's back end
-(specs/02-ux-wireframes.md §2.1, specs/08-architecture.md §5.1): POST /feature-interest/{key}
+(docs/specs/02-ux-wireframes.md §2.1, docs/specs/08-architecture.md §5.1): POST /feature-interest/{key}
 records a thumbs-up in the local counter (app/db.py) and fires the optional, fire-and-forget
 outbound POST (app/interest.py). The counter write always succeeds and the endpoint always
 returns success, whatever the outbound request does.
 
 Beyond the pending affordance, this layer now serves the Home Assistant **data import**
-(specs/06-home-assistant-ingestion.md, browser-fetch increment). The browser fetches statistics
+(docs/specs/06-home-assistant-ingestion.md, browser-fetch increment). The browser fetches statistics
 from the user's own HA instance directly and streams the raw rows to
 `WS /w/{id}/data/ingest/ws`; the backend normalises them into SeriesFrames (app/domain) and
 persists them (app/dataset.py) so they survive a restart. No HA token ever reaches this backend —
 it stays in the browser.
 
 Beyond the browser-fetch path, this layer serves the slot-first **backend_load** sources
-(specs/02-ux-wireframes.md §2.2, specs/06-home-assistant-ingestion.md §4.3): POST
+(docs/specs/02-ux-wireframes.md §2.2, docs/specs/06-home-assistant-ingestion.md §4.3): POST
 /w/{id}/data/slot/{slot_name}/load loads one slot from a backend source (e.g. the preset
 Energy-Charts spot price) and merges the resulting series into the latest dataset via
 dataset.upsert_series — without a browser round-trip and without discarding the other series.
@@ -44,7 +44,7 @@ config drives panel ③: index(), POST /w/{id}/results and POST /w/{id}/results/
 the same one, so a parameter change moves the results.
 
 On startup (the `lifespan` below) the app adopts the pre-index single workspace into the
-`workspaces` table (app/workspaces.py, specs/20-workspaces-ux.md §2′.10). A FRESH installation is
+`workspaces` table (app/workspaces.py, docs/specs/20-workspaces-ux.md §2′.10). A FRESH installation is
 left with an empty index deliberately, because the list screen expresses that state.
 
 **`GET /` is the workspace list** (phase 2, §2′.2): one card per analysis, most recently updated
@@ -105,7 +105,7 @@ and `POST /w/{id}/data` persists the household answers then re-checks the gate, 
 
 **Routes are workspace-scoped** (phase 1). Everything that reads or writes one analysis's data
 lives under `/w/{workspace_id}/…` and resolves its workspace through `deps.get_workspace`
-(specs/08-architecture.md §5.1, §5.5 invariant 2) instead of defaulting to the module constant
+(docs/specs/08-architecture.md §5.1, §5.5 invariant 2) instead of defaulting to the module constant
 `db.WORKSPACE_ID`. Four routes stay FLAT, each for its own reason:
 
   * `GET /` — the list. It is ABOUT every workspace, so it belongs to none — but it is still
@@ -262,7 +262,7 @@ CONFIG = config.load()
 def workspace_list(
     request: Request, principal: Annotated[deps.Principal, Depends(deps.get_principal)]
 ):
-    """The workspace list — the app's home screen (specs/20-workspaces-ux.md §2′.2).
+    """The workspace list — the app's home screen (docs/specs/20-workspaces-ux.md §2′.2).
 
     One card per workspace OWNED BY THE REQUESTING PRINCIPAL, most recently updated first. The
     ordering is `workspaces.list_summaries(owner_id)`'s SQL (`ORDER BY updated_at DESC`), not anything
@@ -1181,7 +1181,7 @@ async def feature_interest(feature_key: str):
 
     This route stays FLAT — unscoped by workspace — where the rest are being re-rooted under
     `/w/{id}/…`. The counter records what this household wants, not what one analysis wants
-    (specs/20-workspaces-ux.md §2′.10; see app/db.py for the invariant-1 exception).
+    (docs/specs/20-workspaces-ux.md §2′.10; see app/db.py for the invariant-1 exception).
     """
     if not features.is_known(feature_key):
         raise HTTPException(status_code=404, detail="unknown feature key")

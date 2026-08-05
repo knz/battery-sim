@@ -1,4 +1,4 @@
-"""Route tests for the workspace scoping itself (specs/08-architecture.md §5.1, §5.5).
+"""Route tests for the workspace scoping itself (docs/specs/08-architecture.md §5.1, §5.5).
 
 The other route test modules exercise what each route COMPUTES, under one workspace. This one
 exercises the thing phase 1 added and nothing else covers: that a route's workspace comes from

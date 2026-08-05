@@ -194,7 +194,7 @@ def test_price_curves_refuses_a_non_dynamic_contract_up_front() -> None:
 
 # ── Fixture 13: the floor ordering ────────────────────────────────────────────────────────────
 #
-# specs/16-validation-harness.md fixture 13: over identical data with identical (α, β), feed-in
+# docs/specs/16-validation-harness.md fixture 13: over identical data with identical (α, β), feed-in
 # compensation revenue under MONTHLY is <= the revenue under PER_INTERVAL, with equality iff no
 # interval has negative unclamped compensation.
 #

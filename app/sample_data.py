@@ -1,13 +1,13 @@
 """Static sample view-model for the frontend scaffold.
 
-This module hard-codes the numbers shown in the UX wireframes (specs/02-ux-wireframes.md).
+This module hard-codes the numbers shown in the UX wireframes (docs/specs/02-ux-wireframes.md).
 It exists so the templates can render the *shape* of the real product before any feature
 logic — ingestion, simulation, pricing — is wired up. Nothing here is computed; every value
 is a placeholder lifted from the wireframe so the page reads like the intended app.
 
 The single entry point is `sample_view()`, which returns the dict the index template
-consumes. When the real service layer lands (specs/08-architecture.md §5.1), this module is
-replaced by the result object of specs/07-internal-representation.md §4.5 — the template
+consumes. When the real service layer lands (docs/specs/08-architecture.md §5.1), this module is
+replaced by the result object of docs/specs/07-internal-representation.md §4.5 — the template
 field names deliberately mirror that eventual structure.
 
 `sample_view()` includes `data_summary` (specs §2.3a) unconditionally so a demo render shows the
@@ -19,7 +19,7 @@ empty-state-free demo shape and the shared shape contract in tests/test_data_sum
 template itself guards on `data_summary` being present.
 
 Current variant: the app default — has_pv=True, simulate_cost=False (energy only). These two
-choices are the setup band (specs/02-ux-wireframes.md §2.1); they drive which series/slots
+choices are the setup band (docs/specs/02-ux-wireframes.md §2.1); they drive which series/slots
 panel ① asks for, which boxes panel ② shows, and which sections panel ③ renders. They are NOT
 sample data any more: main.py reads them off the persisted SimulationConfig and renders them
 through templates/_setup_band.html. This module therefore supplies only `data`, `data_summary`
@@ -278,7 +278,7 @@ def _panel_data():
 
 
 def _data_summary():
-    """The data summary band — "Your data at a glance" (specs/02-ux-wireframes.md §2.3a).
+    """The data summary band — "Your data at a glance" (docs/specs/02-ux-wireframes.md §2.3a).
 
     The battery-free figures that follow from the household's OWN recorded data before the
     SIMULATED battery is configured: the §6.11 energy row (minus efc, which counts the simulated

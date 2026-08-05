@@ -6,7 +6,7 @@ The frontend smoke test launches uvicorn as a subprocess (cwd=repo root), so it 
 imports resolve without a src layout or an editable install.
 
 Beyond that, this module holds the two things every route test now needs, since the data routes
-moved under `/w/{workspace_id}/…` (specs/08-architecture.md §5.1, changelog phase 1):
+moved under `/w/{workspace_id}/…` (docs/specs/08-architecture.md §5.1, changelog phase 1):
 
   * `W` / `w(suffix)` — the scoped path prefix for the default `local` workspace, so a test says
     `client.post(w("/results"), …)` rather than repeating the prefix at ~90 call sites and

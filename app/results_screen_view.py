@@ -1,4 +1,4 @@
-"""The view-model for the results screen's own chrome (specs/20-workspaces-ux.md §2′.6).
+"""The view-model for the results screen's own chrome (docs/specs/20-workspaces-ux.md §2′.6).
 
 `GET /w/{id}/results` renders panels ② and ③ combined, with ② reduced to a capacity-first battery
 box. Almost all of what that screen draws already has a view-model: the parameter fields come from

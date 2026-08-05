@@ -1,4 +1,4 @@
-"""The closed vocabulary of feature keys for pending controls (specs/02-ux-wireframes.md §2.1).
+"""The closed vocabulary of feature keys for pending controls (docs/specs/02-ux-wireframes.md §2.1).
 
 A control that is specified but not yet built renders "pending": disabled, with a `[?]`
 affordance that opens the shared dialog and offers a thumbs-up. Each such control carries a
@@ -14,7 +14,7 @@ Ongoing-work rule — read before adding or removing an entry:
     key in place (retired, not deleted) so the counter row keeps its meaning. Move it under the
     "Retired" list below rather than removing the line.
   * Never rename a key or repoint it at a different control — that would make every historical
-    counter row a lie (same discipline as the series names in specs/05-data-formats.md).
+    counter row a lie (same discipline as the series names in docs/specs/05-data-formats.md).
 
 The route POST /feature-interest/{feature_key} rejects any key not in FEATURE_KEYS.
 """
