@@ -253,10 +253,30 @@ CI proves the resource and icon were WRITTEN. It cannot show what they look like
 - Whether a WebView2-less Windows machine reaches the dialog at all (the MSHTML hypothesis).
   Unchanged by this run: CI runners have WebView2, so they exercise neither branch.
 
-### macOS specifically
+### macOS CI verification (dispatch run 31040150790, 2026-08-05)
 
-Nothing about the `.app` has been observed. CI builds it and zips it; no job launches it, and no
-macOS machine is available here. Unverified, in rough order of how likely they are to bite:
+All five jobs passed. What the macOS jobs establish:
+
+- `Building BUNDLE BUNDLE-00.toc completed successfully` — the `.app` is built on a real macOS
+  runner. This also clears the `.icns`: BUNDLE fails on an icon it cannot read, so a successful
+  build is evidence the file is a valid icns container, not merely present.
+- `zip -qry "battery-sim-macos-arm64.zip" "Home Battery Simulator.app"` ran and succeeded, so
+  the bundle exists under exactly that name (zip errors on a missing target).
+- No build warnings at all on macOS — cleaner than Windows, which still has the three
+  pre-existing hidden-import ones.
+- `Code signing identity: None` followed by `Re-signing the EXE`: ad-hoc signed, as expected and
+  as documented in the spec.
+- Artifact sizes moved by the amount a `.app` wrapper plus an icon would explain, and are
+  nowhere near empty — which is the failure `if-no-files-found: error` would NOT have caught:
+  arm64 25,481,798 → 25,629,972 (+148KB), x86_64 27,830,856 → 27,981,147 (+150KB).
+- The Linux job's build and packaged-verification steps still pass, so the platform-conditional
+  spec changes did not disturb the AppImage path.
+
+### Still unverified on macOS
+
+CI proves the bundle was BUILT and archived. It cannot show that it runs: no job launches it,
+and no macOS machine is available here. Unverified, in rough order of how likely they are to
+bite:
 
 - That the `.app` launches from Finder at all, and that pywebview's WKWebView window appears.
 - That stderr reaches Console.app / `log stream` with `console=False` — the hypothesis the
