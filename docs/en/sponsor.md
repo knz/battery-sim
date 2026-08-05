@@ -13,8 +13,7 @@ Microsoft's public pricing page shows the tiers but not the figures. The hardwar
 requirement for OV certificates traces to the CA/Browser Forum baseline effective
 2023-06-01.
 
-There is NO sponsorship channel yet — no account, no FUNDING.yml. The URL is a single marked
-placeholder line; picking the platform is the user's call.
+Sponsorship is available through GitHub Sponsors at https://github.com/sponsors/knz.
 Dutch counterpart: ../nl/sponsor.md.
 -->
 
@@ -78,8 +77,8 @@ at USD 99/year it is the smaller of the two bills.
 
 ## How to contribute
 
-> **A sponsorship channel has not been set up yet.** No account exists, so there is nothing to
-> link to at the time of writing. When one is chosen, the link goes here.
+> You can support the project through [GitHub Sponsors](https://github.com/sponsors/knz).
+> The platform handles recurring monthly contributions and one-time donations.
 
 If you would rather contribute in a way that costs nothing:
 

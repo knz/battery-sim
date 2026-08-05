@@ -3,7 +3,7 @@ Household-facing install page (English). Covers the Linux AppImage, which is the
 platform with a produced build; states plainly that macOS and Windows builds do not exist
 yet. Deliberately does NOT document running from source — that is the top-level README's
 job, and pointing a household at `uv` invites them to install a Python toolchain they do
-not need. The download URL is a marked placeholder; there is no release yet.
+not need. The download URL points to the GitHub releases page, which currently has no release.
 Dutch counterpart: ../nl/installatie.md.
 -->
 
@@ -44,8 +44,9 @@ the app, delete the file.
 
 **1. Download the AppImage.**
 
-> **This link does not exist yet.** No public release has been made. When one is, the file
-> will be named `Home-Battery-Simulator-x86_64.AppImage` and the download link goes here.
+> Releases are published at https://github.com/knz/battery-sim/releases. No release has been
+> published yet, but when one is, the file will be named `Home-Battery-Simulator-x86_64.AppImage`
+> and you can download it from there.
 
 **2. Make it executable.** A downloaded file is not allowed to run until you say it may. In a
 terminal, in the directory you downloaded it to:

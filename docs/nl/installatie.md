@@ -1,8 +1,8 @@
 <!--
 Installatiepagina voor huishoudens (Nederlands). Behandelt alleen de Linux-AppImage — dat is
 het enige platform waarvoor een build bestaat. Documenteert bewust NIET het draaien vanuit de
-broncode; dat hoort in de README voor ontwikkelaars. De downloadlink is een gemarkeerde
-placeholder: er is nog geen release.
+broncode; dat hoort in de README voor ontwikkelaars. De downloadlink wijst naar de GitHub-releases-pagina,
+die op dit moment nog geen release bevat.
 
 Register: informeel je/jouw, conform changelog/20260725-nl-register-consistency.md.
 Engelse tegenhanger: ../en/install.md.
@@ -44,8 +44,9 @@ dan gooi je het bestand weg.
 
 **1. Download de AppImage.**
 
-> **Deze link bestaat nog niet.** Er is nog geen publieke release. Zodra die er is, heet het
-> bestand `Home-Battery-Simulator-x86_64.AppImage` en komt de downloadlink hier te staan.
+> Releases verschijnen op https://github.com/knz/battery-sim/releases. Er is nog geen release
+> gepubliceerd, maar zodra dat gebeurt, heet het bestand `Home-Battery-Simulator-x86_64.AppImage`
+> en kun je het daar downloaden.
 
 **2. Maak het bestand uitvoerbaar.** Een gedownload bestand mag niet zomaar draaien; je moet
 daar eerst toestemming voor geven. In een terminal, in de map waar je het hebt neergezet:

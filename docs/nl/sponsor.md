@@ -14,8 +14,7 @@ smartscreen-reputation op Microsoft Learn; Microsofts publieke prijspagina toont
 tarieven maar niet de bedragen. De eis van een hardwaretoken voor OV-certificaten komt uit de
 CA/Browser Forum-basisregels die per 2023-06-01 gelden.
 
-Er is nog GEEN kanaal om te doneren — geen account, geen FUNDING.yml. De URL is één
-gemarkeerde placeholderregel; welk platform het wordt, is aan de eigenaar van het project.
+Je kunt het project steunen via GitHub Sponsors: https://github.com/sponsors/knz.
 Engelse tegenhanger: ../en/sponsor.md.
 -->
 
@@ -83,8 +82,8 @@ en met USD 99 per jaar is het bovendien de kleinste van de twee rekeningen.
 
 ## Hoe je kunt bijdragen
 
-> **Er is nog geen kanaal ingericht om te doneren.** Er bestaat geen account, dus er valt op dit
-> moment nog niets te linken. Zodra de keuze gemaakt is, komt de link hier te staan.
+> Je kunt het project steunen via [GitHub Sponsors](https://github.com/sponsors/knz).
+> Het platform verzorgt maandelijkse bijdragen en eenmalige donaties.
 
 Wil je liever bijdragen op een manier die niets kost:
 
