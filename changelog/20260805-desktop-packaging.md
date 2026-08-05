@@ -941,3 +941,302 @@ developer mid-translation who has not yet compiled a catalog. The packaged test 
 directly, at build time, where a fix is free — which is the better place for it. So phase 3 ends
 where it started: `app/`, `pyproject.toml` and `uv.lock` are untouched, and every change is in
 `packaging/`, `tests/`, `.gitignore` and this file.
+
+## 13. Phase 4 — the Linux AppImage with WebKit2GTK bundled
+
+Implemented 2026-08-05. **Both risks the phase existed to separate came back positive, with
+screenshots.** Risk A (does the window open at all — the typelib bundling) and Risk B (does Plotly
+render under WebKit2GTK rather than the Chromium the suite uses) are reported separately in §13.6
+and §13.7, because a blank window would have been undiagnosable if they had been checked together.
+
+The AppImage is **105MB** (109,738,488 bytes). It is built against this machine's glibc 2.39 and is
+therefore **not portable to older distributions** — see §13.3, which is a deliberate trade rather
+than an omission.
+
+### 13.1 What was built
+
+- `packaging/build-appimage.sh` — lays out an AppDir from the phase-3 onedir bundle plus the GI /
+  GTK3 / WebKit2GTK stack collected from the host, writes AppRun and the desktop entry, and runs
+  `appimagetool`. Output `dist/Home-Battery-Simulator-x86_64.AppImage`.
+- `tests/test_appimage.py` — 7 tests, gated on `BATTERY_SIM_APPIMAGE`. §13.9.
+- One line added to `packaging/battery-sim.spec`: `optparse` as a hidden import (§13.5).
+
+No application source changed. `app/`, `pyproject.toml` and `uv.lock` are untouched by this phase,
+as they were by phase 3.
+
+### 13.2 Environment as found
+
+- Docker: **available**. Not used — see §13.3.
+- `Xvfb`, `openbox`, `xdotool`: **not installed**; installed via apt during the phase (the machine
+  has passwordless sudo). Without a virtual display none of the verification below is possible.
+- `appimagetool`: fetched as the continuous build; the script fetches it into `dist/` if absent.
+- glibc 2.39 (Ubuntu 24.04). System PyGObject 3.48.2 at `/usr/lib/python3/dist-packages/gi`.
+- **The venv's Python is 3.12.3, the same minor version as `/usr/bin/python3`.** That is what makes
+  copying the system `gi` into the bundle viable at all: the compiled `_gi` extension is built for
+  a specific CPython ABI. The build script now asserts the two agree and fails if they do not,
+  because a mismatch is an undefined-symbol error at the user's launch rather than at build time.
+
+### 13.3 Decision D12 — build natively and accept non-portability, rather than stall on Docker
+
+Docker **is** available here, so the plan's container build was possible. It was not done, and the
+reasoning should be read as a trade rather than as a shortcut:
+
+The phase's stated purpose is to find out whether the native window works at all — R4 (typelibs)
+and R5 (Plotly), both open since phase 2 and both untestable without a bundled GTK stack. A
+container build against an older glibc would have added a second, independent variable (an
+older Ubuntu's WebKit2GTK, a different typelib set, a different PyGObject) to a phase whose whole
+value is isolating which of two things broke. Building natively kept the variable count at one.
+
+**The consequence, stated plainly: the AppImage produced here runs on glibc 2.39 or newer and will
+not run on Debian 12 or any older distribution.** glibc is forward- but not backward-compatible.
+Portability is therefore **unverified and remains a follow-up**, and the container build is the
+obvious next step now that the renderer questions are answered. A working-but-not-portable AppImage
+was judged more valuable than no AppImage, because it is the only way to test the window at all —
+but it is not a shippable artifact for arbitrary users yet, and should not be described as one.
+
+### 13.4 The three obstacles, and what each of them actually was
+
+All three were found by measurement. Each produced the SAME user-visible symptom — pywebview
+reporting "GTK cannot be loaded" and the launcher quietly opening a browser — which is why they had
+to be peeled apart one at a time rather than guessed at.
+
+**Obstacle 1 — `PYTHONPATH` does not reach a frozen `sys.path`.** The first AppImage put PyGObject
+at `usr/lib/python-gi` and exported `PYTHONPATH` from AppRun. It had no effect whatsoever:
+PyInstaller's bootstrap REPLACES `sys.path` with the bundle's own entries, so `PYTHONPATH` is not
+consulted for package resolution in a frozen process. The run failed with `ModuleNotFoundError: No
+module named 'gi'`, served every HTTP route correctly, and fell back to the browser.
+
+*The fix* is to copy the `gi` package into the bundle's own `_internal/`, which IS on the frozen
+`sys.path`. No loader tricks, no runtime hook. `tests/test_appimage.py` asserts the LOCATION rather
+than mere presence, because that distinction is the entire bug.
+
+**Obstacle 2 — `optparse` was not in the bundle.** With `gi` importable, the next failure was
+`ModuleNotFoundError: No module named 'optparse'`, from `gi/overrides/GLib.py`'s
+`from gi import _option`. Nothing in the application imports `optparse`, so PyInstaller correctly
+did not collect it. Added as a hidden import in `packaging/battery-sim.spec`, with the incident
+recorded inline; the cost to a non-AppImage bundle is one small stdlib module.
+
+**Obstacle 3 — WebKit's helper-process path is compiled in, and copying the helpers does not
+help.** This is the one that would have shipped silently, and it was found only because of a check
+that was almost not run.
+
+WebKit2GTK runs its renderer, network and GPU work in separate processes and looks for those
+executables at an absolute path baked into `libwebkit2gtk` at build time —
+`/usr/lib/x86_64-linux-gnu/webkit2gtk-4.1` here. There is no environment variable to redirect it:
+the library's string table carries `WEBKIT_INJECTED_BUNDLE_PATH` but nothing for the exec path
+(checked directly against the binary). So an AppImage that copies the helpers into its AppDir does
+not use them — **it uses the host's**, and works only on a machine that already has WebKit2GTK
+installed, which is precisely the opposite of the point.
+
+On this machine, which does have WebKit2GTK, everything looked correct. The problem surfaced only
+when the host's `girepository-1.0`, `webkit2gtk-4.1` and `dist-packages` were masked with tmpfs
+mounts inside a `unshare -m` namespace, at which point the process died with:
+
+    ERROR: Unable to spawn a new child process: Failed to spawn child process
+    "/usr/lib/x86_64-linux-gnu/WebKitNetworkProcess" (No such file or directory)
+
+*The fix* rewrites the two occurrences of that path inside the COPIED library. Both are
+NUL-terminated C strings in `.rodata`, so a shorter replacement NUL-padded to the original length
+needs no relocation and no `patchelf`. The replacement is `/tmp/.battery-sim-webkit`, which AppRun
+creates as a symlink to the live mount — the indirection is necessary because the AppImage mount
+point is randomised per launch (`/tmp/.mount_XXXXXX`) while the patched string must be a
+compile-time constant.
+
+**A known limitation of that fix, recorded rather than hidden:** the symlink name is shared across
+users on one machine. The patched string cannot carry the UID, since WebKit uses it as a literal
+path with no expansion. AppRun therefore replaces the link only when it does not exist or is one
+this user owns; a second user on the same machine falls back to the browser rather than being
+pointed at the first user's mount. Acceptable for a single-user desktop app. A path under
+`$XDG_RUNTIME_DIR` would be per-user by construction and is the clean fix, but it is not knowable
+at build time either and a typical `/run/user/<uid>/…` exceeds the 40-byte budget. Left open.
+
+### 13.5 The environment AppRun sets, and why each entry is there
+
+Each corresponds to a lookup that would otherwise resolve against the host and find the wrong
+version or nothing at all. Investigated against the binaries rather than guessed:
+
+| variable | what it resolves | symptom when missing |
+|---|---|---|
+| `GI_TYPELIB_PATH` | the `.typelib` blobs `gi.require_version` reads | `ValueError: Namespace WebKit2 not available` at window creation |
+| `LD_LIBRARY_PATH` | the bundled GTK/WebKit `.so` set | the host's versions, or none |
+| `GDK_PIXBUF_MODULE_FILE` | `loaders.cache`, for the dlopen()ed image loaders | icons and images silently fail to decode |
+| `GIO_MODULE_DIR` | GIO extension modules (TLS via gnutls, proxy) | `https://` inside the webview fails |
+| `GSETTINGS_SCHEMA_DIR` | the compiled schemas | `abort()`, not an exception |
+| `XDG_DATA_DIRS` | icon theme lookup | missing icons |
+| `WEBKIT_DISABLE_COMPOSITING_MODE` | forces the non-GL paint path | see below |
+
+`PYTHONPATH` is deliberately **absent** — obstacle 1. `WEBKIT_DISABLE_COMPOSITING_MODE=1` is set
+because the bundled WebKit renders through the HOST's GL/EGL stack, which may be a different Mesa
+than it was built against; the compositing path is what trips on that mismatch and it is not needed
+for a document UI. Under Xvfb the run logs `libEGL warning: DRI3 error` and renders correctly
+regardless, so this is a precaution rather than something measured to be required.
+
+**The typelibs are copied wholesale rather than hand-picked.** The whole directory is ~1MB and the
+dependency graph between them (WebKit2 → Soup, JavaScriptCore; Gtk → Gdk → GdkPixbuf → GObject →
+GLib) is not worth encoding when the cost is less than one PNG.
+
+### 13.6 RISK A — the window opens. VERIFIED, with screenshots
+
+`webview.start()` had never successfully run on this machine before this phase (§11.3, §12.8).
+It now does, from the AppImage, with no packages installed.
+
+Method: `Xvfb :N` plus `openbox`, the AppImage copied to a directory **outside the repository**,
+`BATTERY_SIM_DATA_DIR` unset, `XDG_DATA_HOME` pointed at a scratch directory, screenshots by
+`import -window root`.
+
+- The window is present in the X tree as `"Home Battery Simulator" 1280x860` — the size
+  `_WINDOW_SIZE` specifies, so the geometry passed through pywebview correctly.
+- The page renders the real UI: the workspace list, the Tailwind stylesheet, the EN/NL switch, the
+  "+ New analysis" button. Screenshot: `40-final-riskA.png`.
+- **Self-containment proven, not assumed.** Repeated inside `unshare -m` with the host's
+  `girepository-1.0`, `webkit2gtk-4.1` and `python3/dist-packages` masked by tmpfs. The window
+  still opens and still renders. Screenshot: `30-isolated-window.png`. This is the check that
+  matters, and it is what exposed obstacle 3 — without it the phase would have concluded "works"
+  on a bundle that was quietly using the host's WebKit.
+
+**A window manager is required for any of this to be observable.** Bare `Xvfb` with no WM produced
+a black root window and no mapped GTK window; with `openbox` running the window maps normally. That
+is a property of the test harness, not of the app.
+
+**A session bus is also required, and its absence is silent.** Without one — or with a stale
+inherited `DBUS_SESSION_BUS_ADDRESS` — `gtk.Application.run()` can return WITHOUT ever firing
+`activate`, and pywebview then returns from `webview.start()` with no window, no error and no
+traceback. Measured: 3/3 windows with `dbus-run-session`, 1/2 without, on otherwise identical runs.
+This was the single most confusing failure encountered and cost the most time, because it looks
+exactly like success. AppRun starts `dbus-run-session` when no bus is present; a normal desktop
+session keeps its own.
+
+### 13.7 RISK B — Plotly renders under WebKit2GTK. VERIFIED, with a screenshot
+
+R5 has been open since phase 2 and is now closed **positively**.
+
+Driven against a workspace seeded through the app's own `POST /workspaces` route, whose `/results`
+screen carries 12 months of `monthly-data` JSON priced off the shipped spot-price CSVs, and which
+calls `Plotly.newPlot('monthly-chart', …)`.
+
+The webview was pointed at that URL using the AppImage's **own extracted** GI/GTK/WebKit stack, so
+what rendered is the bundled engine and not the host's. Evidence is both programmatic and visual:
+
+    JSPROBE: {"plotly":"object","svg":3,"traces":1,"bars":12}
+
+`Plotly` is a live object, three SVG elements were produced, one trace, and twelve bar paths — one
+per month, matching the data exactly. The screenshot `41-final-riskB-plotly.png` shows the chart
+drawn correctly: 12 bars, y-axis ticks at 0/50/100/150, the `kWh` axis label, month labels
+Aug–Jul, the purple fill from the template, plus the benchmark bar rows and the caveat panel above
+and below it. No JavaScript errors were logged.
+
+So the concern behind D2 — that a different engine from the test suite's Chromium would render the
+results screen badly — did not materialise for this chart. **Stated with its limits:** one page and
+one chart type (a bar chart) were checked. The `SoC + price` and `Energy flows` tabs, and any chart
+that appears only after a full simulation run, were not.
+
+### 13.8 Also verified
+
+- **Runs from outside the repository, writes state to the per-user location.** The AppImage was
+  copied to a scratch directory, run with `BATTERY_SIM_DATA_DIR` unset and `XDG_DATA_HOME`
+  redirected. `config.toml`, `feature_interest.db`, `desktop.lock`, `local/` and `webview/` all
+  appeared under `<scratch>/battery-sim/`. Nothing was written inside the mount, which is
+  read-only in any case.
+- **The WebSocket route works.** `tests/test_packaged.py` — including
+  `test_the_websocket_route_works`, a raw `ws://` upgrade plus an in-protocol exchange against a
+  workspace **seeded first**, heeding the documented 404-on-handshake trap — passes 9/9 against the
+  AppImage's extracted binary as well as against the plain onedir bundle.
+- **Window close shuts the server down cleanly.** This closes a gap open since phase 2, where the
+  path had only ever been mock-tested (§11.6). Driven under Xvfb with
+  `xdotool windowclose`: the process exited within ~1s and the port stopped answering. Measured on
+  two separate builds. The stderr shows GTK teardown warnings from `gi/overrides/Gio.py`
+  (`invalid (NULL) pointer instance`, a `Gdk-CRITICAL` about the frame clock) — cosmetic, on the
+  way out, after the decision to exit; worth a look eventually but not a defect in the shutdown
+  handshake, which did what §11.2 says it should.
+
+### 13.9 The tests, and the sabotage check
+
+`tests/test_appimage.py`, 7 tests, gated on `BATTERY_SIM_APPIMAGE`. They exist because
+`tests/test_packaged.py` **cannot** catch a broken GTK payload: it drives the binary with
+`--no-browser`, so every one of its checks passes on an AppImage whose entire WebKit stack is
+missing. That is not hypothetical — the first AppImage built here did exactly that.
+
+The tests assert on the payload: the typelibs by NAME (not by counting files — that is the shape of
+assertion that let a missing Dutch catalog through in phase 3), `gi` inside `_internal/`
+specifically, `optparse`, WebKit's helper executables, the WebKit/GTK libraries, and the variables
+AppRun exports.
+
+**Sabotage-checked, three bundles, each breaking one thing.** Each was a copy repacked into its own
+AppImage and deleted afterwards; `dist/` was never modified.
+
+| sabotage | result | which test failed |
+|---|---|---|
+| `WebKit2-4.1.typelib` removed | 1 failed / 6 passed | the typelib test only |
+| `_internal/gi` removed | 1 failed / 6 passed | the PyGObject-location test only |
+| `WebKitWebProcess` removed | 1 failed / 6 passed | the helper-process test only |
+
+Each sabotage fails exactly one test and the right one, so the checks are discriminating rather
+than merely non-vacuous.
+
+**One of the tests was wrong when first written, and the failure is instructive.**
+`test_optparse_is_bundled` looked in `_internal/` and `base_library.zip` and reported optparse
+missing on a bundle where it was present and working — PyInstaller had put it in the PYZ archive
+*inside the executable*. A test that reports a missing dependency when the dependency is there is
+worse than no test, because its failure is indistinguishable from the real bug it guards. The
+corrected version checks all three locations, and says so.
+
+**A second correction, also worth recording.** The first AppRun assertion used a regex anchored to
+line start, which missed the `[ -d … ] && export VAR=` form that several variables legitimately
+use. It failed on a correct AppRun. Same category of error as the first: the test was wrong, the
+artifact was right.
+
+### 13.10 Test numbers
+
+- `uv run pytest tests/test_desktop.py -q` → **58 passed** in 12.51s. Unchanged from phase 2/3, as
+  expected: no application source changed.
+- `uv run pytest tests/test_packaged.py -q` with the gate unset → **9 skipped**.
+- `BATTERY_SIM_PACKAGED_BINARY=dist/battery-sim/battery-sim …` → **9 passed** in 1.46s.
+- The same suite against the AppImage's extracted binary → **9 passed** in 1.33s.
+- `uv run pytest tests/test_appimage.py -q` with the gate unset → **7 skipped**.
+- `BATTERY_SIM_APPIMAGE=dist/Home-Battery-Simulator-x86_64.AppImage …` → **7 passed** in 2.28s.
+- Against each of the three sabotaged AppImages → 1 failed / 6 passed, each time a different test.
+
+The full suite was **not** run, on the standing instruction that it carries slow benchmarks. Its
+last recorded figure (§11.6) remains stale and this phase does not update it.
+
+### 13.11 What is NOT verified
+
+- **Portability to any other machine.** The single biggest gap, and the direct consequence of D12.
+  Built against glibc 2.39; will not run on anything older. Untested on any distribution but this
+  one. The container build is the follow-up.
+- **Anything but a bar chart, on anything but the monthly-grid-import tab.** Risk B is answered for
+  the chart that is drawn on page load. The `SoC + price` and `Energy flows` tabs were not opened.
+- **A full simulation run inside the AppImage.** The results screen renders and prices off the
+  shipped CSVs, which is what makes the chart real, but no long run was driven end to end.
+- **localStorage persistence across a close/reopen cycle.** `storage_path` reaches pywebview and
+  `<data_dir>/webview/` is created and populated, but that the Home Assistant token actually
+  survives a restart (the reason for `private_mode=False`, §11.3a) was not checked.
+- **The Home Assistant fetch from inside the AppImage window.** R1 was probed from an ordinary
+  browser at `http://127.0.0.1:8000`, not from this window at its own port. That is phase 5.
+- **Multi-user behaviour of the `/tmp` symlink** (§13.4). Reasoned about, not tested.
+- **macOS and Windows.** Untouched.
+- **Startup time.** Still not measured. The AppImage is noticeably slower to first answer than the
+  onedir bundle (it mounts first); the 40s deadline in `tests/test_appimage.py` is generous rather
+  than tight, and no number was taken.
+- **Whether the AppImage works without FUSE.** All runs here either mounted normally or used
+  `--appimage-extract`. A machine without FUSE needs `--appimage-extract-and-run`, untested.
+
+### 13.12 Status and what is open
+
+Phase 4 is complete for Linux on this machine: the AppImage builds, runs from anywhere, opens a
+native window, renders the app and its Plotly chart, keeps its data per-user, serves its WebSocket
+route, and shuts down cleanly on window close. Changes are left **unstaged and uncommitted**.
+
+Open, with no recommendation attached:
+
+- **The container build for portability** (D12). Now the cheapest it will ever be, because the
+  renderer questions are answered and a container build only has to reproduce a known-good result
+  against an older glibc.
+- **Phase 5 (packaged HA verification)** — R1 from inside this window, at the launcher's own port,
+  and the plain-HTTP LAN case. The window now exists to test it in.
+- **The remaining chart tabs**, if Risk B is to be considered fully closed rather than closed for
+  the default view.
+- **The `$XDG_RUNTIME_DIR` variant of the WebKit symlink** (§13.4), if multi-user matters.
+- **Wiring both packaged suites into CI**, carried over from §12.10 and now covering two artifacts.
+- **The GTK teardown warnings on window close** (§13.8) — cosmetic, but they are the kind of thing
+  that masks a real one later.

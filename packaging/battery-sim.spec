@@ -100,6 +100,18 @@ HIDDENIMPORTS = [
     # deliberately so (the data directory must be resolved first), which also hides it from the
     # module-level import graph.
     "app.main",
+    # `optparse`, for PyGObject (phase 4). Nothing in the application imports it, so PyInstaller
+    # does not collect it — but `packaging/build-appimage.sh` copies the SYSTEM `gi` package into
+    # this bundle's `_internal/`, and `gi/_option.py` does `import optparse` at package import
+    # time. Without it `import gi` raises ModuleNotFoundError, pywebview reports "GTK cannot be
+    # loaded", and the launcher falls back to the browser — i.e. the AppImage silently loses the
+    # native window it exists to provide. Measured: this was the second of two failures on the
+    # first AppImage built here (the first being PYTHONPATH, which a frozen sys.path ignores).
+    #
+    # It is listed HERE and not in the AppImage script because hidden imports are a property of
+    # the PyInstaller analysis, and the AppImage is assembled after PyInstaller has finished. The
+    # cost to a non-AppImage bundle is one small stdlib module.
+    "optparse",
 ]
 
 # ── what stays out ────────────────────────────────────────────────────────────
