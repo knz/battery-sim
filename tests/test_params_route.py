@@ -89,9 +89,14 @@ def client(tmp_path, monkeypatch):
     return TestClient(main.app)
 
 
+# The energy-only submission. It carries the `setup` section and an explicit
+# `setup.simulate_cost=no`: `parse_form` writes that field only when its section is posted, so a
+# form omitting it INHERITS the stored value. That read as "cost off" only while the default was
+# off (§8.18 flipped it), which made this helper's meaning depend on a default it does not name.
 def _form(**overrides) -> dict:
     base = {
-        "sections": "battery grid charge discharge topology",
+        "sections": "setup battery grid charge discharge topology",
+        "setup.simulate_cost": "no",
         "battery.usable_capacity_kwh": "10.0",
         "battery.min_soc_pct": "10",
         "battery.max_soc_pct": "100",

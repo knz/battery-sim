@@ -25,7 +25,7 @@
 | RTE | Round-trip efficiency, AC-to-AC at the meter unless stated. |
 | Intern salderen | Internal netting across phases by the smart meter. Survives 2027. |
 | Configuration epoch | A span of the window with unchanged physical installation. |
-| Cost simulation | The optional half of a run that converts kWh to euros: contract, tax, VAT, feed-in. Off by default (`cfg.simulate_cost`). |
+| Cost simulation | The optional half of a run that converts kWh to euros: contract, tax, VAT, feed-in. On by default, switchable off (`cfg.simulate_cost`). |
 | Dispatch signal | The spot price in its role of deciding *when* the battery charges and discharges, as opposed to its role as a cost input. Present in both cost modes. |
 | MTU15 | 15-minute market time unit; EPEX settlement since 1 October 2025. |
 

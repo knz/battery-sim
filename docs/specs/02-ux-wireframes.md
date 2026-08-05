@@ -977,13 +977,14 @@ and does not ask again. With `has_pv = false` the panel changes as follows, and 
 
 `simulate_cost` is set on the results screen, above these sections
 ([§2′.7](20-workspaces-ux.md#27-where-the-setup-bands-questions-went)); this box reads it and
-does not ask again. With `simulate_cost = false` — the default — the panel loses everything
-that exists to turn kWh into euros, and keeps everything that decides which kWh move:
+does not ask again. With `simulate_cost = false` — the non-default half of the toggle since
+[§8.18](17-open-questions.md) — the panel loses everything that exists to turn kWh into euros,
+and keeps everything that decides which kWh move:
 
 - **The entire Pricing box is absent**: contract type, all three contract sub-panels, the
   supplier markup, energy tax, VAT, the Feed-in box, and the Advanced box with its
   degradation cost and day/night window. Absent, not greyed — there is nothing here the
-  user can usefully look at without opting in.
+  user can usefully look at with cost simulation switched off.
 - **The charge and discharge price bands stay.** `Band A/B` and `Band C/D` are dispatch
   parameters: they decide when the battery charges and discharges, which changes the kWh
   answer. They keep their €/kWh units and stay compared against the bare EPEX spot, because
@@ -1230,8 +1231,9 @@ without the second half rather than looking truncated. Two smaller consequences:
 - A short affordance sits at the foot of the energy section: *"Want to know what this is
   worth in euros? [ Enable cost simulation ]"*, linking to the `simulate_cost` toggle above
   these sections on the same screen
-  ([§2′.7](20-workspaces-ux.md#27-where-the-setup-bands-questions-went)). Since it defaults off, some users will
-  otherwise never discover that the app can do this at all.
+  ([§2′.7](20-workspaces-ux.md#27-where-the-setup-bands-questions-went)). The toggle defaults on
+  ([§8.18](17-open-questions.md)), so this addresses a user who turned cost simulation off —
+  and it is the way back, which is otherwise a control they have to remember is there.
 
 ### Panel ③ without PV
 

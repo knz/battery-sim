@@ -48,6 +48,19 @@ from tests.conftest import (
     w,
 )
 
+def _energy_only_cfg():
+    """A config with cost simulation OFF, named rather than inherited.
+
+    §8.18 defaulted `simulate_cost` ON, so a bare `SimulationConfig()` is now the COST half. Every
+    call site below wants the other one, and says so through this helper.
+    """
+    from app.domain.simconfig import SimulationConfig
+
+    cfg = SimulationConfig()
+    cfg.simulate_cost = False
+    return cfg
+
+
 # A fixed hourly window so totals are exact: 30 days × 24 h of 1 h intervals from 2026-01-01 UTC.
 _DAYS = 30
 _HOURS = _DAYS * 24
@@ -311,6 +324,11 @@ def test_results_data_glance_styled_like_energy_savings(client):
     # Panel ③'s copy is framed to match the "Energy savings" section below it (§2.4): a
     # `divider divider-start` heading and NO card frame around the figures. Both dividers carry
     # the same classes, so the two sections read as peers.
+    from app import simconfig_store
+
+    # Energy-only, so the count below is exactly the two sections this test names. With cost
+    # simulation on — the default since §8.18 — the COST SAVINGS divider is a third.
+    simconfig_store.save(_energy_only_cfg(), WORKSPACE_ID)
     r = client.post(w("/results"), json={"period": "last_1_week"})
     divider_cls = 'class="divider divider-start text-xs font-semibold uppercase tracking-wider'
     # Two dividers: the glance section and Energy savings, identically styled.
@@ -649,7 +667,7 @@ def test_cost_section_absent_and_affordance_offered_when_simulate_cost_is_off(co
     client, store = cost_client
     from app.domain.simconfig import SimulationConfig
 
-    store.save(SimulationConfig(), WORKSPACE_ID, pricing_configured=True)  # simulate_cost defaults to False
+    store.save(_energy_only_cfg(), WORKSPACE_ID, pricing_configured=True)
     r = client.post(w("/results"), json={"period": "last_1_week"})
     assert r.status_code == 200
     assert "Cost savings" not in r.text
@@ -686,7 +704,7 @@ def test_the_invitation_points_at_the_contract_when_the_toggle_is_blocked(cost_c
     from app.domain.simconfig import SimulationConfig
 
     # simulate_cost off AND no contract configured: the Blocked branch.
-    store.save(SimulationConfig(), WORKSPACE_ID, pricing_configured=False)
+    store.save(_energy_only_cfg(), WORKSPACE_ID, pricing_configured=False)
     r = client.post(w("/results"), json={"period": "last_1_week"})
     assert r.status_code == 200
     # The box is still there and still asks its question — §2′.7's hold.
@@ -715,7 +733,7 @@ def test_fixture_18_the_rendered_energy_half_is_unchanged_by_the_toggle(cost_cli
     from app.domain.simconfig import SimulationConfig
 
     on = client.post(w("/results"), json={"period": "last_1_week"}).text
-    store.save(SimulationConfig(), WORKSPACE_ID)
+    store.save(_energy_only_cfg(), WORKSPACE_ID)
     off = client.post(w("/results"), json={"period": "last_1_week"}).text
 
     # Everything above the COST SAVINGS divider. With cost off the divider is absent, so the
@@ -769,7 +787,7 @@ def test_the_monthly_chart_gains_a_euro_option_rather_than_swapping_the_kwh_one(
     assert node["ytitle"] != node["eur_ytitle"]
 
     from app.domain.simconfig import SimulationConfig
-    store.save(SimulationConfig(), WORKSPACE_ID)
+    store.save(_energy_only_cfg(), WORKSPACE_ID)
     off = client.post(w("/results"), json={"period": "last_1_week"}).text
     assert 'data-chart-view="eur"' not in off
     assert "Monthly savings (€)" not in off
@@ -828,6 +846,11 @@ def test_the_benchmark_response_is_a_bare_energy_box_when_cost_is_off(client):
     consumed before this increment. Pinned so the two-box shape cannot become unconditional and
     silently change what an energy-only install receives.
     """
+    from app import simconfig_store
+
+    # Cost off is the POINT of this test, so it is stored rather than inherited from the shipped
+    # default — which §8.18 flipped ON.
+    simconfig_store.save(_energy_only_cfg(), WORKSPACE_ID)
     r = client.post(w("/results/benchmark"), json={"period": "last_1_week"})
     assert r.status_code == 200
     assert "data-slot=" not in r.text
@@ -855,7 +878,7 @@ def test_the_money_box_is_gated_on_simulate_cost_as_well_as_on_with_benchmark(co
 
     # cost off, benchmark asked for → run D ran, run E did not.
     r = results_view.results_from(
-        loaded, window, cfg=SimulationConfig(), with_benchmark=True
+        loaded, window, cfg=_energy_only_cfg(), with_benchmark=True
     )
     assert "benchmark" in r
     assert "cost_benchmark" not in r
@@ -907,7 +930,7 @@ def test_the_cost_tint_marks_the_cost_section_and_not_the_energy_one(cost_client
     # (`test_the_setup_band_toggle_carries_the_cost_tint` in tests/test_params_route.py).
     from app.domain.simconfig import SimulationConfig
 
-    store.save(SimulationConfig(), WORKSPACE_ID)
+    store.save(_energy_only_cfg(), WORKSPACE_ID)
     off = client.post(w("/results"), json={"period": "last_1_week"}).text
     # Exactly one tinted thing, and it is the toggle's label.
     tinted = re.findall(r'cost-label[^>]*>\s*([^<]+?)\s*<', off)

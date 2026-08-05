@@ -368,7 +368,13 @@ def test_the_contract_link_is_absent_when_cost_is_off(with_data):
     the same destination. Pinning both halves is what makes "mutually exclusive by cost state" a
     tested claim rather than a comment.
     """
-    client, _mod = with_data  # appendix A leaves simulate_cost off
+    client, mod = with_data
+
+    # Stored, not inherited: appendix A defaults `simulate_cost` ON since §8.18, and cost being
+    # OFF is the premise of this test.
+    cfg = mod["simconfig_store"].load("w1")
+    cfg.simulate_cost = False
+    mod["simconfig_store"].save(cfg, "w1")
 
     html = _get(client)
     assert "data-cost-edit-contract" not in html
@@ -659,6 +665,8 @@ def test_the_checked_radio_follows_the_stored_answer(env):
                 return re.search(r'value="([^"]+)"', r).group(1)
         raise AssertionError("neither radio is checked")
 
+    # Set rather than inherited: §8.18 defaults `simulate_cost` ON, and this half asserts "no".
+    cfg.simulate_cost = False
     mod["simconfig_store"].save(cfg, "w1", pricing_configured=True)
     assert checked(_get(client)) == "no"
 

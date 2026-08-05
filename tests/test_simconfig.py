@@ -100,8 +100,8 @@ _APPENDIX_A_DEFAULTS = [
     ("topology.pv_coupling", PvCoupling.AC),
     ("topology.battery_phases", BatteryPhases.THREE_PHASE),
     ("has_pv", True),
-    ("simulate_cost", False),
-    # The Pricing box (§2.3), inert while simulate_cost is false but shipped with these values.
+    ("simulate_cost", True),
+    # The Pricing box (§2.3), shipped with these values and live by default (§8.18).
     ("pricing.supplier_markup", 0.0205),
     ("pricing.energy_tax_excl_vat", 0.09161),
     ("pricing.vat_rate", 0.21),

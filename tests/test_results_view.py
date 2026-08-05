@@ -1604,9 +1604,15 @@ def _energy_cfg(**kw) -> SimulationConfig:
     It matters that the cost-off half comes from here and not from a bare `SimulationConfig()`:
     several tests below assert that the energy blocks are bit-identical across the toggle, which
     only holds if the two configs differ in `simulate_cost` ALONE.
+
+    `simulate_cost` is set explicitly rather than inherited. §8.18 defaulted it ON, so a bare
+    construction is now the COST half — this helper would otherwise return the wrong side of the
+    toggle it exists to name.
     """
     kw.setdefault("policy", PolicyConfig(charge_policy=ChargePolicy.P3))
-    return SimulationConfig(**kw)
+    cfg = SimulationConfig(**kw)
+    cfg.simulate_cost = False
+    return cfg
 
 
 # A day of prices with a real spread, so the bill is not a constant times a total and a sign error
@@ -1772,7 +1778,7 @@ def test_fixture_19_cost_is_absent_wholesale_never_zero():
     checks the failure mode §4.5 names — a present-but-empty `cost` would satisfy a naive
     falsiness test while still handing the template eight rows to draw.
     """
-    r = results_from(_cost_dataset(), (_WIN_START, _WIN_END), cfg=SimulationConfig())
+    r = results_from(_cost_dataset(), (_WIN_START, _WIN_END), cfg=_energy_cfg())
     assert r is not None
     assert r["cost"] is None
     assert r["monthly_saved_eur"] is None
@@ -2268,6 +2274,7 @@ def test_the_negative_saving_caveat_stops_disclaiming_euros_once_euros_exist():
         _price("price_spot", _PRICES),
     ])
     cfg = SimulationConfig()
+    cfg.simulate_cost = False               # the default is ON since §8.18; this is the off half
     cfg.battery.usable_capacity_kwh = 0.5   # tiny store, so standby dominates
     off = results_from(ds, (_WIN_START, _WIN_END), cfg=cfg)
     cfg_on = SimulationConfig()
@@ -2514,6 +2521,7 @@ def test_an_all_nan_price_window_yields_no_width_rather_than_nan():
 def test_the_width_is_absent_when_cost_simulation_is_off():
     """A euro figure has no meaning without the euro pipeline, whatever the settlement says."""
     cfg = SimulationConfig()
+    cfg.simulate_cost = False   # the default is ON since §8.18
     cfg.pricing.supplier_settlement = SupplierSettlement.QUARTER_HOURLY
     r = results_from(_bracket_dataset(), (_WIN_START, _WIN_END), cfg=cfg)
     assert r is not None
@@ -2981,6 +2989,7 @@ def test_the_caveat_is_absent_on_every_run_that_has_no_width():
 
     # (c) cost simulation off: there is no euro figure to qualify.
     cost_off = SimulationConfig()
+    cost_off.simulate_cost = False   # the default is ON since §8.18
     cost_off.pricing.supplier_settlement = SupplierSettlement.QUARTER_HOURLY
     no_cost = results_from(ds, (_WIN_START, _WIN_END), cfg=cost_off)
     assert no_cost["price_bracket"] is None

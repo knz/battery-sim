@@ -782,8 +782,9 @@ class SimulationConfig:
                       used to reconstruct house load net of it (§6.3). It says nothing about the
                       battery being SIMULATED — panel ②'s battery is a replacement, so no part of
                       the dispatch core reads this flag.
-        simulate_cost appendix A default false — energy-only, so a first result needs no contract
-                      knowledge (§8.18). It gates the whole `pricing` group: panel ② hides the
+        simulate_cost appendix A default true — the wizard asks for the contract on its first
+                      step, so a workspace reaching the results screen has already answered it
+                      (§8.18). It gates the whole `pricing` group: panel ② hides the
                       box, §6.5 skips the pricing package outright, and `validate()` runs no
                       pricing check. What it does NOT do is clear any of those parameters.
         dp_soc_levels / dp_action_levels   §6.12's DP discretisation, appendix A's 101 and 41.
@@ -809,7 +810,7 @@ class SimulationConfig:
     pricing: PricingConfig = field(default_factory=PricingConfig)
     has_pv: bool = True
     has_battery: bool = False
-    simulate_cost: bool = False
+    simulate_cost: bool = True
     # §6.12's DP discretisation, appendix A: `dp_soc_levels` 101, `dp_action_levels` 41, both
     # "shared by both perfect-foresight runs". They sit flat on SimulationConfig rather than in one
     # of the four groups because the groups mirror panel-②'s form boxes one-to-one and these are not
