@@ -1,0 +1,45 @@
+name: Feature request
+description: A control the app shows as "not built yet", and you would use it
+title: "Feature request: "
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Answer in Dutch or English, whichever you prefer.
+
+        This form is reached from a `[?]` marker in the app. Those mark controls that are
+        already in the plan but not written yet — the app is built one feature at a time.
+        So this is not a request for something new; it is a vote on what gets built next,
+        and what you say about your own situation is the part that decides it.
+
+        For something the app does not plan to do at all, use "Question or idea" instead.
+
+  - type: input
+    id: feature
+    attributes:
+      label: Which feature?
+      description: Filled in from the control you clicked. Leave it as it is.
+      placeholder: e.g. Export CSV (export_csv)
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: Why would you use it?
+      description: >
+        What would you do with it that you cannot do now? A concrete example of your own
+        situation is worth more than a general argument.
+    validations:
+      required: true
+
+  - type: textarea
+    id: how_often
+    attributes:
+      label: How often would you use it?
+      description: >
+        Once, to check something? Every time you run a simulation? This separates a feature
+        worth building well from one worth building at all.
+    validations:
+      required: false

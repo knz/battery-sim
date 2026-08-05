@@ -175,8 +175,9 @@ is the template, not a statement that any particular control is pending:
   │     not built yet. The app is being written one feature at a time    │
   │     and this one has not been reached.                               │
   │                                                                      │
-  │     If you would use it, say so. It tells us what to build next,     │
-  │     and it is the only signal we get.                                │
+  │     If you would use it, say so — it decides what gets built next.   │
+  │     This opens a form on GitHub, already filled in with the name of  │
+  │     this control. Filing it needs a GitHub account.                  │
   │                                                                      │
   │  [ 👍  I want this ]                                        [ close ]│
   └──────────────────────────────────────────────────────────────────────┘
@@ -187,21 +188,27 @@ things: "not in v1" is a release decision, and this is not one — the work simp
 happened yet. The label the topology selector uses for its unsupported options
 ([§2.5](03-topology-selector.md)) *is* a release decision and correctly reads `not in v1`.
 
-**Clicking the thumbs-up** increments a per-feature counter and, if an endpoint is
-configured, fires an asynchronous POST
-([§5.1](08-architecture.md#51-diagram), [§7.5](15-data-quality-and-limits.md#75-operational-notes)).
-The dialog acknowledges in place — the button becomes `✓ Noted` and the text below it reads
-*"Thanks. We have recorded that you want this."* Reopening the dialog for a feature already
-thumbed shows that state rather than a fresh button, and **a second click does not count
-twice**.
+**Clicking the thumbs-up** opens a pre-filled GitHub issue form in a new tab
+([§5.1](08-architecture.md#51-diagram)). The URL names the control the user clicked, in its
+title and in a dedicated field, so the request arrives identifying the feature without the
+user having to describe which control they meant. What it does not fill in is *why* — that
+answer is the reason the issue is worth filing, and it is the field the form requires.
 
-**No count is ever shown to the user.** On a single-household installation the number is
-either 1 or 0, which tells the user nothing, and any figure shown next to a thumbs-up is
-read as a global tally that it is not.
+**Nothing is recorded locally, and nothing is transmitted by the app.** The issue is the
+whole record. The app composes a URL and the browser follows it; there is no counter, no
+endpoint, and no request the app makes on the user's behalf.
 
-**The dialog never reports failure.** The POST is fire-and-forget; a timeout, a refused
-connection or an unset endpoint all leave the acknowledgement exactly as described. The
-counter write is local and does not depend on the request.
+**This replaced a local counter**, which incremented per feature and optionally POSTed to a
+configured endpoint. That mechanism produced a number that was 1 or 0 on any one
+installation — never shown to the user, since a figure beside a thumbs-up reads as a global
+tally it was not — and it was only meaningful summed across installations, which required an
+endpoint almost nobody set. A GitHub issue is public, attributable and answerable, and it
+reaches the same maintainer without the app transmitting anything.
+
+**The cost is a GitHub account.** A click used to be enough; filing an issue is a login and
+a written justification. That will produce fewer signals, and the dialog says so plainly
+rather than leading the user into a sign-up page unannounced. The trade is deliberate: the
+requests that survive it carry a reason, which is what the counter never captured.
 
 **Feature keys.** Each pending control carries a short stable string key naming it in the
 counter table and in the POST body, formed from the box and the control: `battery_rte`,

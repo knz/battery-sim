@@ -18,8 +18,9 @@ get wrong:
     §2′.3 now sets out. The mapping for a fetched slot lives in `series_meta`, which IS the data;
     only a pre-fetch staged choice in `localStorage` survives, and the backend's obligation to
     that is not to reset `source_generation`.
-  * **Delete analysis removes everything keyed by the id but NOT `feature_interest`**, which has
-    been installation-wide since phase 0 and must survive the deletion of the last workspace.
+  * **Delete analysis removes everything keyed by the id**, and everything in the database now is
+    — `feature_interest`, the one installation-wide table, was removed when feature requests moved
+    to GitHub issues. What is asserted here instead is that an old installation's copy is dropped.
   * **A fresh install shows the empty list**, not a phantom workspace (phase 1's followup I7), and
     the list orders by config-save time with `POST /params` as the event that advances it (§2′.10).
   * **The three state-changing routes are same-site only** (`app/csrf.py`, followups B6), and a
@@ -479,24 +480,37 @@ def test_delete_analysis_removes_everything_keyed_by_the_id(env):
     assert "data-workspace-card" not in client.get("/").text
 
 
-def test_delete_analysis_leaves_feature_interest_alone(env):
-    """§2′.10 / phase 0: `feature_interest` is installation-wide and survives every deletion.
+def test_an_old_feature_interest_table_is_dropped_on_connect(env):
+    """The retired counter table is removed from installations that still carry it (app/db.py).
 
-    Including the deletion of the LAST workspace, which is what this asserts — a thumbs-up records
-    what this household wants, and that outlives the analysis it happened to be clicked from.
+    This test used to assert the opposite property — that `feature_interest` survived the deletion
+    of the last workspace, because it was installation-wide (§2′.10). Feature requests are GitHub
+    issues now and nothing is recorded locally, so the table has no reader or writer; leaving it
+    in the file would state a behaviour the app no longer has.
+
+    Recreated by hand here because a fresh database never has it: what is under test is the
+    upgrade path from an installation that predates the change.
     """
-    client, mod = env
-    mod["workspaces"].create("Test", workspace_id="w1", owner_id=mod["workspaces"].OWNER_ID)
-    mod["db"].record_interest("csv_upload")
+    _, mod = env
+    db = mod["db"]
+    with db.connect() as conn:
+        conn.execute(
+            """CREATE TABLE feature_interest (
+                   feature_key      TEXT    NOT NULL PRIMARY KEY,
+                   count            INTEGER NOT NULL DEFAULT 0,
+                   last_clicked_at  TEXT    NOT NULL
+               )"""
+        )
+        conn.execute(
+            "INSERT INTO feature_interest VALUES ('export_csv', 1, '2026-01-01T00:00:00+00:00')"
+        )
 
-    client.post("/w/w1/delete")
-
-    assert mod["workspaces"].list_summaries(mod["workspaces"].OWNER_ID) == []
-    with mod["db"].connect() as conn:
-        rows = conn.execute(
-            "SELECT feature_key FROM feature_interest WHERE feature_key = ?", ("csv_upload",)
-        ).fetchall()
-    assert rows, "the thumbs-up was deleted with the last workspace"
+    # The next connect is what drops it — the same path any request takes.
+    with db.connect() as conn:
+        names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    assert "feature_interest" not in names
+    # The workspace index in the same file is untouched by the drop.
+    assert "workspaces" in names and "workspace_state" in names
 
 
 @pytest.mark.parametrize("route", ["/w/nope/delete", "/w/nope/data/delete"])

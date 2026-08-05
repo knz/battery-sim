@@ -7,7 +7,7 @@ the ASGI app, `app.desktop` the launcher, `app.config` the runtime configuration
 
   * `pyproject.toml`, via `[tool.hatch.version] path = "app/__init__.py"`, so the distribution
     version is derived from the code rather than restated beside it;
-  * `app.config.APP_VERSION`, the version reported in the feature-interest POST body (§7.5);
+  * `app.config.APP_VERSION`, the version the app reports about itself;
   * a test in `tests/test_desktop.py` that reads the built metadata back, so the two cannot
     drift apart silently.
 

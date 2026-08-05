@@ -181,13 +181,15 @@ def test_the_data_directory_is_per_user_and_not_inside_the_bundle(packaged_serve
     """
     _, data_dir = packaged_server
     assert data_dir.is_dir(), f"the frozen build did not create {data_dir}"
-    # `config.load()` writes this on first run; its presence proves real state landed here rather
-    # than the directory merely having been created.
-    assert (data_dir / "config.toml").is_file()
+    # The launcher writes this; its presence proves real state landed here rather than the
+    # directory merely having been created. This used to be `config.toml`, written by an
+    # import-time `config.load()` — a call that went with the feature-interest telemetry, leaving
+    # the app writing no config file at all.
+    assert (data_dir / "desktop.lock").is_file()
 
     bundle_root = BINARY.parent
-    stray = [p for p in bundle_root.rglob("config.toml")]
-    assert not stray, f"the frozen build wrote config into the bundle: {stray}"
+    stray = [p for p in bundle_root.rglob("desktop.lock")]
+    assert not stray, f"the frozen build wrote state into the bundle: {stray}"
 
 
 def test_the_single_instance_lock_records_the_live_port(packaged_server):

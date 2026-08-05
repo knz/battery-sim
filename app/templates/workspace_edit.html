@@ -422,28 +422,7 @@
     <form method="dialog" class="modal-backdrop"><button>{{ _('close') }}</button></form>
   </dialog>
 
-  {# The "Not built yet" dialog — the pending affordance (§2.1), for the two unbuilt contract
-     types. Identical to workspace_results.html's; the thumbs-up POSTs to /feature-interest/{key}. #}
-  <dialog id="pending-dialog" class="modal" data-feature-key="">
-    <div class="modal-box">
-      <h3 class="text-lg font-bold">{{ _('Not built yet') }}</h3>
-      <p class="py-2">
-        <span id="pending-control-name" class="font-medium">{{ _('This control') }}</span>
-        {{ _('is part of the plan for this simulator, but it is not built yet. The app is being written one feature at a time and this one has not been reached.') }}
-      </p>
-      <p class="pb-2 text-sm text-base-content/70">
-        {{ _('If you would use it, say so. It tells us what to build next, and it is the only signal we get.') }}
-      </p>
-      <p id="pending-thanks" class="pb-2 text-sm text-success hidden">
-        {{ _('Thanks. We have recorded that you want this.') }}
-      </p>
-      <div class="modal-action">
-        <button id="pending-thumbsup" class="btn btn-primary btn-sm">{{ _('👍 I want this') }}</button>
-        <form method="dialog"><button class="btn btn-ghost btn-sm">{{ _('close') }}</button></form>
-      </div>
-    </div>
-    <form method="dialog" class="modal-backdrop"><button>{{ _('close') }}</button></form>
-  </dialog>
+  {% include "_pending_dialog.html" %}
 
   <script>
   (function () {
@@ -498,43 +477,6 @@
     });
   })();
 
-  (function () {
-    // The pending affordance (§2.1), a copy of workspace_results.html's handler for this standalone page.
-    // Keys already thumbed this session are remembered so a second click neither re-counts nor
-    // re-POSTs; the POST is fire-and-forget and its outcome never revises the acknowledgement.
-    var dialog = document.getElementById('pending-dialog');
-    var nameEl = document.getElementById('pending-control-name');
-    var thanksEl = document.getElementById('pending-thanks');
-    var thumbsBtn = document.getElementById('pending-thumbsup');
-    var labelWant = {{ _('👍 I want this') | tojson }};
-    var labelNoted = {{ _('✓ Noted') | tojson }};
-    var thumbed = new Set();
-
-    function renderState(key) {
-      var noted = thumbed.has(key);
-      thumbsBtn.textContent = noted ? labelNoted : labelWant;
-      thumbsBtn.disabled = noted;
-      thanksEl.classList.toggle('hidden', !noted);
-    }
-
-    document.addEventListener('click', function (ev) {
-      var btn = ev.target.closest && ev.target.closest('[data-pending-name]');
-      if (!btn) return;
-      nameEl.textContent = btn.getAttribute('data-pending-name') || '';
-      dialog.setAttribute('data-feature-key', btn.getAttribute('data-feature-key') || '');
-      renderState(dialog.getAttribute('data-feature-key'));
-      dialog.showModal();
-    });
-
-    thumbsBtn.addEventListener('click', function () {
-      var key = dialog.getAttribute('data-feature-key');
-      if (!key || thumbed.has(key)) return;
-      thumbed.add(key);
-      renderState(key);
-      fetch('/feature-interest/' + encodeURIComponent(key), { method: 'POST' })
-        .catch(function () { /* failures are ignored (§2.1, §5.1) */ });
-    });
-  })();
   </script>
 </body>
 </html>

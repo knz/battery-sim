@@ -150,8 +150,8 @@
   // key would make a mapping staged in one analysis appear staged in every other, and the staleness
   // rule cannot catch that, because it compares generations rather than workspaces — the store's
   // `gen` would be another workspace's `source_generation`, which is a different counter that
-  // happens to be an integer. `source_generation` is per-workspace for the same reason (§5.5's
-  // exception covers `feature_interest` and nothing else).
+  // happens to be an integer. `source_generation` is per-workspace for the same reason — §5.5's
+  // invariant 1 now holds with no exceptions at all.
   var LS_SLOTS = "ha.slots." + WORKSPACE_ID;
 
   // The Home Assistant connection UI now lives in the #ha-config-dialog modal (workspace_data.html),

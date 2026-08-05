@@ -184,10 +184,10 @@ enforced by fixture 18 in [16-validation-harness.md](16-validation-harness.md).
   [§5.5](08-architecture.md#55-multi-user-readiness-designed-for-not-implemented) — the
   architecture must *permit* it, v1 does not *implement* it.
 - Usage analytics, crash reporting and telemetry of any kind. The app runs on the user's own
-  machine and keeps their data there. The single outbound report it can make — a
-  feature-interest click, described in
-  [§7.5](15-data-quality-and-limits.md#75-operational-notes) — is off unless an endpoint is
-  configured, carries no energy data, and is never sent unasked.
+  machine and keeps their data there, and it makes **no outbound report at all**. Asking for a
+  feature that is not built yet is a GitHub issue the user files themselves
+  ([§7.5](15-data-quality-and-limits.md#75-operational-notes)); the app composes a link and
+  transmits nothing.
 
 ## Built incrementally behind a complete UI
 

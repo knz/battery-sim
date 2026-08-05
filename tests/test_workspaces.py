@@ -14,8 +14,7 @@ Covered here:
 
 Each test points the data dir at a pytest tmp_path via BATTERY_SIM_DATA_DIR so nothing touches
 the repo's ./data. The app modules read `config.data_dir()` per call, so setting the env var is
-enough — no module reload is needed for these (unlike test_feature_interest.py, which reloads
-`config` to exercise its first-run installation_id write).
+enough — no module reload is needed.
 
     uv run pytest tests/test_workspaces.py
 """
@@ -339,22 +338,26 @@ def test_delete_data_keeps_the_config_and_the_workspace(mods, tmp_path):
     assert not (tmp_path / db.WORKSPACE_ID / "series").exists()
 
 
-def test_delete_removes_the_workspace_but_not_feature_interest(mods, tmp_path):
-    """§2′.10: interest is installation-wide and survives the deletion of every workspace."""
+def test_delete_removes_the_workspace_row_summary_and_directory(mods, tmp_path):
+    """§2′.3: deleting the last workspace leaves nothing of it behind.
+
+    This test also asserted `db.interest_count("export_csv") == 1` afterwards — §2′.10's rule that
+    an installation-wide counter outlived every workspace. That table is gone (feature requests
+    are GitHub issues now), and with it the one exception to "every table is workspace-keyed", so
+    there is nothing left here that deletion is supposed to spare.
+    """
     dataset, db, simconfig_store, workspaces = mods
     from app.domain.simconfig import SimulationConfig
 
     simconfig_store.save(SimulationConfig(), db.WORKSPACE_ID)
     _save_dataset(dataset)
     workspaces.migrate_local()
-    db.record_interest("export_csv")
 
     workspaces.delete(db.WORKSPACE_ID)
 
     assert workspaces.get(db.WORKSPACE_ID) is None
     assert workspaces.list_summaries(workspaces.OWNER_ID) == []
     assert not (tmp_path / db.WORKSPACE_ID).exists()
-    assert db.interest_count("export_csv") == 1
 
 
 def test_delete_rejects_path_traversal(mods):

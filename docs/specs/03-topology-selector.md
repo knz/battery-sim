@@ -134,9 +134,11 @@ one-click way to register interest
 ([§2.1](02-ux-wireframes.md#the-pending-affordance)). This dialog is deliberately not that,
 and the two should not be merged later. Per-phase modelling is not waiting on
 implementation — it is waiting on information nobody has, namely how these installations are
-actually wired and whether the households running them have per-phase sensors at all. A
-counter cannot carry inverter model and phase allocation, and a tally of clicks would not
-tell us whether the feature is buildable. The `not in v1` label on the two unsupported
+actually wired and whether the households running them have per-phase sensors at all. What is
+needed is the inverter model and the phase allocation, from someone who can read them off
+their own installation; a request to build the feature would not tell us whether it is
+buildable. (The pending affordance now files a GitHub issue rather than counting a click —
+that changes what the general mechanism does, not the reason this dialog is not it.) The `not in v1` label on the two unsupported
 options is likewise accurate as written: it is a release decision, which is what that phrase
 means, whereas a pending control reflects work not yet reached.
 

@@ -65,8 +65,6 @@
 | `sse_poll_fallback_ms` | 750 | Polling interval when SSE is unavailable ([§4.1](04-state-machine.md)) |
 | `params_persist_debounce_ms` | 1000 | Debounce before persisting changed params to disk |
 | `result_cache_runs` | 5 | Number of recent run results retained in the result cache |
-| `feature_interest_url` | *(empty)* | Nothing is transmitted until someone sets it ([§7.5](15-data-quality-and-limits.md#75-operational-notes)) |
-| `installation_id` | *(generated)* | Random on first run; clear the line to get a new one |
 
 Tax and tariff constants must be editable in the UI and are stamped with the year they
 were taken from. They will change on 1 January 2027.

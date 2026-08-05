@@ -1,9 +1,9 @@
 """Pytest bootstrap: repo root on sys.path, plus the workspace-scoped URL helpers.
 
 The frontend smoke test launches uvicorn as a subprocess (cwd=repo root), so it never needs
-`app` importable in the test process. The feature-interest unit tests, by contrast, import
-`app.config` / `app.db` / `app.interest` directly. Prepending the repo root here makes those
-imports resolve without a src layout or an editable install.
+`app` importable in the test process. The unit tests, by contrast, import `app.config` /
+`app.db` / `app.workspaces` directly. Prepending the repo root here makes those imports resolve
+without a src layout or an editable install.
 
 Beyond that, this module holds the two things every route test now needs, since the data routes
 moved under `/w/{workspace_id}/…` (docs/specs/08-architecture.md §5.1, changelog phase 1):
@@ -52,18 +52,16 @@ if str(_REPO_ROOT) not in sys.path:
 def _isolate_data_dir() -> None:
     """Point the data dir at a temp directory for the whole session, unless one is already set.
 
-    Without this, running the suite WRITES to the developer's real `./data`: `app/main.py` does
-    `CONFIG = config.load()` at import time, and `config.load()` generates and persists an
-    `installation_id` into `data/config.toml` on first run — so merely importing `app.main`
-    creates the directory and puts a pseudonymous identity in it. The first request through any
-    unredirected client then adds `feature_interest.db` and the `local/` workspace.
+    Without this, running the suite WRITES to the developer's real `./data`: the first request
+    through any unredirected client creates the directory, `feature_interest.db` and the `local/`
+    workspace.
 
-    That was never intentional. `app/main.py`'s lifespan carries a comment explaining that its
-    workspace creation lives there rather than at import time precisely so it does not "create
-    rows in whatever directory happens to be resolved at import time" — but `CONFIG` itself is
-    resolved at import time and does exactly that.
+    Importing `app.main` used to be enough on its own, via a module-level `CONFIG = config.load()`
+    that persisted an `installation_id` into `data/config.toml`. That line went with the
+    feature-interest telemetry, so import alone no longer writes — but the first request still
+    does, and several test modules construct a client without redirecting.
 
-    It has to run HERE, at conftest import, rather than in a fixture: pytest imports every test
+    It still has to run HERE, at conftest import, rather than in a fixture: pytest imports every test
     module before the first fixture runs, and several of them do `from app.main import app` at
     module level. By the time a session-scoped autouse fixture executed, the write would already
     have happened.

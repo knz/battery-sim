@@ -642,13 +642,15 @@ accepting that rather than threading one connection through both is in `workspac
 makes the data-dir override non-revertible so the next test author does not rediscover it.
 *Origin:* `20260726-workspaces-phase0.md` finding 9.
 
-**I5. `feature_interest`'s collapse orders timestamps lexicographically.** `MIN(last_clicked_at)`
-over TEXT equals the earliest instant only because `record_interest` writes
-`datetime.now(timezone.utc).isoformat()` — fixed width, always `+00:00`. A row written by a
-differently-built version with another offset would break it. Left as a documented assumption rather
-than re-engineered: the field is telemetry no user reads, and an instant-based ordering costs a
-parse per row.
-*Origin:* `20260726-workspaces-phase0.md` finding 4.
+**I5. `feature_interest`'s collapse orders timestamps lexicographically. — MOOT (removed).**
+`MIN(last_clicked_at)` over TEXT equalled the earliest instant only because `record_interest`
+wrote `datetime.now(timezone.utc).isoformat()` — fixed width, always `+00:00` — so a row written
+by a differently-built version with another offset would have broken it. The table, the migration
+that collapsed it and the writer are all gone: feature requests are GitHub issues now
+([§2.1](02-ux-wireframes.md#the-pending-affordance)), and `app/db.py` drops the table on connect.
+Nothing was re-engineered; the assumption simply has no code left to hold it up.
+*Origin:* `20260726-workspaces-phase0.md` finding 4. *Closed:*
+`20260805-feature-request-github-redirect.md`.
 
 **I6. `workspaces.touch()` still has no production caller. — DONE (phase 2).**
 `POST /w/{id}/params` now calls it, after a save that actually happened. Pinned by

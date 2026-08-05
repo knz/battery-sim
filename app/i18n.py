@@ -63,6 +63,8 @@ from babel.numbers import format_decimal
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from starlette.requests import Request
 
+from . import features
+
 LOCALE_DIR = Path(__file__).resolve().parent / "locales"
 TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
 DOMAIN = "messages"
@@ -159,6 +161,11 @@ def env_for(code: str) -> "Environment":
         env.filters["numfmt"] = lambda m, _code=code: format_num(m["num"], m["fmt"], _code)
         env.filters["monthname"] = lambda m, _code=code: month_abbr(m, _code)
         env.globals["locale_code"] = code
+        # The pending affordance's GitHub link (app/features.py). Registered here rather than
+        # passed per-render because all three screens carrying the dialog would otherwise have
+        # to thread the same locale-independent map through three separate view models.
+        env.globals["feature_issue_url"] = features.issue_url
+        env.globals["feature_keys"] = features.FEATURE_KEYS
         for name, value in _globals.items():
             env.globals[name] = value
         install_for(env, code)

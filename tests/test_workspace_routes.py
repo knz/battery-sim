@@ -326,21 +326,22 @@ def test_traversal_writes_no_file_outside_the_data_dir(two, tmp_path):
 
 # ── The flat routes stay flat ─────────────────────────────────────────────────────────────────
 
-def test_the_three_flat_routes_are_not_scoped(two):
-    """`GET /`, `/lang/{code}` and `/feature-interest/{key}` take no workspace (§2′.10).
+def test_the_flat_routes_are_not_scoped(two):
+    """`GET /` and `/lang/{code}` take no workspace.
 
-    Pinned because "scope everything" is the easy over-correction, and two of these are wrong to
-    scope for reasons a reader of the URL table cannot see: `feature_interest` is installation-wide
-    by decision 10, and the language is a cookie.
+    Pinned because "scope everything" is the easy over-correction, and the language one is wrong
+    to scope for a reason a reader of the URL table cannot see: it is a cookie.
 
-    `GET /` stays flat for a third reason since phase 2: it is the workspace LIST, which is about
-    every workspace and so belongs to none. `POST /workspaces` is flat for a fourth — it creates
+    `GET /` stays flat for its own reason since phase 2: it is the workspace LIST, which is about
+    every workspace and so belongs to none. `POST /workspaces` is flat for a third — it creates
     the id there is nothing to scope by yet — and is covered by `tests/test_workspace_list.py`.
+
+    This asserted a third route, `POST /feature-interest/{key}`, flat because the counter was
+    installation-wide (§2′.10 decision 10). That route is gone: a thumbs-up opens a GitHub issue
+    form and the backend serves nothing for it.
     """
     assert two.get("/").status_code == 200
     assert two.get("/lang/nl", follow_redirects=False).status_code == 303
-    # A real key from the closed vocabulary; the route 204s on success.
-    assert two.post("/feature-interest/csv_upload").status_code in (204, 404)
 
 
 def test_the_page_carries_the_workspace_id_the_browser_needs(two):

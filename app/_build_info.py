@@ -18,9 +18,8 @@ cannot say what it was built from should say so, not silently report a value it 
 whatever happened to be in the working directory.
 
 Deliberately NOT folded into `app.__version__`. That string is compared to the release tag by
-exact string equality (`.github/workflows/release.yml`) and is sent to a network endpoint by
-`app/interest.py`; appending a SHA to it would change both. Provenance is a separate value with
-separate consumers.
+exact string equality (`.github/workflows/release.yml`); appending a SHA to it would change that
+comparison. Provenance is a separate value with separate consumers.
 
 Note that a build overwrites this file IN the source tree. `packaging/build-linux.sh` restores
 it from git afterwards (on a trap, so an interrupted build restores it too), which is why a

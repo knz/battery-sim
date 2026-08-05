@@ -19,6 +19,7 @@ Covered:
 
 from __future__ import annotations
 
+import json
 import re
 from datetime import datetime, timezone
 
@@ -771,7 +772,7 @@ def test_the_pending_contract_radios_render_disabled_with_their_keys(client):
     """§2.3 lists all three types; only DYNAMIC is built, so the other two are pending controls.
 
     Keys are read out of `app.features` rather than written as literals, so a rename in one place
-    and not the other fails here rather than shipping a `[?]` the interest route 404s.
+    and not the other fails here rather than shipping a `[?]` with no issue URL behind it.
     """
     from app import features
 
@@ -792,13 +793,32 @@ def test_the_pending_contract_radios_render_disabled_with_their_keys(client):
     assert not re.search(r'name="pricing\.tlk_mode" value="flat"[^>]*disabled', html)
 
 
-def test_the_interest_route_accepts_the_new_pricing_keys(client):
-    """The other half: a key rendered into the page must be one the counter route takes."""
+def test_the_pending_pricing_keys_carry_an_issue_url(client):
+    """The other half: a key rendered into the page must have an issue URL behind it.
+
+    This replaces an assertion that `POST /feature-interest/{key}` answered 204 for each of these
+    and 404 for a retired one. The route is gone — a thumbs-up opens a GitHub issue form instead
+    of writing a counter — so what has to hold now is that the map emitted into the dialog covers
+    every key the page renders, and names the feature rather than the slug.
+    """
+    from app import features
+
+    html = _edit_html(client)
     for key in ("pricing_contract_fixed", "pricing_contract_variable", "pricing_tlk_tiered"):
-        assert client.post(f"/feature-interest/{key}").status_code == 204
-    # And the retired one is no longer accepted — retired keys keep their counter row but are not
-    # in the pending vocabulary.
-    assert client.post("/feature-interest/simulate_cost").status_code == 404
+        url = features.issue_url(key)
+        assert "template=feature.yml" in url
+        assert features.title_for(key) != key, f"{key} has no human-readable title"
+        # The dialog's key → URL map is what the click reads; the page must carry this key's entry.
+        # Compared through `json.dumps` with `&` escaped the way Jinja's `tojson` emits it inside
+        # a <script> block — valid JS that parses back to the URL above, but not a literal
+        # substring of it.
+        assert json.dumps(key) in html, key
+        assert json.dumps(url).replace("&", "\\u0026") in html, key
+    # Retired keys are not in the pending vocabulary, so nothing renders them...
+    assert "simulate_cost" not in features.FEATURE_KEYS
+    assert 'data-feature-key="simulate_cost"' not in html
+    # ...but they keep a readable title, because issues filed under them are still open.
+    assert features.title_for("simulate_cost") == "Simulate cost savings"
 
 
 def test_the_contract_help_affordance_uses_the_shared_dialog(client):

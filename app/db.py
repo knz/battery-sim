@@ -1,57 +1,32 @@
-"""SQLite plumbing: feature-interest counts, source generation, the workspace index (§5.1).
+"""SQLite plumbing: source generation and the workspace index (§5.1).
 
 This module owns the small tables and the connection/data-dir resolution the rest of the
 persistence layer reuses (app/dataset.py opens its own schema on the same connection), using
 the standard-library `sqlite3` — no SQLAlchemy yet, that arrives with the full schema. The file
 lives in the resolved data directory (app/config.py).
 
-Three tables live here:
+Two tables live here:
 
-    feature_interest(feature_key, count, last_clicked_at)   PRIMARY KEY (feature_key)
     workspace_state(workspace_id, source_generation)        PRIMARY KEY (workspace_id)
     workspaces(id, owner_id, title, created_at, updated_at) PRIMARY KEY (id)
 
-Invariants from §5.1, asserted by this module in place of a fixture:
-  * The interest write is an **upsert, not an append**: a repeat click for the same key updates
-    `last_clicked_at` and leaves `count` alone. Interest is a boolean fact about a household;
-    the count is only meaningful summed across installations, so a single install never exceeds
-    1. This is also what makes a second thumbs-up not count twice (§2.1).
+## The retired `feature_interest` table, and why the FILE is still named after it
 
-## `feature_interest` is installation-wide — the one exception to §5.5 invariant 1
+A third table, `feature_interest(feature_key, count, last_clicked_at)`, counted thumbs-up clicks
+on pending controls. It was the one deliberate exception to §5.5 invariant 1 (every row carries a
+`workspace_id`), because a feature request is a fact about the household rather than about any
+one analysis. The whole mechanism is gone: the pending dialog now links to a pre-filled GitHub
+issue form (app/features.py) and nothing about a request is stored or transmitted. So the
+exception is gone with it — every table here is workspace-keyed again — and `_drop_feature_interest`
+removes the table from installations that still have it.
 
-Invariant 1 says every persisted row carries `workspace_id` and no table is implicitly global.
-`feature_interest` is a **deliberate exception**, recorded as such in §5.5 and argued in
-docs/specs/20-workspaces-ux.md §2′.10: the row records that *this household* wants a feature, which
-is a fact about the person using the app rather than about any one analysis. Keying it per
-workspace made the counter answer the wrong question — the same person could register the same
-wish three times from three analyses, and deleting a workspace would retract a signal the user
-never withdrew. The invariant's purpose is that user *data* never leaks between workspaces or,
-later, between accounts; these counters are outbound product telemetry, already reported under
-the pseudonymous `installation_id` from config.toml rather than under any workspace identity.
+The database FILE is still `feature_interest.db`. Renaming it would strand the workspace index of
+every existing installation, which is a real cost against a cosmetic gain; the name is now simply
+historical, and this paragraph is why. Nothing about feature interest remains inside it.
 
-`workspace_state.source_generation` is NOT affected and stays per-workspace: it tracks one
+`workspace_state.source_generation` was never affected and stays per-workspace: it tracks one
 workspace's fetches and sharing it would make one analysis's fetch invalidate another's saved
 source customization.
-
-## Migrating an existing database
-
-`CREATE TABLE IF NOT EXISTS` never alters an existing table, and SQLite has no
-`ALTER TABLE … DROP CONSTRAINT`, so the re-key is an explicit migration
-(`_migrate_feature_interest`): detect the old shape via `PRAGMA table_info`, build the new
-table, `INSERT … SELECT … GROUP BY feature_key`, drop, rename. The collapse takes `MIN` of
-`last_clicked_at` and a count of 1 — a union, not a sum, because interest is boolean per
-household and two workspaces thumbing the same key is still one household wanting one thing.
-`MIN` over a TEXT column is a string comparison, which is the earliest INSTANT only because
-`record_interest` writes `datetime.now(timezone.utc).isoformat()` — fixed width, always the
-`+00:00` offset. That holds for every row this app has ever written; it is an assumption about
-the stored format, not a general property of the query.
-
-The migration runs on every `_connect()`, so any code path that opens the DB repairs a stale
-shape — at the cost of one `PRAGMA table_info` on every connection, permanently, which is what
-makes the repeat a no-op. It is wrapped in an explicit `BEGIN IMMEDIATE` and re-checks the shape
-inside that transaction, so it is atomic, safe to run from several processes or threads at once,
-and resumable after a crash: an interrupted run leaves at most a scratch table, which the next
-run drops before recreating.
 
 This module also holds the **source generation** counter used by the slot-first source picker
 (specs §2.2). It is a per-workspace integer, bumped once each time a Home Assistant fetch
@@ -82,14 +57,11 @@ Main items:
     WORKSPACE_ID              the id of the migrated single workspace ("local").
     connect()                 an open connection with the schema and migrations applied.
     _Connection               the subclass making `with conn:` an explicit, nesting transaction.
-    record_interest(key)      upsert a click; returns True if this was the first click for the key.
-    interest_count(key)       read a key's count (used by tests; never shown to the user, §2.1).
     source_generation(ws)     read the workspace's current source generation (0 if never fetched).
     bump_source_generation(ws)  increment it (called only on a persisted HA fetch); returns the new value.
 """
 
 import sqlite3
-from datetime import datetime, timezone
 from pathlib import Path
 
 from app import config
@@ -103,11 +75,6 @@ WORKSPACE_ID = "local"
 _DB_FILENAME = "feature_interest.db"
 
 _SCHEMA = """
-CREATE TABLE IF NOT EXISTS feature_interest (
-    feature_key      TEXT    NOT NULL PRIMARY KEY,
-    count            INTEGER NOT NULL DEFAULT 0,
-    last_clicked_at  TEXT    NOT NULL
-);
 CREATE TABLE IF NOT EXISTS workspace_state (
     workspace_id      TEXT    NOT NULL PRIMARY KEY,
     source_generation INTEGER NOT NULL DEFAULT 0
@@ -201,20 +168,16 @@ def _connect() -> sqlite3.Connection:
     # transaction before the first DML statement and commits it at unpredictable points (including
     # before any DDL on older Pythons), which is precisely what made the migration non-atomic. With
     # it off, SQLite autocommits each statement outside a transaction, and a transaction exists
-    # only where one is opened explicitly — by `_migrate_feature_interest`, or by `_Connection`'s
-    # `with` block. `factory=_Connection` is what keeps `with conn:` an all-or-nothing unit under
-    # autocommit; see that class for why both properties are needed at once.
+    # only where one is opened explicitly — by `_Connection`'s `with` block. `factory=_Connection`
+    # is what keeps `with conn:` an all-or-nothing unit under autocommit; see that class for why
+    # both properties are needed at once.
     conn = sqlite3.connect(
         _db_path(), timeout=_TIMEOUT_S, isolation_level=None, factory=_Connection
     )
     # executescript (not execute): _SCHEMA holds more than one CREATE TABLE, and execute() runs a
     # single statement only. All are `IF NOT EXISTS`, so this stays idempotent per connect.
-    #
-    # Order matters: the feature_interest migration runs FIRST, because the CREATE above is a
-    # no-op against an existing old-shape table and would otherwise leave the stale key in place
-    # for the rest of this connection's statements.
-    _migrate_feature_interest(conn)
     conn.executescript(_SCHEMA)
+    _drop_feature_interest(conn)
     return conn
 
 
@@ -232,117 +195,26 @@ def connect() -> sqlite3.Connection:
     return _connect()
 
 
-def _migrate_feature_interest(conn: sqlite3.Connection) -> None:
-    """Re-key an old-shape `feature_interest` on `feature_key` alone (module comment).
+def _drop_feature_interest(conn: sqlite3.Connection) -> None:
+    """Drop the retired `feature_interest` table if an older installation still carries it.
 
-    Idempotent and cheap: a table that is absent, or already in the new shape, is left alone
-    after one `PRAGMA table_info`. The collapse is a UNION — one row per key, `MIN` of
-    `last_clicked_at`, count clamped to 1 — because interest is boolean per household and the
-    same person thumbing a key from two analyses has not wished for it twice (§2′.10). `MIN` is a
-    string comparison and equals the earliest instant because of how `record_interest` writes the
-    column (module comment).
+    Feature requests are filed as GitHub issues now (app/features.py) and nothing is recorded
+    locally, so the table has no reader and no writer. Dropping it rather than leaving it in
+    place keeps the file honest about what the app stores — a table nothing writes is a claim
+    about behaviour that is no longer true, and this database is the thing a privacy-minded user
+    would open to check.
 
-    **Atomic, concurrent-safe and resumable.** Every statement runs inside one
-    `BEGIN IMMEDIATE`, which takes the write lock before doing any work, so a second opener blocks
-    (up to `_TIMEOUT_S`) instead of racing. Either the whole reshape lands or none of it does —
-    the earlier `executescript` spelling committed statement by statement, so a crash between the
-    CREATE and the RENAME left the scratch table behind as a committed artifact and every
-    subsequent connect then failed with "table feature_interest_new already exists". Two things
-    make that unreachable now: the scratch table is DROPped before it is created, so a leftover
-    from an interrupted older run is reclaimed rather than fatal; and the shape is re-checked
-    INSIDE the transaction, so the loser of a race sees the already-migrated table and does
-    nothing rather than trying to rename over it.
+    The rows are counts of which pending controls this household clicked. They were never shown
+    to the user and never left the machine unless an endpoint was configured, so nothing readable
+    is lost; the drop is still irreversible, which is the argument for doing it once, here, rather
+    than leaving it to accumulate.
+
+    Runs on every connect. `IF EXISTS` makes the repeat a no-op, and DDL under the autocommit
+    connection is its own transaction, so a concurrent connect either sees the table or does not.
     """
-    if not _has_old_shape(conn):
-        return  # fast path: absent (fresh DB) or already re-keyed, no lock taken
-    conn.execute("BEGIN IMMEDIATE")
-    try:
-        # Re-checked under the write lock: another process may have migrated between the fast-path
-        # check above and the moment we got the lock.
-        if not _has_old_shape(conn):
-            conn.execute("ROLLBACK")
-            return
-        conn.execute("DROP TABLE IF EXISTS feature_interest_new")
-        conn.execute(
-            """CREATE TABLE feature_interest_new (
-                   feature_key      TEXT    NOT NULL PRIMARY KEY,
-                   count            INTEGER NOT NULL DEFAULT 0,
-                   last_clicked_at  TEXT    NOT NULL
-               )"""
-        )
-        conn.execute(
-            """INSERT INTO feature_interest_new (feature_key, count, last_clicked_at)
-                   SELECT feature_key, 1, MIN(last_clicked_at)
-                   FROM feature_interest
-                   GROUP BY feature_key"""
-        )
-        conn.execute("DROP TABLE feature_interest")
-        conn.execute("ALTER TABLE feature_interest_new RENAME TO feature_interest")
-    except Exception:
-        conn.execute("ROLLBACK")
-        raise
-    conn.execute("COMMIT")
-
-
-def _has_old_shape(conn: sqlite3.Connection) -> bool:
-    """Whether `feature_interest` still carries the pre-§2′.10 `workspace_id` column.
-
-    False for a fresh database (no such table — `PRAGMA table_info` returns no rows) as well as
-    for an already-migrated one, which is why the caller can treat both the same way.
-    """
-    columns = {r[1] for r in conn.execute("PRAGMA table_info(feature_interest)").fetchall()}
-    return "workspace_id" in columns
-
-
-def record_interest(feature_key: str) -> bool:
-    """Upsert a thumbs-up for `feature_key`. Returns True iff it was the first click.
-
-    First click inserts count 1. A repeat click refreshes `last_clicked_at` only — count is not
-    bumped (interest is boolean per household, §5.1 invariant 2). The `feature_key` primary key
-    makes this a single atomic upsert.
-
-    Installation-wide: there is no workspace argument, deliberately (module comment, §2′.10).
-
-    The existence check and the upsert run in ONE transaction: the `with` block takes the write
-    lock up front (`_Connection`), so a concurrent `record_interest` for the same key waits rather
-    than interleaving between the two statements, and the returned boolean reflects the state the
-    upsert actually acted on. An earlier revision of this docstring called the boolean advisory,
-    which was true of the window in which connections autocommitted every statement and is not
-    true now; the code and this comment are meant to agree, and they do.
-
-    The stored row would be correct either way — the upsert is atomic on the primary key — and the
-    one caller uses the boolean only to decide whether to report the click outbound, where a
-    duplicate is deduplicated by the key anyway. So this is a tightening, not a fix for an
-    observed bug.
-    """
-    now = datetime.now(timezone.utc).isoformat()
-    with _connect() as conn:
-        # Check existence first so we can report first-vs-repeat; the upsert itself cannot tell
-        # them apart via rowcount.
-        existed = conn.execute(
-            "SELECT 1 FROM feature_interest WHERE feature_key = ?",
-            (feature_key,),
-        ).fetchone()
-        conn.execute(
-            """
-            INSERT INTO feature_interest (feature_key, count, last_clicked_at)
-            VALUES (?, 1, ?)
-            ON CONFLICT (feature_key)
-            DO UPDATE SET last_clicked_at = excluded.last_clicked_at
-            """,
-            (feature_key, now),
-        )
-    return existed is None
-
-
-def interest_count(feature_key: str) -> int:
-    """The recorded count for a key (0 if none). For tests only — never shown to users (§2.1)."""
-    with _connect() as conn:
-        row = conn.execute(
-            "SELECT count FROM feature_interest WHERE feature_key = ?",
-            (feature_key,),
-        ).fetchone()
-    return row[0] if row else 0
+    conn.execute("DROP TABLE IF EXISTS feature_interest")
+    # A crash during the pre-GitHub re-key migration could have committed this scratch table.
+    conn.execute("DROP TABLE IF EXISTS feature_interest_new")
 
 
 def source_generation(workspace_id: str) -> int:
