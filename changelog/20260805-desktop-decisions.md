@@ -40,6 +40,10 @@ It contains benchmarks and is slow. Targeted tests only, per phase. Known gap: t
 not cover regressions outside the targeted files. Open question — whether a marker exists
 to separate benchmarks out, which would give a better per-phase check.
 
+**Update, 2026-08-05 (CI work):** the open question is answered — no marker exists, and one is
+not worth adding. Measured: the benchmarks are 15s of a ~100s suite, the smallest of its three
+blocks. See [[A13]]. The instruction stands for local development; it does not carry to CI.
+
 ## U7 — The native window is first tested in Phase 4, not worked around in Phase 3
 
 Rejected the dev-machine workarounds (system-site-packages for `gi`, or the Qt backend)
@@ -219,11 +223,114 @@ server, and would have caught this at build time.
 
 ---
 
+## U11 — A tagged release attempts all four artifacts, with macOS and Windows non-blocking
+
+Chosen over both "all four must pass" and "Linux only". macOS and Windows have never been built
+or run, so requiring them to pass would block releasing the Linux artifact that does work while
+debugging two platforms nobody here can reproduce locally. Requiring nothing from them would
+leave them permanently unexercised.
+
+The middle position: build all four, mark macOS and Windows `continue-on-error` so a tag still
+produces a release, and tighten each to blocking once it has gone green. **This is a temporary
+state that must be revisited** — a `continue-on-error` job that stays amber forever is
+indistinguishable from no job at all, and the tightening is the whole point of the arrangement.
+
+**The plan's runner labels are stale and cannot be used as written** (checked 2026-08-05):
+`macos-13` was retired in December 2025, and `macos-14` is mid-retirement — unsupported
+2026-11-02. Current pairing is `macos-26` (arm64) and `macos-26-intel` (x86_64), with `macos-15`
+/ `macos-15-intel` as the older supported pair. Intel macOS ends entirely when `macos-15` retires
+in Fall 2027, which puts a horizon on the x86_64 artifact regardless of what is chosen now.
+
+Also worth being precise about what these jobs will first produce: `packaging/battery-sim.spec`
+has **no `BUNDLE(...)` block, no icon of any kind, and no signing configuration**, and there is no
+macOS or Windows build script. So the initial macOS/Windows output is a raw PyInstaller directory
+bundle, not a double-clickable `.app` or an installer. `continue-on-error` is absorbing genuinely
+unfinished packaging work, not just untested CI.
+
+## U12 — ~~The AppImage builds on an `ubuntu-22.04` runner for its glibc floor~~ SUPERSEDED by U14
+
+Addresses [[A9]]: the current artifact is built against glibc 2.39 and will not run on Debian 12
+or older. `build-appimage.sh` copies the GTK/WebKit stack from its host, so the runner's glibc
+becomes the artifact's minimum.
+
+Rejected the alternative of a pinned container on `ubuntu-latest`, which would put the floor
+under our control rather than GitHub's, at the cost of provisioning apt dependencies and FUSE
+inside the container. Accepted risk, flagged when the choice was offered: the label is GitHub's
+to retire, and if they do, the build breaks and the floor has to be reconsidered then.
+
+**Withdrawn the same day, before any YAML was written.** Two independent findings killed it:
+
+1. **`build-appimage.sh:105-116` would fail the build.** It refuses to proceed when the frozen
+   interpreter's minor version differs from the system PyGObject's compiled `_gi` extension. The
+   bundle pins Python 3.12; Ubuntu 22.04 ships 3.10 and therefore `_gi.cpython-310`. The AppImage
+   copies the *system* `gi`, so the two are forced to match. This is decisive on its own and has
+   nothing to do with deprecation.
+2. **`ubuntu-22.04` deprecates 2026-09-17**, about six weeks after the decision, and is fully
+   unsupported 2027-04-17.
+
+The caveat offered with the original choice — that GitHub had been retiring older images — turned
+out to bite, and the ABI constraint was not known when the option was put. See U14.
+
+## U13 — PR CI runs the whole suite, including the Playwright browser tests
+
+`tests/test_smoke.py` costs ~53s locally and needs a Chromium download, but it is the only block
+that drives the real UI — and the file itself records that the fresh-install defect phase 1
+shipped "was invisible to 823 passing non-browser tests and surfaced only from the one test that
+drove a genuinely empty installation in a browser". Excluding it from CI would remove the tests
+with the best demonstrated catch rate.
+
+## U14 — The AppImage builds on `ubuntu-24.04`; the glibc 2.39 floor is accepted, A9 stays open
+
+Replaces [[U12]] after the ABI constraint above ruled `ubuntu-22.04` out. `ubuntu-24.04` matches
+the local working configuration exactly — system Python 3.12 and `_gi.cpython-312`, verified on
+this machine — so it is the option most likely to build first time.
+
+**What is being accepted, stated plainly rather than buried:** the released AppImage will require
+**glibc 2.39** and will **not run on Debian 12 or older**. Lowering that floor was the entire
+purpose U12 was chosen for, so this CI work does **not** close [[A9]] — it makes the current limit
+deliberate and documented instead of accidental.
+
+The way out, if the floor ever matters: stop copying the host's `python3-gi` and install PyGObject
+into the build venv, decoupling the bundle from the host's Python. That would free the runner
+choice and re-open older-glibc builds. It rewrites the part of the AppImage build phase 4 found
+most fragile, which is why it is not being attempted while merely standing up CI.
+
+Confirmed glibc by release: 22.04 → 2.35, **24.04 → 2.39**, 26.04 (resolute, LTS) → 2.43. From
+Ubuntu's archive; GitHub's runner readmes list no libc6 at all, so the release-to-image step is
+inferred. The 2.39 figure agrees with A9's local measurement.
+
+## A13 — No benchmark marker; PR CI runs everything unsegmented
+
+[[U6]] left open whether a pytest marker should separate the benchmarks out. Measured before
+designing CI:
+
+| selection | wall clock | tests |
+|---|---|---|
+| `tests/test_benchmark.py` | 15s | 45 |
+| `tests/test_smoke.py` | 53s | 41 |
+| everything else | 34s | 1251 passed, 24 skipped |
+| whole suite | ~100s | ~1337 |
+
+The benchmarks are the **smallest** of the three blocks, and the slowest single test in the
+repository is not a benchmark — it is `test_desktop.py::test_both_shutdown_paths_warn_when_the_
+server_does_not_stop` at 10s, which waits out two shutdown timeouts by design.
+
+So the marker is not worth adding: it would carve out the cheapest third of an already cheap
+suite. U6 stands as a *local development* instruction, where a 100-second wait between edits is
+still worth avoiding; it does not carry over to CI, where nobody is waiting at a prompt.
+
+Figures are from this machine. A GitHub runner will be slower — the ratios are the load-bearing
+part, not the absolutes.
+
+---
+
 ## Open questions for the user
 
 - **A3's `RuntimeError`** — keep for compatibility, or drop to tighten error surfacing?
-- **U6's coverage gap** — is there a pytest marker separating the benchmarks, so a per-phase
-  run can cover more than the targeted file?
+- ~~**U6's coverage gap** — is there a pytest marker separating the benchmarks?~~ **Answered
+  2026-08-05:** no marker, and not worth adding — the benchmarks are 15s of ~100s. See [[A13]].
+  The gap itself (per-phase runs miss regressions outside the targeted files) is now covered by
+  PR CI running everything, so it closes for anything that reaches a pull request.
 - **Code signing** — deferred, but macOS is closer to required than optional if the audience is
   Dutch households: unsigned and quarantined will not open by double-click. USD 99/yr.
   Worth deciding before release rather than at it.
