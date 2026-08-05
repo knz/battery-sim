@@ -101,9 +101,77 @@ def page(workspace_id: str = WORKSPACE_ID) -> str:
     (§2′.6), and everything about configuring data is at `data_page()` below.
 
     GET and POST on `/w/{id}/results` are different routes: the GET renders the whole screen, the
-    POST returns just the results fragment.
+    POST returns the period card and the results fragment (see `split_panels`).
     """
     return f"/w/{workspace_id}/results"
+
+
+def split_panels(html: str) -> tuple[str, str]:
+    """Split a `POST /w/{id}/results` response into (period card, results panel).
+
+    The route returns TWO fragments joined by `main.PANEL_SPLIT` — `_panel_interval.html` then
+    `_panel_results.html` — because a range change repaints both: the card states the resolved
+    window (the active preset, the "dates · N days" line), the panel states the figures. The
+    browser splits on the marker and swaps each into its own root.
+
+    Tests use this when an assertion is about ONE of the halves. That matters most for NEGATIVE
+    assertions: "no card frame in panel ③" reads as false against the whole response, because the
+    period card is a card. Asserting over `r.text` is still right when the claim is about the
+    response as a whole (that an anchor and its target both ship in one swap, say).
+    """
+    from app.main import PANEL_SPLIT
+
+    card, _, panel = html.partition(PANEL_SPLIT)
+    return card, panel
+
+
+def ids_inside(html: str, container_id: str) -> set[str]:
+    """Every `id` on an element NESTED INSIDE the element carrying `container_id`.
+
+    For assertions about containment, where source order is not enough: an element that merely
+    follows another's opening tag is not inside it, and that difference is exactly what decides
+    whether a `hidden` class on the container also hides the element. There is no HTML parser in
+    this project's dependencies and the fragments are not well-formed XML (void elements like
+    `<input>` are not self-closed), so this tracks open/close depth with the stdlib parser.
+
+    Returns an empty set when the container is absent — callers assert on membership, so a missing
+    container fails the assertion rather than passing vacuously.
+    """
+    from html.parser import HTMLParser
+
+    # Void elements never nest; HTMLParser reports them via handle_starttag with no end tag.
+    void = {"area", "base", "br", "col", "embed", "hr", "img", "input",
+            "link", "meta", "param", "source", "track", "wbr"}
+
+    class _Collector(HTMLParser):
+        def __init__(self) -> None:
+            super().__init__(convert_charrefs=True)
+            self.stack: list[str | None] = []
+            self.depth_of_container: int | None = None
+            self.found: set[str] = set()
+
+        def handle_starttag(self, tag, attrs):
+            ident = dict(attrs).get("id")
+            if tag in void:
+                if self.depth_of_container is not None and ident:
+                    self.found.add(ident)
+                return
+            if ident == container_id and self.depth_of_container is None:
+                self.depth_of_container = len(self.stack)
+            elif self.depth_of_container is not None and ident:
+                self.found.add(ident)
+            self.stack.append(tag)
+
+        def handle_endtag(self, tag):
+            if tag in void or not self.stack:
+                return
+            self.stack.pop()
+            if self.depth_of_container is not None and len(self.stack) <= self.depth_of_container:
+                self.depth_of_container = None   # the container closed; stop collecting
+
+    c = _Collector()
+    c.feed(html)
+    return c.found
 
 
 def data_page(workspace_id: str = WORKSPACE_ID) -> str:

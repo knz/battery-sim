@@ -20,11 +20,20 @@
   affordance sits at the foot of the ENERGY section (not below the caveats), anchored to the
   setup band's simulate_cost radio.
 
+  **The period controls are no longer here.** The preset buttons, the date-range picker, the
+  window description line and the "Simulate cost savings?" toggle moved to `_panel_interval.html`,
+  the right-hand card of the two-card row at the top of the screen. What remains of the ones this
+  file still depends on: the invitation box below anchors to `#setup-simulate-cost`, which now
+  resolves into that card rather than into this panel. The `③` badge is gone from the title too —
+  the screen no longer numbers its panels.
+
   Two ways this template is rendered:
     1. by index() as part of the full page (initial load), and
-    2. by POST /results as a STANDALONE fragment when the period/date picker recomputes over a
-       new window (specs §3.2 RANGE_CHANGED). The route returns this whole template's output and
-       the browser swaps it in by its root #panel-results element's outerHTML.
+    2. by POST /results when the period/date picker recomputes over a new window (specs §3.2
+       RANGE_CHANGED). The route returns `_panel_interval.html` and this template, separated by a
+       marker comment; the browser splits them and swaps each in by its root's outerHTML
+       (#panel-interval and #panel-results). Both are re-rendered because both carry answers about
+       the resolved window — the active preset and the window line up there, the figures here.
 
   Fragment-swap design (see the delegated listeners at the foot of workspace_results.html — NOT here):
     * The period/date pickers must keep working after a swap. Because a swapped-in inline <script>
@@ -75,133 +84,11 @@
    `with context` requirement as above: without it the macro's gettext functions freeze at the
    first locale rendered in the process. #}
 {% from "_msg.html" import msg with context %}
-{# The period-preset buttons: (token, label) pairs. The token is the POST request value
-   (results_view.PERIOD_DAYS keys); the label is the human text (translated). The active button
-   is the one whose token matches the resolved window's preset, mapped from results.period_selected
-   (the wireframe label the view-model highlights). #}
-{% set period_buttons = [
-     ("last_1_week",   _('last 1 week'),   "1 week"),
-     ("last_30_days",  _('last 30 days'),  "1 month"),
-     ("last_3_months", _('last 3 months'), "3 months"),
-     ("last_6_months", _('last 6 months'), "6 months"),
-     ("last_1_year",   _('last 1 year'),   "1 year"),
-   ] %}
 <section id="panel-results" class="bg-base-100 border border-base-300 rounded-box">
   <div class="p-4 lg:p-6 flex flex-col gap-5">
 
     <div class="flex flex-wrap items-center gap-2">
-      <span class="badge badge-neutral">③</span>
       <span class="font-semibold">{{ _('RESULTS') }}</span>
-    </div>
-
-    {# ── Period selector + explicit date-range picker (§2.4) ───────────────
-       Presets anchor to the END of data coverage (§7.4). Each button POSTs {"period": token}
-       to /results; the date range POSTs {"start","end"}. Both are handled by the DELEGATED
-       listeners in workspace_results.html, so these controls survive a fragment swap without re-binding. #}
-    <div class="flex flex-col gap-3">
-      <div class="flex flex-wrap items-center gap-3">
-        <div class="join" id="results-period">
-          {% for token, label, sel in period_buttons %}
-          <button type="button" class="btn btn-sm join-item {% if sel == results.period_selected %}btn-active{% endif %}"
-                  data-period="{{ token }}">{{ label }}</button>
-          {% endfor %}
-        </div>
-        {# The "⟳ recalculating…" affordance (§2.4). Toggled visible by the fetch handler for the
-           duration of a recompute; hidden otherwise. #}
-        <span id="results-recalculating" class="text-sm text-base-content/60 hidden">
-          ⟳ {{ _('recalculating…') }}
-        </span>
-      </div>
-
-      {# Explicit date-range picker: two native date inputs + Apply. The date values are converted
-         to ISO datetimes in the handler — start at 00:00:00Z, end at 23:59:59Z (inclusive of the
-         chosen end day). resolve_window clamps both ends to coverage, so an out-of-range date is
-         not an error, just clamped. #}
-      <div class="flex flex-wrap items-end gap-2">
-        <label class="form-control">
-          <span class="label-text text-xs mb-1">{{ _('From') }}</span>
-          <input type="date" id="results-range-start" class="input input-bordered input-sm" />
-        </label>
-        <label class="form-control">
-          <span class="label-text text-xs mb-1">{{ _('To') }}</span>
-          <input type="date" id="results-range-end" class="input input-bordered input-sm" />
-        </label>
-        <button type="button" id="results-apply-range" class="btn btn-sm btn-outline">{{ _('Apply') }}</button>
-      </div>
-
-      {# The selected window, stated ONCE per panel: dates · N days · run description. The day
-         count sits here (rather than under the glance heading below, where it used to be
-         repeated) because it describes the range the picker just set. `period_dates` is two ISO
-         dates and is rendered raw; the day count needs ngettext here; `period_run` is a counted
-         message (its own interval count drives its plural), rendered through msg(). Falls back to
-         the whole `period` line if a view-model predates the split. #}
-      <span class="text-sm text-base-content/60">
-        {%- if results.period_dates -%}
-        {{ results.period_dates }}{% if results.period_days %} · {{ results.period_days }} {{ ngettext('day', 'days', results.period_days) }}{% endif %} · {{ msg(results.period_run) }}
-        {%- else -%}
-        {{ results.period }}
-        {%- endif -%}
-      </span>
-
-      {# ── Simulate cost savings? (§2′.6, §2′.7) ──────────────────────────────────
-           **Moved here from the setup band in phase 4.2**, which §2′.7 dissolved. It sits "inside
-           the results block, under the period selector and above the result sections — not in the
-           battery box, and not floating between the two. It reshapes the results, so it belongs to
-           them."
-
-           `#setup-simulate-cost` is kept as the id: it is the anchor target the invitation box
-           below links to, and keeping the name means one link, one target, and no id that exists
-           only to be pointed at. The control name `setup.simulate_cost` is unchanged too, so
-           `params_view.parse_form`'s `setup`-gated branch reads it exactly as before.
-
-           **It posts with the battery box's form**, via `form="params-form"` — HTML's explicit form
-           association, the same mechanism `_setup_band.html` used. That is deliberate and it is why
-           the marker still says `setup`: the answer changes which boxes the battery box draws, so
-           the response has to be the re-rendered box, and one form means one POST, one validation
-           and one swap. A separate form here would post WITHOUT the parameter fields, which
-           `parse_form` would treat as "inherit everything" — correct, but it would silently discard
-           whatever the user had typed and not yet submitted.
-
-           **Blocked, not Inapplicable, until the workspace has a contract** (§2′.6). The radios
-           carry `disabled` so a blocked toggle cannot change the stored answer, the row is dimmed
-           by `.blocked-control`, and the ⓘ opens the dialog that says how to clear the
-           precondition. Hiding the control instead "would leave a user who wants euro figures with
-           nothing to click and nothing to read".
-
-           `blocked` defaults to false so the standalone `POST /results` fragment — which re-renders
-           this panel on every range change — draws the toggle live rather than blocked when the
-           caller did not say. The route passes the real flag; see main.results(). #}
-      {% set cost_blocked = cost_toggle_blocked | default(false, true) %}
-      <div class="flex flex-wrap items-center gap-3{% if cost_blocked %} blocked-control{% endif %}"
-           id="setup-simulate-cost" {% if cost_blocked %}data-blocked="1"{% endif %}>
-        <span class="w-56 label-text cost-label">{{ _('Simulate cost savings?') }}</span>
-        <label class="label gap-1{% if not cost_blocked %} cursor-pointer{% endif %}">
-          <input type="radio" name="setup.simulate_cost" value="yes" form="params-form"
-                 class="radio radio-sm" {% if simulate_cost %}checked{% endif %}
-                 {% if cost_blocked %}disabled{% endif %} />
-          <span class="label-text">{{ _('Yes') }}</span>
-        </label>
-        <label class="label gap-1{% if not cost_blocked %} cursor-pointer{% endif %}">
-          <input type="radio" name="setup.simulate_cost" value="no" form="params-form"
-                 class="radio radio-sm" {% if not simulate_cost %}checked{% endif %}
-                 {% if cost_blocked %}disabled{% endif %} />
-          <span class="label-text">{{ _('No') }}</span>
-        </label>
-        {% if cost_blocked %}
-        {# The adjacent affordance §2.1's Blocked state requires. Its own button and its own dialog,
-           NOT the shared .slot-info-btn one: this dialog carries an ACTION — `[ Set up my contract
-           → ]`, a link to the edit screen — and the shared info dialog is a title-and-body pair
-           with only a close button. #}
-        <button type="button" class="btn btn-ghost btn-xs btn-circle align-middle"
-                id="cost-blocked-info"
-                aria-label="{{ _('Why is this greyed out?') }}">ⓘ</button>
-        {% endif %}
-      </div>
-      {% if not cost_blocked %}
-      <p class="text-xs text-base-content/60">
-        ⓘ {{ _('This answer decides whether the app reports euros as well as kWh.') }}
-      </p>
-      {% endif %}
     </div>
 
     {# ── Short-window guard box (§2.4 / §7.4) ───────────────────────────────
@@ -381,6 +268,13 @@
        submit anything — the choice is the user's to make and confirm in the band, and a button
        that silently flipped a simulation-wide toggle from the results panel would recompute the
        page out from under them. #}
+    {# `cost_blocked` is resolved HERE as well as in `_panel_interval.html`, because the toggle this
+       box points at moved to that card and took the `{% set %}` with it. Undefined is falsy in
+       Jinja, so without this the Blocked branch below would silently never be taken and the box
+       would offer `[ Enable cost simulation ]` — a link to a disabled radio — on exactly the
+       workspaces §2′.7 says it must not. Same expression and same default as the card's, and both
+       render sites pass the key. #}
+    {% set cost_blocked = cost_toggle_blocked | default(false, true) %}
     {% if not results.cost %}
     <div class="alert bg-base-200 border border-base-300" data-cost-invitation>
       <span>{{ _('Want to know what this is worth in euros?') }}</span>

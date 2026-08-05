@@ -8,22 +8,38 @@
   panels ①, ② and ③. §2′.5 moved panel ① onto its own screen (phase 4.1) and §2′.6 replaced the rest
   with two things that scroll together:
 
-      ┌─ Battery ───────────────────────────────────────────┐   _panel_params.html
-      │  Usable capacity [ 10.0 ] kWh   ⓘ not the nameplate │
-      │  ┌ More settings ──── N changed from default ─────┐ │
-      │  │ ( Battery ) ( Installation ) ( Charge & disch ) │ │
-      └──┴─────────────────────────────────────────────────┴─┘
-      ┌─────────────────────────────────────────────────────┐   _panel_results.html
-      │  Period: … · Simulate cost savings? ( ) Yes (•) No  │
-      │  … the energy and cost sections                     │
-      └─────────────────────────────────────────────────────┘
+      ┌─ Battery ──────────────────────┐ ┌─ Period ──────────────────────┐
+      │ Usable capacity [ 10.0 ] kWh   │ │ (1 week)(30 days)(3 months)…  │
+      │ ┌ More settings ─ N changed ─┐ │ │ From […] To […]  [ Apply ]    │  ← _panel_interval.html
+      │ │ (Battery)(Install)(Charge) │ │ │ 2025-01-01 → 2025-12-31 · …   │
+      └─┴────────────────────────────┴─┘ │ Simulate cost savings? ( )(•) │
+        _panel_params.html               └───────────────────────────────┘
+      ┌─────────────────────────────────────────────────────────────────┐  _panel_results.html
+      │  RESULTS                                                        │
+      │  … the energy and cost sections                                 │
+      └─────────────────────────────────────────────────────────────────┘
+
+  The controls sit side by side because they answer two different questions — "what battery" and
+  "over what window" — and the results below are a function of both. The period card was the top of
+  panel ③ until this reshape; moving it up left panel ③ as figures alone, and dropped the `③` badge
+  from its title along with the numbering the screen no longer uses.
 
   **The one screen is the point, and it is the constraint that shaped this file.** §2′.6 calls it
   the equivalent of §3.4's "reopening panel ① or ② does not collapse panel ③", which that spec names
   the single most important interaction detail in the app: the battery box and the results scroll
   together, so a capacity change and its effect are visible at once. That is why the parameters were
   not given a screen of their own, and it is why nothing below navigates — a parameter edit swaps
-  two fragments in place and the figures never leave the viewport.
+  the fragments in place and the figures never leave the viewport.
+
+  ## Three swappable fragments, and why the period card is one of them
+
+  `#panel-params` is replaced by POST /params; `#panel-interval` and `#panel-results` are replaced
+  together by POST /results, which returns both joined by a `<!--panel-split-->` marker.
+
+  The period card could not simply be nested inside the battery box, which is where its markup
+  would otherwise belong: POST /params re-renders that box STANDALONE and passes no `results` key,
+  so the card would come back blank on every Calculate. Its own root, outside both other roots, is
+  what lets the two POSTs stay independent. See `_panel_interval.html`.
 
   ## What phase 4.2 deleted from this file, and what it kept
 
@@ -103,8 +119,16 @@
      the end of both paths." There is consequently no `?mode=wizard` handling here either — the
      wizard has nowhere further to go, so the two entry paths render the same page. #}
   <main class="mx-auto flex max-w-5xl flex-col gap-4 p-4 lg:p-8">
-    {# The two halves, in one scrolling column. See the header comment on why they are one screen. #}
-    {% include "_panel_params.html" %}
+    {# The controls, side by side: the battery box and the period card. Two cards rather than one
+       row of fields, because they answer two different questions — "what battery" and "over what
+       window" — and the results below are a function of both. `items-start` so the shorter card
+       does not stretch to match the taller one (the battery box grows when its More settings pane
+       is open); `lg:grid-cols-2` so they stack rather than crush on a narrow viewport. #}
+    <div class="grid gap-4 lg:grid-cols-2 items-start">
+      {% include "_panel_params.html" %}
+      {% include "_panel_interval.html" %}
+    </div>
+    {# The results, full width below them. See the header comment on why this is all one screen. #}
     {% include "_panel_results.html" %}
   </main>
 
@@ -475,14 +499,31 @@
             return resp.text();
           })
           .then(function (html) {
+            // The response is TWO fragments — the period card, then the results panel — joined by
+            // a marker comment (see main.results()). They are swapped separately because they are
+            // no longer siblings: the card sits in the two-column row at the top of the screen and
+            // the panel spans the full width below it, so no single container encloses just them.
+            // One response rather than two requests, so the two halves cannot disagree about which
+            // window they describe.
+            var parts = html.split('<!--panel-split-->');
             var panel = document.getElementById('panel-results');
             if (!panel) return;
-            // Replace the whole panel (its root has id="panel-results"); the returned fragment's
-            // root carries the same id, so the next swap can target it again.
-            panel.outerHTML = html;
+            if (parts.length === 2) {
+              var card = document.getElementById('panel-interval');
+              // The card carries the ANSWERS the picker just produced — which preset is active and
+              // the window line — so it is re-rendered, not left alone. Guarded: a response that
+              // predates the split still swaps the panel below.
+              if (card) card.outerHTML = parts[0];
+              panel.outerHTML = parts[1];
+            } else {
+              panel.outerHTML = html;
+            }
+            // Both roots keep their ids in the fresh markup, so the next swap targets them again.
             // The swapped-in <script id="monthly-data"> did not run, but its DATA is in the DOM;
             // redraw from it. Delegated listeners need no re-binding.
             drawMonthlyChart();
+            // The fresh period card brings an empty hint span (the server cannot fill it in).
+            applyDateFormatHint();
             // The benchmark box is INSIDE #panel-results, so the swap replaced it with a fresh
             // placeholder for the new window. Re-fire the lazy fetch against it.
             loadBenchmark();
@@ -503,6 +544,24 @@
       document.addEventListener('click', function (ev) {
         var btn = ev.target.closest && ev.target.closest('[data-period]');
         if (btn) { recompute({ period: btn.getAttribute('data-period') }); return; }
+        // "custom" only REVEALS the date fields — it carries no data-period and recomputes nothing.
+        // There is no range to run until the user has given one and pressed Apply, and recomputing
+        // on reveal would either repeat the current window pointlessly or guess at one.
+        var custom = ev.target.closest && ev.target.closest('#results-period-custom');
+        if (custom) {
+          var row = document.getElementById('results-range');
+          if (!row) return;
+          var open = row.classList.toggle('hidden') === false;
+          custom.setAttribute('aria-expanded', open ? 'true' : 'false');
+          // Highlighted while the fields are open, so the ribbon always shows exactly one active
+          // choice: the presets deactivate on the next swap, which is when a preset actually wins.
+          custom.classList.toggle('btn-active', open);
+          if (open) {
+            var s = document.getElementById('results-range-start');
+            if (s && s.focus) s.focus();
+          }
+          return;
+        }
         // The date-range Apply button POSTs {"start","end"} as ISO datetimes. A native
         // <input type=date> yields "YYYY-MM-DD"; we make the range inclusive of both chosen days:
         // start at 00:00:00Z, end at 23:59:59Z. resolve_window clamps to coverage, so partial or
@@ -582,7 +641,10 @@
         var slot = document.getElementById('benchmark-slot');
         var raw = slot && slot.getAttribute('data-benchmark-body');
         if (raw) { try { return JSON.parse(raw); } catch (e) { /* fall through */ } }
-        var active = document.querySelector('#panel-results [data-period].btn-active');
+        // The preset buttons live in the period card now, not in panel ③. This fallback is what
+        // preserves the user's window across a parameter save: if it misses, a Calculate silently
+        // resets the results to the default preset.
+        var active = document.querySelector('#panel-interval [data-period].btn-active');
         if (active) return { period: active.getAttribute('data-period') };
         return null;
       }
@@ -672,8 +734,38 @@
       // list now has to know the two numbers. Filed as a follow-up rather than rebuilt here,
       // since it belongs to the edit screen's design, not to this removal.
 
+      // ── The date fields' format hint ────────────────────────────────────────────────────────
+      //
+      // A native `<input type=date>` renders in the BROWSER's locale, which the page cannot set:
+      // not through `lang`, not through an attribute, not through CSS. So "01/05/2026" in those
+      // two fields is genuinely ambiguous to the reader, and the server cannot say which order it
+      // is in because it does not know the browser's locale.
+      //
+      // Intl resolves against that same browser locale, so asking it for the PART ORDER of a
+      // formatted date answers the question the field itself cannot. The three phrasings are
+      // rendered server-side as data- attributes so they go through gettext like every other
+      // string; this only picks between them.
+      //
+      // Re-run after each fragment swap, because the swapped-in card brings a fresh empty span.
+      function applyDateFormatHint() {
+        var el = document.getElementById('results-range-format');
+        if (!el || !window.Intl || !Intl.DateTimeFormat) return;
+        var order;
+        try {
+          order = new Intl.DateTimeFormat(undefined, { year: 'numeric', month: '2-digit', day: '2-digit' })
+            .formatToParts(new Date(2026, 0, 25))
+            .filter(function (p) { return p.type === 'day' || p.type === 'month' || p.type === 'year'; })
+            .map(function (p) { return p.type[0]; })
+            .join('');
+        } catch (e) { return; }   // no hint beats a wrong hint
+        var key = order === 'dmy' ? 'data-fmt-dmy' : order === 'ymd' ? 'data-fmt-ymd' : 'data-fmt-mdy';
+        // As TEXT, never markup — same rule the ⓘ dialog follows.
+        el.textContent = el.getAttribute(key) || '';
+      }
+      window.applyDateFormatHint = applyDateFormatHint;
+
       // Initial draw once the page (and Plotly) are ready, plus the first benchmark fetch.
-      function initPanelResults() { drawMonthlyChart(); loadBenchmark(); }
+      function initPanelResults() { drawMonthlyChart(); loadBenchmark(); applyDateFormatHint(); }
       if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', initPanelResults);
       } else {

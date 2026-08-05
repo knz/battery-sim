@@ -243,8 +243,16 @@ PERIOD_DAYS: dict[str, int] = {
 # surprise — a caller wanting full coverage passes an explicit range instead.
 DEFAULT_PERIOD = "last_1_year"
 
+# The label the selector highlights when the window came from an EXPLICIT RANGE rather than a
+# preset. It is not a span: no number of days makes a range "custom", which is exactly why the
+# caller has to say so (`results_from(..., custom_range=True)`) instead of it being inferred here.
+# The selector uses it to highlight its "custom" button and to reveal the date fields; without it
+# an applied range snapped to whichever preset happened to be nearest in length, and the picker the
+# user had just used disappeared behind a highlighted preset they had not chosen.
+PERIOD_SELECTED_CUSTOM = "custom"
+
 # The label the selector highlights, keyed off the preset the window was resolved from. Kept as the
-# wireframe default ("1 year") for the full-coverage / explicit-range case.
+# wireframe default ("1 year") for the full-coverage case.
 _PERIOD_SELECTED_BY_NAME: dict[str, str] = {
     "last_1_week": "1 week",
     "last_30_days": "1 month",
@@ -1456,6 +1464,7 @@ def results_from(
     *,
     cfg: SimulationConfig | None = None,
     with_benchmark: bool = False,
+    custom_range: bool = False,
 ) -> dict | None:
     """Build the panel-③ ENERGY SAVINGS view-model over `window` from a real run (specs §2.4).
 
@@ -1475,6 +1484,13 @@ def results_from(
     The battery figures come from runs A/B/C over a `SimulationFrame` under `cfg` — the caller's
     persisted panel-② parameter set, or appendix-A defaults when it is None (nothing configured
     yet). See the module comment, and for the sign, clamp and omit rules the presentation obeys.
+
+    **`custom_range` says the window came from an explicit start/end, not a preset.** The window
+    itself cannot answer that — it is two datetimes, and `_period_selected_for` can only map a span
+    back to the nearest preset — so the caller that parsed the request says so. It sets
+    `period_selected` to PERIOD_SELECTED_CUSTOM, which is what makes the selector highlight its
+    "custom" button and keep the date fields visible instead of snapping the highlight to whichever
+    preset was closest in length.
 
     `should_cancel` is deliberately not passed to `run_all`: there is no run-orchestration layer
     (§3.3/§5.3) to cancel from, and a hook nothing can trip would be dead weight. The run is
@@ -2152,7 +2168,17 @@ def results_from(
         "period_dates": period_dates,
         "period_days": period_days,
         "period_run": period_run,
-        "period_selected": _period_selected_for(dataset, eff),
+        # An explicit range is stated, not inferred: `_period_selected_for` maps a SPAN back to the
+        # nearest preset and so can only ever answer with a preset. See PERIOD_SELECTED_CUSTOM.
+        "period_selected": (
+            PERIOD_SELECTED_CUSTOM if custom_range else _period_selected_for(dataset, eff)
+        ),
+        # The window's two ends as `<input type=date>` values (YYYY-MM-DD), so the selector can put
+        # the applied range back into the fields it hides by default. The EFFECTIVE window, after
+        # clamping to coverage — the fields then show what was actually simulated rather than what
+        # was typed, which is the honest answer when a requested end lies past the data.
+        "period_start_date": eff[0].date().isoformat(),
+        "period_end_date": eff[1].date().isoformat(),
         "data_summary": data_summary,
         "kpis": kpis,
         "energy_breakdown": energy_breakdown,

@@ -284,13 +284,19 @@
                The box EMPTIES entirely without PV on a 1-phase connection (§2.3 "Without PV"), and
                §2.3 says not to render it then. On a tab that cannot be dropped — a tab strip with a
                dead third entry is worse than an empty panel — the panel says so instead. #}
-          <div class="tab-panel flex-col gap-3 pt-4" data-tab-panel="installation">
+          {# `@container`: the topology grids below size themselves against THIS panel's width, not
+             the viewport's. §2′.6 gave Installation its own tab because the illustrated selector
+             "needs width and does not survive being nested that far" — and the battery box became
+             a half-width card when the period card moved in beside it, so a viewport-keyed
+             `sm:grid-cols-2` now forces two columns into ~300px and squeezes each SVG to ~150px.
+             Container queries put the decision where the constraint actually is. #}
+          <div class="tab-panel @container flex-col gap-3 pt-4" data-tab-panel="installation">
             {% if cfg.has_pv or params.battery_phases_offered %}
 
             {% if cfg.has_pv %}
             {# (a) PV coupling — an illustrated radio group (§2.5a). #}
             <p class="text-sm">{{ _('How is your PV connected to the battery?') }}</p>
-            <div class="grid gap-4 sm:grid-cols-2">
+            <div class="grid gap-4 @md:grid-cols-2">
               <label class="radio-card">
                 <span class="flex items-center gap-2 font-medium">
                   <input type="radio" name="topology.pv_coupling" value="dc_hybrid" class="radio radio-sm"
@@ -318,7 +324,7 @@
                user who has just said they have no solar sees that the app understood them (§2.5a′).
                No input: pv_coupling is forced null and coupling forced AC by the config itself. #}
             <p class="text-sm">{{ _('Your setup — battery on the AC side, no solar') }}</p>
-            <div class="grid gap-4 sm:grid-cols-2">
+            <div class="grid gap-4 @md:grid-cols-2">
               <label class="radio-card">
                 <span class="flex items-center gap-2 font-medium">
                   <input type="radio" class="radio radio-sm" checked disabled />
@@ -334,7 +340,7 @@
             {# (b) Battery phases — 3-phase connections only. Only the 3-phase inverter is modelled
                in v1; the other two carry the "not in v1" label and raise the soft block below. #}
             <p class="mt-2 text-sm">{{ _('How is your battery connected across the phases?') }}</p>
-            <div class="grid gap-4 sm:grid-cols-3">
+            <div class="grid gap-4 @lg:grid-cols-3">
               {% for p in params.battery_phases %}
               <label class="radio-card">
                 <span class="flex items-center gap-2 font-medium">
