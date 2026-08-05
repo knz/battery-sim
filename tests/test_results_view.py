@@ -802,13 +802,16 @@ def test_results_period_line_and_monthly_import_chart_are_real():
     assert r["chart"]["values"] == [48]  # 2 kWh/h × 24 h
 
 
-def test_results_short_window_disables_annualisation():
-    # A 24 h window is well under min_annualisation_days (90), so the short-window flag + message
-    # are set for the §2.4 info box.
+def test_results_short_window_emits_no_annualisation_guard():
+    # §7.4's short-window guard is not emitted, because nothing in the app annualises: the box it
+    # set told the user an annual projection had been withheld and pointed at a range selection
+    # that produced none. A 24 h window is well under min_annualisation_days (90) and so would have
+    # tripped the old guard — this asserts the keys stay absent until an annualised figure exists,
+    # at which point the guard returns with it.
     ds = _dataset([_energy("grid_import_t1", 2.0), _energy("grid_export_t1", 0.0)])
     r = results_from(ds, (_WIN_START, _WIN_END))
-    assert r["annualisation_disabled"] is True
-    assert "disabled" in _en(r["annualisation_message"])
+    assert "annualisation_disabled" not in r
+    assert "annualisation_message" not in r
 
 
 # ── §2.4's benchmark box, and its conditional fourth row ─────────────────────────────────────

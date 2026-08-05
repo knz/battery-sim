@@ -73,6 +73,16 @@ correction has no sound euro analogue so the cost capture ratio is unavailable f
 policy (H10), and that run E's bound is on the pre-top-up bill in windows where the feed-in floor
 binds (H11).
 
+**§7.4's short-window guard is not emitted, because there is nothing yet to guard.** No annualised
+figure is computed or rendered anywhere in the app. The guard nonetheless shipped ahead of it, as an
+info box on runs under `min_annualisation_days`: it told the user an annualised projection had been
+disabled and to "select 6 months or 1 year to see an annual figure" — a projection that was never
+withheld, obtainable by no selection. It is dropped until the annualised figure exists.
+`results_view.py` keeps `min_annualisation_days = 90` as the threshold. Restoring the guard means
+restoring both triggers §7.4 specifies: the day-count floor this had, and the configuration-epoch
+boundary ([§6.15](13-configuration-epochs.md)) it never implemented. The Dutch translation is
+retained as an obsolete (`#~`) entry in the catalogs.
+
 The runtime-f-string gap this file used to record is **closed**: `app/results_view.py` and
 `app/data_view.py` now emit user-facing sentences as `(msgid, params)` pairs through `_msg`/`_msg_n`
 rather than as f-strings, so they carry stable msgids and are translated.

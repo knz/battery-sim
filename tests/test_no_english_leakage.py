@@ -81,7 +81,6 @@ FORBIDDEN_FRAGMENTS = [
     "mapped, flat",
     "averaged",
     "held",
-    "Annualised projection is disabled",
     "Spot prices are recorded every",
     "Computed for the battery configured",
     "Reconstructed household load was negative",
@@ -110,8 +109,9 @@ FORBIDDEN_FRAGMENTS = [
 #     `topology.approximated` (one they HAVE) are opposite states of the same choice;
 #   * `solar_empty` needs a PV series that sums to almost nothing, which is not the healthy PV
 #     the full scenario wants; and
-#   * `annualisation_disabled` needs a window under 90 days, which the drift and floor caveats do
-#     not want.
+#   * `short_window` is a 10-day window, which the drift and floor caveats do not want (they need
+#     the longer span). It no longer reaches an exclusive branch of its own — the box it was built
+#     for is gone — but stays as the only short cost-on render here.
 #
 # A window is 40 days of hourly data unless the scenario says otherwise — long enough to simulate
 # and to bucket into months, short enough that eight of these stay cheap. The DP grids are cut to
@@ -236,7 +236,9 @@ def _frames_and_config(scenario: str):
         ]
 
     elif scenario == "short_window":
-        # Under the 90-day annualisation floor, so `annualisation_disabled` and its message render.
+        # A 10-day cost-on window. Originally under the 90-day annualisation floor, to render
+        # `annualisation_disabled`; that box is gone (nothing annualises), and the scenario is
+        # retained as the sweep's only short cost-on render.
         n = 10 * 24
         frames = [
             _series("grid_import_t1", "energy", 1.2, n),
@@ -489,8 +491,11 @@ _SCENARIO_MARKERS = {
     "unreliable_pv": ["niet betrouwbaar"],
     # a mapped solar sensor that reported nothing over the window
     "solar_empty": ["zonnesensor"],
-    # under the 90-day annualisation floor
-    "short_window": ["jaarprojectie is uitgeschakeld"],
+    # A 10-day cost-on run. It was built for the short-window annualisation box, which no longer
+    # exists (nothing annualises, so §7.4's guard is not emitted). Kept as the only SHORT cost-on
+    # render in the sweep — a window this brief exercises the euro prose over a handful of days
+    # rather than the 40 the other scenarios use — so its markers are now that euro section.
+    "short_window": ["Waar het geld vandaan komt", "Spotprijs"],
     # an unsupported battery topology the user has NOT accepted → check 18's warning
     "phase_unsupported": ["niet in v1", "versie 1 niet volledig ondersteund"],
 }
