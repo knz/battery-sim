@@ -172,4 +172,4 @@ app recreates an empty one on the next start.
 ## Next
 
 - [The security warnings your operating system shows](security-warnings.md)
-- [Supporting the project](sponsor.md) — what code signing would cost, and what it would fix
+- [Supporting the project](sponsor.md) — including what would remove these warnings

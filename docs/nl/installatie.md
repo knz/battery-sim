@@ -176,4 +176,4 @@ dat niet, gooi die map dan weg; de app maakt bij de volgende start een lege aan.
 ## Verder lezen
 
 - [Beveiligingswaarschuwingen van je besturingssysteem](beveiligingswaarschuwingen.md)
-- [Het project steunen](sponsor.md) — wat ondertekenen kost, en wat het oplost
+- [Het project steunen](sponsor.md) — onder meer wat deze waarschuwingen zou weghalen

@@ -195,6 +195,69 @@ unsigned means" section as prose (compressed to two sentences in the fold); the 
 "this path has been narrowing" and "what SmartScreen is actually judging" headings, folded into
 the Why as short paragraphs.
 
+## Sponsor page rewrite
+
+User prompt, verbatim:
+
+> let's now rework the "sponsor" page. this page too is wayy too lengthy and not enough
+> user-focused. let's rewrite it holistically.
+> - "free software" paragraph can remain.
+> - explain that sponsoring can help in these ways: support code signing so the app can be run
+>   without security warning on windows and macos; if the user finds the app useful, and would
+>   like to reward the project; if the user want to embed the app in their own project, or
+>   embed/extend/publish with their own branding, we can discuss a commercial agreement with a
+>   custom sponsorship package (suggest sending an email for this instead of using the github
+>   sponsors page)
+> - keep the "what sponsorship does not buy" section
+
+**Restructured around the reader's reason for being there** rather than around the maintainer's
+cost breakdown: the AGPL paragraph, then three reasons (remove the warnings, say thanks, a
+commercial arrangement), then how to contribute, then what sponsorship does not buy. 104 and 109
+lines become 77 and 83.
+
+**Trimmed further by the user directly**, after the rewrite landed. Two cuts:
+
+- The macOS-first priority sentence went from the cost paragraph. The paragraph now states the
+  bill and stops, without arguing where a first contribution would go.
+- "What sponsorship does not buy" was cut to its first sentence — no paid features, no priority
+  support, nothing changes for non-contributors. The passage explaining that the app itself will
+  never ask for money, because a sponsor link in the window would be the product's first
+  outward-facing affordance, is gone from the page. The constraint is unaffected: it is a
+  product rule from `docs/specs/01-product-brief.md:186` and
+  `docs/specs/15-data-quality-and-limits.md` §7.5, restated in both files' header comments and in
+  `changelog/20260805-desktop-packaging.md` §17.1. The page simply no longer explains it to
+  readers, which is a presentation choice rather than a change of policy.
+
+**Commercial enquiries point at https://raphaelposs.com/contact/**, the user's choice when asked
+which address to publish. The repository carries no contact address, and the only candidate
+otherwise was the git commit-author address — publishing that is outward-facing and was not mine
+to decide. The request said "send an email"; the contact form serves the same purpose, so the
+wording became "get in touch through the contact form". The reason for routing these away from
+GitHub Sponsors is stated on the page: such arrangements need terms and the sponsors page cannot
+carry them.
+
+**Cut: the per-platform cost sections and the Windows caveat.** The page no longer breaks the
+bill down by platform, nor states the CA/Browser Forum hardware-token rule — nor, more
+substantively, Microsoft's documented position that signing does *not* immediately remove the
+SmartScreen warning, since reputation attaches to each new file. The page says sponsorship would
+"remove the security warnings", which is true of macOS and only gradually true of Windows. That
+is a simplification the user's framing asked for; it is recorded here, and both file header
+comments carry a note to restore the detail if a sponsor asks what the money actually buys. The
+full version survives in `changelog/20260805-desktop-packaging.md` §17.
+
+**The recurring total was then put back into the prose**, on the user's instruction: USD 99/year
+for Apple's Developer Program plus roughly USD 10/month for a Windows certificate service, given
+as **roughly USD 220 per year, every year**. The two component figures are the ones verified on
+2026-08-05 and recovered from the pre-rewrite page; the USD 220 is their sum, rounded, and is
+stated as an estimate rather than a quote. Both header comments now carry the sourcing again,
+plus a note to update the total if either component moves — a summed figure can go stale in two
+ways rather than one.
+
+**Two inbound descriptions corrected.** `docs/en/install.md` and `docs/nl/installatie.md` closed
+by describing the sponsor page as "what code signing would cost, and what it would fix" — a
+promise the rewritten page no longer keeps. Both now read "including what would remove these
+warnings".
+
 ## Files modified
 
 **Created**
