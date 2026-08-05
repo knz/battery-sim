@@ -15,7 +15,9 @@
     * frame='divider' (panel ③) — NO card frame and NO coverage span. The heading is a
       `divider divider-start`, matching the "Energy savings" divider directly below it, and its
       content sits directly in panel ③'s body. The coverage span is omitted because panel ③'s
-      range picker already states the selected window immediately above.
+      range picker already states the selected window immediately above. This frame alone honours
+      the optional `action` slot — a caller-supplied control rendered right-aligned between the
+      heading and the figures (panel ③ puts its "Update your data →" link there).
   Everything below the frame is the shared `_glance_body` macro, so a change to the figures lands
   in both copies. Divider/heading labels are sentence-case msgids uppercased by CSS (`uppercase`),
   the convention the group headings below already follow — casing is presentation, not translation.
@@ -61,7 +63,12 @@
    "Your data at a glance"; panel ③'s copy passes its own ("Your energy use during the selected
    period") since it is scoped to the selected date range, not the whole dataset. Callers pass an
    already-`_()`-translated string, so it is rendered verbatim here (not re-translated). #}
-{% macro data_glance(data_summary, title=None, frame='section') %}
+{# `action` is an optional caller-rendered control (today: panel ③'s "Update your data →" link)
+   shown right-aligned between the divider heading and the figures, so it reads as belonging to
+   the heading rather than trailing the whole band. It is a `divider`-frame slot only: panel ①'s
+   card frame ignores it, since a link to the data screen from the data screen is a no-op. The
+   caller passes finished markup — the macro neither styles nor translates it. #}
+{% macro data_glance(data_summary, title=None, frame='section', action=None) %}
 {% set band_title = title if title is not none else _('Your data at a glance') %}
 {% set coverage_line %}{{ data_summary.coverage }}{% if data_summary.days %} · {{ data_summary.days }} {{ ngettext('day', 'days', data_summary.days) }}{% endif %}{% endset %}
 {% if frame == 'divider' %}
@@ -73,6 +80,11 @@
   <div class="divider divider-start text-xs font-semibold uppercase tracking-wider text-base-content/70">
     {{ band_title }}
   </div>
+  {% if action %}
+  {# Pulled up under the divider rule with -mt-2, matching the "Edit contract & rates →" link's
+     placement relative to the Cost savings divider below. #}
+  <div class="flex flex-wrap items-center justify-end gap-1 -mt-2 mb-2">{{ action }}</div>
+  {% endif %}
   <div class="flex flex-col gap-3">
     {{ _glance_body(data_summary) }}
   </div>

@@ -351,6 +351,15 @@ def test_the_energy_section_links_to_the_data_screen(with_data):
     assert link, "the energy band must offer a link to the data screen"
     assert 'href="/w/w1/data"' in link.group(0), link.group(0)
 
+    # Placement, not merely presence: the link belongs to the band's HEADING, so it must sit
+    # between that heading and the first figure below it — not after the cards, which is where
+    # rendering it beside the macro call rather than through the macro's `action` slot puts it.
+    heading = html.index("Your energy use during the selected period")
+    first_figure = html.index("as your meter recorded them", heading)
+    assert heading < link.start() < first_figure, (
+        "the link must render under the divider heading, above the figures"
+    )
+
 
 def test_the_contract_link_is_absent_when_cost_is_off(with_data):
     """The counterpart: with cost OFF there is no Cost savings section, so no link from it.
