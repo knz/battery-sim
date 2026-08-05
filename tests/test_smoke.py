@@ -39,7 +39,7 @@ from pathlib import Path
 from urllib.request import Request, urlopen
 
 import pytest
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import expect, sync_playwright
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -1418,6 +1418,196 @@ def test_the_source_drawer_opens_on_the_configure_data_screen(browser, base_url)
     pg.locator("#drawer-cancel").click()
     pg.wait_for_timeout(150)
     assert not drawer.is_visible()
+    context.close()
+
+
+# A stand-in for Home Assistant's WebSocket API, installed as `window.WebSocket` before any script
+# runs. `HaClient` (ha_fetch.js) resolves the global at call time and speaks only four messages, so
+# a stub that answers those exercises the real client, the real testConnection, and the real
+# preselect path — everything except the socket itself. Driving this against a live HA is not an
+# option in CI, and stubbing at any higher level (e.g. replacing testConnection) would stop testing
+# the code that actually broke.
+#
+# The statistic ids mirror the shape a Dutch DSMR install produces, including the `_cost` siblings
+# that sort adjacent to the energy sensors — that adjacency is the reason `guessId`'s first-match
+# rule needs asserting rather than assuming.
+_HA_WS_STUB = """
+window.__haCalls = [];
+class FakeHaSocket {
+  constructor(url) {
+    this.url = url;
+    window.__haCalls.push(url);
+    setTimeout(() => this.onmessage &&
+      this.onmessage({data: JSON.stringify({type: 'auth_required'})}), 0);
+  }
+  send(raw) {
+    const msg = JSON.parse(raw);
+    const reply = (m) => setTimeout(() =>
+      this.onmessage && this.onmessage({data: JSON.stringify(m)}), 0);
+    if (msg.type === 'auth') { reply({type: 'auth_ok'}); return; }
+    if (msg.type === 'recorder/list_statistic_ids') {
+      const sums = window.__haSums || [
+                    'sensor.energy_consumed_tariff_1', 'sensor.energy_consumed_tariff_1_cost',
+                    'sensor.energy_consumed_tariff_2', 'sensor.energy_consumed_tariff_2_cost',
+                    'sensor.energy_produced_tariff_1', 'sensor.energy_produced_tariff_2',
+                    'sensor.gas_meter'];
+      const means = ['sensor.epex_spot_data2_average_price', 'sensor.outside_temperature'];
+      const ids = msg.statistic_type === 'mean' ? means : sums;
+      reply({type: 'result', id: msg.id, success: true,
+             result: ids.map((i) => ({statistic_id: i}))});
+    }
+  }
+  close() { if (this.onclose) this.onclose(); }
+}
+window.WebSocket = FakeHaSocket;
+"""
+
+
+def _connect_ha(pg):
+    """Fill in the shared connection modal and let the stubbed Test connection succeed.
+
+    The button beside the Home Assistant radio is matched by position rather than by label: it
+    reads "Configure…" until a connection has been tested and "✓ Connected" afterwards, and this
+    helper is used on both sides of that change.
+    """
+    pg.locator("#drawer-source-list label", has=pg.locator(
+        "input[value='home_assistant']")).locator("button").first.click()
+    pg.locator("#ha-base-url").fill("https://ha.example:8123")
+    pg.locator("#ha-token").fill("a-token")
+    pg.locator("#ha-test-btn").click()
+    expect(pg.locator("#ha-status")).to_contain_text("Connected", timeout=3000)
+    pg.evaluate("() => document.getElementById('ha-config-dialog').close()")
+
+
+# Strip a roster slot's server-seeded source/entity so it is genuinely unconfigured, BEFORE
+# ha_fetch.js reads the attributes into `slotState`.
+#
+# The empty-state screen renders `app/sample_data.py`, which ships most slots already bound to a
+# Home Assistant entity (`sensor.electricity_meter_import_t1` and friends). That is the FILLED
+# state, not the one the regression lives in: a slot arriving with a `stat_id` seeds `draft.statId`,
+# so the preselect has nothing left to decide and the bug is invisible.
+#
+# Clearing the attributes — rather than picking whichever slot the sample happens to leave blank —
+# keeps the test on `grid_import_t1`, the slot the bug was reported against, and keeps it honest if
+# the sample's bindings change.
+#
+# Done through the localStorage slot store rather than by rewriting the button's attributes: the
+# store is the documented override (a current-generation entry is a pre-fetch customization and wins
+# over the server's committed choice), whereas the attributes are read by a `defer` script during
+# parse, which is racy to get in front of. An entry with an empty source and no statId is exactly
+# what an unconfigured slot looks like.
+def _make_slot_pristine(pg, base_url: str, workspace_id: str, slot: str = "grid_import_t1"):
+    pg.goto(f"{base_url}/w/{workspace_id}/data", wait_until="networkidle")
+    gen = pg.evaluate(
+        "() => JSON.parse(document.getElementById('source-generation').textContent)"
+    )
+    pg.evaluate(
+        """([k, g, s]) => localStorage.setItem(k, JSON.stringify(
+               {gen: g, slots: {[s]: {source: '', statId: ''}}}))""",
+        [f"ha.slots.{workspace_id}", gen, slot],
+    )
+    pg.reload(wait_until="networkidle")
+
+
+def test_a_successful_connection_preselects_the_slots_entity(browser, base_url):
+    """A tested connection must fill the slot's entity <select>, guessed from the slot name.
+
+    The regression this pins: on a FRESH workspace no slot has a committed source, so `draft.source`
+    was null, no radio matched at render time, `onSelectSource` never fired — and `testConnection`'s
+    refill (gated on `draft.source === 'home_assistant'`) never ran. The connection card said
+    "Connected" while the entity select stayed empty. The drawer showed Home Assistant as chosen
+    while the draft held nothing, so the two had to be brought into agreement.
+
+    Driven through the real drawer on a fresh workspace because that mismatch only exists in the
+    uncommitted state — any test that first stages a source would seed `draft.source` and walk past
+    the bug.
+    """
+    url = _workspace_url(base_url)
+    workspace_id = url.rstrip("/").split("/")[-2]
+
+    context = browser.new_context()
+    context.add_cookies([{"name": "lang", "value": "en", "url": base_url}])
+    pg = context.new_page()
+    pg.add_init_script(_HA_WS_STUB)
+    _make_slot_pristine(pg, base_url, workspace_id)
+
+    # Open the drawer for grid import T1 — stripped above, so it has no committed source.
+    pg.locator("#slot-roster .slot-source-btn[data-slot='grid_import_t1']").click()
+    assert pg.locator("#source-drawer").is_visible()
+
+    # The radio the drawer SHOWS as chosen is Home Assistant, and the draft agrees: the entity
+    # picker is revealed, which only onSelectSource does. Before the fix nothing was checked.
+    ha_radio = pg.locator("#source-drawer input[name='drawer-source'][value='home_assistant']")
+    assert ha_radio.is_checked(), "a fresh slot must stage its default source, not leave none checked"
+    assert pg.locator("#drawer-ha-entity").is_visible(), "picking HA must reveal the entity picker"
+
+    _connect_ha(pg)
+
+    # The heuristic ran and landed on the energy sensor — not "", and not the `_cost` sibling that
+    # sorts immediately after it.
+    sel = pg.locator("#drawer-entity-select")
+    expect(sel).to_have_value("sensor.energy_consumed_tariff_1", timeout=3000)
+    assert sel.locator("option").count() > 1, "the select must be populated with the energy ids"
+
+    # Confirm commits what was staged, so the guess reaches the row rather than dying in the draft.
+    pg.locator("#drawer-confirm").click()
+    pg.wait_for_timeout(150)
+    stored = pg.evaluate(f"localStorage.getItem('ha.slots.{workspace_id}')")
+    assert "sensor.energy_consumed_tariff_1" in (stored or "")
+    context.close()
+
+
+def test_a_manually_chosen_entity_survives_a_repopulate(browser, base_url):
+    """The guess is a default, never an override — but only for an id the instance actually has.
+
+    Two repopulate cases, and they resolve differently on purpose:
+
+      * the chosen id IS offered — `draft.statId` wins over `guessId`, so a correction the user
+        made by hand is not pulled back to the heuristic's pick;
+      * the chosen id is NOT offered (a different Home Assistant, or a renamed entity) — it can be
+        neither displayed nor fetched, so the guess takes over. Keeping it would leave the picker
+        blank with no way to tell why, which is exactly the symptom this whole changelog is about.
+    """
+    url = _workspace_url(base_url)
+    workspace_id = url.rstrip("/").split("/")[-2]
+
+    context = browser.new_context()
+    context.add_cookies([{"name": "lang", "value": "en", "url": base_url}])
+    pg = context.new_page()
+    pg.add_init_script(_HA_WS_STUB)
+    _make_slot_pristine(pg, base_url, workspace_id)
+
+    pg.locator("#slot-roster .slot-source-btn[data-slot='grid_import_t1']").click()
+    _connect_ha(pg)
+
+    sel = pg.locator("#drawer-entity-select")
+    expect(sel).to_have_value("sensor.energy_consumed_tariff_1", timeout=3000)
+
+    # Override the guess by hand, the way a user corrects a wrong mapping.
+    sel.select_option("sensor.energy_consumed_tariff_2")
+
+    # Re-selecting the Home Assistant radio repopulates the select for this slot. The manual choice
+    # must still be there — the guess would otherwise pull it back to _tariff_1.
+    pg.locator("#source-drawer input[name='drawer-source'][value='home_assistant']").click()
+    expect(sel).to_have_value("sensor.energy_consumed_tariff_2")
+
+    # Now repopulate against an instance that does NOT offer that id, but DOES offer something the
+    # heuristic recognises. An id this Home Assistant does not have is not a usable choice — it can
+    # be neither shown nor fetched — so the guess takes over rather than leaving an empty picker.
+    pg.evaluate(
+        "() => { window.__haSums = ['sensor.energy_consumed_tariff_1', 'sensor.other']; }"
+    )
+    _connect_ha(pg)
+    expect(sel).to_have_value("sensor.energy_consumed_tariff_1", timeout=3000)
+
+    confirm = pg.locator("#drawer-confirm")
+    assert not confirm.is_disabled(), "a fallen-back guess is still a committable choice"
+    confirm.click()
+    pg.wait_for_timeout(150)
+    stored = pg.evaluate(f"localStorage.getItem('ha.slots.{workspace_id}')")
+    assert "sensor.energy_consumed_tariff_1" in (stored or ""), (
+        "the fallback guess must be what gets committed"
+    )
     context.close()
 
 

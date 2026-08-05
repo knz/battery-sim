@@ -606,6 +606,23 @@ def _data_page(
     else:
         ctx.pop("data_summary", None)
 
+    # The same replaced-or-dropped rule, applied to the roster's per-slot PROVENANCE. The sample's
+    # mapping rows carry a source and a statistic id for the slots it depicts as fetched
+    # (`sensor.electricity_meter_import_t1` and friends). Those are illustrations of a filled
+    # screen; on an empty one they are claims about data the user never supplied, and the drawer
+    # believes them: it seeds `draft.statId` from `data-slot-stat-id`, which suppresses the entity
+    # guess and leaves the picker showing an id that exists on no real Home Assistant.
+    #
+    # Only the provenance is cleared, not the rows: the roster still has to render every slot with
+    # its role, requirement marker and offered sources. `has_dataset` is the gate rather than
+    # `summary`, because a price-only dataset is real data and must keep whatever it mapped.
+    if not has_dataset:
+        ctx["data"] = dict(ctx["data"])
+        ctx["data"]["mapping"] = [
+            {**row, "source": None, "stat_id": None, "entity": None}
+            for row in ctx["data"].get("mapping", [])
+        ]
+
     ctx["lang"] = {
         "current": locale,
         "options": [{"code": c, "label": c.upper()} for c in i18n.SUPPORTED],
