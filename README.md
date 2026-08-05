@@ -17,9 +17,10 @@ over this period" — it is not a forecaster and not a controller.
 
 Every page exists in English and Dutch; the index is [`docs/README.md`](docs/README.md).
 
-The short version: there is a **Linux AppImage** — download it, `chmod +x`, run it. **No macOS
-or Windows build has been produced yet.** Neither desktop build is signed, which is what the
-security-warnings page is about.
+The short version: builds are published on the
+[releases page](https://github.com/knz/battery-sim/releases) for **Linux** (an AppImage),
+**macOS** (Apple silicon and Intel) and **Windows**. None of them is signed, so macOS and
+Windows show a warning on first open — that is what the security-warnings page is about.
 
 Some features are specified but not yet built; the app marks those controls *pending* and
 explains what is missing. The current state is tracked in

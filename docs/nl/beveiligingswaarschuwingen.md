@@ -11,6 +11,10 @@ Windows app developers", pagina van 2026-05 (dat ondertekenen de eerste waarschu
 wegneemt, dat EV SmartScreen niet meer omzeilt, en de hardere blokkade van Smart App Control).
 Linux komt uit de eigen verificatie in fase 4-6 van dit project, niet uit leveranciersdocumentatie.
 
+De stappen voor macOS en Windows komen uit die leveranciersdocumentatie en NIET uit het draaien
+van de eigen builds op die systemen — de release-jobs daarvoor zijn nieuw. Meldt een lezer een
+andere tekst op het scherm, dan weegt die melding zwaarder dan deze pagina.
+
 Toon: deze pagina mag niet lezen als "klik maar door die enge melding heen". Eerst waar de
 controle over gaat en wat hij wel en niet weet, dan pas de stappen.
 Engelse tegenhanger: ../en/security-warnings.md.
@@ -53,8 +57,7 @@ Linux controleert geen handtekeningen op gedownloade programma's. Zodra je de Ap
 `chmod +x` uitvoerbaar hebt gemaakt, start hij gewoon. Geen melding, geen bevestiging, geen
 instelling die je om moet zetten.
 
-Dit is echt de makkelijkste van de drie, en het is meteen ook het enige platform waarvoor
-vandaag een build bestaat. Zie [Installeren en starten](installatie.md).
+Dit is echt de makkelijkste van de drie. Zie [Installeren en starten](installatie.md).
 
 Het is niet zo dat Linux minder voorzichtig is; software wordt er anders verspreid. Vertrouwen
 komt daar normaal gesproken uit de pakketbronnen van je distributie, die als geheel
@@ -62,9 +65,6 @@ ondertekend zijn, en niet uit een stempel per bestand dat je van het web plukt. 
 zelf hebt opgehaald, geldt als je eigen verantwoordelijkheid.
 
 ## macOS: de lastigste van de drie
-
-**Er is nog geen macOS-build.** Dit is dus een vooruitblik op wat er gaat gebeuren zodra die er
-komt.
 
 Download je een bestand met een browser, dan hangt macOS er een *quarantaine*-markering aan.
 Bij de eerste keer openen kijkt Gatekeeper naar dat gemarkeerde bestand, vindt geen
@@ -119,8 +119,6 @@ aangescherpt. Op macOS is een certificaat daarmee eerder *noodzakelijk* dan mooi
 en dat is het sterkste argument om er [geld voor bij elkaar te brengen](sponsor.md).
 
 ## Windows: een waarschuwing die je weg kunt klikken, en die vanzelf slijt
-
-**Er is nog geen Windows-build.** Ook dit is een vooruitblik.
 
 ### Wat je ziet
 

@@ -1,8 +1,8 @@
 <!--
-Installatiepagina voor huishoudens (Nederlands). Behandelt alleen de Linux-AppImage — dat is
-het enige platform waarvoor een build bestaat. Documenteert bewust NIET het draaien vanuit de
-broncode; dat hoort in de README voor ontwikkelaars. De downloadlink wijst naar de GitHub-releases-pagina,
-die op dit moment nog geen release bevat.
+Installatiepagina voor huishoudens (Nederlands). Behandelt alle drie de platforms: de
+Linux-AppImage, en de macOS- en Windows-bundels die .github/workflows/release.yml maakt.
+Documenteert bewust NIET het draaien vanuit de broncode; dat hoort in docs/maintainers/.
+De downloadlinks wijzen naar de GitHub-releases-pagina.
 
 Register: informeel je/jouw, conform changelog/20260725-nl-register-consistency.md.
 Engelse tegenhanger: ../en/install.md.
@@ -16,7 +16,8 @@ buiten, en de app belt niet naar huis.
 
 ## Wat je nodig hebt
 
-- Een computer met Linux (zie [Welke platforms er zijn](#welke-platforms-er-zijn) hieronder).
+- Een computer met Linux, macOS of Windows (zie [Welke platforms er
+  zijn](#welke-platforms-er-zijn) hieronder).
 - De energiegegevens van je eigen huishouden — een Home Assistant die je op je thuisnetwerk
   kunt bereiken, of CSV-exports daaruit.
 
@@ -25,16 +26,21 @@ in het bestand dat je downloadt.
 
 ## Welke platforms er zijn
 
-| Platform | Stand van zaken |
+| Platform | Download |
 | --- | --- |
-| **Linux** (64-bit x86) | Er is een werkende build: één AppImage-bestand. |
-| **macOS** | **Nog geen build.** |
-| **Windows** | **Nog geen build.** |
+| **Linux** (64-bit x86) | `Home-Battery-Simulator-x86_64.AppImage` — één bestand |
+| **macOS** (Apple silicon) | `battery-sim-macos-arm64.zip` |
+| **macOS** (Intel) | `battery-sim-macos-x86_64.zip` |
+| **Windows** (64-bit x86) | `battery-sim-windows-x86_64.zip` |
 
-Alleen de Linux-build is gemaakt en getest. macOS en Windows staan wel op de rol, maar er is
-op dit moment niets om te downloaden. Werk je op een van die twee, dan beschrijft de pagina
-over [beveiligingswaarschuwingen](beveiligingswaarschuwingen.md) waar je tegenaan gaat lopen
-zodra die builds er zijn. Dat is dus vooruitblik, geen stappenplan voor vandaag.
+Alle builds staan op https://github.com/knz/battery-sim/releases. Pak degene die bij je machine
+hoort; op macOS betekent Apple silicon een Mac met M-chip, en Intel een Mac van vóór die
+overstap.
+
+Geen van de builds is ondertekend, dus macOS en Windows laten allebei een waarschuwing zien de
+eerste keer dat je de app opent. Dat hoort erbij en betekent niet dat er iets mis is. De pagina
+over [beveiligingswaarschuwingen](beveiligingswaarschuwingen.md) loopt precies langs wat je te
+zien krijgt en hoe je erlangs komt.
 
 ## Linux: downloaden en starten
 
@@ -42,11 +48,8 @@ De Linux-build is een **AppImage**: één bestand met de hele applicatie erin. G
 geen pakketbeheerder, en er wordt niets in je systeemmappen gezet. Wil je de app weg hebben,
 dan gooi je het bestand weg.
 
-**1. Download de AppImage.**
-
-> Releases verschijnen op https://github.com/knz/battery-sim/releases. Er is nog geen release
-> gepubliceerd, maar zodra dat gebeurt, heet het bestand `Home-Battery-Simulator-x86_64.AppImage`
-> en kun je het daar downloaden.
+**1. Download `Home-Battery-Simulator-x86_64.AppImage`** van de
+[releases-pagina](https://github.com/knz/battery-sim/releases).
 
 **2. Maak het bestand uitvoerbaar.** Een gedownload bestand mag niet zomaar draaien; je moet
 daar eerst toestemming voor geven. In een terminal, in de map waar je het hebt neergezet:
@@ -72,21 +75,64 @@ Meer is het niet. Linux laat geen waarschuwing zien en vraagt nergens om bevesti
 dat op macOS en Windows anders ligt, staat op de pagina over
 [beveiligingswaarschuwingen](beveiligingswaarschuwingen.md).
 
-### Als het venster niet opengaat
+### Systeemeisen
 
-Dan valt de app terug op je gewone webbrowser, en meldt dat ook. Daar werkt hij precies
-hetzelfde. Dat gebeurt als de grafische bibliotheken die het venster nodig heeft niet geladen
-kunnen worden op jouw systeem.
+De Linux-build is gebouwd tegen glibc 2.39 en heeft dus een distributie nodig van ongeveer de
+leeftijd van Ubuntu 24.04 of nieuwer. Op Debian 12 of ouder start hij niet. Je hebt een
+X11- of Wayland-sessie nodig; op een server zonder beeldscherm draait hij niet.
 
-Je kunt ook expres om de browser vragen:
+## macOS: downloaden en starten
+
+**1. Download de zip die bij je Mac hoort** van de
+[releases-pagina](https://github.com/knz/battery-sim/releases) —
+`battery-sim-macos-arm64.zip` voor Apple silicon, `battery-sim-macos-x86_64.zip` voor Intel.
+Weet je niet welke je hebt:  → Over deze Mac.
+
+**2. Pak hem uit.** Dubbelklik op de gedownloade zip. Je krijgt een map `battery-sim`. Zet die
+neer waar je je programma's bewaart; alles wat de app nodig heeft zit in die map, dus hij kan
+overal staan en je verwijdert de app door de map weg te gooien.
+
+**3. Open de app.** Start in die map het programma `battery-sim`.
+
+macOS weigert de eerste poging, omdat de app niet ondertekend is. Dat hoort bij de eerste keer
+opstarten; de stappen staan op de pagina over
+[beveiligingswaarschuwingen](beveiligingswaarschuwingen.md). Kort gezegd: Systeeminstellingen →
+Privacy en beveiliging → naar beneden scrollen tot Beveiliging → **Toch openen**, en daarna de
+app een tweede keer openen. Dit hoef je maar één keer te doen.
+
+## Windows: downloaden en starten
+
+**1. Download `battery-sim-windows-x86_64.zip`** van de
+[releases-pagina](https://github.com/knz/battery-sim/releases).
+
+**2. Pak hem uit.** Rechtermuisknop op de gedownloade zip → **Alles uitpakken**. Je krijgt een
+map `battery-sim`. Zet die neer waar je wilt; alles wat de app nodig heeft zit erin, en je
+verwijdert de app door de map weg te gooien.
+
+**3. Open de app.** Start in die map `battery-sim.exe`.
+
+Windows laat een blauw kader zien met **"Windows heeft uw pc beveiligd"**, omdat de app niet
+ondertekend is. Klik op **Meer informatie** en daarna op **Toch uitvoeren**. Wat die
+waarschuwing eigenlijk meet, staat op de pagina over
+[beveiligingswaarschuwingen](beveiligingswaarschuwingen.md). Naast het app-venster gaat er een
+terminalvenster open; dat hoort bij de app en je kunt het negeren, maar sluit je het, dan sluit
+de app ook.
+
+## Als het venster niet opengaat
+
+Dan valt de app op elk platform terug op je gewone webbrowser, en meldt dat ook. Daar werkt hij
+precies hetzelfde. Dat gebeurt als de grafische bibliotheken die het venster nodig heeft niet
+geladen kunnen worden op jouw systeem.
+
+Je kunt ook expres om de browser vragen, met `--browser` — op Linux bijvoorbeeld zo:
 
 ```
 ./Home-Battery-Simulator-x86_64.AppImage --browser
 ```
 
-### Eén melding die je kunt negeren
+## Eén melding die je kunt negeren
 
-Bij het opstarten zie je misschien dit in de terminal:
+Op Linux zie je bij het opstarten misschien dit in de terminal:
 
 ```
 GStreamer element appsink not found. Please install it.
@@ -98,16 +144,17 @@ De app heeft geen video of geluid, dus er ontbreekt voor jou niets. Het is uitge
 is niet weg te krijgen zonder een mediabibliotheek mee te leveren die de app nooit gebruikt;
 de details staan in `changelog/20260805-desktop-packaging.md` §16.
 
-### Systeemeisen
-
-De Linux-build is gebouwd tegen glibc 2.39 en heeft dus een distributie nodig van ongeveer de
-leeftijd van Ubuntu 24.04 of nieuwer. Op Debian 12 of ouder start hij niet. Je hebt een
-X11- of Wayland-sessie nodig; op een server zonder beeldscherm draait hij niet.
-
 ## Waar de app je gegevens bewaart
 
-In `~/.local/share/battery-sim` — je workspaces, je instellingen, en je Home
-Assistant-token als je dat hebt ingevuld. Je energiegegevens verlaten je machine niet.
+Je workspaces, je instellingen, en je Home Assistant-token als je dat hebt ingevuld:
+
+| Platform | Locatie |
+| --- | --- |
+| **Linux** | `~/.local/share/battery-sim` |
+| **macOS** | `~/Library/Application Support/BatterySim` |
+| **Windows** | `%LOCALAPPDATA%\BatterySim\data` |
+
+Je energiegegevens verlaten je machine niet.
 
 Dat token staat bewust op schijf, zodat je het niet elke keer opnieuw hoeft in te typen. Wil je
 dat niet, gooi die map dan weg; de app maakt bij de volgende start een lege aan.

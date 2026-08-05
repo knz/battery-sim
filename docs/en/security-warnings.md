@@ -10,6 +10,10 @@ dated 2026-05 (that signing does NOT remove the first-download warning, that EV 
 bypasses SmartScreen, and Smart App Control's harder gate). Linux is from this repo's own
 phase 4-6 verification rather than a vendor page.
 
+The macOS and Windows steps are written from those vendor pages, NOT from observing the
+project's own builds on those systems — the release jobs for both are new. Treat a reader's
+report of different on-screen wording as more authoritative than this page.
+
 Tone constraint: this page must not read as "click through the scary dialog". It says what
 the gate is for, what it does and does not know, and then the steps.
 Dutch counterpart: ../nl/beveiligingswaarschuwingen.md.
@@ -50,8 +54,7 @@ account for where your copy came from, the right answer is to not open it.
 Linux does not check signatures on downloaded programs. Once you have marked the AppImage
 executable with `chmod +x`, it simply runs. No dialog, no confirmation, no settings to change.
 
-This is genuinely the easiest of the three platforms, and it is also the only one with a
-build today. See [Installing and running](install.md).
+This is genuinely the easiest of the three platforms. See [Installing and running](install.md).
 
 The reason is not that Linux is less careful, but that it distributes software differently:
 trust normally comes from your distribution's package repositories, which are signed as a
@@ -59,9 +62,6 @@ whole, rather than from per-file stamps on downloads from the web. A file you fe
 is treated as your own responsibility.
 
 ## macOS: the hardest of the three
-
-**No macOS build exists yet.** This section is advance notice of what will happen when one
-does.
 
 When you download a file with a browser, macOS attaches a *quarantine* marker to it. On first
 open, Gatekeeper inspects the marked file, finds no signature, and refuses.
@@ -114,7 +114,6 @@ argument for [funding one](sponsor.md).
 
 ## Windows: a dismissible warning that fades over time
 
-**No Windows build exists yet.** This section is advance notice.
 
 ### What you see
 

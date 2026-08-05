@@ -87,8 +87,9 @@ en met USD 99 per jaar is het bovendien de kleinste van de twee rekeningen.
 
 Wil je liever bijdragen op een manier die niets kost:
 
-- **Meld wat er stukgaat.** De Linux-build is op een beperkt aantal machines gecontroleerd. Een
-  melding dat hij op jouw distributie niet start, is meer waard dan de meeste dingen.
+- **Meld wat er stukgaat.** De builds zijn op een beperkt aantal machines gecontroleerd. Een
+  melding dat er een niet start op jouw distributie, jouw Mac of jouw Windows-versie, is meer
+  waard dan de meeste dingen.
 - **Meld een fout in de documentatie.** De stukken over macOS en Windows op de pagina over
   [beveiligingswaarschuwingen](beveiligingswaarschuwingen.md) zijn geschreven op basis van
   documentatie van Apple en Microsoft, niet doordat iemand het daar heeft gedraaid. Ziet jouw

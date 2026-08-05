@@ -82,8 +82,9 @@ at USD 99/year it is the smaller of the two bills.
 
 If you would rather contribute in a way that costs nothing:
 
-- **Report what breaks.** The Linux build is verified on a narrow set of machines. A report
-  that it fails to start on your distribution is worth more than most things.
+- **Report what breaks.** The builds are verified on a narrow set of machines. A report that
+  one fails to start on your distribution, your Mac or your Windows version is worth more than
+  most things.
 - **Report a documentation error.** The macOS and Windows sections of the
   [security-warnings page](security-warnings.md) are written from Apple's and Microsoft's
   documentation, not from running those systems. If your screen says something different, that

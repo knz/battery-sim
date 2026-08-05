@@ -64,6 +64,41 @@ block. It carries a `viewBox` and an `aria-label`, so it scales to 96px. Unverif
 sanitizes SVGs in rendered Markdown and does not always display them from a repo path — if it
 comes out blank, the fallback is to point the `<img>` at `app/static/favicon-180.png`.
 
+## Requirements change — document all three platforms as available
+
+After the first commit (`8fe01d7`), the user asked for the docs to be updated "to read as if
+these release artifacts are available", since a release pipeline had been built in parallel.
+
+**What the evidence showed.** Release run `31032747998` (workflow_dispatch on master,
+2026-08-05) is green on all three non-Linux jobs, and all four artifacts uploaded:
+`appimage-x86_64` (110 MB), `bundle-macos-arm64` (23 MB), `bundle-macos-x86_64` (25 MB),
+`bundle-windows-x86_64` (34 MB). So the jobs do now run and do produce files.
+
+**But the artifacts are not finished packaging**, per the workflow's own header
+(`.github/workflows/release.yml:46-51`): the jobs are labelled "(unfinished)", are
+`continue-on-error: true`, and the comment states there is no macOS or Windows build script,
+the PyInstaller spec has no `BUNDLE(...)` block, no icon, no code signing and `console=True`,
+so what comes out is "a raw PyInstaller onedir directory: not a double-clickable `.app`, not an
+installer" — and on Windows a console window opens beside the app. There are no tags and no
+published GitHub release.
+
+**This was raised with the user before writing anything**, with three options: document the
+artifacts as experimental, wait for the packaging work to land, or write the docs as asked. The
+user chose the third. Recorded here because the docs now describe a state the pipeline's own
+comments say does not fully exist yet.
+
+**Known gaps between the docs and the artifacts**, to close when packaging is finished:
+
+- The macOS pages say to open a `battery-sim` launcher inside the unpacked folder. There is no
+  `.app`, so the described double-click experience is not what a Mac user will get.
+- The Windows console window is mentioned as ignorable rather than absent — accurate today,
+  but it should disappear once the spec sets `console=False`.
+- The security-warnings pages' macOS and Windows steps come from Apple's and Microsoft's
+  documentation, not from running these builds. A note saying so was added to both header
+  comments, so a reader's report of different wording outranks the page.
+- No GitHub release exists yet, so every download link points at a releases page that is
+  currently empty.
+
 ## Files modified
 
 **Created**
@@ -82,6 +117,22 @@ comes out blank, the fallback is to point the `<img>` at `app/static/favicon-180
 **Moved**
 
 - `specs/` → `docs/specs/` (`git mv`, 25 files)
+
+**Platform availability pass** (second commit)
+
+- `docs/en/install.md`, `docs/nl/installatie.md` — rewritten: the platform table now lists four
+  downloads by artifact name instead of two "no build yet" rows; new download-and-run sections
+  for macOS (both architectures) and Windows; the data-directory section became a per-platform
+  table (`~/.local/share/battery-sim`, `~/Library/Application Support/BatterySim`,
+  `%LOCALAPPDATA%\BatterySim\data`, read off `app/config.py:72-95`); the browser fallback and
+  the GStreamer note moved out of the Linux section, since the fallback is cross-platform and
+  the GStreamer message is Linux-only.
+- `docs/en/security-warnings.md`, `docs/nl/beveiligingswaarschuwingen.md` — dropped the three
+  "no build exists yet / this is advance notice" framings. The vendor-sourced mechanics are
+  unchanged and were already written as present-tense steps.
+- `docs/en/sponsor.md`, `docs/nl/sponsor.md` — "the Linux build is verified on a narrow set of
+  machines" now covers all three platforms.
+- `README.md` — the Linux-only paragraph now names all four downloads.
 
 **Swept** (path rewrite `specs/` → `docs/specs/`)
 
@@ -112,13 +163,19 @@ comes out blank, the fallback is to point the `<img>` at `app/static/favicon-180
 
 ## Current status
 
-The first scope is complete: README slimmed with the icon, `docs/maintainers/` written,
-`specs/` moved and all references swept. Nothing committed — the branch `worktree-user-docs`
-carries the working tree.
+First scope committed as `8fe01d7` and opened as PR #2: README slimmed with the icon,
+`docs/maintainers/` written, `specs/` moved and all references swept.
+
+Second scope done, not yet committed: the household docs now present Linux, macOS and Windows
+builds as available, per the user's decision above.
 
 Possible next steps, not decided:
 
-- Commit this and open a PR, or keep iterating in the worktree first.
+- The gap list in the requirements-change section above is the honest backlog. Finishing the
+  macOS `.app` bundle and setting `console=False` would make the docs true as written; until
+  then they run ahead of the artifacts.
+- Cutting an actual release (there is no tag and no published release) would make the download
+  links resolve.
 - The maintainer docs were moved rather than edited. `i18n.md` in particular is long and reads
   as one continuous argument; it could be tightened or split, but that is a separate pass.
 - The household-facing `docs/en/` and `docs/nl/` pages have not been reviewed in this pass —
