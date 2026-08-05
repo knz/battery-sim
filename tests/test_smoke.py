@@ -580,7 +580,15 @@ def test_ha_fetch_scopes_its_slot_store_per_workspace(browser, base_url):
     # because Confirm gates the HA branch on a tested connection AND a chosen entity, neither of
     # which this page has; a backend source commits as soon as it is selected, and Confirm merely
     # stages it (the load happens on Fetch history, so nothing is contacted here).
-    pg.locator("#slot-roster .slot-source-btn[data-slot-sources*='backend_load']").first.click()
+    #
+    # The slot is addressed BY NAME (`data-slot="price_spot"`), not by `[data-slot-sources
+    # *='backend_load'] .first`. That older selector meant "the first slot with any backend source"
+    # and worked only while price_spot was the only such slot — it broke the moment the uploaded-CSV
+    # source (also backend_load) was registered for the energy slots, since `.first` then landed on
+    # grid_import_t1, whose drawer has no energy_charts radio. What this test needs is the slot that
+    # offers `energy_charts`, and that slot is price_spot; naming it says so and cannot drift when
+    # another source is added.
+    pg.locator("#slot-roster .slot-source-btn[data-slot='price_spot']").click()
     pg.locator("#source-drawer input[name='drawer-source'][value='energy_charts']").check()
     pg.locator("#drawer-confirm").click()
 
@@ -613,6 +621,17 @@ def test_new_pending_controls_marked(page, data_page_en):
     # (moved there when panel ① went slot-first, 0594e34); open a slot's drawer to reveal it.
     # ha_fetch.js renders it as name="drawer-source", disabled, with feature key data_source_csv.
     # On the configure-data screen since phase 4.2 — that is where the drawer is now (§2′.5).
+    #
+    # NOTE for steps 6 and 7 of the CSV-import work: this assertion pins the very stub step 6 must
+    # DELETE. The backend `CsvSource` is registered as of step 4, but its drawer controls (file,
+    # column, unit) are not built, so `renderSourceList` filters the live radio out and keeps this
+    # stub — the slot genuinely is pending. When step 6 builds the controls, this assertion has to go
+    # with the stub, and step 7 retires the `data_source_csv` feature key. It is left passing rather
+    # than pre-emptively weakened because it is still asserting the truth today.
+    #
+    # `.first` is grid_import_t1, an energy slot, which is one of the slots that offers CSV — the
+    # stub is now per-slot rather than unconditional (price_spot never gets it: D-PRICE makes CSV
+    # unavailable there, not pending), so a selector landing on price_spot would find nothing.
     data_page_en.locator(".slot-source-btn").first.click()
     assert data_page_en.locator("input[name=drawer-source][disabled]").count() >= 1
     data_page_en.keyboard.press("Escape")  # discards and closes, leaving no committed state

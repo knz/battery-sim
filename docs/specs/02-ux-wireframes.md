@@ -331,8 +331,8 @@ one shared component: it opens for whichever slot's `▸` was clicked.
   │        never reaches this app.                                         │
   │        Entity  [ sensor.electricity_meter_import_t1            ▾ ]     │
   │                                                                        │
-  │  (   ) Upload CSV                                              [?]      │
-  │        Provide a file yourself.  — not built yet —                    │
+  │  (   ) Upload CSV                                  [ Upload… ]         │
+  │        Use a column from a CSV file you uploaded.                      │
   │                                                                        │
   │                                          [ Confirm ]   [ Cancel ]      │
   └────────────────────────────────────────────────────────────────────────┘
@@ -369,13 +369,14 @@ slot), so the one place a slot's HA binding is made is the same place its source
 there is no separate mapping column on the main roster. The dropdown is populated from the
 shared connection; until the connection has been tested it is disabled and shows a prompt to
 configure it first. The chosen id is shown back on the roster row beside the source
-(`Home Assistant · sensor.…import_t1`). A source with no entity to pick — the preset
-Energy-Charts price, a future CSV upload — shows no dropdown, because there is nothing to bind.
+(`Home Assistant · sensor.…import_t1`). A source with nothing to bind — the preset
+Energy-Charts price — shows no dropdown. **Upload CSV** binds a file and a column instead of an
+entity, with its own controls in the same place (see [the CSV source](#the-csv-source)).
 
 Which slots offer which sources:
 
 - **Energy slots** (grid import/export, solar, battery charge/discharge) offer **Home
-  Assistant**, and — pending — **Upload CSV**. These are the user's own records, so there is no
+  Assistant** and **Upload CSV**. These are the user's own records, so there is no
   preset dataset to offer.
 - **The Spot price slot** additionally offers two **preset NL historical** sources —
   **Energy-Charts** and **ENTSO-E**. It is the one slot the app can fill from shipped data
@@ -527,86 +528,144 @@ Two rows in that box behave differently under the cost toggle, and the split fol
   window check below it are shown **only when cost simulation is on**. Which register
   carries which *tariff* matters only to a bill.
 
-### The CSV source (pending)
+### The CSV source
+
+<a id="csv-variant-of-the-source-sub-panel"></a>
 
 **Upload CSV** is one source among those offered in the drawer, not a whole-panel mode. It is
-offered for every energy slot and for the spot-price slots, and it is **pending**
-([§2.1](#the-four-availability-states)): it renders as a disabled radio with the `[?]`
-affordance (feature key `data_source_csv`) until the machinery ships. What follows describes
-what the CSV source *will do* when built, so the intent is on record; a reader must not read
-its pending state as the feature having been cut.
+offered for **energy slots**; the spot-price slots keep the two preset NL historical sources
+(see *Which slots offer which sources* above) and do not offer CSV in this increment.
 
-A user picking CSV does not own their data in the shape the app wants it. They will be
-downloading exports from an energy supplier, a grid operator's portal, or a PV installer, and a
-first-time user typically does not know which of those files they need before they start.
-Choosing CSV for a slot therefore opens an upload flow built around a **checklist of the series
-to go and collect** — the same slot roster the panel already shows, but read as "what do I need
-to download", with one upload slot per series and a pointer to where each file comes from.
+**Uploading a file and mapping it to a slot are two separate tasks.** This is the shape the
+whole CSV path follows, and the reason is that one file usually holds many series: a supplier
+export or a Home Assistant dump is typically **wide** — a timestamp column followed by one
+column per measurement. Requiring one file per series would force the user to split that file
+by hand, once per slot. So a file is uploaded **once** and is then available to **every** slot,
+each of which picks the column it wants.
 
 ```
-  ┌─ Upload CSV — files to collect ────────────────────────────────────────┐
+  ┌─ Source for: Grid import T1 ───────────────────────────────────────────┐
   │                                                                        │
-  │  Collect one file per row below. Most of these come from your energy   │
-  │  supplier's website; solar production usually comes from your          │
-  │  installer's monitoring portal or the inverter app.                    │
-  │                                                    [ Where do I get    │
-  │                                                      these files? ]    │
+  │  (   ) Home Assistant                              [ Configure… ]      │
+  │        Fetched from your Home Assistant in your browser; the token     │
+  │        never reaches this app.                                         │
   │                                                                        │
-  │  SERIES              REQ  FILE                                         │
-  │  ───────────────────────────────────────────────────────────────────   │
-  │  Grid import T1       ●   import_t1_2025.csv  ✓ 8,760 rows  [ replace ]│
-  │  Grid import T2       ○   import_t2_2025.csv  ✓ 8,760 rows  [ replace ]│
-  │  Grid export T1       ●   [ choose file… ]                             │
-  │  Grid export T2       ○   [ choose file… ]                             │
-  │  Solar production     ◐   solar_2025.csv      ✓ 8,760 rows  [ replace ]│
-  │  Battery charge       ○   [ choose file… ]                             │
-  │  Battery discharge    ○   [ choose file… ]                             │
-  │  Spot price           ●   prices.csv          ✗ see below   [ replace ]│
+  │  ( • ) Upload CSV                                  [ Upload… ]         │
+  │        Use a column from a CSV file you uploaded.                      │
   │                                                                        │
-  │  ✗  prices.csv does not match the expected format for Spot price.      │
-  │     Expected a timestamp column with a UTC offset and a price column   │
-  │     in EUR/kWh. Row 2 reads `2026-01-01 00:00`, which has no offset,   │
-  │     so the October clock change cannot be resolved.                    │
-  │                                              [ choose another file… ]  │
+  │        File    [ meterstanden_2025.csv                          ▾ ]    │
+  │                uploaded 2026-08-05 · 8,760 rows · hourly               │
+  │                2025-01-01 → 2025-12-31                                 │
   │                                                                        │
-  │  ● = required.  ○ = optional.                                          │
-  │  ◐ = required only if you have solar PV.                               │
-  │  has_pv is answered above.                                             │
-  │  Spot price drives the charge and discharge bands, so it is required   │
-  │  whether or not you simulate costs.                                    │
+  │        Column  [ Verbruik_T1                                     ▾ ]   │
   │                                                                        │
-  │  [ Download format spec ]  [ Download example file ]  [ Clear all ]    │
+  │        Unit    ( • ) kWh    (   ) Wh                                   │
   │                                                                        │
-  │                                              [ Load data ]             │
+  │                                          [ Confirm ]   [ Cancel ]      │
   └────────────────────────────────────────────────────────────────────────┘
 ```
 
-**The slot supplies the series identity.** Nothing inside an uploaded file says which
-series it is — not a column header, not a name column, not the filename. The user declares
-what they are providing by choosing the slot to drop it into, which is the one thing they
-reliably know and the one thing a supplier's export cannot get wrong. The consequence worth
-stating plainly: the series names in
-[§4.1](05-data-formats.md#41-the-series-vocabulary) are internal identifiers used
-downstream and in the result object; a user's file is never required to contain them.
+The `[ Upload… ]` button beside the radio title mirrors Home Assistant's `[ Configure… ]`: both
+manage a resource **shared across slots**, configured once and referenced many times. It opens
+the upload dialog below. The three controls underneath — **File**, **Column**, **Unit** — are
+the per-slot mapping, and they appear only while this radio is selected.
 
-**Which rows appear** follows the same two scope answers as the roster above: `Solar
-production` only when `cfg.has_pv` is set, the `Spot price (min)` / `Spot price (max)` slots
-only when `cfg.simulate_cost` is on, and `Spot price` itself required in both cost modes.
-Neither choice is asked here — each is answered once, on the surface it shapes
-([§2.1](#21-overall-layout)).
+**Confirm is enabled once a file and a column are chosen.** Like every other source, the drawer
+is transactional: the file, column and unit are staged and reach the slot only on Confirm
+(see *The drawer is transactional* above). Uploading a file from within the dialog is the one
+exception — an upload is a side effect on shared state, so it survives Cancel, exactly as a
+tested Home Assistant connection does.
 
-**Validation is per slot and recoverable.** A file is checked against the expected format
-for the series it was dropped into, and a failure is reported on that row alone: what was
-expected, what was found, and a fresh file chooser for the same slot. The other slots keep
-their contents and the session does not enter an error state — a badly-formatted export is
-an ordinary event on this path, not a run-fatal one, and the user's recourse is a different
-file rather than a restart. The row is not marked complete until a file passes, and
-`[ Load data ]` stays disabled while any required slot is empty or failing.
+**A slot's CSV binding is a (file, column, unit) triple.** The roster row shows it back as
+`Upload CSV · meterstanden_2025.csv · Verbruik_T1`. Two slots may name the same file and
+different columns, which is the ordinary case; two slots naming the same file *and* the same
+column is allowed and means both series genuinely hold the same values.
 
-Uploading into a slot that already holds a file **replaces** it. There is one file per
-series, so there is no merging to specify and no collision to resolve.
+**The slot still supplies the series identity.** Nothing about a column says which series it is
+— not its header, not the filename. A header like `Verbruik_T1` is shown to help the user
+choose, never parsed for meaning. The series names in
+[§4.1](05-data-formats.md#41-the-series-vocabulary) are internal identifiers; an uploaded file
+is never required to contain them.
 
-The expected format for each series is in [05-data-formats.md](05-data-formats.md).
+#### The upload dialog
+
+```
+  ┌─ Upload CSV ─────────────────────── shared across all CSV slots ───────┐
+  │                                                                        │
+  │  Upload your own data as a CSV file. One file can supply several       │
+  │  series — you choose which column feeds which series afterwards.       │
+  │                                                                        │
+  │  The file must be laid out like this:                                  │
+  │                                                                        │
+  │   • The first row holds the column names.                              │
+  │   • The first column holds the timestamp, written as                   │
+  │     DD-MM-YYYY HH:MM:SS, with hours on a 24-hour clock                 │
+  │     (so 6 in the evening is 18:00:00, not 06:00:00 PM).                │
+  │   • Every other column holds values. Fractional values are fine.       │
+  │                                                                        │
+  │  Timestamps are   ( • ) Amsterdam local time                           │
+  │                   (   ) UTC                                            │
+  │                                                                        │
+  │  [ Choose file… ]                                                      │
+  │                                                                        │
+  │  Uploaded files                                                        │
+  │  ───────────────────────────────────────────────────────────────────   │
+  │  meterstanden_2025.csv   8,760 rows · hourly · 4 columns   [ remove ]  │
+  │  zonnepanelen_2025.csv   8,760 rows · hourly · 2 columns   [ remove ]  │
+  │                                                                        │
+  │                                                             [ close ]  │
+  └────────────────────────────────────────────────────────────────────────┘
+```
+
+**The timezone is answered per file, at upload, and applied immediately.** The format carries no
+UTC offset, so the app cannot know from the file alone which instant `26-10-2025 02:30:00`
+names. Rather than reject the format ([§4.2](05-data-formats.md#42-the-per-series-file-format)
+requires an offset on the other CSV shape, and for good reason), the dialog **asks once per
+file** and converts to UTC on upload. Everything downstream of the upload therefore sees UTC
+only, and the naive local format never propagates past the door.
+
+The option is named **Amsterdam**, not "the Netherlands": the Caribbean Netherlands — Bonaire,
+Saba and Sint Eustatius — are on Atlantic Standard Time and observe no DST, so "Dutch local
+time" is not one zone. Naming the zone rather than the country keeps the label true. The
+underlying identifier is `Europe/Amsterdam`.
+
+Under **Amsterdam local time**, the hour repeated at the October transition is
+genuinely ambiguous: 02:00–03:00 occurs twice. Such a timestamp is read as its **first**
+occurrence (CEST) and the affected samples are **flagged**, with the flag reported in the
+data-quality box ([§7.3](15-data-quality-and-limits.md#73-data-quality-checks-in-execution-order)).
+One hour a year may be attributed to the wrong instant, and the user is told which. The
+alternative — using row order, on the reasoning that the first of a duplicated pair is CEST and
+the second CET — recovers that hour exactly for a well-formed chronological export but is
+silently wrong for a file with gaps across the boundary, which is the failure mode this
+project's timestamp rules exist to prevent. Under **UTC** no hour is ambiguous and no flag
+arises.
+
+**Validation happens at upload and is recoverable.** A file that cannot be read — no header
+row, an unparseable first column, fewer than two columns, no data rows — is rejected in the
+dialog, naming what was expected, what was found, and the row it was found on. Nothing is
+stored and no slot is affected. This is a panel-local condition: downloading the wrong export
+is an ordinary event, not a run-fatal one
+([§3.2](04-state-machine.md#32-events)).
+
+**Values are per-interval amounts, never meter registers.** A column is read as the amount
+consumed or produced **during the interval starting at** its timestamp. A column whose values
+only ever increase looks like a cumulative meter register, and is **rejected** on selection
+rather than differenced — the two readings differ by orders of magnitude, and misreading one as
+the other yields a plausible, completely wrong answer. The user is told what was detected and
+why it was refused. Accepting registers by differencing them is a natural later increment
+(the machinery in [§6.1](09-ingest-algorithms.md#61-cumulative-meter-register--interval-deltas)
+already exists for the Home Assistant path); it is deliberately not in this one.
+
+**Removing a file that a slot still uses** clears that slot's binding and returns it to
+"Choose source…", reported when the removal is confirmed. Uploading a file whose name matches an
+existing one keeps both, distinguished by upload time — the name of a downloaded export is not a
+reliable identity.
+
+Uploaded files belong to the **workspace** they were uploaded in
+([§5.2](08-architecture.md#51-diagram)), so analysing the same household in a second
+workspace means uploading the file there too.
+
+The column format is specified in [§4.2a](05-data-formats.md#42a-the-wide-multi-series-file-format).
 
 ## 2.3a The data summary — "Your data at a glance"
 

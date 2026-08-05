@@ -128,6 +128,9 @@ _SOURCE_STRINGS = [
     _N("Preset historical (ENTSO-E NL)"),
     _N("NL day-ahead spot prices from mid-2022, extracted from the ENTSO-E transparency "
        "platform at their native hourly then quarter-hourly resolution."),
+    _N("Upload CSV"),
+    _N("A file you upload: one timestamp column plus one column per measurement. One file "
+       "can fill several slots — pick the column for this one."),
 ]
 
 def _res(label: str) -> dict:

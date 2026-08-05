@@ -179,18 +179,41 @@ Conservation and closure identities are asserted to `CLOSURE_TOL` (a module cons
     [§4.5](07-internal-representation.md#45-result-object),
     [§7.3](15-data-quality-and-limits.md#73-data-quality-checks-in-execution-order)
 
-22. **A failed slot upload is recoverable** — fill every required slot with a valid file
-    except `price_spot`, into which a file with naive timestamps (no UTC offset) is
-    uploaded. Assert that the upload is rejected against that slot with an error naming the
-    missing offset, that the session state is unchanged and no `LOAD_FAILED` is emitted,
-    that the already-filled slots still hold their files, and that `SOURCE_CONFIGURED` has
-    not fired. Then upload a well-formed `price_spot` file into the same slot and assert
-    that it is accepted, replaces nothing else, and that `SOURCE_CONFIGURED` now fires and
-    the run completes normally. Assert additionally that uploading a second valid file into
-    an already-filled slot replaces its contents rather than appending, leaving the series
-    row count equal to the second file's. The point is that a bad supplier export is a
-    panel-local condition: a validation failure on one slot must not be reachable from, or
-    escalate into, the session's `DATA_ERROR` state.
-    → [§4.2](05-data-formats.md#validation-and-failure),
-    [§2.2](02-ux-wireframes.md#csv-variant-of-the-source-sub-panel),
+22. **A failed CSV upload or column binding is recoverable** — the two failure points on the
+    wide-CSV path ([§4.2a](05-data-formats.md#42a-the-wide-multi-series-file-format)) are the
+    upload and the per-slot column choice, and neither may escalate.
+
+    *At upload:* upload a valid wide file, then upload a malformed one (no header row, or a
+    first column that does not parse). Assert the second is rejected in the dialog naming what
+    was expected and the offending row, that no `uploads` row or file is written for it, that
+    the first file is still listed and still bound wherever it was bound, that the session state
+    is unchanged, and that no `LOAD_FAILED` is emitted.
+
+    *At column selection:* bind a monotonic non-decreasing column to an energy slot. Assert it
+    is rejected in the drawer as a cumulative register, that the slot keeps whatever binding it
+    had, and that `SOURCE_CONFIGURED` has not fired. Then bind a valid per-interval column from
+    the same file and assert it is accepted, that `SOURCE_CONFIGURED` fires once every required
+    slot is bound, and that the run completes normally.
+
+    *Reuse and replacement:* bind two different slots to two different columns of the **same**
+    upload and assert both series load with the right values — one file feeding many slots is
+    the point of the format. Rebinding a slot to a different column replaces that slot's binding
+    and touches no other slot. Deleting an upload that a slot still references clears that
+    slot's binding and leaves the others intact.
+
+    The point throughout is that a bad supplier export is a panel-local condition: a validation
+    failure at either point must not be reachable from, or escalate into, the session's
+    `DATA_ERROR` state.
+    → [§4.2a](05-data-formats.md#42a-the-wide-multi-series-file-format),
+    [§2.2](02-ux-wireframes.md#the-csv-source),
     [§3.2](04-state-machine.md#32-events)
+
+22a. **The declared timezone is applied once, at upload** — upload the same file twice, once
+    declared Europe/Amsterdam and once UTC, and assert the stored series differ by the expected
+    offset rather than being identical. Upload an Amsterdam-declared file spanning the October
+    transition and assert the repeated 02:00–03:00 hour resolves to its first (CEST) occurrence,
+    that the affected samples carry the ambiguity flag, and that the flag is reported in the
+    data-quality box naming the day. Assert a UTC-declared file spanning the same date raises no
+    such flag.
+    → [§4.2a](05-data-formats.md#timestamps-carry-no-offset--the-zone-is-answered-once-at-upload),
+    [§7.3](15-data-quality-and-limits.md#73-data-quality-checks-in-execution-order)

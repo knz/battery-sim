@@ -206,6 +206,13 @@ msgid "5-min"
 msgstr "5-min"
 
 msgid ""
+"A file you upload: one timestamp column plus one column per measurement. One "
+"file can fill several slots — pick the column for this one."
+msgstr ""
+"A file you upload: one timestamp column plus one column per measurement. One "
+"file can fill several slots — pick the column for this one."
+
+msgid ""
 "A solar sensor is mapped but reported almost no production over this "
 "period, so the Solar figures are hidden. It may not be wired up "
 "correctly."

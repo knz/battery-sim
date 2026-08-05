@@ -49,7 +49,8 @@
 ┌──────▼──────────────────────┐   ┌───────────▼────────────────────────────┐
 │  ADAPTERS  (backend I/O)    │   │  DOMAIN  (pure functions, no I/O)      │
 │    IngestSocket parser      │   │    ingest/     cumulative→delta        │
-│    CsvLoader                │   │    normalize/  grid selection, resample│
+│    CsvLoader  (wide file →  │   │    normalize/  grid selection, resample│
+│                one column)  │   │                                        │
 │    DatasetStore (persist)   │   │    quality/    checks, flags           │
 │                             │   │    pricing/    import/export curves    │
 │    sources/  DataSource     │   │                                        │
@@ -70,6 +71,16 @@
 │                  fine_resolution_s, fine_coverage, source_type)           │
 │      params(workspace_id, json, updated_at)          -- current config    │
 │      runs(id, workspace_id, run_id, config_hash, result_json, created_at) │
+│      uploads(id, workspace_id, filename, tz, columns_json, rows,          │
+│              resolution_s, first_ts, last_ts, uploaded_at)                │
+│              -- one CSV file (§4.2a). `columns_json` is the parsed header │
+│              -- as a JSON array (named for its encoding; a bare `columns` │
+│              -- reads as a count), `tz` the zone the user declared at     │
+│              -- upload. A slot's binding to one of these is in `params`,  │
+│              -- since it is configuration, not data.                      │
+│              -- resolution_s / first_ts / last_ts are NULLABLE: a file    │
+│              -- too irregular for a modal resolution is still a valid     │
+│              -- upload, and the summary is for display, not validity.     │
 │                                                                           │
 │      -- Every table is workspace-keyed. `feature_interest` was the one    │
 │      -- exception and is gone; see §5.5.                                  │
@@ -78,7 +89,11 @@
 │                                                                           │
 │    Filesystem                                                             │
 │      <data_dir>/<workspace_id>/series/<name>.npz                          │
-│      <data_dir>/<workspace_id>/uploads/<original_filename>                │
+│      <data_dir>/<workspace_id>/uploads/<upload_id>.csv                    │
+│      -- <upload_id> is app-assigned, not the user's filename: two exports │
+│      -- may share a name, and a name is not an identity (§2.2). The       │
+│      -- original filename, the declared timezone and the parsed header    │
+│      -- live in the `uploads` table beside it.                            │
 └───────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -92,7 +107,7 @@
 Which source fills which slot lives in an `app/sources/` package: a `SourceDescriptor` (the
 drawer-facing metadata — key, label, kind, blurb), a `DataSource` protocol (`descriptor`,
 `available_for(slot)`, `load(slot, window)`), and a registry that answers, for a given slot,
-which sources may fill it. It has two implementations:
+which sources may fill it. It has four implementations:
 
 - **`HomeAssistantSource`** — kind `browser_fetch`, available for every slot. Its `load` does
   not run: an HA frame is produced by the browser→WS ingest path
@@ -112,6 +127,24 @@ which sources may fill it. It has two implementations:
   native resolution, since the hourly and quarter-hourly regimes coexist within a single year.
   It is produced from the raw monthly ENTSO-E dumps by `scripts/extract_entsoe_prices.py`; the
   raw corpus itself is hundreds of megabytes and is **not** committed.
+- **`CsvSource`** — kind `backend_load`, available for every **energy** slot (not `price_spot`,
+  [§4.2a](05-data-formats.md#42a-the-wide-multi-series-file-format)). Its `load` reads the
+  uploaded file named by the slot's binding and takes the one column that binding names,
+  converting Wh→kWh if asked. It is a `backend_load` and not a third kind: the *bytes* arrive
+  from the browser, but they arrive during a **separate, earlier** upload step, and by load time
+  the file is ordinary server-side data read from `<data_dir>/<workspace_id>/uploads/`. Nothing
+  about the load needs the browser, which is exactly what the kind means.
+
+  The binding — `(upload_id, column, unit)` — is a per-slot **parameter**, not part of the
+  descriptor, so `load` reads it from the slot's stored config. This is the one source whose
+  `load` depends on more than `(slot, window)`, and the seam that carries it is the same one
+  `EnergyChartsSource` already uses for its keyword-only extras.
+
+  **Upload is its own route, not part of a fetch** (`POST /w/{id}/data/uploads`, returning the
+  parsed header and coverage for the dialog to display). It writes an `uploads` row and the file,
+  and touches no dataset: one upload serves many slots and many fetches, so tying it to a fetch
+  would force a re-upload per run. Deleting an upload (`DELETE …/uploads/{upload_id}`) clears any
+  slot binding that referenced it.
 
 Backend-load slots are reified as part of a fetch: the browser declares each staged
 `backend_load` slot over the ingest WS (a `backend_load` message), and the route loads it

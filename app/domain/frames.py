@@ -12,7 +12,7 @@ reconciliation. `None` means irregular (specs §4.4, open question §8.20).
 
 Main items:
     QualityFlags   IntFlag bitfield: OK, GAP_FILLED, RESET_CORRECTED, INTERPOLATED,
-                   RESAMPLED_DOWN, CLAMPED_NEGATIVE (specs §4.4).
+                   RESAMPLED_DOWN, CLAMPED_NEGATIVE, DST_AMBIGUOUS (specs §4.4).
     SeriesKind     Literal["energy", "price"] — the two kinds a SeriesFrame carries.
     SeriesFrame    the value object above; `.coverage()` and `.covers()` helpers for §6.2.
 """
@@ -37,6 +37,15 @@ class QualityFlags(IntFlag):
     interval, and each is raised exactly where the spec says: `RESET_CORRECTED` in §6.1,
     `GAP_FILLED`/`INTERPOLATED` in gap handling, `RESAMPLED_DOWN` at grid reconciliation,
     `CLAMPED_NEGATIVE` in load reconstruction (§6.3, a later increment).
+
+    `DST_AMBIGUOUS` is the wide-CSV path's bit (`app/domain/csv_wide.py`, specs §4.2a). That
+    format carries no UTC offset, so a naive local timestamp falling in the hour Europe/Amsterdam
+    repeats at the October transition denotes two distinct instants. The parser resolves it to the
+    first (CEST) occurrence and raises this bit on the resulting intervals, so the data-quality
+    box (§7.3 check 1) can name the affected day rather than the hour being silently wrong. It
+    records an *irreducible ambiguity in the input*, not a repair the app performed — unlike every
+    other bit here — which is why it is a flag and not a rejection: the file is otherwise sound and
+    one flagged hour a year is the accepted cost of a format users actually have.
     """
 
     OK = 0
@@ -45,6 +54,7 @@ class QualityFlags(IntFlag):
     INTERPOLATED = 1 << 2
     RESAMPLED_DOWN = 1 << 3
     CLAMPED_NEGATIVE = 1 << 4
+    DST_AMBIGUOUS = 1 << 5
 
 
 # numpy dtype for the per-interval quality array. uint16 matches SimulationFrame.quality in

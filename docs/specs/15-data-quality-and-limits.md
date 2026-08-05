@@ -99,13 +99,26 @@ ceiling cannot be modelled without per-phase data — is handled as a soft block
 | 17 | Power-vs-energy residual, where both mapped ([§6.17](14-diagnostics.md#617-timestamp-misalignment-detection)) | Warn above `residual_mean_warn_pct` mean or `residual_diurnal_warn_pct` diurnal |
 | 18 | Unsupported phase topology selected ([§2.5](03-topology-selector.md)) | Soft block; set `topology.approximated` |
 
-**Where these checks run on the CSV path.** Checks 1 and 2 are per-file format checks and
-run as each upload arrives, against the format expected for the slot it was dropped into
-([§4.2](05-data-formats.md#42-the-per-series-file-format)). A failure is reported on that
-slot and the user supplies another file for it; the other slots keep their contents, the
-session does not enter an error state, and the run is not attempted. Everything from
-check 3 onward runs once against the assembled dataset, so those checks see a complete set
-of validated files whichever source path produced them.
+**Where these checks run on the CSV path.** Checks 1 and 2 run early and locally, in the two
+places the user acts ([§4.2a](05-data-formats.md#42a-the-wide-multi-series-file-format)):
+
+- **Check 1 at upload.** The wide format carries no offset, so the check is not "is an offset
+  present" but "is the declared zone applied": the upload dialog asks whether the file is
+  Europe/Amsterdam or UTC and converts to UTC there and then. A file whose first column does not
+  parse is rejected in the dialog. Under Europe/Amsterdam, timestamps in the repeated October
+  hour resolve to the first (CEST) occurrence and are **flagged** — that flag is reported here,
+  in this box, naming the affected day. On the narrow format
+  ([§4.2](05-data-formats.md#42-the-per-series-file-format)) the original rule stands: no
+  offset, no file.
+- **Check 2 on column selection.** A monotonic non-decreasing column is a cumulative register,
+  which the wide format does not accept; it is rejected in the drawer when the column is picked,
+  and the user chooses a different column. Check 2's reset-handling applies to the Home Assistant
+  path, which does ingest registers.
+
+A failure in either place is reported where it happened, the other slots and any other uploaded
+file keep their contents, the session does not enter an error state, and the run is not
+attempted. Everything from check 3 onward runs once against the assembled dataset, so those
+checks see a complete set of validated series whichever source path produced them.
 
 Checks marked *PV only* are **skipped** when `has_pv = false`, and those marked *cost only*
 are skipped when `simulate_cost = false`. In both cases they are reported as **skipped

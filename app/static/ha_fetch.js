@@ -926,6 +926,10 @@
   // render time, onSelectSource never fires, and the entity <select> is never populated — while the
   // drawer still LOOKS like Home Assistant is chosen. That mismatch between what the drawer shows
   // and what the draft holds is what kept a successful "Test connection" from filling the select.
+  //
+  // Must be called with the list AFTER pending keys are filtered out: staging a source whose radio
+  // is never rendered would recreate exactly the show/draft mismatch above, and staging
+  // `csv_upload` would stage a bindingless CSV slot (see PENDING_SOURCE_KEYS).
   function defaultSourceFor(sources, slotName) {
     if (!sources || !sources.length) return null;
     var i;
@@ -940,7 +944,22 @@
     return sources[0];
   }
 
-  // Render the radio list for the current slot's sources, plus the pending "Upload CSV" option.
+  // The registry source key whose drawer controls are not built yet (step 6 of the CSV-import
+  // work). The backend now registers it, so it arrives in `row.sources` for every energy slot —
+  // but selecting it would stage a `backend_load` slot with no (upload_id, column, unit) binding,
+  // and `stageBackendSlots` below sends those to the ingest WS by KIND. A bindingless CSV slot
+  // makes `CsvSource.load` raise, which `_load_backend_frame` turns into an IngestError, which
+  // fails the WHOLE all-or-nothing fetch — including the HA slots that had nothing wrong with
+  // them. So it is filtered out of the live list and represented by the disabled pending stub
+  // until step 6 builds the file/column/unit controls and step 5 persists what they choose.
+  //
+  // Filtering here rather than unregistering the source keeps the backend honest: `available_for`
+  // is the authority on which slots CSV *can* fill (and `tests/test_csv_source.py` pins it), and
+  // this is the UI declining to offer a control it cannot yet complete.
+  var PENDING_SOURCE_KEYS = { csv_upload: true };
+
+  // Render the radio list for the current slot's sources, plus the pending "Upload CSV" option
+  // for the slots that will offer it.
   //
   // A slot with no committed source gets one STAGED here (defaultSourceFor) before the radios are
   // built, so the pre-checked radio and draft.source agree. This is staging only: slotState and the
@@ -949,6 +968,15 @@
     drawerList.textContent = "";
     haConfigBtn = null;
 
+    // Does THIS slot offer CSV? Read off the registry list rather than assumed, so the stub
+    // follows `available_for` — every energy slot except power_grid, and never price_spot, where
+    // CSV is deliberately unavailable rather than pending (D-PRICE). Before this, the stub was
+    // appended unconditionally, which promised price_spot a source it is never getting.
+    var csvPending = sources.some(function (s) { return s.key === "csv_upload"; });
+    sources = sources.filter(function (s) { return !PENDING_SOURCE_KEYS[s.key]; });
+
+    // Stage the default from the FILTERED list — a pending key has no radio to check, so staging
+    // one would leave nothing selected while the drawer still shows a choice.
     if (!draft.source) {
       var def = defaultSourceFor(sources, draft.slot);
       if (def) draft.source = def.key;
@@ -995,8 +1023,9 @@
     updateHaConfigButton();
 
     // Pending "Upload CSV" option — disabled, with the [?] affordance that opens the shared
-    // pending dialog (workspace_data.html #pending-dialog, feature key data_source_csv).
-    drawerList.appendChild(csvPendingOption());
+    // pending dialog (workspace_data.html #pending-dialog, feature key data_source_csv). Shown
+    // only for the slots the registry actually offers CSV for; see `csvPending` above.
+    if (csvPending) drawerList.appendChild(csvPendingOption());
   }
 
   function csvPendingOption() {
