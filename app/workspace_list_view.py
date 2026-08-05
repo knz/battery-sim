@@ -185,11 +185,11 @@ def card(summary: WorkspaceSummary) -> dict:
     Three badges from the CONFIG and an info box from the DATASET, plus the two flags that decide
     which actions the card draws. §2′.2's action table is:
 
-        [ Results ]        data is loaded          →  `has_data`
-        [ Configure data ] always                  →  unconditional in the template
-        [ Update ]         always                  →  unconditional in the template
-        [ Delete data ]    data is loaded          →  `has_data`
-        [ 🗑 ]             always                  →  unconditional in the template
+        [ Results ]             data is loaded     →  `has_data`
+        [ Configure data ]      always             →  unconditional in the template
+        [ Configure workspace ] always             →  unconditional in the template
+        [ Delete data ]         data is loaded     →  `has_data`
+        [ Delete analysis ]     always             →  unconditional in the template
 
     so `has_data` is the one condition, stated once here rather than as `card.data.loaded` written
     twice in the markup.
