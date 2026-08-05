@@ -1,0 +1,348 @@
+# Windows packaging and release parameters
+
+## Task Specification
+
+Improve the packaging and release parameters for the Windows desktop target. The user's
+starting premise was a recollection that "the release artifact is not an executable" on
+Windows. Investigation (below) showed that premise to be partly wrong — an executable IS
+produced — and the scope was then set from the real gaps, with per-item direction from the
+user.
+
+Work happens in the git worktree `.claude/worktrees/packaging-release-params` on branch
+`worktree-packaging-release-params`.
+
+### Scope, as directed by the user
+
+1. **Icon** — use the `.ico` already committed in `packaging/`. IN SCOPE.
+2. **Console window / fallback UX** — replace the stderr-only browser fallback with a native
+   dialog showing the URL as copiable text plus an "open in browser" button. IN SCOPE.
+3. **VERSIONINFO** — link the project version metadata into the Windows exe resource. IN SCOPE.
+4. **Code signing** — explicitly OUT of scope; users are referred to documentation instead.
+5. **Installer (MSI/NSIS/Inno)** — explicitly OUT of scope for now.
+6. **Windows-on-ARM** — noted, no action.
+
+## Findings from the investigation (before any code changes)
+
+Established by reading the workflow, the spec, and the logs of the one real run — not assumed.
+
+- **The premise was inaccurate in an important way.** `packaging/battery-sim.spec` has a normal
+  `EXE(...)` block, so PyInstaller emits `battery-sim.exe` on Windows. The release attaches a
+  ZIP of the onedir tree (`battery-sim.exe` + `_internal/`). It is a working executable, just
+  not an installer and not something a Windows user recognises as a normal download.
+- **The workflow header is out of date.** `.github/workflows/release.yml` says the non-Linux
+  jobs "have never run". They have: `workflow_dispatch` run 31032747998 (2026-08-05) ran all
+  three, and all three reported success. The Windows job took 57s.
+- **The Windows build genuinely succeeds.** Log evidence from run 31032747998, job 92397267435:
+  `Building EXE from EXE-00.toc completed successfully`, `Building COLLECT COLLECT-00.toc
+  completed successfully`, artifact `bundle-windows-x86_64` uploaded at 33,556,296 bytes
+  (~32 MiB). So this is a polish task, not a repair task.
+- **pywebview IS collected on Windows.** `pywebview==6.2.1`, `pythonnet==3.1.0` and
+  `clr-loader==0.3.1` install, and PyInstaller processes `hook-webview.py` and `hook-clr.py`.
+  The native-window path is therefore live on Windows, not dead code.
+- **Benign build warnings**, recorded so they are not rediscovered as new: `Hidden import
+  "pycparser.lextab" not found`, `"pycparser.yacctab" not found`, `"tzdata" not found`.
+- **A renderer subtlety that changes the design of item 2** (from pywebview docs, Context7):
+  on Windows the renderer order is `edgechromium` → `mshtml`. WebView2 Runtime is required for
+  edgechromium; when it is absent pywebview falls back to MSHTML (deprecated, IE-era) rather
+  than raising. **Hypothesis, not yet verified:** on a Windows machine without WebView2, the
+  app may open a window that renders badly instead of raising `WebViewException` and taking the
+  fallback path. If so, a dialog attached only to the exception path would never appear on the
+  machines that most need it. This needs verification on a real Windows host before the item 2
+  design is fixed.
+
+## High-Level Decisions
+
+- D1. Treat this as polish on a working build, since the Windows job is green and produces a
+  runnable exe. No repair work is warranted by current evidence.
+- D2. Correct the stale "have never run" comment in the release workflow header as part of this
+  work; a comment that misstates CI history misleads the next reader.
+
+## Requirements Changes
+
+- Initial user premise ("not an executable") revised after log evidence; scope re-derived from
+  the six findings and confirmed item-by-item by the user.
+
+## Files Modified
+
+- `changelog/20260805-windows-packaging-release-params.md` — this file (created).
+
+## Obstacles and Solutions
+
+- Job-level "success" is uninformative while the matrix is `continue-on-error` — read the
+  per-job conclusions and the build log instead of the run summary.
+
+## Requirements Changes (round 2)
+
+- **WebView2 detection: DEFERRED** by the user. The item-2 dialog is wired to the existing
+  exception path only. The MSHTML-degradation hypothesis above remains unverified and is
+  recorded as a follow-up, not a blocker.
+- **`console=True`: UNCHANGED** for now. The user will test the resulting build before deciding.
+  This keeps the launcher's stderr channel intact while the dialog is introduced.
+- **NEW: build provenance.** Include the short commit SHA the artifact was built from — in the
+  Windows VERSIONINFO resource, and in the equivalent version fields for the Linux and macOS
+  builds.
+
+## Findings for the SHA request
+
+- `app/__init__.py::__version__` is a plain literal (`"0.1.0"`) with three readers: hatchling
+  (via dynamic version in pyproject.toml), `app.config.APP_VERSION`, and the release
+  version-gate. It has NO build-time component today.
+- `APP_VERSION` has exactly one runtime consumer: `app/interest.py:57`, which sends
+  `app_version` in the feature-interest POST body. A SHA added to that string would start
+  flowing to that endpoint — a behavioural change, not just a packaging one.
+- The Linux path stamps no version into the artifact at all. `packaging/build-appimage.sh:383`
+  writes a `[Desktop Entry]` with `Name`/`Comment`/`Exec` and no version field; the AppImage
+  FILENAME is versioned by the CI rename step (`release.yml:233`), not by the build.
+- Consequence: for Linux/macOS there is no existing "version field" to extend — carrying a SHA
+  there means introducing a field, not editing one.
+
+## D3. Build provenance: generated module + native fields (option B, user-selected)
+
+Chosen over "platform-native fields only" (option A) because A leaves macOS with nowhere to put
+the SHA — macOS has no `BUNDLE(...)` block and therefore no `Info.plist` — and because a
+provenance value the application itself cannot read is only half useful.
+
+Design:
+
+- `app/_build_info.py`, GENERATED at build time, holding the short SHA and a source marker.
+  A committed default keeps a plain `git clone` + `python -m app` working, so the file is
+  NOT gitignored; the build overwrites it and the working tree is restored afterwards. (An
+  ignored, generated-only file would make a source checkout raise ImportError — worse than a
+  stale default.)
+- Resolution order: `GITHUB_SHA` (CI) → `git rev-parse --short HEAD` (local) → the literal
+  `"unknown"`. A build from a tarball with neither git nor CI must still succeed, but must not
+  claim a SHA it does not have.
+- `__version__` is NOT touched. Two reasons, both concrete: the release version-gate compares
+  the tag to it by exact string equality (`release.yml:127`), and `app/interest.py:57` sends
+  it to a network endpoint. Provenance is a separate value.
+- Windows: SHA into the VERSIONINFO STRING block (`ProductVersion` as text, e.g.
+  `0.1.0+g1a2b3c4`). The numeric `FileVersion`/`ProductVersion` tuples stay `(0,1,0,0)` —
+  they are 4 integers and cannot hold hex.
+- Linux: `X-AppImage-Version` in the `[Desktop Entry]` written at `build-appimage.sh:383`.
+- macOS: covered by the generated module only, until a bundle exists.
+
+Note: neither `build-appimage.sh` nor `build-linux.sh` invokes git today, so the SHA lookup is
+new plumbing in both.
+
+## Files Modified (implementation)
+
+- `packaging/battery-sim.spec` — `icon=` and Windows-only `version=` on `EXE(...)`; generates the
+  version resource at spec-exec time; `tkinter` REMOVED from `EXCLUDES` (the fallback dialog
+  needs it).
+- `packaging/battery_sim_version_info.py` — NEW. Renders the VERSIONINFO resource from
+  `app.__version__` + the build SHA.
+- `packaging/build_info.py` — NEW. Resolves the SHA and writes `app/_build_info.py`.
+- `app/_build_info.py` — NEW, committed with placeholder values.
+- `app/desktop.py` — `_show_fallback_dialog()` added and wired into the webview exception path.
+- `packaging/build-linux.sh` — stamps the SHA before PyInstaller; restores it on a trap.
+- `packaging/build-appimage.sh` — `X-AppImage-Version` in the `.desktop` entry, read from the
+  BUNDLE rather than the source tree.
+- `.github/workflows/release.yml` — SHA stamp step on the desktop-bundle matrix; header comments
+  corrected.
+- `.gitignore` — `/packaging/version_info.txt`.
+- `tests/test_desktop.py` — two existing fallback tests now patch the dialog; five new tests.
+- `tests/test_packaging_metadata.py` — NEW, 21 tests over both generators.
+
+## Obstacles and Solutions (implementation)
+
+- Referenced `WINDOW_TITLE`; the constant is `_WINDOW_TITLE` — would have been a NameError on
+  exactly the degraded path the dialog exists for. Fixed before any test ran.
+- Wrote a `--print-version` fallback into build-appimage.sh for a flag that does not exist;
+  removed rather than left as dead code that masks its own failure.
+- The two existing fallback tests passed only because this machine has no tkinter. On a
+  developer machine with Tk they would have opened a real window and blocked, violating the
+  suite's own "no test opens a real window" rule. Both now patch `_show_fallback_dialog`.
+- The restore trap silently did nothing on the first real build: `app/_build_info.py` was still
+  untracked, so `git checkout --` failed and `|| true` swallowed it. Rewritten to test for
+  TRACKED (`git ls-files --error-unmatch`) and to warn rather than swallow.
+- **The AppImage would have shipped without its SHA, silently.** `build-appimage.sh` read
+  `_internal/app/_build_info.py` as a file, but PyInstaller compiles imported modules into the
+  PYZ archive and writes no such file — the lookup found nothing on every build and fell back to
+  a version string with no SHA. Found by inspecting a real bundle, not by a failing test: nothing
+  failed, the label was just quietly wrong. Fixed by ALSO collecting the module via the spec's
+  DATAS list; the script now says so loudly when the path is absent, and
+  `tests/test_packaged.py::test_the_build_info_module_is_readable_as_a_FILE_in_the_bundle`
+  fails if the collection is ever removed (verified by deleting the file and watching it fail).
+- PyInstaller's `versioninfo` module imports `win32api` and cannot be imported on Linux at all,
+  so the rendered resource cannot be parse-validated off Windows. Tests assert its structure and
+  compile it as a Python expression instead; full validation waits for a Windows run.
+
+## Verification performed
+
+- `packaging/build-linux.sh`: full build succeeded. Bundle **89MB against the 150MB ceiling** —
+  so removing `tkinter` from EXCLUDES did not threaten the size gate (the earlier "roughly 10MB"
+  figure in the spec comment was an estimate; 89MB is the measurement, with the pre-change
+  baseline not separately recorded).
+- PyInstaller logged `Ignoring icon; supported only on Windows and macOS!` on Linux, confirming
+  the icon is correctly a no-op there rather than an error.
+- `tests/test_desktop.py`: 63 passed. `tests/test_packaging_metadata.py`: 21 passed.
+- `packaging/build_info.py` exercised on all three paths: CI (`GITHUB_SHA` truncated to 7),
+  git (`c3ceef3`), and a non-repo directory (`unknown`, exit 0).
+- **The stamp/restore cycle, end to end.** A build stamps `028361c` into the bundle while
+  `git status` afterwards is clean and the source tree reads `"unknown"` again — the split the
+  design depends on. The trap was also confirmed to have been broken before the file was
+  tracked, which is what prompted rewriting it to warn instead of swallowing the failure.
+- **A real AppImage**, built and inspected: the packaged `.desktop` entry carries
+  `X-AppImage-Version=0.1.0+g028361c`, and appimagetool (which runs `desktop-file-validate`)
+  accepted it.
+- The packaged verification suites against that artifact: `tests/test_appimage.py`,
+  `tests/test_packaged.py`, `tests/test_packaged_ingest.py` — 27 passed, no skips.
+- Full suite: 1367 passed, 24 skipped.
+
+## CI verification (dispatch run 31036845955, branch, 2026-08-05)
+
+Dispatched on `worktree-packaging-release-params` after the work was committed. **All five jobs
+passed**; `Draft the GitHub release` skipped as designed (gated on a `v*` tag, so a branch
+dispatch builds artifacts without drafting a release).
+
+What the Windows job proves that nothing local could:
+
+- `Copying icon to EXE` — the icon is embedded.
+- `Copying version information to EXE` — the VERSIONINFO resource was ACCEPTED by the Windows
+  resource writer. This is the check that could not be run off Windows, since PyInstaller's
+  `versioninfo` module imports `win32api`.
+- `build sha: 21c8670 (source: ci)` — the `GITHUB_SHA` branch resolves correctly on a real
+  runner and matches the pushed commit. Locally only the `git` and `unknown` branches ran.
+- No new build warnings: the same three pre-existing ones (`pycparser.lextab`,
+  `pycparser.yacctab`, `tzdata`) and nothing else.
+- The Linux job's `Verify the built artifacts` step passed, so the packaged suites — including
+  the new `_build_info` file check — pass against a CI-built AppImage, not just a local one.
+
+**Size cost of Tk, measured rather than estimated.** The Windows artifact went from 33,556,296
+bytes (run 31032747998) to 36,608,686 bytes (run 31036845955): about 2.9MiB compressed, not the
+~10MB first guessed in the spec comment, which has been corrected to the measurement. The Linux
+bundle is unchanged at 89MB against the 150MB gate.
+
+## Files Modified (macOS bundle)
+
+- `packaging/battery-sim.spec` — `BUNDLE(...)` guarded on `sys.platform == "darwin"`;
+  `console=sys.platform != "darwin"`; per-platform `ICON_NAME`; `MACOS_APP_NAME` and
+  `MACOS_BUNDLE_ID` constants; Info.plist with `NSHighResolutionCapable`, the two CFBundle
+  version strings and the copyright.
+- `app/desktop.py` — `_ensure_std_streams()`, called first in `main()`.
+- `.github/workflows/release.yml` — the POSIX archive step split into a macOS branch that zips
+  the `.app` (not the bare onedir beside it); a dead Linux branch was NOT added, since that
+  matrix is macOS + Windows only.
+- `tests/test_desktop.py` — two tests for the stream guard.
+- `tests/test_packaging_metadata.py` — eight tests over the macOS spec configuration.
+
+### The bundle identifier
+
+`com.github.knz.battery-sim`. First drafted as `net.thaumogen.battery-sim` from the git author
+email, then changed: pyproject.toml declares no homepage or author URL, so the repository host is
+the only identifier that is a verifiable fact about this project rather than an assumption. It
+must stay stable — macOS keys window positions, TCC grants and the user's one-time quarantine
+decision to it, and changing it silently discards all of that.
+
+### What CI archives on macOS now
+
+The `.app` only. `BUNDLE` wraps the same COLLECT output, so `dist/battery-sim/` and
+`dist/Home Battery Simulator.app/` are two views of one build; shipping both would double the
+download for nothing. `zip -y` stores symlinks as symlinks, which a `.app` is full of and which
+the ad-hoc signature's hashes cover.
+
+## STILL not verified (needs a human at a Windows machine)
+
+CI proves the resource and icon were WRITTEN. It cannot show what they look like.
+
+- That file properties display the expected publisher/product/version fields, and that the icon
+  renders correctly in Explorer.
+- The fallback dialog's appearance and behaviour. It has never been drawn on any platform — this
+  development machine has no tkinter, and CI does not run a GUI. Its logic is tested through
+  injection only, so the layout is an untested first attempt.
+- Whether a WebView2-less Windows machine reaches the dialog at all (the MSHTML hypothesis).
+  Unchanged by this run: CI runners have WebView2, so they exercise neither branch.
+
+### macOS CI verification (dispatch run 31040150790, 2026-08-05)
+
+All five jobs passed. What the macOS jobs establish:
+
+- `Building BUNDLE BUNDLE-00.toc completed successfully` — the `.app` is built on a real macOS
+  runner. This also clears the `.icns`: BUNDLE fails on an icon it cannot read, so a successful
+  build is evidence the file is a valid icns container, not merely present.
+- `zip -qry "battery-sim-macos-arm64.zip" "Home Battery Simulator.app"` ran and succeeded, so
+  the bundle exists under exactly that name (zip errors on a missing target).
+- No build warnings at all on macOS — cleaner than Windows, which still has the three
+  pre-existing hidden-import ones.
+- `Code signing identity: None` followed by `Re-signing the EXE`: ad-hoc signed, as expected and
+  as documented in the spec.
+- Artifact sizes moved by the amount a `.app` wrapper plus an icon would explain, and are
+  nowhere near empty — which is the failure `if-no-files-found: error` would NOT have caught:
+  arm64 25,481,798 → 25,629,972 (+148KB), x86_64 27,830,856 → 27,981,147 (+150KB).
+- The Linux job's build and packaged-verification steps still pass, so the platform-conditional
+  spec changes did not disturb the AppImage path.
+
+### Still unverified on macOS
+
+CI proves the bundle was BUILT and archived. It cannot show that it runs: no job launches it,
+and no macOS machine is available here. Unverified, in rough order of how likely they are to
+bite:
+
+- That the `.app` launches from Finder at all, and that pywebview's WKWebView window appears.
+- That stderr reaches Console.app / `log stream` with `console=False` — the hypothesis the
+  console decision rests on. If it turns out to be wrong, the six launcher messages are lost on
+  macOS and the fix is an explicit `os_log` or file-based channel, not reverting to a Terminal
+  window.
+- That the icon and version fields show correctly in Finder's Get Info.
+- The unsigned-app flow: whether right-click-Open is enough, or whether
+  `xattr -d com.apple.quarantine` is needed after a browser download. This is what the user's
+  documentation will need to state accurately.
+- The spec tests read the spec as TEXT, since it cannot be executed off-macOS. They catch a
+  deleted or renamed setting, not a misbehaving one.
+
+## D4. macOS .app bundle (user-requested, after the Windows work)
+
+The user asked for a `.app` even though it cannot be signed, noting that the documentation will
+explain the unsigned-binary steps to users. Signing is orthogonal to bundling — `BUNDLE(...)`
+needs no identity — so this is buildable now.
+
+Decisions:
+
+- **Name: `Home Battery Simulator.app`**, matching `_WINDOW_TITLE` and the Linux `.desktop`
+  entry's `Name`. The executable inside stays `battery-sim`.
+- **Console: no tty, but stderr must NOT be discarded** — the user's instruction was to redirect
+  it to the macOS logging system if possible. So `console=False` on macOS only; Windows and
+  Linux keep `console=True` unchanged (the earlier "keep console=True for now" direction was
+  about Windows, and still stands there).
+- The `.icns` (already generated by `packaging/icon/render.py`) becomes the bundle icon.
+- `argv_emulation=False`: that feature exists for file-association launches, which this app does
+  not have. Enabling it would add an event-loop wait at startup for no benefit.
+
+### The stderr question, and what is actually known
+
+PyInstaller's documented `sys.stdout is None` hazard for windowed mode is **Windows-specific**
+(its own CHANGES entry scopes it to Windows, aligning with `pythonw.exe`). On macOS a bundle's
+stderr is inherited from `launchd` and lands in the unified log, readable with `log stream` or
+Console.app — so the redirect the user asked for is largely what macOS does by itself.
+
+**Hypothesis, not yet verified:** that the six `print(..., file=sys.stderr)` sites in
+`app/desktop.py` will therefore appear in Console.app when the `.app` is launched from Finder.
+Not verified because no macOS machine is available here and the CI matrix does not launch the
+bundle. The defensive `sys.stderr is None` guard is added regardless: it costs nothing, and
+being wrong about it would turn every one of those six sites into an AttributeError crash.
+
+## Current Status
+
+Plan approved and implemented. All five items are done: icon, VERSIONINFO, build provenance
+(option B), the fallback dialog, and the stale workflow comments. Tests pass and a full Linux
+build succeeds.
+
+Next steps, in no fixed order — these are options, not a decided sequence:
+
+- **DONE: the Windows run.** Dispatch 31036845955 passed all five jobs and confirmed the icon and
+  version resource are embedded. PR #4 opened against master.
+- **Download the Windows artifact and look at it.** `bundle-windows-x86_64` (artifact 8942947500)
+  from that run. Right-click → Properties → Details is what shows whether the VERSIONINFO fields
+  read sensibly; the icon shows in Explorer. This is the remaining verification and needs a
+  Windows machine.
+- **Look at the dialog.** It needs a human on a Windows or macOS machine; nothing here can draw
+  it. Its layout is a first attempt and will probably want adjusting.
+- **The branch name.** `worktree-packaging-release-params` reads as scratch infrastructure rather
+  than a feature branch. Renaming means a re-push and recreating PR #4 — cheaper before review
+  than after.
+- **Decide `console=False`.** Deferred by the user pending a look at the built result. The
+  dialog now covers the case that made `console=True` load-bearing, so the two are linked.
+- **The WebView2 question.** If a WebView2-less machine degrades to MSHTML instead of raising,
+  the dialog never appears there and a positive check would be needed. Unverified hypothesis.
+- **macOS remains untouched.** No `BUNDLE(...)`, so no `.app`, no icon, no `Info.plist` version.
+  It gets the SHA only through the generated module.

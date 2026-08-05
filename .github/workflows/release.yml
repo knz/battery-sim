@@ -21,10 +21,12 @@
 #
 # ## Why workflow_dispatch exists at all
 #
-# Several things in here cannot be tested any other way — the FUSE handling below is unverified,
-# and the three non-Linux jobs have never run. Requiring a tag to exercise them would mean
-# either cutting throwaway tags or debugging in the only run that matters. Manual dispatch
+# Several things in here cannot be tested any other way. Requiring a tag to exercise them would
+# mean either cutting throwaway tags or debugging in the only run that matters. Manual dispatch
 # builds and uploads artifacts without creating a release.
+#
+# It has since done its job twice over: run 31032747998 (2026-08-05) settled the FUSE question
+# below AND gave the three non-Linux jobs their first execution. All three passed.
 #
 # ## Why the Linux job pins ubuntu-24.04 and not ubuntu-latest
 #
@@ -43,13 +45,21 @@
 #
 # ## The non-Linux jobs are continue-on-error, and what that is absorbing
 #
-# It is not "untested CI". It is genuinely unfinished packaging work. There is no macOS or
-# Windows build script — build-linux.sh is bash with POSIX paths — so these jobs invoke
-# `pyinstaller packaging/battery-sim.spec` directly, and that spec has no `BUNDLE(...)` block, no
-# icon, no code signing, and `console=True`. What comes out is a raw PyInstaller onedir
-# directory: not a double-clickable `.app`, not an installer, and on Windows it opens a console
-# window beside the app. Even a green run here produces something that is not yet a shippable
-# desktop build.
+# It is not "untested CI" — all three ran and passed on 2026-08-05 (run 31032747998; the Windows
+# job produced a working battery-sim.exe and a 32MB artifact in 57 seconds). It is genuinely
+# unfinished packaging work. There is no macOS or Windows build script — build-linux.sh is bash
+# with POSIX paths — so these jobs invoke `pyinstaller packaging/battery-sim.spec` directly.
+#
+# Windows has since been tightened: the spec now sets an icon and generates a VERSIONINFO
+# resource carrying the version and the build SHA, so the exe is identifiable once downloaded.
+# What is still missing there is an installer and code signing — the artifact remains a ZIP of an
+# onedir tree, and an unsigned one, so first-run SmartScreen warnings are expected. `console=True`
+# is also still set on purpose: the launcher prints its URL and its fallback reason to stderr, and
+# that channel stays until the new fallback dialog (app/desktop.py::_show_fallback_dialog) has
+# been looked at on a real Windows machine.
+#
+# macOS is untouched by that work: still no `BUNDLE(...)` block, so what comes out is a raw
+# onedir directory rather than a double-clickable `.app`, and unsigned besides.
 #
 # The intent is that this is temporary. Each platform should be tightened to blocking once it has
 # gone green once and its output has been looked at. A job that is allowed to stay amber
@@ -317,17 +327,42 @@ jobs:
       # `--no-sync` skips the sync entirely and runs against the environment as installed, which
       # answers both. `--no-dev` was considered and is weaker: it fixes (1) but still performs a
       # sync, leaving (2) live.
+      # Stamps app/_build_info.py with GITHUB_SHA, which the spec reads when it generates the
+      # Windows VERSIONINFO resource. build-linux.sh does this itself for the Linux job; these
+      # runners invoke PyInstaller directly, so the step is explicit here.
+      #
+      # No restore afterwards: the runner's checkout is discarded at the end of the job, and
+      # nothing later in it reads the file. build-linux.sh traps a restore because it runs on
+      # developer machines, where leaving a committed file modified would be rude.
+      - name: Stamp the build SHA
+        run: uv run --no-sync python packaging/build_info.py
+
       - name: Build the onedir bundle
         run: uv run --no-sync pyinstaller --noconfirm --clean packaging/battery-sim.spec
 
       # Zipped rather than uploaded as a tree: upload-artifact would otherwise transfer several
       # thousand small files, and on macOS/Linux a plain upload does not preserve the executable
       # bit on the launcher.
-      - name: Archive the bundle (POSIX)
-        if: runner.os != 'Windows'
+      #
+      # macOS archives the `.app` and NOT the bare onedir directory beside it. The spec's
+      # BUNDLE(...) wraps the same COLLECT output, so `dist/battery-sim/` and
+      # `dist/Home Battery Simulator.app/` are two views of one build — shipping both would
+      # double the download to no purpose. The .app is the one a user can double-click.
+      #
+      # `-y` is load-bearing here in a way it is not on Linux: it stores symlinks AS symlinks.
+      # A .app is full of them (Contents/Frameworks, the versioned dylib layout), and following
+      # them instead would both inflate the archive and break the ad-hoc code signature, whose
+      # hashes cover the link structure. `zip` is used rather than `ditto` because it is what the
+      # Linux branch already uses; `ditto --sequesterRsrc --keepParent` would be the more
+      # idiomatic macOS choice if this ever needs resource forks.
+      - name: Archive the bundle (macOS)
+        if: runner.os == 'macOS'
         run: |
           cd dist
-          zip -qry "battery-sim-${{ matrix.artifact }}.zip" battery-sim
+          zip -qry "battery-sim-${{ matrix.artifact }}.zip" "Home Battery Simulator.app"
+
+      # No Linux branch here on purpose: this matrix is macOS and Windows only. Linux is built by
+      # the separate `linux` job above, which produces an AppImage rather than a zipped onedir.
 
       - name: Archive the bundle (Windows)
         if: runner.os == 'Windows'
@@ -371,9 +406,25 @@ jobs:
       - name: List what was collected
         run: find artifacts -type f -printf '%p  (%s bytes)\n'
 
-      # Draft, deliberately. The macOS and Windows attachments may be missing or may be raw
-      # PyInstaller directories rather than usable desktop builds, and the release notes need a
-      # human anyway. Publishing is a decision, not a side effect of pushing a tag.
+      # Draft, deliberately. The macOS attachments are raw PyInstaller onedir trees rather than
+      # `.app` bundles, any of the continue-on-error platforms may be missing entirely, nothing
+      # here is code-signed, and the release notes need a human anyway. Publishing is a decision,
+      # not a side effect of pushing a tag.
+      #
+      # ## What the assets look like, since it is asked every time
+      #
+      # This step attaches the files INSIDE each downloaded artifact directory, so a release asset
+      # has ONE layer of zip and not two. The doubled zip people notice
+      # (`bundle-windows-x86_64.zip` containing `battery-sim-windows-x86_64.zip`) comes from
+      # downloading an artifact off the Actions run page, where GitHub adds a wrapper of its own;
+      # `download-artifact` above strips that wrapper, so it never reaches a release.
+      #
+      # The remaining zip is load-bearing: a release asset is a single file and a PyInstaller
+      # onedir bundle is several thousand. Removing it would mean onefile — ruled out, see the
+      # COLLECT block in packaging/battery-sim.spec, because onefile unpacks to a temp directory
+      # that is deleted on exit and the default data directory would go with it — or an installer,
+      # which does not exist yet. The AppImage needs none of this and attaches as a bare
+      # executable.
       - name: Create the draft release
         uses: softprops/action-gh-release@v3
         with:

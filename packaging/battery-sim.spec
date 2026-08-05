@@ -32,6 +32,52 @@ ROOT = PACKAGING_DIR.parent
 sys.path.insert(0, str(PACKAGING_DIR))
 from battery_sim_babel_locales import babel_locale_keep_set  # noqa: E402
 
+# ── the Windows version resource ──────────────────────────────────────────────
+#
+# Generated HERE rather than committed, so the resource cannot disagree with `app.__version__`
+# (see packaging/battery_sim_version_info.py for the full reasoning). It is written on every
+# platform but referenced only by the `version=` argument below, which is None off Windows —
+# generating it unconditionally keeps the code path exercised by a Linux build rather than
+# leaving a Windows-only branch that nobody runs until release day.
+#
+# The build SHA it embeds comes from `app/_build_info.py`, which the packaging scripts refresh
+# by running `packaging/build_info.py` first. A bare `pyinstaller` invocation skips that step and
+# picks up whatever that file currently says — "unknown" in a clean checkout, which is correct
+# for a build nobody stamped.
+from battery_sim_version_info import LEGAL_COPYRIGHT, write_version_info  # noqa: E402
+
+write_version_info()
+
+# The app version, for the macOS bundle's Info.plist. Read from the same single source everything
+# else uses — `app/__init__.py` — rather than restated here. `ROOT` is on sys.path via `pathex`
+# below, but this import happens at spec-exec time and needs it explicitly.
+sys.path.insert(0, str(ROOT))
+from app import __version__  # noqa: E402
+
+# The icon container each platform accepts. Linux gets one too, and PyInstaller discards it with
+# a logged warning — harmless, and naming it here keeps the EXE() call free of a second
+# conditional. Both files are rendered from packaging/icon/battery-sim.svg by that directory's
+# render.py.
+ICON_NAME = "battery-sim.icns" if sys.platform == "darwin" else "battery-sim.ico"
+
+# The macOS bundle's user-facing name. It matches `_WINDOW_TITLE` in app/desktop.py and the
+# `Name=` field the AppImage's .desktop entry carries, so the application is called the same
+# thing in the Dock, in the window's title bar and in a Linux application menu. The EXECUTABLE
+# inside the bundle stays `battery-sim` — that is what Contents/MacOS holds and what a terminal
+# user types.
+MACOS_APP_NAME = "Home Battery Simulator.app"
+
+# Reverse-DNS, and STABLE: macOS keys per-app state (window positions, TCC privacy grants, the
+# quarantine decision a user makes once) to this string, so changing it later makes the system
+# treat the app as a different one and silently discards that state. Pick it once; do not tidy
+# it up later.
+#
+# Derived from the repository host rather than a domain the project does not claim: pyproject.toml
+# declares no homepage or author URL, so `github.com/knz/battery-sim` is the only identifier that
+# is actually a fact about this project. If the project ever adopts its own domain, that is a
+# reason to think about migration, not to silently rename this.
+MACOS_BUNDLE_ID = "com.github.knz.battery-sim"
+
 # ── the assets ────────────────────────────────────────────────────────────────
 #
 # Every one of these is found at runtime through `Path(__file__).resolve().parent`, from inside
@@ -46,6 +92,17 @@ DATAS = [
     (str(ROOT / "app" / "static"), "app/static"),
     (str(ROOT / "app" / "locales"), "app/locales"),
     (str(ROOT / "app" / "data"), "app/data"),
+    # `app/_build_info.py` is ALSO collected as data, in addition to being imported as a module.
+    # The application reads it by importing it — that copy lives in the PYZ archive, compiled,
+    # and is not a file anyone can look at. Packaging steps that run AFTER PyInstaller need to
+    # read the SHA out of the finished bundle: `build-appimage.sh` puts it in the .desktop
+    # entry's X-AppImage-Version, and it is the only way to ask "which commit is this bundle?"
+    # of an artifact you have been handed.
+    #
+    # Measured, not assumed: the first version of this change had build-appimage.sh grep for
+    # `_internal/app/_build_info.py`, and a real build produced no such file — the lookup found
+    # nothing every time and silently fell back to a version string with no SHA in it.
+    (str(ROOT / "app" / "_build_info.py"), "app"),
 ]
 
 
@@ -137,10 +194,20 @@ EXCLUDES = [
     "watchfiles",
     "uvloop",
     "httptools",
-    "tkinter",
     "numpy.testing",
     "numpy.f2py",
 ]
+
+# `tkinter` WAS excluded here and no longer is. `app/desktop.py::_show_fallback_dialog` uses it to
+# show the app's URL when the native webview cannot open — the one moment when the user has no
+# other way to reach the application, since stderr is invisible to a double-clicked bundle. An
+# exclude would turn that dialog into the ImportError branch it already handles, silently, on
+# exactly the machines it exists for.
+#
+# The cost is real but bounded, and MEASURED rather than estimated: the Windows release artifact
+# went from 33,556,296 to 36,608,686 bytes across runs 31032747998 and 31036845955 — about 2.9MiB
+# compressed. The Linux bundle stayed at 89MB against build-linux.sh's 150MB gate. If that gate
+# ever fails after this change, the gate's limit is what to look at, not this decision.
 
 a = Analysis(  # noqa: F821 - injected by PyInstaller
     [str(ROOT / "app" / "__main__.py")],
@@ -171,12 +238,46 @@ exe = EXE(  # noqa: F821 - injected by PyInstaller
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,  # UPX trades startup time for size and has a history of tripping AV heuristics.
-    console=True,  # Keeps stderr — the launcher prints its URL and its fallback reason there.
+    # True everywhere EXCEPT macOS, where this build produces a .app (see the BUNDLE block).
+    #
+    # On Windows and Linux the console is where the launcher's six stderr messages go — the URL
+    # it is serving, the already-running notice, the fallback reason — and it stays.
+    #
+    # In a macOS .app it would mean a Terminal window opening beside the application on every
+    # launch from Finder, which reads as a debug build. `console=False` there does NOT discard
+    # that output: a bundle's stderr is inherited from launchd and goes to the unified log, so
+    # `log stream --predicate 'process == "battery-sim"'` and Console.app show it. That is the
+    # macOS equivalent of the console, not a loss of it.
+    #
+    # Note the asymmetry with Windows, where PyInstaller's own docs warn that windowed mode
+    # leaves `sys.stderr` as None. That warning is Windows-scoped (its CHANGES entry ties it to
+    # matching `pythonw.exe` behaviour), and Windows keeps console=True here anyway — but
+    # `app/desktop.py` guards for None regardless, because the cost of being wrong is an
+    # AttributeError at exactly the moments the launcher is trying to report a problem.
+    console=sys.platform != "darwin",
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    # Windows and macOS read this; PyInstaller ignores it on Linux, where the icon reaches the
+    # user through the AppImage's .desktop entry instead (build-appimage.sh).
+    #
+    # The two platforms want different CONTAINER formats for the same artwork: Windows accepts
+    # only `.ico`, macOS only `.icns`. Both are rendered from the one master SVG by
+    # `packaging/icon/render.py`, so this is a packaging detail rather than two icons to keep in
+    # step — edit `packaging/icon/battery-sim.svg` and re-run that script.
+    icon=str(PACKAGING_DIR / ICON_NAME),
+    # Windows-only, and None everywhere else. See packaging/battery_sim_version_info.py for why
+    # the SHA lives in the string block rather than the numeric tuple.
+    #
+    # The `sys.platform` guard is belt-and-braces rather than strictly required: PyInstaller
+    # clears `version` off Windows itself (building/api.py, "Ignoring version information;
+    # supported only on Windows!"). Guarding here keeps that warning out of every Linux build,
+    # where it would be noise the build script's output does not need. It also avoids handing
+    # PyInstaller a path it would only discard — its versioninfo module imports `win32api` and
+    # cannot even be imported on Linux, so the narrower the contact with it the better.
+    version=str(PACKAGING_DIR / "version_info.txt") if sys.platform == "win32" else None,
 )
 
 # ONEDIR, and this is a decision rather than a default (changelog D6).
@@ -199,3 +300,50 @@ coll = COLLECT(  # noqa: F821 - injected by PyInstaller
     upx_exclude=[],
     name="battery-sim",
 )
+
+# ── the macOS .app bundle ─────────────────────────────────────────────────────
+#
+# Without this block the macOS build is a onedir DIRECTORY: runnable from a terminal, but not
+# double-clickable, with no Dock icon and no Launchpad entry. BUNDLE wraps that same directory as
+# `Home Battery Simulator.app` — `Contents/MacOS/battery-sim` is the very executable COLLECT just
+# produced, so this adds a wrapper rather than changing what was built.
+#
+# **Bundling and SIGNING are independent.** This app is NOT signed with a Developer ID and is not
+# notarized: `codesign_identity=None` on the EXE above, and CI logs `Code signing identity: None`.
+# PyInstaller still applies an AD-HOC signature, which is what lets the binary execute at all on
+# Apple silicon (arm64 macOS refuses completely unsigned binaries) — but Gatekeeper will still
+# quarantine it when a browser downloads it. The documented `xattr -d com.apple.quarantine` /
+# right-click-Open route is what users need, and that is a docs matter rather than a build one.
+#
+# Guarded on `sys.platform` because BUNDLE is a no-op elsewhere and evaluating it on Linux would
+# add a confusing "no such file" for the .icns to every AppImage build.
+if sys.platform == "darwin":
+    app = BUNDLE(  # noqa: F821 - injected by PyInstaller
+        coll,
+        name=MACOS_APP_NAME,
+        icon=str(PACKAGING_DIR / "battery-sim.icns"),
+        bundle_identifier=MACOS_BUNDLE_ID,
+        # Shown in Finder's Get Info panel and by the App Store-style version readers. The build
+        # SHA is deliberately NOT folded in here the way it is on Windows: CFBundleVersion and
+        # CFBundleShortVersionString are specified as dot-separated NUMBERS, and Finder and
+        # `softwareupdate` treat a non-conforming value as malformed rather than as free text.
+        # The commit is still recoverable from the bundled app/_build_info.py.
+        version=__version__,
+        info_plist={
+            # NSHighResolutionCapable: without it macOS runs the window through its 2x upscaler
+            # and the whole UI looks blurry on any Retina display. It is a one-line difference
+            # between "looks native" and "looks wrong" on essentially every modern Mac.
+            "NSHighResolutionCapable": True,
+            # LSBackgroundOnly=False and LSUIElement=False: this app owns a window and belongs in
+            # the Dock and the app switcher. Stated rather than left to default because pywebview
+            # creates its window from a process macOS would otherwise be entitled to treat as an
+            # agent.
+            "LSBackgroundOnly": False,
+            "LSUIElement": False,
+            # The two version strings Finder actually reads. Both are the plain version for the
+            # reason given above.
+            "CFBundleShortVersionString": __version__,
+            "CFBundleVersion": __version__,
+            "NSHumanReadableCopyright": LEGAL_COPYRIGHT,
+        },
+    )

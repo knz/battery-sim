@@ -206,6 +206,33 @@ def test_static_files_are_bundled(packaged_server):
         assert len(body) > 1000, f"{path} is suspiciously small ({len(body)} bytes)"
 
 
+def test_the_build_info_module_is_readable_as_a_FILE_in_the_bundle():
+    """`_internal/app/_build_info.py` must exist ON DISK, not only inside the PYZ archive.
+
+    Two different consumers, and only one of them can use the imported copy:
+
+      * the application imports it, and gets the compiled copy out of the PYZ;
+      * `packaging/build-appimage.sh` READS IT AS A FILE, to put the commit SHA into the
+        .desktop entry's X-AppImage-Version.
+
+    The spec's DATAS list collects it a second time for the second consumer. This test exists
+    because the first version of that change did NOT — the module was only in the PYZ, the
+    script's lookup found nothing on every build, and the AppImage silently shipped a version
+    string with no SHA in it. Nothing failed; the label was just quietly wrong.
+    """
+    binary = Path(os.environ[_ENV_BINARY]).resolve()
+    build_info = binary.parent / "_internal" / "app" / "_build_info.py"
+
+    assert build_info.is_file(), (
+        f"{build_info} is missing. packaging/build-appimage.sh reads this path to stamp the "
+        "commit SHA into the desktop entry; without it the AppImage loses its provenance "
+        "silently. Check the DATAS list in packaging/battery-sim.spec."
+    )
+    text = build_info.read_text()
+    assert "BUILD_SHA" in text
+    assert "BUILD_SHA_SOURCE" in text
+
+
 def test_templates_and_the_shipped_data_render_a_results_screen(packaged_server, _seeded_workspace):
     """One page that needs `app/templates` AND `app/data` — the committed spot prices.
 
