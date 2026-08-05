@@ -1,0 +1,144 @@
+# CI for pull requests and pushes to master: run the whole test suite, and check that the
+# committed Tailwind output still matches its sources.
+#
+# Jobs:
+#     tests          `uv sync` + Playwright Chromium + `uv run pytest`, the entire suite.
+#     css-freshness  `npm ci` + `npm run build:css`, then fail if app/static/app.css changed.
+#
+# ## Why the whole suite, with no splitting and no markers
+#
+# The suite is ~100s end to end locally: ~15s of benchmarks, ~53s of Playwright smoke tests, ~34s
+# for everything else. There is deliberately no benchmark marker to select on, and adding one
+# would not pay for itself — the benchmarks are the SMALLEST of the three blocks, so carving them
+# into a separate job splits the cheapest third of an already cheap suite and buys back seconds
+# at the cost of a second runner and a marker convention to maintain. One job, no `-k`, no
+# `-m`: what a contributor runs locally is exactly what CI runs.
+#
+# ## Why there is no Xvfb, no D-Bus and no display
+#
+# Nothing here opens a window. `tests/test_desktop.py` installs a fake `webview` into
+# `sys.modules` and asserts on the launcher's decisions rather than starting one, and Playwright
+# is headless by default. The GTK/WebKit stack that DOES need a display is exercised only by the
+# AppImage tests, which are gated behind an env var and live in release.yml. Likewise no outbound
+# network: the tests bind and talk to loopback only.
+#
+# ## Why BATTERY_SIM_DATA_DIR is not set here
+#
+# `tests/conftest.py` creates its own throwaway data directory at import time and installs it
+# with `os.environ.setdefault`. Setting the variable in the workflow would WIN over that
+# setdefault and defeat the isolation it exists to provide, so it is left alone on purpose.
+#
+# ## The skipped tests are expected
+#
+# ~24 tests skip by default behind env gates — BATTERY_SIM_PACKAGED_BINARY, BATTERY_SIM_APPIMAGE,
+# and HA_URL + HA_TOKEN_FILE. The first two need a built artifact and are run by release.yml
+# against the freshly built one; the last needs a real Home Assistant instance and cannot run in
+# CI at all. A skip count in the tens is the normal state of a green PR run, not a warning.
+#
+# ## Why app.css freshness is a blocking job rather than a build step
+#
+# `app/static/app.css` is COMMITTED, and the app needs no Node at runtime (see package.json and
+# specs/08-architecture.md §5.1). That is a deliberate trade: it keeps the runtime and the
+# packaged bundle free of a JS toolchain, at the price of a file that can drift from the Tailwind
+# sources that generate it. Regenerating it here and diffing is what makes the drift visible. The
+# job does not commit the result — CI writing to the branch would hide the drift instead of
+# reporting it — so the failure message spells out the two commands to run.
+#
+# ## Action versions
+#
+# checkout v7 / setup-node v7 / setup-uv v7, each verified against the tags that actually exist
+# on the action's repository (`git ls-remote --tags`), not against a version someone believed was
+# current. The first PR to run this workflow failed with "Unable to resolve action
+# astral-sh/setup-uv@v9, unable to find version v9" — a pin taken from research that reported a
+# version which does not exist. Nothing before a real run catches that, so if a version here is
+# ever changed, confirm the tag exists first.
+#
+# Older majors are avoided because Node.js 20 is being removed from the runner images (reportedly
+# around 2026-09-16 — moderately confirmed, not from an authoritative changelog), which breaks
+# checkout v4 and the other actions still pinned to that runtime.
+
+name: Tests
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+# Least privilege: nothing here writes to the repository or publishes anything.
+permissions:
+  contents: read
+
+# A push that supersedes an in-flight run makes the older run's result irrelevant; cancel it
+# rather than pay for it. Keyed per ref, so master and each PR queue independently.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: pytest
+    runs-on: ubuntu-24.04
+    # The suite is ~100s locally. 20 minutes is generous for a slower runner and still
+    # bounds a hang: several tests spawn uvicorn subprocesses and bind ports, and a wedged
+    # one would otherwise sit on the 360-minute default.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          python-version: "3.12"
+
+      # Installs the runtime dependencies AND the dev group (pytest, playwright, httpx), from
+      # the committed uv.lock, so CI resolves exactly what a developer's `uv sync` resolves.
+      - name: Install dependencies
+        run: uv sync
+
+      # Chromium only. Nothing in tests/ asks for firefox or webkit, and each extra browser is a
+      # download and a set of system packages for no coverage. `--with-deps` installs the shared
+      # libraries Chromium needs on the runner image.
+      - name: Install Playwright Chromium
+        run: uv run playwright install --with-deps chromium
+
+      - name: Run the test suite
+        run: uv run pytest
+
+  css-freshness:
+    name: app.css is up to date
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install the Tailwind toolchain
+        run: npm ci
+
+      - name: Rebuild app/static/app.css
+        run: npm run build:css
+
+      # `git diff --exit-code` prints the drift and exits non-zero. The `||` branch turns that
+      # into an instruction: a gate whose failure does not say what to do costs more time than
+      # it saves.
+      - name: Check the committed CSS matches its sources
+        run: |
+          if ! git diff --exit-code -- app/static/app.css; then
+            echo ""
+            echo "::error file=app/static/app.css::app/static/app.css is out of date with its Tailwind sources."
+            echo "app/static/app.css is generated from app/static/src/app.tailwind.css and the"
+            echo "class names used in the templates, and the generated file is committed."
+            echo "The diff above is what regenerating it produces."
+            echo ""
+            echo "To fix, run these two commands and include the result in this branch:"
+            echo ""
+            echo "    npm run build:css"
+            echo "    git add app/static/app.css && git commit -m 'Rebuild app.css'"
+            echo ""
+            exit 1
+          fi

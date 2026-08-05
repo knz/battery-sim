@@ -1,0 +1,382 @@
+# Release builds, triggered by a `v*` tag (or manually, for a dry run).
+#
+# Jobs:
+#     version-gate     assert the pushed tag agrees with `app.__version__`; blocks everything.
+#     linux            build-appimage.sh, then verify the artifact, then upload. BLOCKING.
+#     desktop-bundle   PyInstaller onedir, as a matrix over macos-26, macos-26-intel and
+#                      windows-latest. All three continue-on-error; see below.
+#     release          collect whatever was produced into a DRAFT GitHub release.
+#
+# ## Why the version gate runs first and blocks
+#
+# `app/__init__.py::__version__` is the single source of the version string: pyproject.toml reads
+# it through hatchling, `app.config.APP_VERSION` re-exports it, and a test in
+# tests/test_desktop.py asserts the two agree. The one thing none of that can check is the TAG,
+# which is written by hand at release time. A tag of `v0.2.0` on a tree that still says "0.1.0"
+# produces a perfectly good build with the wrong name on it — an artifact that is silently
+# mislabelled is worse than a build that failed, because the failure is discovered by whoever
+# downloads it. So the tag is checked against the source before anything is built.
+#
+# The check is skipped on `workflow_dispatch`, where there is no tag to compare against.
+#
+# ## Why workflow_dispatch exists at all
+#
+# Several things in here cannot be tested any other way — the FUSE handling below is unverified,
+# and the three non-Linux jobs have never run. Requiring a tag to exercise them would mean
+# either cutting throwaway tags or debugging in the only run that matters. Manual dispatch
+# builds and uploads artifacts without creating a release.
+#
+# ## Why the Linux job pins ubuntu-24.04 and not ubuntu-latest
+#
+# This label is load-bearing. packaging/build-appimage.sh copies the SYSTEM python3-gi into the
+# frozen bundle, and fails the build (search it for `GI_ABI_TAG`) when the frozen interpreter's
+# Python minor version differs from the compiled `_gi` extension's — a mismatch is an undefined-symbol
+# error at `import gi` on the user's machine, which the script turns into a build failure
+# instead. build-linux.sh pins `uv venv --python 3.12`; Ubuntu 24.04 ships Python 3.12 and
+# `_gi.cpython-312`, so they agree. Ubuntu 22.04 ships 3.10 and would trip the gate. Moving to a
+# newer image is therefore a decision about that pairing, not a version bump.
+#
+# The consequence, recorded rather than discovered later: build-appimage.sh links against the
+# HOST's glibc (it says so in its own header), so an artifact built on 24.04 has a glibc floor of
+# 2.39 and will NOT run on Debian 12 or anything older. That is accepted for now; building in an
+# older-glibc container is the portable route and is not done here.
+#
+# ## The non-Linux jobs are continue-on-error, and what that is absorbing
+#
+# It is not "untested CI". It is genuinely unfinished packaging work. There is no macOS or
+# Windows build script — build-linux.sh is bash with POSIX paths — so these jobs invoke
+# `pyinstaller packaging/battery-sim.spec` directly, and that spec has no `BUNDLE(...)` block, no
+# icon, no code signing, and `console=True`. What comes out is a raw PyInstaller onedir
+# directory: not a double-clickable `.app`, not an installer, and on Windows it opens a console
+# window beside the app. Even a green run here produces something that is not yet a shippable
+# desktop build.
+#
+# The intent is that this is temporary. Each platform should be tightened to blocking once it has
+# gone green once and its output has been looked at. A job that is allowed to stay amber
+# indefinitely carries no information and is indistinguishable from having no job at all — if
+# these are still continue-on-error several releases from now, that is a signal to either finish
+# the packaging or delete the jobs.
+#
+# ## Runner labels for macOS
+#
+# macos-13 was retired in December 2025 and macos-14 is unsupported from 2026-11-02, so both of
+# the obvious labels are dead. Intel is `macos-26-intel` and Apple silicon is `macos-26`. Note
+# that Intel macOS support ends entirely when macos-15 retires in Fall 2027; the x86_64 job has a
+# scheduled end of life whether or not anyone acts on it.
+#
+# ## Action versions
+#
+# checkout v7 / upload-artifact v7 / download-artifact v8 / setup-uv v7 / setup-node v7 /
+# action-gh-release v3, each verified against the tags that actually exist on the action's
+# repository (`git ls-remote --tags`), not against a version someone believed was current.
+#
+# That distinction is not pedantry. The first PR to run this workflow failed with "Unable to
+# resolve action astral-sh/setup-uv@v9, unable to find version v9" — the pin had been taken from
+# research that reported a version which does not exist, and nothing before a real run catches
+# that. Re-checking every pin afterwards also turned up setup-node pinned a major behind. If a
+# version here is ever changed, confirm the tag exists first.
+#
+# Note that upload-artifact and download-artifact are NOT on matched majors — they are released
+# independently, so picking the same number for both is wrong.
+#
+# Older majors are avoided because Node.js 20 is being removed from the runner images (reportedly
+# around 2026-09-16 — moderately confirmed, not from an authoritative changelog), which breaks
+# checkout v4 and upload-artifact v3/v4.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+# Default for every job: read-only. Only the `release` job widens this, and only to
+# `contents: write`, which is what creating a release and attaching assets needs.
+permissions:
+  contents: read
+
+jobs:
+  version-gate:
+    name: Tag matches app.__version__
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Compare the tag against app/__init__.py
+        run: |
+          set -euo pipefail
+          SRC_VERSION="$(python3 -c "
+          import re, pathlib
+          text = pathlib.Path('app/__init__.py').read_text()
+          m = re.search(r'^__version__\s*=\s*[\"\x27]([^\"\x27]+)', text, re.M)
+          if not m:
+              raise SystemExit('could not find __version__ in app/__init__.py')
+          print(m.group(1))
+          ")"
+          echo "app.__version__ = $SRC_VERSION"
+
+          if [ "${{ github.event_name }}" != "push" ]; then
+            echo "Manual dispatch: no tag to compare against, gate skipped."
+            exit 0
+          fi
+
+          TAG="${GITHUB_REF#refs/tags/}"
+          echo "tag            = $TAG"
+          if [ "$TAG" != "v$SRC_VERSION" ]; then
+            echo "::error::tag $TAG does not match app.__version__ ($SRC_VERSION)."
+            echo "The tag names the release; app/__init__.py is the single source of the version"
+            echo "string (pyproject.toml and app.config.APP_VERSION both read it). Building on a"
+            echo "mismatch would attach a correctly-built artifact under the wrong version."
+            echo "Either bump __version__ to $TAG (minus the leading v) or retag as v$SRC_VERSION."
+            exit 1
+          fi
+          echo "ok"
+
+  linux:
+    name: Linux AppImage
+    needs: version-gate
+    runs-on: ubuntu-24.04
+    # Build + AppImage + the packaged test suites, which start the artifact several times.
+    timeout-minutes: 45
+    env:
+      # appimagetool is ITSELF an AppImage and mounts via FUSE. build-appimage.sh has no
+      # workaround for a FUSE-less environment — unlike packaging/verify-appimage-isolated.sh,
+      # which sets this variable explicitly. Setting it in the job env means the appimagetool
+      # process inherits it and self-extracts instead of mounting, with no change to the script.
+      #
+      # THIS PATH IS UNVERIFIED. It has not been exercised on a GitHub runner, and the claim that
+      # inheritance alone is sufficient is reasoning about how the AppImage runtime reads its
+      # environment, not an observation. libfuse2t64 is installed below as a second route: if the
+      # variable does not take effect, a working FUSE makes the mount path succeed anyway. If
+      # this job fails inside appimagetool, this is the first thing to look at.
+      APPIMAGE_EXTRACT_AND_RUN: "1"
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          python-version: "3.12"
+
+      # The list is taken from what packaging/build-appimage.sh checks for and copies:
+      #   gir1.2-webkit2-4.1  -> the WebKit2-4.1 typelib and /usr/lib/*/webkit2gtk-4.1 helpers,
+      #                          both named in the script's precondition loop;
+      #   python3-gi          -> /usr/lib/python3/dist-packages/gi, also a precondition, and the
+      #                          source of the _gi ABI the version check compares;
+      #   libwebkit2gtk-4.1-0, libgtk-3-0, libgirepository-1.0-1
+      #                       -> the libraries LIB_ROOTS walks with ldd (libgdk-3 and
+      #                          libjavascriptcoregtk-4.1 come in as dependencies of these);
+      #   librsvg2-common     -> the gdk-pixbuf SVG loader, copied with the loader directory;
+      #   glib-networking     -> the GIO TLS/proxy modules under /usr/lib/*/gio/modules;
+      #   adwaita/hicolor icon themes -> the two names the icon-copy loop looks for.
+      # Most are already on the runner image; naming them means the build does not depend on
+      # that staying true.
+      - name: Install the GTK / WebKit build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gir1.2-webkit2-4.1 \
+            python3-gi \
+            libwebkit2gtk-4.1-0 \
+            libgtk-3-0 \
+            libgirepository-1.0-1 \
+            librsvg2-common \
+            glib-networking \
+            adwaita-icon-theme \
+            hicolor-icon-theme \
+            libfuse2t64 \
+            desktop-file-utils
+
+      # The dev group, needed by the verification step below. build-appimage.sh does NOT use this
+      # environment — it builds its own throwaway venv outside the repo precisely so that the dev
+      # packages cannot reach the bundle — so the two do not interfere.
+      - name: Install dependencies (for the post-build verification)
+        run: uv sync
+
+      # Builds the onedir bundle first if it is absent, then the AppImage. The script enforces
+      # its own size gate, asset checks, Babel locale checks and library-closure check; a failure
+      # in any of those fails here.
+      - name: Build the AppImage
+        run: packaging/build-appimage.sh
+
+      # Verify the artifact that is about to be uploaded, not a rebuild of it. These three files
+      # skip entirely without the env gates, which is why they contribute nothing in test.yml —
+      # this is the only place they run.
+      #
+      # tests/test_packaged_ingest.py calls `pytest.importorskip("websockets")` in five places.
+      # websockets 16.1.1 IS present: it comes in through the `uvicorn[standard]` extra, which is
+      # a RUNTIME dependency in pyproject.toml (uv.lock, uvicorn's optional-dependencies), so it
+      # is installed regardless of the dev group. That matters — those are the tests covering the
+      # `ws="auto"` behaviour, and a silent importorskip would leave the release verification
+      # green while checking nothing at exactly the point it is most needed. If this step ever
+      # reports skips in that file, the extra has gone missing and the gap must be closed before
+      # shipping.
+      - name: Verify the built artifacts
+        env:
+          BATTERY_SIM_APPIMAGE: dist/Home-Battery-Simulator-x86_64.AppImage
+          BATTERY_SIM_PACKAGED_BINARY: dist/battery-sim/battery-sim
+        run: |
+          uv run pytest -v \
+            tests/test_appimage.py \
+            tests/test_packaged.py \
+            tests/test_packaged_ingest.py
+
+      # build-appimage.sh hardcodes `Home-Battery-Simulator-x86_64.AppImage` with no version in
+      # it, so every release would otherwise attach a file whose name is identical to the last
+      # one's — indistinguishable once downloaded. The rename happens HERE and not in the script
+      # on purpose: a local build keeps a stable, predictable output path that the verify scripts
+      # and the tests' env vars can name without knowing the version.
+      - name: Name the artifact after the version
+        id: name
+        run: |
+          set -euo pipefail
+          VERSION="$(python3 -c "
+          import re, pathlib
+          print(re.search(r'^__version__\s*=\s*[\"\x27]([^\"\x27]+)', pathlib.Path('app/__init__.py').read_text(), re.M).group(1))
+          ")"
+          OUT="dist/Home-Battery-Simulator-${VERSION}-x86_64.AppImage"
+          mv dist/Home-Battery-Simulator-x86_64.AppImage "$OUT"
+          echo "path=$OUT" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: appimage-x86_64
+          path: ${{ steps.name.outputs.path }}
+          if-no-files-found: error
+
+  # ── the unfinished platforms ────────────────────────────────────────────────
+  #
+  # One matrix, three runners. See the header for what continue-on-error is absorbing here and
+  # why it should not stay.
+
+  desktop-bundle:
+    name: ${{ matrix.label }}
+    needs: version-gate
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-26
+            label: macOS arm64 (unfinished)
+            artifact: macos-arm64
+          - runner: macos-26-intel
+            label: macOS x86_64 (unfinished)
+            artifact: macos-x86_64
+          - runner: windows-latest
+            label: Windows (unfinished)
+            artifact: windows-x86_64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          python-version: "3.12"
+
+      # No dev group: this environment becomes the bundle's contents, and the spec's `excludes`
+      # list names pytest/playwright/httpx precisely so they cannot be collected. Keeping them out
+      # here means that exclude list stays a backstop rather than the thing actually doing the
+      # work — see the `--no-sync` note on the build step, which is what preserves this.
+      # PyInstaller is installed as a build tool rather than declared in pyproject.toml, matching
+      # what build-linux.sh does on Linux.
+      #
+      # Unpinned, and worth knowing: PyInstaller is not in uv.lock, so a release picks up whatever
+      # version is current that day. build-linux.sh has the same property, so this is pre-existing
+      # rather than introduced here — but it does mean the release build is not fully reproducible.
+      - name: Install runtime dependencies and PyInstaller
+        run: |
+          uv sync --no-dev
+          uv pip install pyinstaller
+
+      # `--no-sync` is load-bearing, not tidiness. A plain `uv run` re-syncs the environment
+      # against the lockfile before running, which breaks the step above in two ways at once.
+      # Both were reproduced locally against this project's own pyproject.toml and uv.lock:
+      #
+      #   1. It undoes `--no-dev`. `uv run` syncs WITH the dev group by default, so pytest,
+      #      playwright and httpx are reinstalled into the very environment PyInstaller is about
+      #      to analyse — one step after `uv sync --no-dev` deliberately left them out. The build
+      #      would still produce a correct bundle, because the spec's EXCLUDES list names those
+      #      packages, but it would be leaning on that safety net rather than on the environment
+      #      actually being clean. A redundancy that is silently load-bearing is not a redundancy.
+      #
+      #   2. It may evict PyInstaller itself. PyInstaller is installed with `uv pip install` and
+      #      is deliberately NOT in pyproject.toml (a build tool, not a dependency — the same
+      #      reasoning build-linux.sh gives). Since the lockfile does not mention it, `uv run -v`
+      #      can be seen logging `Unnecessary package: pyinstaller` — i.e. a removal candidate.
+      #      It survived when tested, but that is uv's discretion, not a guarantee.
+      #
+      # `--no-sync` skips the sync entirely and runs against the environment as installed, which
+      # answers both. `--no-dev` was considered and is weaker: it fixes (1) but still performs a
+      # sync, leaving (2) live.
+      - name: Build the onedir bundle
+        run: uv run --no-sync pyinstaller --noconfirm --clean packaging/battery-sim.spec
+
+      # Zipped rather than uploaded as a tree: upload-artifact would otherwise transfer several
+      # thousand small files, and on macOS/Linux a plain upload does not preserve the executable
+      # bit on the launcher.
+      - name: Archive the bundle (POSIX)
+        if: runner.os != 'Windows'
+        run: |
+          cd dist
+          zip -qry "battery-sim-${{ matrix.artifact }}.zip" battery-sim
+
+      - name: Archive the bundle (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path dist/battery-sim -DestinationPath "dist/battery-sim-${{ matrix.artifact }}.zip"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: bundle-${{ matrix.artifact }}
+          path: dist/battery-sim-${{ matrix.artifact }}.zip
+          if-no-files-found: error
+
+  release:
+    name: Draft the GitHub release
+    needs: [linux, desktop-bundle]
+    timeout-minutes: 15
+    # `always()` so a failed continue-on-error platform does not withhold the release; the Linux
+    # job is blocking and is checked explicitly, so a broken macOS build cannot stop a working
+    # Linux one from shipping, while a broken Linux build still stops everything.
+    if: always() && needs.linux.result == 'success' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      # Downloads every artifact that WAS produced, each into its own subdirectory. Jobs that
+      # failed simply contributed nothing, so the release carries whatever exists.
+      #
+      # No `name:` on purpose — omitting it downloads ALL artifacts for the run, and leaving
+      # `merge-multiple` at its default false extracts each into its own named directory, which
+      # is what the `artifacts/**/*` glob below expects.
+      #
+      # v8 is download-artifact's current major. It is deliberately NOT matched to
+      # upload-artifact's v7: the two actions are versioned independently and do not track
+      # lockstep majors, so "use the same number" is not a rule that holds here.
+      - name: Collect the artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+
+      - name: List what was collected
+        run: find artifacts -type f -printf '%p  (%s bytes)\n'
+
+      # Draft, deliberately. The macOS and Windows attachments may be missing or may be raw
+      # PyInstaller directories rather than usable desktop builds, and the release notes need a
+      # human anyway. Publishing is a decision, not a side effect of pushing a tag.
+      - name: Create the draft release
+        uses: softprops/action-gh-release@v3
+        with:
+          draft: true
+          generate_release_notes: true
+          fail_on_unmatched_files: false
+          files: artifacts/**/*

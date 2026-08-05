@@ -1,0 +1,76 @@
+{# ── Benchmark: grid import avoided (§2.4, bounded by §6.12's run-D DP) ─────────────────────────
+
+   The §2.4 benchmark card, extracted from _panel_results.html so it can be rendered TWICE from
+   different places:
+
+     * inline, when the view-model already carries a `benchmark` key — which is the case for the
+       static sample view-model (app/sample_data.py) and for any caller that passed
+       `with_benchmark=True`;
+     * standalone, by `POST /results/benchmark`, whose whole response body is this file's output.
+
+   The second path is why the extraction exists. The DP behind these numbers costs ~4.6 s on a year
+   of hourly data against ~0.12 s for the rest of panel ③, so it is fetched separately and swapped
+   into the `#benchmark-slot` placeholder _panel_results.html renders in its place. The fetcher
+   lives in workspace_results.html (a swapped-in <script> re-inserts but does not re-execute).
+
+   The fourth "…if export allowed" row is CONDITIONAL and the condition lives in the view-model,
+   not here: it is appended to `rows` only when the unconstrained DP ran and the two capture ratios
+   diverge by more than appendix A's benchmark_divergence_display_threshold. This loop simply
+   renders whatever rows it is given.
+
+   Likewise the GLOSS is whatever `app/results_view._benchmark_block` decided to say. It is not
+   always a capture percentage — a drift-funded ratio is restated on a corrected basis and a
+   ratio above the bound is reported as unusable rather than printed — and none of that logic
+   belongs in a template.
+
+   The gloss arrives as a (msgid, params) PAIR, not a finished sentence — the view-model used to
+   build it with an f-string, which made its msgid a runtime value no extractor could see, so the
+   `_()` here matched nothing and the whole box read English on a Dutch page. `msg()` translates
+   the constant msgid first and substitutes the figures after; see _msg.html.
+
+   ── It renders BOTH benchmark boxes (Phase 6) ────────────────────────────────────────────────
+   §2.4's money box has the same shape as the energy one — four rows of label / figure / bar, a
+   gloss beneath — so it renders from this file rather than from a near-copy. Two things were
+   generalised to make that true, and only two:
+
+     * the TITLE comes from `benchmark.title`, defaulting to the energy box's. §2.4 gives the two
+       boxes different headings ("Benchmark: grid import avoided" / "Benchmark: money saved") and
+       nothing else about them differs. The default keeps a view-model built before the money box
+       existed — app/sample_data.py's, and any caller that predates it — rendering unchanged.
+     * an optional trailing `benchmark.note`, a SECOND paragraph after the gloss. The money box
+       uses it for the feed-in-floor disclosure (follow-up H11), which qualifies the ceiling
+       whatever the gloss says and so cannot be folded into it.
+
+     * an optional `cost` flag in the render context, which tints the heading with .cost-label
+       (Phase 7). The CALLER sets it — `{% with cost = true %}` around the money include — rather
+       than the view-model, because which box is a money box is a layout fact this file's two
+       call sites already know, and the view-model carries no presentation flags.
+
+   The row VALUES are figures either way — a kWh figure on one box, a euro figure on the other —
+   and `msg()` formats both from their own `num()` kind, so the unit is the view-model's business
+   and this file never names one. #}
+{% from "_msg.html" import msg with context %}
+<div class="card bg-base-200 border border-base-300">
+  <div class="card-body gap-3 p-4">
+    <h3 class="text-sm font-semibold {% if cost %}cost-label{% else %}text-base-content/70{% endif %}">{{ _(benchmark.title | default('Benchmark: grid import avoided', true)) }}</h3>
+    {% for row in benchmark.rows %}
+    <div class="flex items-center gap-3">
+      <span class="w-36 text-sm">{{ _(row.label) }}</span>
+      <span class="w-20 figure-col text-sm">{{ msg(row.value) }}</span>
+      {# `frac` is NOT a figure and must not go through msg()/numfmt: it is a CSS length, and a
+         Dutch decimal comma in `width: 51,3%` is not a number CSS can read. Jinja's own `round`
+         is locale-independent, which is what a machine-read value needs. #}
+      <div class="bench-track">
+        <div class="bench-fill" style="width: {{ (row.frac * 100) | round(1) }}%"></div>
+        {% if row.dot %}<div class="bench-dot" style="left: {{ (row.frac * 100) | round(1) }}%"></div>{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+    <p class="text-sm text-base-content/70">{{ msg(benchmark.gloss) }}</p>
+    {# The optional second paragraph (see the header). Absent on the energy box and on the money
+       box in the ordinary case where the feed-in floor did not bind. #}
+    {% if benchmark.note %}
+    <p class="text-sm text-base-content/70">{{ msg(benchmark.note) }}</p>
+    {% endif %}
+  </div>
+</div>

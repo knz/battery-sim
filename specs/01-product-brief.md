@@ -100,8 +100,9 @@ for. But two things follow:
   which case applies, and the requirements, policies, topology choices, metrics and
   diagnostics that depend on PV are adjusted accordingly.
 - **Cost simulation as an opt-in.** The household declares whether it wants money figures
-  as well as energy figures (`cfg.simulate_cost`, a master toggle in panel ②, default
-  **off**). With it off, the contract, tax, VAT and feed-in configuration is not asked
+  as well as energy figures (`cfg.simulate_cost`, answered on the results screen above the
+  sections it adds, [§2′.7](20-workspaces-ux.md#27-where-the-setup-bands-questions-went),
+  default **off**). With it off, the contract, tax, VAT and feed-in configuration is not asked
   for, the money results are not produced, and the app is usable end to end without any
   euro figure. See the note on what the toggle does and does not remove, below.
 - Reconstruction of the battery-free household load, including stripping out an
@@ -126,8 +127,9 @@ for. But two things follow:
 - **Installation topology** selection (PV coupling, battery phase configuration) via
   illustrated choices, since users reliably recognise a picture of their meter cupboard
   and reliably mis-answer the same question asked in words.
-- **Price uncertainty bracketing** where the supplier settles per 15 minutes but the
-  available energy data is hourly. Requires cost simulation.
+- **Price uncertainty bracketing** where the supplier bills per 15 minutes but the
+  available energy data is hourly: how far the stated saving could shift, derived from the
+  spot series' own finer spacing rather than asked of the user. Requires cost simulation.
 
 ### A price series is not a cost model
 

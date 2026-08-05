@@ -1,0 +1,118 @@
+{#
+  _workspace_card.html — one workspace on the list screen (specs/20-workspaces-ux.md §2′.2).
+
+  Renders exactly what §2′.2's wireframe shows, in its order: the title, three badges, an info
+  box about the DATASET, and the action row. Every value arrives ready from
+  `app/workspace_list_view.card()` — this template does no arithmetic, no date maths and no
+  number formatting; figures come through `_msg.html`'s `msg()` macro so they are formatted in
+  the render locale (app/i18n.py's A6 note).
+
+  **The badges describe the CONFIGURATION only**, never the data or the result (§2′.2). The
+  contract badge in particular is shown at full strength whether or not cost simulation is on:
+  it reports a fact about the household's contract, which is true regardless of what the current
+  run prices. `workspace_list_view` does not even carry `simulate_cost`, so conditioning it here
+  is not expressible.
+
+  **The no-data variant is the Inapplicable rule, not a disabled state**
+  (specs/02-ux-wireframes.md §2.1). With no dataset the info box collapses to a one-line
+  invitation and `[ Results ]` and `[ Delete data ]` are ABSENT — not greyed. A greyed
+  `[ Results ]` on a workspace with nothing to show invites the user to work out how to un-grey
+  it when the line directly above already says.
+
+  **The three navigational actions are plain links, and only the two deletions are not.**
+  `<a href>` for Results / Configure data / Update: they are navigations to other screens, so
+  they are what the browser already does well — no fetch, no swap, nothing that needs the
+  hand-rolled panel-swap machinery on the results screen, and they keep working without JavaScript. The
+  two deletions are `<button>`s that open a page-level confirmation dialog (§2′.3); the dialog
+  itself holds the POST form. They carry `data-*` so `workspaces.html`'s script can fill the
+  dialog's title, body and form action from the card that was clicked — one dialog serves every
+  card, which is why the title travels as data rather than being written into a per-card dialog.
+
+  Build-progress note: every action on this card now reaches a real screen. `[ Update ]` goes to
+  the edit screen (`/w/{id}/edit`, phase 3) and `[ Configure data ]` to the configure-data screen
+  (`/w/{id}/data`, phase 4.1); neither 404s any more. `[ Results ]` still leads to the three-panel
+  page, which phase 4.2 reduces to the results screen (§2′.6).
+#}
+{% from "_msg.html" import msg %}
+<article class="card border border-base-300 bg-base-100 rounded-box" data-workspace-card
+         data-workspace-id="{{ card.id }}">
+  <div class="card-body gap-3 p-4">
+
+    {# ── Title and badges ─────────────────────────────────────────────────────────── #}
+    <div class="flex flex-col gap-2">
+      <h3 class="text-base font-semibold">{{ card.title }}</h3>
+      <div class="flex flex-wrap items-center gap-2">
+        {# Connection: `phases × fuse_a`, built by the view-model from GridConfig, never typed. #}
+        <span class="badge badge-outline badge-sm">{{ msg(card.connection) }}</span>
+        {# Contract: the enum VALUE verbatim (§2.3 — label and enum do not diverge). #}
+        <span class="badge badge-outline badge-sm font-mono">{{ card.contract }}</span>
+        {# Last saved: the CONFIG's save time, in Europe/Amsterdam (§2′.2, §2′.10). Loading data
+           does not advance it, so this badge and the list order cannot be moved by a fetch. #}
+        <span class="badge badge-ghost badge-sm">
+          {{ _('saved %(when)s') | interpolate(when=card.updated_at) }}
+        </span>
+      </div>
+    </div>
+
+    {# ── Info box — facts about the DATASET, visually separated from the badges above so the
+         two are not read as one group (§2′.2). ──────────────────────────────────────── #}
+    <div class="rounded-box border border-base-200 bg-base-200/40 p-3 text-sm">
+      {% if card.data.loaded %}
+        <div class="grid gap-x-6 gap-y-1 sm:grid-cols-2">
+          {% for role in card.data.roles %}
+          <div class="flex items-baseline gap-2">
+            <span class="text-base-content/70">{{ _(role.label) }}</span>
+            {% if role.state == 'loaded' %}
+              <span class="text-success">✓ {{ _('loaded') }}</span>
+            {% elif role.state == 'not_applicable' %}
+              {# §2′.2: a deliberate configuration is not a missing input. #}
+              <span class="text-base-content/50">— {{ _('not applicable (no PV)') }}</span>
+            {% else %}
+              <span class="text-base-content/50">{{ _('not loaded') }}</span>
+            {% endif %}
+          </div>
+          {% endfor %}
+        </div>
+        {% if card.data.coverage or card.data.size %}
+        <div class="mt-2 flex flex-col gap-0.5 text-base-content/70">
+          {% if card.data.coverage %}<span>{{ card.data.coverage }}</span>{% endif %}
+          {# Interval count + simulation grid: the run's real size, computed from the frames at
+             save time and stored on the dataset row (workspaces._data_facts, followup I2). The
+             count is measured over the effective window, so it is NOT the coverage line above
+             divided by the grid — the two lines are not meant to reconcile by arithmetic. #}
+          {% if card.data.size %}<span>{{ msg(card.data.size) }}</span>{% endif %}
+        </div>
+        {% endif %}
+      {% else %}
+        {# The collapsed no-data variant (§2′.2's third card). #}
+        <p class="text-base-content/70">{{ _('No data loaded yet.') }}</p>
+        <p class="text-base-content/60">{{ _('Choose your data sources to get a result.') }}</p>
+      {% endif %}
+    </div>
+
+    {# ── Actions (§2′.2's table). The three navigational ones first, then a gap, then the two
+         destructive ones — the workspace-deleting icon at the far end, furthest from where the
+         pointer usually lands. ──────────────────────────────────────────────────────── #}
+    <div class="flex flex-wrap items-center gap-2">
+      {% if card.has_data %}
+      {# Primary and first: on a workspace that has data this is what the user came for. #}
+      <a class="btn btn-primary btn-sm" href="/w/{{ card.id }}/results">{{ _('Results') }}</a>
+      {% endif %}
+      <a class="btn btn-outline btn-sm" href="/w/{{ card.id }}/data">{{ _('Configure data') }}</a>
+      <a class="btn btn-outline btn-sm" href="/w/{{ card.id }}/edit">{{ _('Update') }}</a>
+
+      <div class="ml-auto flex items-center gap-2">
+        {% if card.has_data %}
+        <button type="button" class="btn btn-ghost btn-sm text-error"
+                data-delete-data data-workspace-id="{{ card.id }}"
+                data-workspace-title="{{ card.title }}">{{ _('Delete data') }}</button>
+        {% endif %}
+        <button type="button" class="btn btn-ghost btn-sm btn-square text-error"
+                data-delete-workspace data-workspace-id="{{ card.id }}"
+                data-workspace-title="{{ card.title }}"
+                aria-label="{{ _('Delete analysis') }}"
+                title="{{ _('Delete analysis') }}">🗑</button>
+      </div>
+    </div>
+  </div>
+</article>

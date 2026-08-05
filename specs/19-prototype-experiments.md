@@ -321,26 +321,30 @@ to reverse either way, which is why this sits at X7 and not higher.
 
 ## X8 — Does `supplier_settlement` change the euro figure?
 
-**Serves:** both. **Data:** several real households, with quarter-hourly `spot_min`/
-`spot_max` available. **Informs:** [§8.12](17-open-questions.md).
+**Serves:** both. **Data:** several real households with hourly energy data and a
+quarter-hourly spot series. **Informs:** [§8.12](17-open-questions.md), which is now
+resolved — the app asks. This experiment is **no longer decision-blocking**; what it still
+measures is how much the answer is worth.
 
-**Question.** `supplier_settlement` defaults to hourly, which silently disables the price
-bracket in [§6.16](14-diagnostics.md#616-price-bracketing-under-settlementresolution-mismatch)
-for most users. §8.12 asks whether that default is right or whether the app should ask. The
-measurable half is how wide the bracket is when it does apply.
+**Question, as it now stands.** The app asks for `supplier_settlement` and reports the
+bracket's width as a caveat when the answer is quarter-hourly
+([§6.16](14-diagnostics.md#616-price-bracketing-under-settlementresolution-mismatch)). The
+open measurable is how wide that width typically is on real data — which decides whether the
+caveat is informative or noise, and whether the question earns its place on the edit screen.
 
-**Method.** For households with hourly energy data and quarter-hourly price information,
-compute the bracket regardless of the configured settlement, and record its width as a
-percentage of `saved_eur`. Alongside it, record `intra_hour_spread`, which §6.16 already
-specifies as a standalone indicator. Report both distributions.
+**Method.** Compute the bracket regardless of the configured settlement, and record its
+width as a percentage of `saved_eur`, together with `bracketed_fraction`. Report both
+distributions. Note the width already exceeded the saving in three of seven synthetic
+scenarios and on the standard test fixture (€2.46 against a saving of €0.45), so a share
+above 100% is expected rather than a defect.
 
-**Decision it informs.** If the bracket is narrow wherever it applies, defaulting to hourly
-costs the user nothing even when the default is wrong for them, and §8.12 resolves toward
-keeping the default and not adding a setup question. If it is wide, a silently wrong default
-hides a real uncertainty band from exactly the users who have it, and the app should ask —
-the friction is then justified. The `intra_hour_spread` distribution separately determines
-whether the "large spread with hourly settlement is an argument for switching supplier"
-insight that §6.16 contemplates is worth surfacing prominently or is a curiosity.
+**Decision it informs.** If the width is consistently small relative to the saving, the
+caveat could be dropped for a plainer sentence, or the wording could carry a typical
+magnitude rather than only a worst case. If it is frequently comparable to or larger than the
+saving, the current phrasing — a shift, deliberately not a ± interval — is load-bearing and
+should not be softened. A separate question this reopens: whether a typical rather than
+worst-case figure can be estimated at all, which was declined for want of a defensible
+independence assumption.
 
 ---
 
@@ -474,14 +478,27 @@ be tested explicitly rather than assumed away.
 **Serves:** implementation-facing. **Data:** synthetic.
 
 **Question.** `dp_soc_levels = 101` and `dp_action_levels = 41` are stated without
-derivation. §6.12 notes that interpolating `V` rather than snapping avoids "a systematic
-pessimism bias of several percent", which implies the discretisation is coarse enough for the
-choice to matter. Are these values converged?
+derivation. Are these values converged?
 
-**Method.** Sweep both parameters — SoC levels over 51, 101, 201, 401; action levels over 21,
-41, 81 — on a synthetic case whose optimum is analytically known (fixture 16's square wave)
-and on one household-month of real data. Record the benchmark value and the wall-clock time at
-each setting. Find the point at which the benchmark stops moving by more than 0.5%.
+**Partly answered already** by the measurements taken while implementing §6.12, which this
+experiment should extend rather than repeat:
+
+- **With interpolation, the SoC grid is converged well before 101.** The benchmark is stable
+  to ~0.1% from 11 levels upward on the fixture measured. It is *snapping* that is still
+  moving at 401 levels — which is why §6.12 now requires interpolation and describes the
+  snapping error as optimistic rather than conservative. So the open part of this question is
+  whether 101 is wastefully high, not whether it is too low.
+- **The action grid's residual is quantified**: 0.025 kWh at 41 levels, 0.0125 at 161, 0.0031
+  at 321, invariant to the SoC levels. It is the "finish exactly at the starting SoC"
+  discretisation, always conservative.
+
+**Method.** Sweep both parameters — SoC levels over 11, 21, 51, 101, 201, 401; action levels
+over 21, 41, 81 — on a synthetic case whose optimum is analytically known (fixture 16's square
+wave) and on one household-month of real data. Record the benchmark value and the wall-clock
+time at each setting. Find the point at which the benchmark stops moving by more than 0.5%.
+Note that the DP costs ~2.3 s per run on a year of hourly data at 101×41, and the panel now
+fetches the benchmark box separately for that reason — so a finding that the grid can be
+coarsened has a directly felt payoff.
 
 **Decision it informs.** If 101×41 is already converged, the defaults are confirmed and can be
 documented as such rather than left unexplained in appendix A. If the benchmark is still

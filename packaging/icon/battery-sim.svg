@@ -1,0 +1,82 @@
+<!-- Master application icon — PLACEHOLDER artwork.
+     ────────────────────────────────────────────────────────────────────────────
+     This file is the single source for every icon the project ships. The PNGs
+     under packaging/ and app/static/ are rendered FROM it by packaging/icon/render.py;
+     do not edit those by hand. Replacing the placeholder means replacing this file
+     and re-running that script.
+
+     Motif (specified by the user): a solar panel, an energy bolt, and a battery —
+     generation, flow, storage, the three things the simulator reasons about.
+
+     Colour: daisyUI `primary` #570df8, the one colour already load-bearing in the
+     running UI (app/static/src/app.tailwind.css: .radio-card checked state,
+     .bench-fill, .bench-dot; and literally at workspace_results.html:353). A
+     lighter tint #a58bfa carries secondary surfaces so the mark reads two-tone
+     without needing gradients.
+
+     Constraints the geometry respects, so it survives downscaling to 16px:
+       - flat fills only, no gradients, no filters, no strokes below ~6 units;
+       - every gap between shapes is >= 6 units at this 256 viewBox (>= ~0.4px at 16px);
+       - the three elements are separated on a diagonal rather than overlapped,
+         so none of them dissolves into another when the raster gets coarse.
+     ──────────────────────────────────────────────────────────────────────────── -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256"
+     role="img" aria-label="Home Battery Simulator">
+
+  <title>Home Battery Simulator</title>
+
+  <!-- Rounded-square plate. Gives the mark a consistent silhouette in a dock or
+       launcher, where a transparent free-standing glyph reads as inconsistent
+       next to neighbouring icons. -->
+  <rect x="0" y="0" width="256" height="256" rx="56" ry="56" fill="#570df8"/>
+
+  <!-- ── Solar panel, lower-left ──────────────────────────────────────────────
+       Drawn in slight perspective: a parallelogram leaning right, so it reads as
+       a tilted roof panel rather than a flat grid. Cells are cut as gaps in the
+       lighter fill, not as strokes, so they thin out gracefully when downscaled.
+       The separators are 8 units wide — at 16px that is half a pixel, which
+       renders as a visible seam rather than disappearing entirely. -->
+  <g>
+    <!-- panel face -->
+    <path d="M 32 194 L 62 136 L 140 136 L 110 194 Z" fill="#a58bfa"/>
+    <!-- horizontal cell separators, cut back to the plate colour -->
+    <path d="M 57 146 L 135 146 L 131 154 L 53 154 Z" fill="#570df8"/>
+    <path d="M 47 166 L 125 166 L 121 174 L 43 174 Z" fill="#570df8"/>
+    <!-- vertical cell separators, following the panel's lean -->
+    <path d="M 86 136 L 94 136 L 64 194 L 56 194 Z" fill="#570df8"/>
+    <path d="M 112 136 L 120 136 L 90 194 L 82 194 Z" fill="#570df8"/>
+    <!-- mounting foot, so the panel sits on something -->
+    <rect x="52" y="202" width="62" height="11" rx="5.5" fill="#a58bfa"/>
+  </g>
+
+  <!-- ── Battery, right ───────────────────────────────────────────────────────
+       Upright cell with a terminal cap and a partial charge fill. Partial rather
+       than full: the app is about how much a battery holds over time, and a
+       part-filled cell says "state of charge" where a solid block says nothing.
+       Sits low-right so its mass balances the panel's, leaving the upper-left
+       diagonal clear for the bolt. -->
+  <g>
+    <!-- terminal cap -->
+    <rect x="178" y="86" width="28" height="12" rx="5" fill="#a58bfa"/>
+    <!-- body, drawn as an outline: outer rounded rect in the light tint, inner
+         well punched back to the plate colour -->
+    <rect x="160" y="102" width="64" height="112" rx="16" fill="#a58bfa"/>
+    <rect x="172" y="114" width="40" height="88" rx="8" fill="#570df8"/>
+    <!-- Charge level: the lower ~55% of the well, in WHITE rather than the light
+         tint. Drawn in #a58bfa it was the same colour as the surrounding body and
+         the state-of-charge reading disappeared; white also ties the fill to the
+         bolt, which is the same energy arriving. -->
+    <rect x="172" y="154" width="40" height="48" rx="8" fill="#ffffff"/>
+  </g>
+
+  <!-- ── Energy bolt, upper diagonal ──────────────────────────────────────────
+       A single closed path (an earlier draft split it in two and left a gap where
+       the halves met). It occupies the empty upper band between the panel below-
+       left and the battery below-right, so no element overlaps another — at 16px
+       overlapping shapes merge into one mass and the icon loses its subject.
+
+       Filled white so it separates from both #570df8 and #a58bfa without needing
+       a stroke, and so it stays the most legible element at the smallest sizes. -->
+  <path d="M 152 24 L 98 92 L 126 92 L 112 148 L 166 78 L 136 78 Z"
+        fill="#ffffff"/>
+</svg>

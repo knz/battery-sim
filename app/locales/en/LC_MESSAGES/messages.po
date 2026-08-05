@@ -1,0 +1,2555 @@
+# English translations for PROJECT.
+# Copyright (C) 2026 ORGANIZATION
+# This file is distributed under the same license as the PROJECT project.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: PROJECT VERSION\n"
+"Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
+"POT-Creation-Date: 2026-08-05 19:04+0200\n"
+"PO-Revision-Date: 2026-07-23 20:40+0200\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: en\n"
+"Language-Team: en <LL@li.org>\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#, python-format
+msgid ""
+"\"%(title)s\" and everything in it — the configuration, the loaded data "
+"and the results — will be deleted."
+msgstr ""
+"\"%(title)s\" and everything in it — the configuration, the loaded data "
+"and the results — will be deleted."
+
+#, python-format
+msgid "%(baseline)s without a battery → %(battery)s with one"
+msgstr ""
+
+#, python-format
+msgid "%(before)s → %(after)s"
+msgstr "%(before)s → %(after)s"
+
+#, python-format
+msgid "%(count)s interval · %(res)s"
+msgid_plural "%(count)s intervals · %(res)s"
+msgstr[0] "%(count)s interval · %(res)s"
+msgstr[1] "%(count)s intervals · %(res)s"
+
+#, python-format
+msgid "%(dates)s   (%(n)s day)"
+msgid_plural "%(dates)s   (%(n)s days)"
+msgstr[0] "%(dates)s   (%(n)s day)"
+msgstr[1] "%(dates)s   (%(n)s days)"
+
+#, python-format
+msgid ""
+"%(export)s was exported to the grid but your solar (and battery) data "
+"does not account for it, so the household consumption and self-"
+"sufficiency could not be reconstructed reliably and are hidden. This "
+"usually means a solar sensor is not reporting all of your production, or "
+"a battery is not mapped. Check your data sources."
+msgstr ""
+"%(export)s was exported to the grid but your solar (and battery) data "
+"does not account for it, so the household consumption and self-"
+"sufficiency could not be reconstructed reliably and are hidden. This "
+"usually means a solar sensor is not reporting all of your production, or "
+"a battery is not mapped. Check your data sources."
+
+#, python-format
+msgid ""
+"%(export)s was exported to the grid, but you have not supplied any solar "
+"data — so the household consumption and self-sufficiency could not be "
+"reconstructed reliably and are hidden. A meter does not export energy the"
+" house did not generate, so either you do have solar panels (answer "
+"\"yes\" above and map the sensor), or an existing battery is feeding the "
+"grid and is not mapped."
+msgstr ""
+"%(export)s was exported to the grid, but you have not supplied any solar "
+"data — so the household consumption and self-sufficiency could not be "
+"reconstructed reliably and are hidden. A meter does not export energy the"
+" house did not generate, so either you do have solar panels (answer "
+"\"yes\" above and map the sensor), or an existing battery is feeding the "
+"grid and is not mapped."
+
+#, python-format
+msgid "%(full)s / %(empty)s"
+msgstr "%(full)s / %(empty)s"
+
+#, python-format
+msgid "%(kwh)s throughput"
+msgstr "%(kwh)s throughput"
+
+#, python-format
+msgid "%(n)s / day"
+msgstr "%(n)s / day"
+
+#, python-format
+msgid "%(n)s changed from default"
+msgid_plural "%(n)s changed from default"
+msgstr[0] ""
+msgstr[1] ""
+
+#, python-format
+msgid "%(n)s detected and corrected"
+msgstr "%(n)s detected and corrected"
+
+#, python-format
+msgid "%(n)s gap totalling %(hours)s h  (%(pct)s)"
+msgid_plural "%(n)s gaps totalling %(hours)s h  (%(pct)s)"
+msgstr[0] "%(n)s gap totalling %(hours)s h  (%(pct)s)"
+msgstr[1] "%(n)s gaps totalling %(hours)s h  (%(pct)s)"
+
+#, python-format
+msgid "%(n)s interval flagged as gaps"
+msgid_plural "%(n)s intervals flagged as gaps"
+msgstr[0] "%(n)s interval flagged as gaps"
+msgstr[1] "%(n)s intervals flagged as gaps"
+
+#, python-format
+msgid "%(n)s value overridden"
+msgid_plural "%(n)s values overridden"
+msgstr[0] ""
+msgstr[1] ""
+
+#, python-format
+msgid "%(n)ss"
+msgstr "%(n)ss"
+
+#, python-format
+msgid "%(pct)s of intervals had negative reconstructed load (clamped to 0)."
+msgstr "%(pct)s of intervals had negative reconstructed load (clamped to 0)."
+
+#, python-format
+msgid "%(phases)s × %(fuse)s A  (%(kw)s kW)"
+msgstr ""
+
+#, python-format
+msgid "%(phases)s × %(fuse)s A  (%(kw)s kW) — your stored setting"
+msgstr ""
+
+#, python-format
+msgid "%(phases)s×%(fuse)s A"
+msgstr "%(phases)s×%(fuse)s A"
+
+#, python-format
+msgid "%(pp)s pp"
+msgstr "%(pp)s pp"
+
+#, python-format
+msgid "%(res)s  ·  %(n)s interval"
+msgid_plural "%(res)s  ·  %(n)s intervals"
+msgstr[0] "%(res)s  ·  %(n)s interval"
+msgstr[1] "%(res)s  ·  %(n)s intervals"
+
+#, python-format
+msgid "%(res)s (full)"
+msgstr "%(res)s (full)"
+
+#, python-format
+msgid "%(res)s (last %(n)s day)"
+msgid_plural "%(res)s (last %(n)s days)"
+msgstr[0] "%(res)s (last %(n)s day)"
+msgstr[1] "%(res)s (last %(n)s days)"
+
+#, python-format
+msgid "%(res)s, averaged"
+msgstr "%(res)s, averaged"
+
+#, python-format
+msgid "%(res)s, held"
+msgstr "%(res)s, held"
+
+#, python-format
+msgid "(%(res)s, %(n)s interval)"
+msgid_plural "(%(res)s, %(n)s intervals)"
+msgstr[0] "(%(res)s, %(n)s interval)"
+msgstr[1] "(%(res)s, %(n)s intervals)"
+
+msgid "+ New analysis"
+msgstr "+ New analysis"
+
+msgid "+ weekends"
+msgstr "+ weekends"
+
+msgid "1-phase battery"
+msgstr "1-phase battery"
+
+msgid "15-min"
+msgstr "15-min"
+
+msgid "2027 tariffs are not yet published. These values are estimates."
+msgstr "2027 tariffs are not yet published. These values are estimates."
+
+msgid "3 × 1-phase batteries"
+msgstr "3 × 1-phase batteries"
+
+msgid "3-phase inverter"
+msgstr "3-phase inverter"
+
+msgid "30-min"
+msgstr "30-min"
+
+msgid "5-min"
+msgstr "5-min"
+
+msgid ""
+"A solar sensor is mapped but reported almost no production over this "
+"period, so the Solar figures are hidden. It may not be wired up "
+"correctly."
+msgstr ""
+"A solar sensor is mapped but reported almost no production over this "
+"period, so the Solar figures are hidden. It may not be wired up "
+"correctly."
+
+msgid "AC-coupled"
+msgstr "AC-coupled"
+
+msgid "AC-to-AC at the meter"
+msgstr "AC-to-AC at the meter"
+
+msgid "About"
+msgstr "About"
+
+msgid "About the contract types"
+msgstr "About the contract types"
+
+msgid "About these rates"
+msgstr ""
+
+msgid "About your household"
+msgstr ""
+
+#, python-format
+msgid "Add %(series)s to continue."
+msgstr ""
+
+msgid "Advanced"
+msgstr "Advanced"
+
+msgid "Allow export to grid during D2/D3"
+msgstr "Allow export to grid during D2/D3"
+
+msgid ""
+"An analysis is one household and one question: your data, your contract, "
+"and the battery you are considering."
+msgstr ""
+"An analysis is one household and one question: your data, your contract, "
+"and the battery you are considering."
+
+#, python-format
+msgid ""
+"Annualised projection is disabled for ranges under %(n)s day. Battery "
+"savings are strongly seasonal; scaling a short window to a year can "
+"overstate annual savings by a factor of roughly 2–3. Select 6 months or 1"
+" year to see an annual figure."
+msgid_plural ""
+"Annualised projection is disabled for ranges under %(n)s days. Battery "
+"savings are strongly seasonal; scaling a short window to a year can "
+"overstate annual savings by a factor of roughly 2–3. Select 6 months or 1"
+" year to see an annual figure."
+msgstr[0] ""
+"Annualised projection is disabled for ranges under %(n)s day. Battery "
+"savings are strongly seasonal; scaling a short window to a year can "
+"overstate annual savings by a factor of roughly 2–3. Select 6 months or 1"
+" year to see an annual figure."
+msgstr[1] ""
+"Annualised projection is disabled for ranges under %(n)s days. Battery "
+"savings are strongly seasonal; scaling a short window to a year can "
+"overstate annual savings by a factor of roughly 2–3. Select 6 months or 1"
+" year to see an annual figure."
+
+msgid ""
+"Answer yes only to supply your existing battery's charge and discharge "
+"series. They are used solely to work out what your house actually "
+"consumed — the app adds them back when reconstructing load from your grid"
+" meter, which only sees energy crossing the connection. The simulation "
+"below does not build on your existing battery: it assumes that battery is"
+" replaced by the one you configure in the parameters panel."
+msgstr ""
+"Answer yes only to supply your existing battery's charge and discharge "
+"series. They are used solely to work out what your house actually "
+"consumed — the app adds them back when reconstructing load from your grid"
+" meter, which only sees energy crossing the connection. The simulation "
+"below does not build on your existing battery: it assumes that battery is"
+" replaced by the one you configure in the parameters panel."
+
+msgid "Apply"
+msgstr "Apply"
+
+msgid "Average"
+msgstr "Average"
+
+msgid "Avoided grid import"
+msgstr ""
+
+msgid "Avoided terugleverkosten"
+msgstr ""
+
+msgid "B"
+msgstr "B"
+
+msgid "Band A"
+msgstr "Band A"
+
+msgid "Band C"
+msgstr "Band C"
+
+msgid "Base URL"
+msgstr "Base URL"
+
+msgid "Battery"
+msgstr "Battery"
+
+msgid "Battery charge"
+msgstr "Battery charge"
+
+msgid "Battery discharge"
+msgstr "Battery discharge"
+
+msgid "Benchmark: grid import avoided"
+msgstr "Benchmark: grid import avoided"
+
+msgid "Benchmark: money saved"
+msgstr ""
+
+msgid "Both"
+msgstr "Both"
+
+msgid "Calculate →"
+msgstr "Calculate →"
+
+msgid "Cancel"
+msgstr "Cancel"
+
+msgid "Cannot be negative."
+msgstr "Cannot be negative."
+
+msgid "Caveats for this run"
+msgstr "Caveats for this run"
+
+msgid "Charge & discharge"
+msgstr ""
+
+#, python-format
+msgid ""
+"Charge band [%(a)s, %(b)s] and discharge band [%(c)s, %(d)s] do not "
+"overlap. ✓"
+msgstr ""
+"Charge band [%(a)s, %(b)s] and discharge band [%(c)s, %(d)s] do not "
+"overlap. ✓"
+
+msgid "Charge policy"
+msgstr "Charge policy"
+
+msgid "Charge when A ≤ spot ≤ B. Compared against EPEX spot."
+msgstr "Charge when A ≤ spot ≤ B. Compared against EPEX spot."
+
+msgid "Charged"
+msgstr "Charged"
+
+msgid "Charged into the battery"
+msgstr "Charged into the battery"
+
+msgid "Charges from the grid, discharges to the house. One conversion each way."
+msgstr "Charges from the grid, discharges to the house. One conversion each way."
+
+msgid "Choose a source"
+msgstr "Choose a source"
+
+msgid "Choose a source for at least one slot first."
+msgstr "Choose a source for at least one slot first."
+
+msgid "Choose source…"
+msgstr "Choose source…"
+
+msgid "Choose your data sources to get a result."
+msgstr "Choose your data sources to get a result."
+
+msgid "Close"
+msgstr "Close"
+
+#, python-format
+msgid ""
+"Computed for the battery configured in the parameters panel — "
+"%(capacity)s kWh usable, %(charge_kw)s/%(discharge_kw)s kW, "
+"%(efficiency)s round-trip efficiency, charge %(charge_policy)s / "
+"discharge %(discharge_policy)s."
+msgstr ""
+"Computed for the battery configured in the parameters panel — "
+"%(capacity)s kWh usable, %(charge_kw)s/%(discharge_kw)s kW, "
+"%(efficiency)s round-trip efficiency, charge %(charge_policy)s / "
+"discharge %(discharge_policy)s."
+
+msgid "Configure data"
+msgstr "Configure data"
+
+msgid "Configure the Home Assistant connection first."
+msgstr "Configure the Home Assistant connection first."
+
+msgid "Configure the connection first"
+msgstr "Configure the connection first"
+
+msgid "Configure…"
+msgstr "Configure…"
+
+msgid "Confirm"
+msgstr "Confirm"
+
+msgid "Connecting…"
+msgstr "Connecting…"
+
+msgid "Connection"
+msgstr ""
+
+#, python-format
+msgid ""
+"Connection failed. Check the URL, and that your browser trusts the "
+"certificate (open %(url)s once to accept it)."
+msgstr ""
+"Connection failed. Check the URL, and that your browser trusts the "
+"certificate (open %(url)s once to accept it)."
+
+msgid "Consumption"
+msgstr "Consumption"
+
+msgid "Continue with a 3-phase approximation"
+msgstr "Continue with a 3-phase approximation"
+
+msgid "Contract"
+msgstr "Contract"
+
+msgid "Contract types"
+msgstr "Contract types"
+
+msgid "Conversion losses"
+msgstr "Conversion losses"
+
+msgid "Cost savings"
+msgstr ""
+
+msgid "Could not load. Please try again."
+msgstr "Could not load. Please try again."
+
+#, python-format
+msgid "Could not open a WebSocket to %(url)s."
+msgstr "Could not open a WebSocket to %(url)s."
+
+msgid "Could not reach the app's ingest endpoint."
+msgstr "Could not reach the app's ingest endpoint."
+
+msgid "Counter resets"
+msgstr "Counter resets"
+
+msgid "Coupling"
+msgstr "Coupling"
+
+msgid "Coverage"
+msgstr "Coverage"
+
+msgid "D"
+msgstr "D"
+
+msgid "DC / hybrid"
+msgstr "DC / hybrid"
+
+msgid "DC-coupled / hybrid"
+msgstr "DC-coupled / hybrid"
+
+msgid ""
+"DC-coupled skips an inversion on the solar charging path — typically +3 "
+"to +5 percentage points on that path only. Grid charging is unaffected."
+msgstr ""
+"DC-coupled skips an inversion on the solar charging path — typically +3 "
+"to +5 percentage points on that path only. Grid charging is unaffected."
+
+msgid "Data quality"
+msgstr "Data quality"
+
+msgid "Day/night window"
+msgstr "Day/night window"
+
+msgid "Degradation cost"
+msgstr "Degradation cost"
+
+msgid "Delete analysis"
+msgstr "Delete analysis"
+
+msgid "Delete data"
+msgstr "Delete data"
+
+msgid "Delete the loaded data?"
+msgstr "Delete the loaded data?"
+
+msgid "Delete this analysis?"
+msgstr "Delete this analysis?"
+
+msgid "Discard changes"
+msgstr ""
+
+msgid "Discard your changes?"
+msgstr ""
+
+msgid "Discharge battery to cover house load"
+msgstr "Discharge battery to cover house load"
+
+msgid "Discharge policy"
+msgstr "Discharge policy"
+
+msgid "Discharged"
+msgstr "Discharged"
+
+msgid "Discharged from the battery"
+msgstr "Discharged from the battery"
+
+msgid "Do you already have a battery?"
+msgstr "Do you already have a battery?"
+
+msgid "Do you have solar PV?"
+msgstr "Do you have solar PV?"
+
+msgid "Dynamic"
+msgstr "Dynamic"
+
+msgid ""
+"Dynamic — the price follows the EPEX day-ahead market and changes every "
+"hour. Fixed — one normaal and one dal rate, agreed for the term of the "
+"contract. Variable — the supplier sets the rate and revises it "
+"periodically, typically every six months; between revisions it behaves "
+"exactly like a fixed contract."
+msgstr ""
+"Dynamic — the price follows the EPEX day-ahead market and changes every "
+"hour. Fixed — one normaal and one dal rate, agreed for the term of the "
+"contract. Variable — the supplier sets the rate and revises it "
+"periodically, typically every six months; between revisions it behaves "
+"exactly like a fixed contract."
+
+msgid "EQUIVALENT FULL CYCLES"
+msgstr "EQUIVALENT FULL CYCLES"
+
+msgid "Economic guard: never discharge at a loss"
+msgstr "Economic guard: never discharge at a loss"
+
+msgid "Edit analysis"
+msgstr ""
+
+msgid "Edit contract & rates →"
+msgstr ""
+
+msgid "Enable cost simulation"
+msgstr "Enable cost simulation"
+
+msgid "Energy flows"
+msgstr "Energy flows"
+
+msgid "Energy flows chart"
+msgstr "Energy flows chart"
+
+msgid "Energy savings"
+msgstr "Energy savings"
+
+msgid "Energy tax"
+msgstr "Energy tax"
+
+msgid "Enter a base URL and token first."
+msgstr "Enter a base URL and token first."
+
+msgid "Enter a number."
+msgstr "Enter a number."
+
+msgid "Entity"
+msgstr "Entity"
+
+msgid "Every 15 minutes"
+msgstr "Every 15 minutes"
+
+msgid ""
+"Every euro figure below is produced from your contract type and its rates"
+" — the supplier markup, energy tax, VAT, feed-in terms and the day/night "
+"window. Those are part of the workspace rather than of this simulation, "
+"so they are set on its edit screen. Change them there and come back: the "
+"figures are recalculated from the new rates."
+msgstr ""
+
+msgid "Export CSV"
+msgstr "Export CSV"
+
+msgid "Exported"
+msgstr "Exported"
+
+msgid "Extra grid import"
+msgstr "Extra grid import"
+
+msgid "Feed-in"
+msgstr "Feed-in"
+
+msgid "Feed-in floor top-up"
+msgstr ""
+
+msgid "Fetch history"
+msgstr "Fetch history"
+
+msgid ""
+"Fetched from your Home Assistant in your browser; the token never reaches"
+" this app."
+msgstr ""
+"Fetched from your Home Assistant in your browser; the token never reaches"
+" this app."
+
+#, python-format
+msgid "Fetching %(slot)s (%(n)s/%(total)s)…"
+msgstr "Fetching %(slot)s (%(n)s/%(total)s)…"
+
+msgid "Fixed"
+msgstr "Fixed"
+
+msgid "Flat rate"
+msgstr "Flat rate"
+
+#, python-format
+msgid ""
+"For the same reason, the self-sufficiency of %(measured)s shown for your "
+"household above differs from the %(simulated)s the Energy savings tile "
+"uses as its no-battery baseline. The first is measured from your meter; "
+"the second is what the simulation reproduces without a battery, and it is"
+" the one the battery is compared against so that both sides of that "
+"comparison rest on the same information."
+msgstr ""
+"For the same reason, the self-sufficiency of %(measured)s shown for your "
+"household above differs from the %(simulated)s the Energy savings tile "
+"uses as its no-battery baseline. The first is measured from your meter; "
+"the second is what the simulation reproduces without a battery, and it is"
+" the one the battery is compared against so that both sides of that "
+"comparison rest on the same information."
+
+msgid "From"
+msgstr "From"
+
+msgid "GRID IMPORT SAVED"
+msgstr "GRID IMPORT SAVED"
+
+msgid "Gaps"
+msgstr "Gaps"
+
+msgid "Grid"
+msgstr "Grid"
+
+msgid "Grid arbitrage export revenue"
+msgstr ""
+
+msgid "Grid charge when spot price is in band"
+msgstr "Grid charge when spot price is in band"
+
+msgid "Grid connection"
+msgstr "Grid connection"
+
+msgid "Grid consumption"
+msgstr "Grid consumption"
+
+msgid "Grid export"
+msgstr "Grid export"
+
+msgid "Grid export T1"
+msgstr "Grid export T1"
+
+msgid "Grid export T2"
+msgstr "Grid export T2"
+
+msgid "Grid import T1"
+msgstr "Grid import T1"
+
+msgid "Grid import T2"
+msgstr "Grid import T2"
+
+msgid "Grid import avoided"
+msgstr "Grid import avoided"
+
+msgid ""
+"Grid import exceeded household load over this window — your existing "
+"battery ended it more charged than it started. This evens out over full "
+"charge/discharge cycles."
+msgstr ""
+"Grid import exceeded household load over this window — your existing "
+"battery ended it more charged than it started. This evens out over full "
+"charge/discharge cycles."
+
+msgid "Grid import for charging"
+msgstr ""
+
+msgid "Grid import, no battery"
+msgstr "Grid import, no battery"
+
+msgid "Grid import, with battery"
+msgstr "Grid import, with battery"
+
+msgid "Grid power"
+msgstr "Grid power"
+
+msgid "Grid production"
+msgstr "Grid production"
+
+msgid "Grid-coupled battery"
+msgstr "Grid-coupled battery"
+
+msgid "HA error"
+msgstr "HA error"
+
+msgid "Home Assistant"
+msgstr "Home Assistant"
+
+msgid "Home Assistant connection"
+msgstr "Home Assistant connection"
+
+msgid "Home Assistant rejected the token."
+msgstr "Home Assistant rejected the token."
+
+#, python-format
+msgid "Home Assistant · %(n)s series · simulated %(res)s"
+msgid_plural "Home Assistant · %(n)s series · simulated %(res)s"
+msgstr[0] "Home Assistant · %(n)s series · simulated %(res)s"
+msgstr[1] "Home Assistant · %(n)s series · simulated %(res)s"
+
+msgid "Home Battery Simulator"
+msgstr "Home Battery Simulator"
+
+msgid "Hourly average"
+msgstr "Hourly average"
+
+msgid "House load"
+msgstr "House load"
+
+msgid "Household"
+msgstr "Household"
+
+msgid "How is your PV connected to the battery?"
+msgstr "How is your PV connected to the battery?"
+
+msgid "How is your battery connected across the phases?"
+msgstr "How is your battery connected across the phases?"
+
+msgid ""
+"If you would use it, say so. It tells us what to build next, and it is "
+"the only signal we get."
+msgstr ""
+"If you would use it, say so. It tells us what to build next, and it is "
+"the only signal we get."
+
+msgid "Imported"
+msgstr "Imported"
+
+msgid "Ingest connection closed early."
+msgstr "Ingest connection closed early."
+
+#, python-format
+msgid "Ingest rejected: %(reason)s"
+msgstr "Ingest rejected: %(reason)s"
+
+msgid "Initial SoC"
+msgstr "Initial SoC"
+
+msgid "Installation"
+msgstr ""
+
+msgid "Intervals battery was full / empty"
+msgstr "Intervals battery was full / empty"
+
+msgid "Keep editing"
+msgstr ""
+
+msgid "Language"
+msgstr "Language"
+
+msgid "Leave anyway"
+msgstr ""
+
+msgid "Loaded. Reloading…"
+msgstr "Loaded. Reloading…"
+
+#, python-format
+msgid "Loading %(slot)s…"
+msgstr "Loading %(slot)s…"
+
+msgid "Loading…"
+msgstr "Loading…"
+
+msgid "Location"
+msgstr ""
+
+msgid "Lost feed-in compensation"
+msgstr ""
+
+msgid "MONEY SAVED"
+msgstr ""
+
+msgid "Max charge power"
+msgstr "Max charge power"
+
+msgid "Max discharge power"
+msgstr "Max discharge power"
+
+msgid "Max export"
+msgstr ""
+
+msgid "Max import"
+msgstr ""
+
+msgid "Max state of charge"
+msgstr "Max state of charge"
+
+msgid "Maximise discharge when spot price is in band"
+msgstr "Maximise discharge when spot price is in band"
+
+msgid "Meter registers"
+msgstr "Meter registers"
+
+msgid "Min state of charge"
+msgstr "Min state of charge"
+
+msgid "Minimum state of charge must be below the maximum."
+msgstr "Minimum state of charge must be below the maximum."
+
+msgid "Monthly grid import"
+msgstr "Monthly grid import"
+
+msgid "Monthly savings (€)"
+msgstr ""
+
+msgid "More settings"
+msgstr ""
+
+msgid "Must be a whole number of at least 2."
+msgstr "Must be a whole number of at least 2."
+
+msgid "Must be between 0 and 100."
+msgstr "Must be between 0 and 100."
+
+msgid "Must be greater than zero."
+msgstr "Must be greater than zero."
+
+msgid ""
+"NL day-ahead spot prices from 2023 to today: committed on disk and "
+"bridged live to the end of your selected range."
+msgstr ""
+"NL day-ahead spot prices from 2023 to today: committed on disk and "
+"bridged live to the end of your selected range."
+
+msgid ""
+"NL day-ahead spot prices from mid-2022, extracted from the ENTSO-E "
+"transparency platform at their native hourly then quarter-hourly "
+"resolution."
+msgstr ""
+"NL day-ahead spot prices from mid-2022, extracted from the ENTSO-E "
+"transparency platform at their native hourly then quarter-hourly "
+"resolution."
+
+msgid "Name"
+msgstr ""
+
+msgid "Net saving"
+msgstr ""
+
+msgid "Next →"
+msgstr ""
+
+msgid "No"
+msgstr "No"
+
+msgid "No battery"
+msgstr "No battery"
+
+msgid "No data loaded yet."
+msgstr "No data loaded yet."
+
+msgid "Not built yet"
+msgstr "Not built yet"
+
+msgid "Not connected"
+msgstr "Not connected"
+
+msgid ""
+"Nothing to configure here: without solar, and on a 1-phase connection, "
+"the arrangement is fixed."
+msgstr ""
+
+msgid "On your meter cabinet, or on your grid operator bill."
+msgstr ""
+
+msgid "One conversion PV→battery"
+msgstr "One conversion PV→battery"
+
+msgid "Only a label, so you can tell your analyses apart."
+msgstr ""
+
+msgid ""
+"Optional. A signed instantaneous-power series. If you have this sensor, "
+"supplying it lets the app detect a clock offset between your meter and "
+"inverter — the main thing that can quietly distort a solar household's "
+"results."
+msgstr ""
+"Optional. A signed instantaneous-power series. If you have this sensor, "
+"supplying it lets the app detect a clock offset between your meter and "
+"inverter — the main thing that can quietly distort a solar household's "
+"results."
+
+msgid ""
+"Optional. The app reconstructs household load from your grid meter, "
+"adding back any solar and existing-battery data you supply (with neither,"
+" it is just your grid load). If you have a direct house-load sensor, "
+"supplying it uses the real thing and shows how far the reconstruction "
+"would have drifted."
+msgstr ""
+"Optional. The app reconstructs household load from your grid meter, "
+"adding back any solar and existing-battery data you supply (with neither,"
+" it is just your grid load). If you have a direct house-load sensor, "
+"supplying it uses the real thing and shows how far the reconstruction "
+"would have drifted."
+
+msgid ""
+"Over this period even a perfectly-informed battery could not have avoided"
+" any grid import, so there is no capture ratio to report."
+msgstr ""
+"Over this period even a perfectly-informed battery could not have avoided"
+" any grid import, so there is no capture ratio to report."
+
+msgid ""
+"Over this period even a perfectly-informed battery could not have saved "
+"any money, so there is no capture ratio to report."
+msgstr ""
+
+msgid ""
+"Over this period the statutory feed-in floor paid out, and the benchmark "
+"cannot see it: the floor is assessed over a whole billing period while "
+"the benchmark optimises each interval on its own. The ceiling above is "
+"therefore approximate for this period, and it is a floor on the ceiling "
+"rather than a hard one — a policy could in principle earn a larger top-up"
+" than the benchmark's dispatch does."
+msgstr ""
+
+msgid "Override these only if your operator has set a different limit."
+msgstr ""
+
+msgid "PV only"
+msgstr "PV only"
+
+msgid "Perfect foresight"
+msgstr "Perfect foresight"
+
+msgid "Period"
+msgstr "Period"
+
+msgid ""
+"Pick where each series comes from. Choose a source per slot; for Home "
+"Assistant, connect once from the source drawer (Configure) and that "
+"connection is reused across every slot that uses it."
+msgstr ""
+"Pick where each series comes from. Choose a source per slot; for Home "
+"Assistant, connect once from the source drawer (Configure) and that "
+"connection is reused across every slot that uses it."
+
+msgid ""
+"Please tell us about your setup — inverter model, phase allocation, and "
+"whether you have per-phase sensors. It directly determines whether this "
+"lands in version 2."
+msgstr ""
+"Please tell us about your setup — inverter model, phase allocation, and "
+"whether you have per-phase sensors. It directly determines whether this "
+"lands in version 2."
+
+msgid "Postcode"
+msgstr ""
+
+msgid "Preset historical (ENTSO-E NL)"
+msgstr "Preset historical (ENTSO-E NL)"
+
+msgid "Preset historical (Energy-Charts NL)"
+msgstr "Preset historical (Energy-Charts NL)"
+
+msgid ""
+"Priced under the 2027 regime from the contract you entered. See the "
+"caveats below."
+msgstr ""
+
+msgid "Produced"
+msgstr "Produced"
+
+msgid "RESULTS"
+msgstr "RESULTS"
+
+#, python-format
+msgid ""
+"Reconstructed household load was negative in a large share of intervals "
+"and clamped to zero (%(discarded)s discarded against %(exported)s "
+"exported). This usually means solar export the PV sensor did not report, "
+"or an unmapped battery — so the load and self-sufficiency figures here "
+"are unreliable."
+msgstr ""
+"Reconstructed household load was negative in a large share of intervals "
+"and clamped to zero (%(discarded)s discarded against %(exported)s "
+"exported). This usually means solar export the PV sensor did not report, "
+"or an unmapped battery — so the load and self-sufficiency figures here "
+"are unreliable."
+
+#, python-format
+msgid ""
+"Reconstructed load is negative in %(n)s intervals (%(pct)s). Usually "
+"means the solar sensor does not cover the whole house, or a clock offset "
+"between sensors."
+msgstr ""
+"Reconstructed load is negative in %(n)s intervals (%(pct)s). Usually "
+"means the solar sensor does not cover the whole house, or a clock offset "
+"between sensors."
+
+msgid "Recorded at"
+msgstr "Recorded at"
+
+msgid "Req"
+msgstr "Req"
+
+msgid "Results"
+msgstr "Results"
+
+msgid "Role"
+msgstr "Role"
+
+msgid "Round-trip efficiency"
+msgstr "Round-trip efficiency"
+
+msgid "Round-trip efficiency must be above 50 and at most 100."
+msgstr "Round-trip efficiency must be above 50 and at most 100."
+
+msgid "SELF-SUFFICIENCY"
+msgstr "SELF-SUFFICIENCY"
+
+msgid "Save"
+msgstr ""
+
+msgid "Secondary metrics"
+msgstr "Secondary metrics"
+
+msgid "Self-consumption"
+msgstr "Self-consumption"
+
+msgid "Self-consumption ratio"
+msgstr "Self-consumption ratio"
+
+msgid "Self-sufficiency"
+msgstr "Self-sufficiency"
+
+msgid ""
+"Self-sufficiency came out below zero and is shown as zero. Grid import "
+"exceeded the reconstructed household load over this period — the battery "
+"ended more charged than it started, or round-trip losses consumed "
+"imported energy. It evens out over full charge/discharge cycles; select a"
+" longer period to see it."
+msgstr ""
+"Self-sufficiency came out below zero and is shown as zero. Grid import "
+"exceeded the reconstructed household load over this period — the battery "
+"ended more charged than it started, or round-trip losses consumed "
+"imported energy. It evens out over full charge/discharge cycles; select a"
+" longer period to see it."
+
+msgid "Series"
+msgstr "Series"
+
+msgid "Series slots"
+msgstr "Series slots"
+
+msgid "Serve house load when consumption exceeds solar"
+msgstr "Serve house load when consumption exceeds solar"
+
+msgid "Set up my contract →"
+msgstr ""
+
+msgid "Set up your contract first"
+msgstr ""
+
+msgid "Settlement"
+msgstr "Settlement"
+
+msgid "Shared across all slots that use Home Assistant"
+msgstr "Shared across all slots that use Home Assistant"
+
+msgid "Simulate cost savings?"
+msgstr "Simulate cost savings?"
+
+#, python-format
+msgid ""
+"Simulated at %(res)s resolution. A 5-minute re-run over the last %(n)s "
+"days gives %(delta)s lower savings — hourly buckets hide within-hour "
+"import/export overlap and flatter the battery. Treat the headline figure "
+"as an upper bound."
+msgstr ""
+"Simulated at %(res)s resolution. A 5-minute re-run over the last %(n)s "
+"days gives %(delta)s lower savings — hourly buckets hide within-hour "
+"import/export overlap and flatter the battery. Treat the headline figure "
+"as an upper bound."
+
+msgid "Simulation grid"
+msgstr "Simulation grid"
+
+msgid "SoC + price"
+msgstr "SoC + price"
+
+msgid "SoC + price chart"
+msgstr "SoC + price chart"
+
+msgid "Solar"
+msgstr "Solar"
+
+msgid "Solar production"
+msgstr "Solar production"
+
+msgid "Solar surplus only (net zero at the grid)"
+msgstr "Solar surplus only (net zero at the grid)"
+
+msgid ""
+"Some of the export this battery avoided would have earned a NEGATIVE net "
+"amount — the terugleverkosten on it exceeded the compensation — so not "
+"exporting is counted as a gain rather than as a loss. That is how the "
+"2027 regime works and not an error in the arithmetic."
+msgstr ""
+
+msgid "Source"
+msgstr "Source"
+
+msgid "Spot price"
+msgstr "Spot price"
+
+msgid "Spot price over this period"
+msgstr "Spot price over this period"
+
+#, python-format
+msgid ""
+"Spot prices are quarter-hourly but the run is %(res)s, so the battery "
+"acted on an averaged price and could not chase within-hour swings."
+msgstr ""
+"Spot prices are quarter-hourly but the run is %(res)s, so the battery "
+"acted on an averaged price and could not chase within-hour swings."
+
+#, python-format
+msgid ""
+"Spot prices are recorded every %(native)s but the run is %(res)s, so the "
+"battery acted on an averaged price and could not chase within-interval "
+"swings."
+msgstr ""
+"Spot prices are recorded every %(native)s but the run is %(res)s, so the "
+"battery acted on an averaged price and could not chase within-interval "
+"swings."
+
+msgid "Standby consumption"
+msgstr "Standby consumption"
+
+msgid "Standby draw"
+msgstr "Standby draw"
+
+msgid "Standby draw cannot be negative."
+msgstr "Standby draw cannot be negative."
+
+msgid ""
+"Stays in your browser. It is sent only to your Home Assistant, never to "
+"this app."
+msgstr ""
+"Stays in your browser. It is sent only to your Home Assistant, never to "
+"this app."
+
+#, python-format
+msgid "Step %(n)s of %(total)s"
+msgstr ""
+
+msgid "Supplier markup"
+msgstr "Supplier markup"
+
+msgid "T1 ✓ mapped    T2 ✓ mapped, active"
+msgstr "T1 ✓ mapped    T2 ✓ mapped, active"
+
+msgid "Terugleverkosten"
+msgstr "Terugleverkosten"
+
+msgid "Test connection"
+msgstr "Test connection"
+
+msgid "Thanks. We have recorded that you want this."
+msgstr "Thanks. We have recorded that you want this."
+
+#, python-format
+msgid ""
+"The battery ended the period %(drift)s less charged than it started. That"
+" residual energy is not part of the saving above and is large relative to"
+" it, so the headline figure would move if the period ended at a different"
+" state of charge."
+msgstr ""
+"The battery ended the period %(drift)s less charged than it started. That"
+" residual energy is not part of the saving above and is large relative to"
+" it, so the headline figure would move if the period ended at a different"
+" state of charge."
+
+#, python-format
+msgid ""
+"The battery ended the period %(drift)s more charged than it started. That"
+" residual energy is not part of the saving above and is large relative to"
+" it, so the headline figure would move if the period ended at a different"
+" state of charge."
+msgstr ""
+"The battery ended the period %(drift)s more charged than it started. That"
+" residual energy is not part of the saving above and is large relative to"
+" it, so the headline figure would move if the period ended at a different"
+" state of charge."
+
+#, python-format
+msgid ""
+"The best possible dispatch over this period could not have avoided any "
+"grid import, yet your policy shows %(policy)s avoided. That figure is not"
+" something a perfectly-informed battery could reproduce: the benchmark "
+"must return the battery to the state of charge it started from, and your "
+"policy did not. There is no capture ratio to report for this period."
+msgstr ""
+"The best possible dispatch over this period could not have avoided any "
+"grid import, yet your policy shows %(policy)s avoided. That figure is not"
+" something a perfectly-informed battery could reproduce: the benchmark "
+"must return the battery to the state of charge it started from, and your "
+"policy did not. There is no capture ratio to report for this period."
+
+#, python-format
+msgid ""
+"The best possible dispatch over this period could not have saved any "
+"money, yet your policy shows %(policy)s saved. That figure is not "
+"something a perfectly-informed battery could reproduce: the benchmark "
+"must return the battery to the state of charge it started from, and your "
+"policy did not. There is no capture ratio to report for this period."
+msgstr ""
+
+msgid ""
+"The charge band and the discharge band overlap; charge and discharge "
+"requests will be netted against each other."
+msgstr ""
+"The charge band and the discharge band overlap; charge and discharge "
+"requests will be netted against each other."
+
+msgid ""
+"The comparison against a perfectly-informed battery did not come out "
+"usable over this period: your policy appears to have avoided more grid "
+"import than the best possible dispatch, which cannot happen and means the"
+" two figures are not comparable here. No capture ratio is shown. "
+"Selecting a longer period usually resolves it."
+msgstr ""
+"The comparison against a perfectly-informed battery did not come out "
+"usable over this period: your policy appears to have avoided more grid "
+"import than the best possible dispatch, which cannot happen and means the"
+" two figures are not comparable here. No capture ratio is shown. "
+"Selecting a longer period usually resolves it."
+
+msgid "The connection must be 1-phase or 3-phase."
+msgstr "The connection must be 1-phase or 3-phase."
+
+msgid ""
+"The euro figures count only the part of your bill that responds to what "
+"you do with your electricity. Standing charges — vastrecht, "
+"netbeheerkosten and the vermindering energiebelasting — are left out, "
+"because they do not change when a battery is installed and would cancel "
+"out of the comparison anyway. So these are not two invoice totals; they "
+"are the two halves of your bill a battery can move."
+msgstr ""
+
+msgid ""
+"The initial state of charge is outside the operating window and will be "
+"clamped at the first interval."
+msgstr ""
+"The initial state of charge is outside the operating window and will be "
+"clamped at the first interval."
+
+msgid "The lower bound is above the upper bound, so this band never fires."
+msgstr "The lower bound is above the upper bound, so this band never fires."
+
+#, python-format
+msgid ""
+"The measurements loaded into \"%(title)s\" will be deleted, along with "
+"the results computed from them."
+msgstr ""
+"The measurements loaded into \"%(title)s\" will be deleted, along with "
+"the results computed from them."
+
+msgid "The perfect-foresight benchmark could not be computed for this period."
+msgstr "The perfect-foresight benchmark could not be computed for this period."
+
+msgid ""
+"The round-trip efficiency plus the DC bonus exceeds 100, so the DC charge"
+" path would create energy."
+msgstr ""
+"The round-trip efficiency plus the DC bonus exceeds 100, so the DC charge"
+" path would create energy."
+
+msgid "The run uses"
+msgstr "The run uses"
+
+msgid ""
+"The share of your household consumption met without drawing from the "
+"grid: 1 − grid import ÷ consumption. The left figure is the baseline — "
+"what this same period would have looked like without a battery — and the "
+"right figure is the simulated result with the battery you configured. "
+"Both come from the simulation, so the two are a like-for-like comparison."
+" This is why the left figure can differ by a point or two from the self-"
+"sufficiency shown for your household higher up the page: that one is "
+"measured straight from your meter. Your meter records importing and "
+"exporting at separate moments within the same hour, whereas the "
+"simulation works in whole intervals, so those partly cancel out and it "
+"reproduces slightly less grid import. Comparing your measured figure "
+"against a simulated one would overstate what the battery adds."
+msgstr ""
+"The share of your household consumption met without drawing from the "
+"grid: 1 − grid import ÷ consumption. The left figure is the baseline — "
+"what this same period would have looked like without a battery — and the "
+"right figure is the simulated result with the battery you configured. "
+"Both come from the simulation, so the two are a like-for-like comparison."
+" This is why the left figure can differ by a point or two from the self-"
+"sufficiency shown for your household higher up the page: that one is "
+"measured straight from your meter. Your meter records importing and "
+"exporting at separate moments within the same hour, whereas the "
+"simulation works in whole intervals, so those partly cancel out and it "
+"reproduces slightly less grid import. Comparing your measured figure "
+"against a simulated one would overstate what the battery adds."
+
+msgid ""
+"The share of your household consumption met without drawing from the "
+"grid: self-sufficiency = 1 − grid import ÷ consumption. 0% means every "
+"kWh came from the grid; higher means more was covered by your own solar "
+"(and existing battery). It uses the reconstructed consumption above."
+msgstr ""
+"The share of your household consumption met without drawing from the "
+"grid: self-sufficiency = 1 − grid import ÷ consumption. 0% means every "
+"kWh came from the grid; higher means more was covered by your own solar "
+"(and existing battery). It uses the reconstructed consumption above."
+
+msgid ""
+"The share of your solar production you used yourself rather than "
+"exporting: self-consumption = 1 − grid export ÷ solar produced, measured "
+"over the period your solar data covers. 100% means none of your "
+"production was exported; lower means more went back to the grid."
+msgstr ""
+"The share of your solar production you used yourself rather than "
+"exporting: self-consumption = 1 − grid export ÷ solar produced, measured "
+"over the period your solar data covers. 100% means none of your "
+"production was exported; lower means more went back to the grid."
+
+msgid ""
+"The statutory feed-in floor paid out over this period. It is assessed "
+"over a whole billing period rather than hour by hour, so it appears as "
+"its own line in the money breakdown and is left out of the monthly "
+"savings chart, whose bars therefore add up to slightly less than the "
+"headline figure."
+msgstr ""
+
+msgid ""
+"These answers could not be saved and will be lost when the app restarts. "
+"Check that the data directory is writable."
+msgstr ""
+
+msgid ""
+"These answers decide which series are asked for below. They are saved "
+"when you fetch your data."
+msgstr ""
+"These answers decide which series are asked for below. They are saved "
+"when you fetch your data."
+
+msgid ""
+"These come from the battery you already own. The consumption and self-"
+"consumption figures above are reconstructed net of it, so they describe "
+"the house rather than the meter."
+msgstr ""
+"These come from the battery you already own. The consumption and self-"
+"consumption figures above are reconstructed net of it, so they describe "
+"the house rather than the meter."
+
+msgid ""
+"These parameters could not be saved and will be lost when the app "
+"restarts. Check that the data directory is writable."
+msgstr ""
+"These parameters could not be saved and will be lost when the app "
+"restarts. Check that the data directory is writable."
+
+msgid ""
+"These settings could not be saved and will be lost when the app restarts."
+" Check that the data directory is writable."
+msgstr ""
+
+msgid "This answer decides whether the app reports euros as well as kWh."
+msgstr "This answer decides whether the app reports euros as well as kWh."
+
+#, python-format
+msgid ""
+"This battery imported %(extra)s MORE from the grid than the same "
+"household without one. That is a real result, not an error: round-trip "
+"losses and standby cost energy, and the value of charging cheaply and "
+"discharging when prices are high is a price spread — a euro quantity this"
+" energy-only run does not compute. An energy-only run cannot tell you "
+"whether the battery is worth buying."
+msgstr ""
+"This battery imported %(extra)s MORE from the grid than the same "
+"household without one. That is a real result, not an error: round-trip "
+"losses and standby cost energy, and the value of charging cheaply and "
+"discharging when prices are high is a price spread — a euro quantity this"
+" energy-only run does not compute. An energy-only run cannot tell you "
+"whether the battery is worth buying."
+
+#, python-format
+msgid ""
+"This battery imported %(extra)s MORE from the grid than the same "
+"household without one. That is a real result, not an error: round-trip "
+"losses and standby cost energy. The battery's value is in the price "
+"spread — charging cheaply and discharging when prices are high — which is"
+" a euro quantity, so read the cost savings below rather than this figure "
+"to judge whether it is worth buying."
+msgstr ""
+
+msgid "This cannot be undone."
+msgstr "This cannot be undone."
+
+msgid "This control"
+msgstr "This control"
+
+msgid ""
+"This is how your supplier bills you, not how the market settles. Most "
+"Dutch dynamic contracts still bill the hourly average."
+msgstr ""
+"This is how your supplier bills you, not how the market settles. Most "
+"Dutch dynamic contracts still bill the hourly average."
+
+msgid ""
+"This is priced under the post-2027 regime, in which net metering no "
+"longer exists. Several of those tariffs are not yet published — the "
+"terugleverkosten rate in particular is a placeholder — so the euro "
+"figures move with the contract you entered in the parameters panel and "
+"should be read as a scenario rather than as a quotation."
+msgstr ""
+
+msgid ""
+"This option needs solar panels: it charges the battery only from solar "
+"surplus, so without PV it would never charge at all. Answer \"Yes\" to "
+"\"Do you have solar PV?\" at the top of the Data panel to use it."
+msgstr ""
+"This option needs solar panels: it charges the battery only from solar "
+"surplus, so without PV it would never charge at all. Answer \"Yes\" to "
+"\"Do you have solar PV?\" at the top of the Data panel to use it."
+
+msgid ""
+"This option needs solar panels: it combines solar-surplus charging with "
+"grid charging. Without PV only the grid half would run, which is exactly "
+"what \"Grid charge when spot price is in band\" already does. Answer "
+"\"Yes\" to \"Do you have solar PV?\" at the top of the Data panel to use "
+"it."
+msgstr ""
+"This option needs solar panels: it combines solar-surplus charging with "
+"grid charging. Without PV only the grid half would run, which is exactly "
+"what \"Grid charge when spot price is in band\" already does. Answer "
+"\"Yes\" to \"Do you have solar PV?\" at the top of the Data panel to use "
+"it."
+
+msgid "Title"
+msgstr ""
+
+msgid "To"
+msgstr "To"
+
+msgid ""
+"To put a euro figure on your savings, the app needs to know what you pay "
+"for electricity — your contract type and its rates."
+msgstr ""
+
+msgid "Token"
+msgstr "Token"
+
+msgid "Two conversions PV→battery"
+msgstr "Two conversions PV→battery"
+
+msgid "Type"
+msgstr ""
+
+msgid "Update"
+msgstr "Update"
+
+msgid "Upload CSV"
+msgstr "Upload CSV"
+
+msgid "Usable capacity"
+msgstr "Usable capacity"
+
+msgid "Usable capacity must be greater than zero."
+msgstr "Usable capacity must be greater than zero."
+
+msgid ""
+"Used to work out sunrise and sunset at your address. Nothing is sent "
+"anywhere — the calculation is local."
+msgstr ""
+
+msgid ""
+"Uses the shared Home Assistant connection — configure it once (the button"
+" above), then fetch history for all Home Assistant slots together."
+msgstr ""
+"Uses the shared Home Assistant connection — configure it once (the button"
+" above), then fetch history for all Home Assistant slots together."
+
+msgid "VAT"
+msgstr "VAT"
+
+msgid "Variable"
+msgstr "Variable"
+
+msgid "Want to know what this is worth in euros?"
+msgstr "Want to know what this is worth in euros?"
+
+msgid "Where the energy comes from"
+msgstr "Where the energy comes from"
+
+msgid "Where the money comes from"
+msgstr ""
+
+msgid "Where these figures come from"
+msgstr ""
+
+msgid "Why is this greyed out?"
+msgstr ""
+
+msgid "Yes"
+msgstr "Yes"
+
+msgid ""
+"You changed where some of your data comes from, but have not fetched it. "
+"Your results will still be based on the data loaded earlier."
+msgstr ""
+
+msgid ""
+"You have changes on this screen that have not been saved. Leaving now "
+"discards them."
+msgstr ""
+
+msgid "You have no analyses yet."
+msgstr "You have no analyses yet."
+
+msgid "You have not loaded your data yet"
+msgstr ""
+
+msgid "You have not set those up for this analysis yet."
+msgstr ""
+
+msgid "Your analyses"
+msgstr "Your analyses"
+
+#, python-format
+msgid ""
+"Your battery ended this period %(residual)s less charged than it started,"
+" so part of the grid import it avoided was paid for out of the charge it "
+"began with rather than earned by its dispatch. The benchmark is not "
+"allowed to do that — it must finish at the state of charge it started "
+"from — so the two are only comparable once that residual is accounted "
+"for. On that basis your policy captures %(pct)s percent of the grid "
+"import a perfectly-informed battery could have avoided. Perfect foresight"
+" knows every future price exactly and no real controller reaches it, so "
+"treat this as a floor on what a better policy could achieve, not as a "
+"target."
+msgstr ""
+"Your battery ended this period %(residual)s less charged than it started,"
+" so part of the grid import it avoided was paid for out of the charge it "
+"began with rather than earned by its dispatch. The benchmark is not "
+"allowed to do that — it must finish at the state of charge it started "
+"from — so the two are only comparable once that residual is accounted "
+"for. On that basis your policy captures %(pct)s percent of the grid "
+"import a perfectly-informed battery could have avoided. Perfect foresight"
+" knows every future price exactly and no real controller reaches it, so "
+"treat this as a floor on what a better policy could achieve, not as a "
+"target."
+
+#, python-format
+msgid ""
+"Your battery ended this period %(residual)s less charged than it started,"
+" so part of the money it saved was paid for out of the charge it began "
+"with rather than earned by its dispatch. The benchmark is not allowed to "
+"do that — it must finish at the state of charge it started from. In "
+"kilowatt-hours the two can be put back on a comparable footing; in euros "
+"they cannot, because what that leftover charge was worth depends on when "
+"it was used, and the two dispatches use it at different times. So no "
+"capture ratio is shown for this period. Selecting a period that starts "
+"and ends at a similar state of charge gives a comparison in euros."
+msgstr ""
+
+msgid ""
+"Your battery is wired across the phases in a way version 1 does not "
+"model, so this run uses the 3-phase approximation you accepted. Because a"
+" smart meter nets across phases the energy result should be close; what "
+"is not modelled is the per-phase power limit, which a 1-phase battery "
+"cannot exceed however the load is distributed."
+msgstr ""
+"Your battery is wired across the phases in a way version 1 does not "
+"model, so this run uses the 3-phase approximation you accepted. Because a"
+" smart meter nets across phases the energy result should be close; what "
+"is not modelled is the per-phase power limit, which a 1-phase battery "
+"cannot exceed however the load is distributed."
+
+msgid ""
+"Your connection, contract and battery settings are kept. You will need to"
+" choose your data sources again."
+msgstr ""
+"Your connection, contract and battery settings are kept. You will need to"
+" choose your data sources again."
+
+msgid "Your data at a glance"
+msgstr "Your data at a glance"
+
+#, python-format
+msgid ""
+"Your energy data is hourly, but the electricity market prices every 15 "
+"minutes, so for %(share)s of the priced hours here the simulation cannot "
+"see when inside the hour your electricity actually moved. In the worst "
+"case — every one of those hours landing on its least favourable quarter —"
+" that shifts the saving shown on this page by %(width)s. Treat it as a "
+"bound on how far the pricing could be off, not as a typical error: a real"
+" hour will sit somewhere inside its quarters, and this run cannot tell "
+"you where."
+msgstr ""
+"Your energy data is hourly, but the electricity market prices every 15 "
+"minutes, so for %(share)s of the priced hours here the simulation cannot "
+"see when inside the hour your electricity actually moved. In the worst "
+"case — every one of those hours landing on its least favourable quarter —"
+" that shifts the saving shown on this page by %(width)s. Treat it as a "
+"bound on how far the pricing could be off, not as a typical error: a real"
+" hour will sit somewhere inside its quarters, and this run cannot tell "
+"you where."
+
+#, python-format
+msgid ""
+"Your energy data is hourly, but the electricity market prices every 15 "
+"minutes, so the simulation cannot see when inside each priced hour your "
+"electricity actually moved. In the worst case — every priced hour landing"
+" on its least favourable quarter — that shifts the saving shown on this "
+"page by %(width)s. Treat it as a bound on how far the pricing could be "
+"off, not as a typical error: a real hour will sit somewhere inside its "
+"quarters, and this run cannot tell you where."
+msgstr ""
+"Your energy data is hourly, but the electricity market prices every 15 "
+"minutes, so the simulation cannot see when inside each priced hour your "
+"electricity actually moved. In the worst case — every priced hour landing"
+" on its least favourable quarter — that shifts the saving shown on this "
+"page by %(width)s. Treat it as a bound on how far the pricing could be "
+"off, not as a typical error: a real hour will sit somewhere inside its "
+"quarters, and this run cannot tell you where."
+
+msgid "Your energy use during the selected period"
+msgstr "Your energy use during the selected period"
+
+msgid "Your existing battery"
+msgstr "Your existing battery"
+
+msgid ""
+"Your existing battery's charge series. It is used only to work out what "
+"your house actually consumed: the app adds it back when reconstructing "
+"load from your grid meter. The battery simulated below does not build on "
+"it — the simulation assumes your existing battery is replaced by the one "
+"you configure."
+msgstr ""
+"Your existing battery's charge series. It is used only to work out what "
+"your house actually consumed: the app adds it back when reconstructing "
+"load from your grid meter. The battery simulated below does not build on "
+"it — the simulation assumes your existing battery is replaced by the one "
+"you configure."
+
+msgid ""
+"Your existing battery's discharge series. It is used only to work out "
+"what your house actually consumed: the app subtracts it when "
+"reconstructing load from your grid meter. The battery simulated below "
+"does not build on it — the simulation assumes your existing battery is "
+"replaced by the one you configure."
+msgstr ""
+"Your existing battery's discharge series. It is used only to work out "
+"what your house actually consumed: the app subtracts it when "
+"reconstructing load from your grid meter. The battery simulated below "
+"does not build on it — the simulation assumes your existing battery is "
+"replaced by the one you configure."
+
+#, python-format
+msgid ""
+"Your meter recorded %(meter)s imported over this period; the simulation's"
+" no-battery baseline is %(baseline)s. The difference of %(difference)s is"
+" energy that flowed both into and out of your house within a single "
+"%(res)s interval, which data at this resolution cannot see. Everything "
+"under Energy savings is computed from the simulated baseline, so that the"
+" battery and no-battery cases are built from the same information; the "
+"figures above it are as your meter recorded them. That is why the two "
+"sets of numbers do not match exactly."
+msgstr ""
+"Your meter recorded %(meter)s imported over this period; the simulation's"
+" no-battery baseline is %(baseline)s. The difference of %(difference)s is"
+" energy that flowed both into and out of your house within a single "
+"%(res)s interval, which data at this resolution cannot see. Everything "
+"under Energy savings is computed from the simulated baseline, so that the"
+" battery and no-battery cases are built from the same information; the "
+"figures above it are as your meter recorded them. That is why the two "
+"sets of numbers do not match exactly."
+
+msgid "Your policy"
+msgstr "Your policy"
+
+#, python-format
+msgid ""
+"Your policy captures %(pct)s of the grid import a perfectly-informed "
+"battery could have avoided. Allowed to export, that ceiling rises to "
+"%(ceiling)s (a %(unc_pct)s capture) — the extra is arbitrage your export "
+"setting currently forbids."
+msgstr ""
+"Your policy captures %(pct)s of the grid import a perfectly-informed "
+"battery could have avoided. Allowed to export, that ceiling rises to "
+"%(ceiling)s (a %(unc_pct)s capture) — the extra is arbitrage your export "
+"setting currently forbids."
+
+#, python-format
+msgid ""
+"Your policy captures %(pct)s percent of the grid import a perfectly-"
+"informed battery could have avoided. Perfect foresight knows every future"
+" price exactly and no real controller reaches it, so treat this as a "
+"floor on what a better policy could achieve, not as a target."
+msgstr ""
+"Your policy captures %(pct)s percent of the grid import a perfectly-"
+"informed battery could have avoided. Perfect foresight knows every future"
+" price exactly and no real controller reaches it, so treat this as a "
+"floor on what a better policy could achieve, not as a target."
+
+#, python-format
+msgid ""
+"Your policy captures %(pct)s percent of the grid import a perfectly-"
+"informed battery could have avoided. Perfect foresight knows every future"
+" price exactly and no real controller reaches it, so treat this as a "
+"floor on what a better policy could achieve, not as a target. Allowed to "
+"export, that ceiling rises to %(ceiling)s (a %(unc_pct)s percent capture)"
+" — the extra is arbitrage your export setting currently forbids."
+msgstr ""
+"Your policy captures %(pct)s percent of the grid import a perfectly-"
+"informed battery could have avoided. Perfect foresight knows every future"
+" price exactly and no real controller reaches it, so treat this as a "
+"floor on what a better policy could achieve, not as a target. Allowed to "
+"export, that ceiling rises to %(ceiling)s (a %(unc_pct)s percent capture)"
+" — the extra is arbitrage your export setting currently forbids."
+
+#, python-format
+msgid ""
+"Your policy captures %(pct)s percent of the money a perfectly-informed "
+"battery could have saved. A different ceiling from the energy benchmark, "
+"and a different dispatch behind it: buying cheaply is not the same as "
+"importing little."
+msgstr ""
+
+#, python-format
+msgid ""
+"Your policy captures %(pct)s percent of the money a perfectly-informed "
+"battery could have saved. A different ceiling from the energy benchmark, "
+"and a different dispatch behind it: buying cheaply is not the same as "
+"importing little. Allowed to export, that ceiling rises to %(ceiling)s (a"
+" %(unc_pct)s percent capture) — the extra is arbitrage your export "
+"setting currently forbids."
+msgstr ""
+
+#, python-format
+msgid ""
+"Your prices change every %(native)s but the run is %(res)s, so the run "
+"sees one averaged price per interval and cannot act on within-interval "
+"swings."
+msgstr ""
+"Your prices change every %(native)s but the run is %(res)s, so the run "
+"sees one averaged price per interval and cannot act on within-interval "
+"swings."
+
+#, python-format
+msgid ""
+"Your prices change every 15 minutes but your meter records %(res)s, so "
+"the run sees one averaged price per hour and cannot act on within-hour "
+"swings."
+msgstr ""
+"Your prices change every 15 minutes but your meter records %(res)s, so "
+"the run sees one averaged price per hour and cannot act on within-hour "
+"swings."
+
+msgid "Your setup — battery on the AC side, no solar"
+msgstr "Your setup — battery on the AC side, no solar"
+
+msgid ""
+"Your smart meter nets across phases, so the financial result would be "
+"close to the 3-phase case. What we cannot model without per-phase data is"
+" the per-phase power limit — a 1-phase battery cannot exceed one phase’s "
+"fuse rating no matter how the load is distributed."
+msgstr ""
+"Your smart meter nets across phases, so the financial result would be "
+"close to the 3-phase case. What we cannot model without per-phase data is"
+" the per-phase power limit — a 1-phase battery cannot exceed one phase’s "
+"fuse rating no matter how the load is distributed."
+
+msgid ""
+"Your smart meter only sees energy crossing the grid connection, so "
+"household consumption is reconstructed: load = grid import − grid export "
+"+ solar produced + battery discharged − battery charged. Because you have"
+" an existing battery, its charge and discharge are included, so this is "
+"your consumption net of that battery. Intervals where the result is "
+"negative (a data problem) are clamped to zero."
+msgstr ""
+"Your smart meter only sees energy crossing the grid connection, so "
+"household consumption is reconstructed: load = grid import − grid export "
+"+ solar produced + battery discharged − battery charged. Because you have"
+" an existing battery, its charge and discharge are included, so this is "
+"your consumption net of that battery. Intervals where the result is "
+"negative (a data problem) are clamped to zero."
+
+msgid ""
+"Your smart meter only sees energy crossing the grid connection, so "
+"household consumption is reconstructed: load = grid import − grid export "
+"+ solar produced. Intervals where the result is negative (a data problem)"
+" are clamped to zero."
+msgstr ""
+"Your smart meter only sees energy crossing the grid connection, so "
+"household consumption is reconstructed: load = grid import − grid export "
+"+ solar produced. Intervals where the result is negative (a data problem)"
+" are clamped to zero."
+
+msgid "Your supplier bills"
+msgstr "Your supplier bills"
+
+msgid "as your meter recorded them"
+msgstr "as your meter recorded them"
+
+msgid "blank = derived from the connection"
+msgstr ""
+
+msgid "blank = same as import"
+msgstr ""
+
+msgid "change"
+msgstr "change"
+
+msgid "choose entity…"
+msgstr "choose entity…"
+
+msgid "close"
+msgstr "close"
+
+msgid "compensation = max(0, α × bare + β)"
+msgstr "compensation = max(0, α × bare + β)"
+
+msgid "computing the perfect-foresight benchmark…"
+msgstr "computing the perfect-foresight benchmark…"
+
+msgid "computing…"
+msgstr ""
+
+msgid "connection closed"
+msgstr "connection closed"
+
+msgid "custom"
+msgstr "custom"
+
+msgid "daily"
+msgstr "daily"
+
+msgid "dal from"
+msgstr "dal from"
+
+msgid "dates read day/month/year"
+msgstr "dates read day/month/year"
+
+msgid "dates read month/day/year"
+msgstr "dates read month/day/year"
+
+msgid "dates read year/month/day"
+msgstr "dates read year/month/day"
+
+msgid "day"
+msgid_plural "days"
+msgstr[0] "day"
+msgstr[1] "days"
+
+msgid "disabled"
+msgstr ""
+
+msgid "excl. VAT"
+msgstr "excl. VAT"
+
+msgid "excl. VAT — 2026 value"
+msgstr "excl. VAT — 2026 value"
+
+msgid "export CSV"
+msgstr "export CSV"
+
+msgid "flat, per fed-in kWh"
+msgstr "flat, per fed-in kWh"
+
+msgid "h"
+msgstr "h"
+
+msgid "high"
+msgstr "high"
+
+msgid "hourly"
+msgstr "hourly"
+
+#, python-format
+msgid "import T1 %(t1)s · T2 %(t2)s"
+msgstr "import T1 %(t1)s · T2 %(t2)s"
+
+msgid "irregular"
+msgstr "irregular"
+
+msgid ""
+"is part of the plan for this simulator, but it is not built yet. The app "
+"is being written one feature at a time and this one has not been reached."
+msgstr ""
+"is part of the plan for this simulator, but it is not built yet. The app "
+"is being written one feature at a time and this one has not been reached."
+
+msgid "kWh"
+msgstr "kWh"
+
+msgid "last 1 week"
+msgstr "last 1 week"
+
+msgid "last 1 year"
+msgstr "last 1 year"
+
+msgid "last 3 months"
+msgstr "last 3 months"
+
+msgid "last 30 days"
+msgstr "last 30 days"
+
+msgid "last 6 months"
+msgstr "last 6 months"
+
+msgid "loaded"
+msgstr "loaded"
+
+msgid "long-lived access token"
+msgstr "long-lived access token"
+
+msgid "low"
+msgstr "low"
+
+msgid "mapped, active"
+msgstr "mapped, active"
+
+msgid "mapped, flat"
+msgstr "mapped, flat"
+
+msgid "needs attention"
+msgstr "needs attention"
+
+msgid "net of your existing battery"
+msgstr "net of your existing battery"
+
+msgid "none detected"
+msgstr "none detected"
+
+msgid "not applicable (no PV)"
+msgstr "not applicable (no PV)"
+
+msgid "not in v1"
+msgstr "not in v1"
+
+msgid "not loaded"
+msgstr "not loaded"
+
+msgid "not mapped"
+msgstr "not mapped"
+
+msgid "not the nameplate figure"
+msgstr ""
+
+msgid "optional"
+msgstr "optional"
+
+msgid "per fed-in kWh"
+msgstr ""
+
+msgid "per kWh throughput; 0 disables it"
+msgstr "per kWh throughput; 0 disables it"
+
+msgid "recalculating…"
+msgstr "recalculating…"
+
+msgid "required"
+msgstr "required"
+
+msgid "required if you have PV"
+msgstr "required if you have PV"
+
+#, python-format
+msgid "saved %(when)s"
+msgstr "saved %(when)s"
+
+msgid "saving…"
+msgstr "saving…"
+
+msgid "set by the topology selector on the Installation tab"
+msgstr ""
+
+#, python-format
+msgid "simulated %(res)s · %(n)s interval"
+msgid_plural "simulated %(res)s · %(n)s intervals"
+msgstr[0] "simulated %(res)s · %(n)s interval"
+msgstr[1] "simulated %(res)s · %(n)s intervals"
+
+msgid "since"
+msgstr "since"
+
+msgid "supported"
+msgstr "supported"
+
+msgid "tiered by annual volume"
+msgstr "tiered by annual volume"
+
+msgid "to"
+msgstr "to"
+
+msgid "undefined"
+msgstr "undefined"
+
+msgid "valid"
+msgstr "valid"
+
+msgid "α"
+msgstr "α"
+
+msgid "β"
+msgstr "β"
+
+msgid "— none —"
+msgstr "— none —"
+
+msgid "…if export allowed"
+msgstr "…if export allowed"
+
+msgid "€"
+msgstr ""
+
+msgid "← Previous"
+msgstr ""
+
+msgid "← Your analyses"
+msgstr "← Your analyses"
+
+msgid "≈260 kWh/yr"
+msgstr "≈260 kWh/yr"
+
+msgid ""
+"● = required.  ○ = optional.  ◐ = required only if you have solar PV. "
+"Which rows appear comes from the answers above. Spot price drives the "
+"charge and discharge bands, so it is required whether or not you simulate"
+" costs."
+msgstr ""
+"● = required.  ○ = optional.  ◐ = required only if you have solar PV. "
+"Which rows appear comes from the answers above. Spot price drives the "
+"charge and discharge bands, so it is required whether or not you simulate"
+" costs."
+
+#, python-format
+msgid ""
+"⚠ Charge band [%(a)s, %(b)s] and discharge band [%(c)s, %(d)s] overlap. "
+"Charge and discharge requests will be netted against each other."
+msgstr ""
+"⚠ Charge band [%(a)s, %(b)s] and discharge band [%(c)s, %(d)s] overlap. "
+"Charge and discharge requests will be netted against each other."
+
+msgid "⚠ This topology is not fully supported in version 1."
+msgstr "⚠ This topology is not fully supported in version 1."
+
+msgid "✓ Connected"
+msgstr "✓ Connected"
+
+#, python-format
+msgid "✓ Connected · %(energy)s energy + %(price)s measurement statistics"
+msgstr "✓ Connected · %(energy)s energy + %(price)s measurement statistics"
+
+#, python-format
+msgid "✓ Imported %(count)s series. Reloading…"
+msgstr "✓ Imported %(count)s series. Reloading…"
+
+msgid "✓ Noted"
+msgstr "✓ Noted"
+
+#, python-format
+msgid "✗ %(reason)s"
+msgstr "✗ %(reason)s"
+
+msgid "👍 I want this"
+msgstr "👍 I want this"
+
+#~ msgid "0.41％ of intervals had negative reconstructed load (clamped to 0)."
+#~ msgstr "0.41％ of intervals had negative reconstructed load (clamped to 0)."
+
+#~ msgid "0.66 / day"
+#~ msgstr "0.66 / day"
+
+#~ msgid "2,410 kWh throughput"
+#~ msgstr "2,410 kWh throughput"
+
+#~ msgid ""
+#~ "Reconstructed load is negative in 41 "
+#~ "intervals (0.41％). Usually means the "
+#~ "solar sensor does not cover the "
+#~ "whole house, or a clock offset "
+#~ "between sensors."
+#~ msgstr ""
+#~ "Reconstructed load is negative in 41 "
+#~ "intervals (0.41％). Usually means the "
+#~ "solar sensor does not cover the "
+#~ "whole house, or a clock offset "
+#~ "between sensors."
+
+#~ msgid "Serve house load"
+#~ msgstr "Serve house load"
+
+#~ msgid "Settings"
+#~ msgstr "Settings"
+
+#~ msgid "Simulate cost savings"
+#~ msgstr "Simulate cost savings"
+
+#~ msgid ""
+#~ "Simulated at hourly resolution. A "
+#~ "5-minute re-run over the last 9"
+#~ " days gives 8.4％ lower savings — "
+#~ "hourly buckets hide within-hour "
+#~ "import/export overlap and flatter the "
+#~ "battery. Treat the headline figure as"
+#~ " an upper bound."
+#~ msgstr ""
+#~ "Simulated at hourly resolution. A "
+#~ "5-minute re-run over the last 9"
+#~ " days gives 8.4％ lower savings — "
+#~ "hourly buckets hide within-hour "
+#~ "import/export overlap and flatter the "
+#~ "battery. Treat the headline figure as"
+#~ " an upper bound."
+
+#~ msgid ""
+#~ "Spot prices are quarter-hourly but "
+#~ "the run is hourly, so the battery"
+#~ " acted on an averaged price and "
+#~ "could not chase within-hour swings."
+#~ msgstr ""
+#~ "Spot prices are quarter-hourly but "
+#~ "the run is hourly, so the battery"
+#~ " acted on an averaged price and "
+#~ "could not chase within-hour swings."
+
+#~ msgid ""
+#~ "The share of your household consumption"
+#~ " met without drawing from the grid:"
+#~ " self-sufficiency = 1 − grid "
+#~ "import ÷ consumption. 0％ means every "
+#~ "kWh came from the grid; higher "
+#~ "means more was covered by your own"
+#~ " solar (and existing battery). It "
+#~ "uses the reconstructed consumption above."
+#~ msgstr ""
+#~ "The share of your household consumption"
+#~ " met without drawing from the grid:"
+#~ " self-sufficiency = 1 − grid "
+#~ "import ÷ consumption. 0％ means every "
+#~ "kWh came from the grid; higher "
+#~ "means more was covered by your own"
+#~ " solar (and existing battery). It "
+#~ "uses the reconstructed consumption above."
+
+#~ msgid ""
+#~ "The share of your solar production "
+#~ "you used yourself rather than exporting:"
+#~ " self-consumption = 1 − grid "
+#~ "export ÷ solar produced, measured over"
+#~ " the period your solar data covers."
+#~ " 100％ means none of your production"
+#~ " was exported; lower means more went"
+#~ " back to the grid."
+#~ msgstr ""
+#~ "The share of your solar production "
+#~ "you used yourself rather than exporting:"
+#~ " self-consumption = 1 − grid "
+#~ "export ÷ solar produced, measured over"
+#~ " the period your solar data covers."
+#~ " 100％ means none of your production"
+#~ " was exported; lower means more went"
+#~ " back to the grid."
+
+#~ msgid ""
+#~ "These answers decide what the app "
+#~ "asks you for below. They are saved"
+#~ " when you fetch your data."
+#~ msgstr ""
+#~ "These answers decide what the app "
+#~ "asks you for below. They are saved"
+#~ " when you fetch your data."
+
+#~ msgid "These two answers decide what the app asks you for below."
+#~ msgstr "These two answers decide what the app asks you for below."
+
+#~ msgid ""
+#~ "This option needs solar panels: it "
+#~ "charges the battery only from solar "
+#~ "surplus, so without PV it would "
+#~ "never charge at all. Turn on \"Do"
+#~ " you have solar PV?\" at the "
+#~ "top of the page to use it."
+#~ msgstr ""
+#~ "This option needs solar panels: it "
+#~ "charges the battery only from solar "
+#~ "surplus, so without PV it would "
+#~ "never charge at all. Turn on \"Do"
+#~ " you have solar PV?\" at the "
+#~ "top of the page to use it."
+
+#~ msgid ""
+#~ "This option needs solar panels: it "
+#~ "combines solar-surplus charging with "
+#~ "grid charging. Without PV only the "
+#~ "grid half would run, which is "
+#~ "exactly what \"Grid charge when spot "
+#~ "price is in band\" already does. "
+#~ "Turn on \"Do you have solar PV?\""
+#~ " at the top of the page to "
+#~ "use it."
+#~ msgstr ""
+#~ "This option needs solar panels: it "
+#~ "combines solar-surplus charging with "
+#~ "grid charging. Without PV only the "
+#~ "grid half would run, which is "
+#~ "exactly what \"Grid charge when spot "
+#~ "price is in band\" already does. "
+#~ "Turn on \"Do you have solar PV?\""
+#~ " at the top of the page to "
+#~ "use it."
+
+#~ msgid ""
+#~ "Without solar there is no surplus "
+#~ "to capture, so grid charging is "
+#~ "the only way to fill the battery."
+#~ msgstr ""
+#~ "Without solar there is no surplus "
+#~ "to capture, so grid charging is "
+#~ "the only way to fill the battery."
+
+#~ msgid ""
+#~ "Your policy captures 71％ of the "
+#~ "grid import a perfectly-informed battery"
+#~ " could have avoided. Allowed to "
+#~ "export, that ceiling rises to 2,311 "
+#~ "kWh (a 61％ capture) — the extra"
+#~ " is arbitrage your export setting "
+#~ "currently forbids."
+#~ msgstr ""
+#~ "Your policy captures 71％ of the "
+#~ "grid import a perfectly-informed battery"
+#~ " could have avoided. Allowed to "
+#~ "export, that ceiling rises to 2,311 "
+#~ "kWh (a 61％ capture) — the extra"
+#~ " is arbitrage your export setting "
+#~ "currently forbids."
+
+#~ msgid ""
+#~ "Your prices change every 15 minutes "
+#~ "but your meter records hourly, so "
+#~ "the run sees one averaged price "
+#~ "per hour and cannot act on "
+#~ "within-hour swings."
+#~ msgstr ""
+#~ "Your prices change every 15 minutes "
+#~ "but your meter records hourly, so "
+#~ "the run sees one averaged price "
+#~ "per hour and cannot act on "
+#~ "within-hour swings."
+
+#~ msgid "workspace: local"
+#~ msgstr "workspace: local"
+
+#~ msgid ""
+#~ "● = required.  ○ = optional.  ◐"
+#~ " = required only if you have "
+#~ "solar PV.  ◒ = offered only if "
+#~ "you simulate costs (intra-hour price "
+#~ "bracketing). Both answers come from the"
+#~ " setup band above. Spot price drives"
+#~ " the charge and discharge bands, so"
+#~ " it is required whether or not "
+#~ "you simulate costs."
+#~ msgstr ""
+#~ "● = required.  ○ = optional.  ◐"
+#~ " = required only if you have "
+#~ "solar PV.  ◒ = offered only if "
+#~ "you simulate costs (intra-hour price "
+#~ "bracketing). Both answers come from the"
+#~ " setup band above. Spot price drives"
+#~ " the charge and discharge bands, so"
+#~ " it is required whether or not "
+#~ "you simulate costs."
+
+#~ msgid ""
+#~ "The configuration is kept — your "
+#~ "connection, contract and battery settings "
+#~ "stay as they are, your data "
+#~ "sources stay chosen, and you can "
+#~ "load data again."
+#~ msgstr ""
+#~ "The configuration is kept — your "
+#~ "connection, contract and battery settings "
+#~ "stay as they are, your data "
+#~ "sources stay chosen, and you can "
+#~ "load data again."
+
+#~ msgid ""
+#~ "● = required.  ○ = optional.  ◐"
+#~ " = required only if you have "
+#~ "solar PV.  ◒ = offered only if "
+#~ "you simulate costs (intra-hour price "
+#~ "bracketing). Which rows appear comes "
+#~ "from the answers in the setup band"
+#~ " above. Spot price drives the charge"
+#~ " and discharge bands, so it is "
+#~ "required whether or not you simulate "
+#~ "costs."
+#~ msgstr ""
+#~ "● = required.  ○ = optional.  ◐"
+#~ " = required only if you have "
+#~ "solar PV.  ◒ = offered only if "
+#~ "you simulate costs (intra-hour price "
+#~ "bracketing). Which rows appear comes "
+#~ "from the answers in the setup band"
+#~ " above. Spot price drives the charge"
+#~ " and discharge bands, so it is "
+#~ "required whether or not you simulate "
+#~ "costs."
+
+#~ msgid "Before you start"
+#~ msgstr "Before you start"
+
+#~ msgid "DATA"
+#~ msgstr "DATA"
+
+#~ msgid "Installation topology"
+#~ msgstr "Installation topology"
+
+#~ msgid "Next: parameters →"
+#~ msgstr "Next: parameters →"
+
+#~ msgid "PARAMETERS"
+#~ msgstr "PARAMETERS"
+
+#~ msgid "Toggle Data panel"
+#~ msgstr "Toggle Data panel"
+
+#~ msgid "Toggle Parameters panel"
+#~ msgstr "Toggle Parameters panel"
+
+#~ msgid "Toggle advanced pricing settings"
+#~ msgstr "Toggle advanced pricing settings"
+
+#~ msgid "days"
+#~ msgstr "days"
+
+#~ msgid "not nameplate"
+#~ msgstr "not nameplate"
+
+#~ msgid "set by the topology selector below"
+#~ msgstr "set by the topology selector below"
+
+#~ msgid "1-phase"
+#~ msgstr "1-phase"
+
+#~ msgid "3-phase"
+#~ msgstr "3-phase"
+
+#~ msgid "A → max import %(kw)s kW"
+#~ msgstr "A → max import %(kw)s kW"
+
+#~ msgid "Custom"
+#~ msgstr "Custom"
+
+#~ msgid "Export limit"
+#~ msgstr "Export limit"
+
+#~ msgid ""
+#~ "Fixed costs (vastrecht, systeembeheer, "
+#~ "vermindering) do not change with a "
+#~ "battery and are excluded from savings."
+#~ msgstr ""
+#~ "Fixed costs (vastrecht, systeembeheer, "
+#~ "vermindering) do not change with a "
+#~ "battery and are excluded from savings."
+
+#~ msgid "Fuse rating"
+#~ msgstr "Fuse rating"
+
+#~ msgid "Import limit override"
+#~ msgstr "Import limit override"
+
+#~ msgid "Legal minimum — 50 percent of the bare price"
+#~ msgstr "Legal minimum — 50 percent of the bare price"
+
+#~ msgid "Phases"
+#~ msgstr "Phases"
+
+#~ msgid "Preset"
+#~ msgstr "Preset"
+
+#~ msgid "Pricing"
+#~ msgstr "Pricing"
+
+#~ msgid "Spot"
+#~ msgstr "Spot"
+
+#~ msgid "Spot minus fee"
+#~ msgstr "Spot minus fee"
+
+#~ msgid "leave empty for the same as import"
+#~ msgstr "leave empty for the same as import"
+
+#~ msgid "leave empty to derive from the fuse"
+#~ msgstr "leave empty to derive from the fuse"
+
+#~ msgid ""
+#~ "The share of your household consumption"
+#~ " met without drawing from the grid:"
+#~ " 1 − grid import ÷ consumption. "
+#~ "The left figure is the baseline —"
+#~ " what this same period would have "
+#~ "looked like without a battery — "
+#~ "and the right figure is the "
+#~ "simulated result with the battery you"
+#~ " configured. Both halves come from "
+#~ "the simulation, so they are a "
+#~ "like-for-like comparison. That is "
+#~ "also why the left figure can "
+#~ "differ by a point or two from "
+#~ "the self-sufficiency shown for your "
+#~ "household further up the page: that "
+#~ "one is measured straight from your "
+#~ "meter, while this one is what the"
+#~ " simulation reproduces without a battery."
+#~ " Your meter records importing and "
+#~ "exporting at separate moments within the"
+#~ " same hour, and the simulation works"
+#~ " in whole intervals, so those cancel"
+#~ " out and it reproduces slightly less"
+#~ " grid import. Comparing a measured "
+#~ "figure against a simulated one would "
+#~ "overstate what the battery adds, so "
+#~ "both halves here are simulated."
+#~ msgstr ""
+#~ "The share of your household consumption"
+#~ " met without drawing from the grid:"
+#~ " 1 − grid import ÷ consumption. "
+#~ "The left figure is the baseline —"
+#~ " what this same period would have "
+#~ "looked like without a battery — "
+#~ "and the right figure is the "
+#~ "simulated result with the battery you"
+#~ " configured. Both halves come from "
+#~ "the simulation, so they are a "
+#~ "like-for-like comparison. That is "
+#~ "also why the left figure can "
+#~ "differ by a point or two from "
+#~ "the self-sufficiency shown for your "
+#~ "household further up the page: that "
+#~ "one is measured straight from your "
+#~ "meter, while this one is what the"
+#~ " simulation reproduces without a battery."
+#~ " Your meter records importing and "
+#~ "exporting at separate moments within the"
+#~ " same hour, and the simulation works"
+#~ " in whole intervals, so those cancel"
+#~ " out and it reproduces slightly less"
+#~ " grid import. Comparing a measured "
+#~ "figure against a simulated one would "
+#~ "overstate what the battery adds, so "
+#~ "both halves here are simulated."
+
+#~ msgid ""
+#~ "Your energy data is hourly, but "
+#~ "the electricity market prices every 15"
+#~ " minutes, so for %(share)s of the "
+#~ "priced hours here the simulation cannot"
+#~ " see when inside the hour your "
+#~ "electricity actually moved. In the worst"
+#~ " case — every one of those "
+#~ "hours landing on its least favourable"
+#~ " quarter — that shifts the euro "
+#~ "figures on this page by %(width)s. "
+#~ "Treat it as a bound on how "
+#~ "far the pricing could be off, not"
+#~ " as a typical error: a real "
+#~ "hour will sit somewhere inside its "
+#~ "quarters, and this run cannot tell "
+#~ "you where."
+#~ msgstr ""
+#~ "Your energy data is hourly, but "
+#~ "the electricity market prices every 15"
+#~ " minutes, so for %(share)s of the "
+#~ "priced hours here the simulation cannot"
+#~ " see when inside the hour your "
+#~ "electricity actually moved. In the worst"
+#~ " case — every one of those "
+#~ "hours landing on its least favourable"
+#~ " quarter — that shifts the euro "
+#~ "figures on this page by %(width)s. "
+#~ "Treat it as a bound on how "
+#~ "far the pricing could be off, not"
+#~ " as a typical error: a real "
+#~ "hour will sit somewhere inside its "
+#~ "quarters, and this run cannot tell "
+#~ "you where."
+
+#~ msgid ""
+#~ "Your energy data is hourly, but "
+#~ "the electricity market prices every 15"
+#~ " minutes, so the simulation cannot "
+#~ "see when inside each hour your "
+#~ "electricity actually moved. In the worst"
+#~ " case — every hour landing on "
+#~ "its least favourable quarter — that "
+#~ "shifts the euro figures on this "
+#~ "page by %(width)s. Treat it as a"
+#~ " bound on how far the pricing "
+#~ "could be off, not as a typical "
+#~ "error: a real hour will sit "
+#~ "somewhere inside its quarters, and this"
+#~ " run cannot tell you where."
+#~ msgstr ""
+#~ "Your energy data is hourly, but "
+#~ "the electricity market prices every 15"
+#~ " minutes, so the simulation cannot "
+#~ "see when inside each hour your "
+#~ "electricity actually moved. In the worst"
+#~ " case — every hour landing on "
+#~ "its least favourable quarter — that "
+#~ "shifts the euro figures on this "
+#~ "page by %(width)s. Treat it as a"
+#~ " bound on how far the pricing "
+#~ "could be off, not as a typical "
+#~ "error: a real hour will sit "
+#~ "somewhere inside its quarters, and this"
+#~ " run cannot tell you where."
+
+#~ msgid "Spot price (max)"
+#~ msgstr "Spot price (max)"
+
+#~ msgid "Spot price (min)"
+#~ msgstr "Spot price (min)"
+
+#~ msgid "offered if you simulate costs"
+#~ msgstr "offered if you simulate costs"
+
+#~ msgid ""
+#~ "● = required.  ○ = optional.  ◐"
+#~ " = required only if you have "
+#~ "solar PV.  ◒ = offered only if "
+#~ "you simulate costs (intra-hour price "
+#~ "bracketing). Which rows appear comes "
+#~ "from the answers above. Spot price "
+#~ "drives the charge and discharge bands,"
+#~ " so it is required whether or "
+#~ "not you simulate costs."
+#~ msgstr ""
+

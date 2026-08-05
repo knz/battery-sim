@@ -1,10 +1,13 @@
 # 3. Application state machine
 
 > **Purpose:** session states and transitions, run identity under rapid
-> re-parameterisation, panel focus rules, and when state hits disk.
+> re-parameterisation, what must stay visible together, and when state hits disk.
 > **Audience:** frontend and backend.
-> **Read with:** [02-ux-wireframes.md](02-ux-wireframes.md) for the panels these states
-> drive, and [08-architecture.md](08-architecture.md) §5.1 for where each piece lives.
+> **Read with:** [02-ux-wireframes.md](02-ux-wireframes.md) for the contents of the surfaces
+> these states drive, [20-workspaces-ux.md](20-workspaces-ux.md) for the screens they sit on —
+> the states below are **per workspace** and are entered when a workspace is opened
+> ([§2′.9](20-workspaces-ux.md#29-state-machine-revisited)) — and
+> [08-architecture.md](08-architecture.md) §5.1 for where each piece lives.
 
 ## 3.1 Session-level states
 
@@ -87,14 +90,30 @@ so the states below always describe an assembled dataset. This mirrors the Home 
 path, where filling in the mapping table likewise produces no session event until
 **Fetch history**.
 
-Two fields in panel ② — `has_pv` and `simulate_cost` — change *which other fields exist*
-rather than only their values. They still emit an ordinary `PARAMS_CHANGED`; there is no
-separate event and no new state. What they additionally require is that validation runs
-against the field set implied by the new toggle value, not the old one: switching cost
-simulation off must clear any pending validation errors on contract fields that have just
-ceased to exist, or the panel reports itself invalid over fields the user can no longer
-see. Values already entered are **retained, not discarded**, so that switching the toggle
-back restores the previous configuration rather than resetting it to defaults.
+Two choices live in the **setup band** above panel ① (§2.1) rather than in a panel:
+`has_pv` and `simulate_cost`. They change *which other fields and data slots exist* rather
+than only their values, and this is why they are asked first — the data panel's slot roster
+(§2.2), the parameter panel's boxes (§2.3) and the result panel's sections (§2.4) are all
+derived from them. The band is available from `EMPTY` onward; it has no collapsed/expanded
+panel state of its own (§3.4) and is never disabled, so both answers can be changed at any
+point in the session, including after data is loaded.
+
+Editing either answer emits an ordinary `PARAMS_CHANGED`; there is no separate event and no
+new state. What it additionally requires is:
+
+- **Validation runs against the field set implied by the new answer, not the old one.**
+  Switching cost simulation off must clear any pending validation errors on contract fields
+  that have just ceased to exist, or the panel reports itself invalid over fields the user
+  can no longer see.
+- **The panel ① slot roster is re-derived in place.** A slot that ceases to apply — the
+  solar slot when PV is switched off, the existing-battery slots when the household declares
+  no battery — is removed; a slot that begins to apply appears empty. Cost simulation no
+  longer adds or removes any slot: the roster is the same in both cost modes. A file
+  or mapping already placed in a slot that still applies is **kept**, and `SOURCE_CONFIGURED`
+  is re-evaluated against the new required set (a run may become blocked if a now-required
+  slot is empty, or unblocked if the newly-absent slot was the only thing missing).
+- **Values already entered are retained, not discarded**, so switching an answer back
+  restores the previous configuration rather than resetting it to defaults.
 
 `RESULTS_STALE` keeps rendering the previous results while the recalculation runs, which
 means a run made with cost simulation on stays visible, dimmed, for the few hundred
@@ -133,22 +152,56 @@ Results are pushed to the browser over **SSE** on `/api/stream`. HTMX swaps the 
 fragment. Polling every `sse_poll_fallback_ms` (default 750) is an acceptable fallback if
 SSE proves troublesome behind a reverse proxy.
 
-## 3.4 Panel focus model
+## 3.4 Screen structure, and what must stay visible together
 
-Panels are independent of session state; they have their own UI state:
-`COLLAPSED_INCOMPLETE`, `EXPANDED`, `COLLAPSED_COMPLETE`. The CTA in panel *n* collapses
-panel *n* and expands panel *n+1*. Panel ③ auto-expands on first `RUN_COMPLETED`.
-Reopening panel ① or ② does **not** collapse panel ③ — the user must be able to watch
-results change while editing parameters. This is the single most important interaction
-detail in the app.
+An earlier layout put data, parameters and results in three collapsible panels on one page,
+each with its own focus state (`COLLAPSED_INCOMPLETE`, `EXPANDED`, `COLLAPSED_COMPLETE`) and a
+CTA that collapsed one panel and expanded the next. That model is gone: the surfaces are now
+screens ([§2′.5](20-workspaces-ux.md#25-configure-data),
+[§2′.6](20-workspaces-ux.md#26-results)), so there is no collapse or expand to model and no
+focus state to hold. The states in §3.1 are the only ones a surface has.
+
+**The requirement the old model existed to protect survives, and is the reason for the screen
+split that replaced it: the parameters and the results must be visible at the same time.** A
+user changes a capacity in order to watch the answer move; a layout that takes the figures off
+screen while the parameter is edited breaks the one loop the app exists to support. The old
+model met this by refusing to collapse panel ③ when ① or ② was reopened. The current layout
+meets it structurally — [§2′.6](20-workspaces-ux.md#26-results) puts the battery box and the
+result sections on **one scrolling screen**, which is why parameters were not given a screen of
+their own. This is the single most important interaction detail in the app, and any future
+layout change has to keep it.
+
+`RESULTS_STALE` is the other half of the same requirement: it renders the previous results
+dimmed rather than blanking them (§3.1), so an edit never leaves the user looking at nothing.
+
+The **data summary** ([§2.3a](02-ux-wireframes.md#23a-the-data-summary--your-data-at-a-glance))
+is a read-only section of the configure-data screen and drives no transition. It has nothing to
+show until data exists, so it is **absent until `DATA_READY`** and renders from that point on,
+re-rendering on every subsequent `RELOAD_DATA` (§3.2). The results screen repeats the same
+figures over the selected range (§2.4), where they re-render on `RANGE_CHANGED`.
 
 ## 3.5 Persistence points
 
 State is written to disk on: `LOAD_SUCCEEDED` (dataset), `PARAMS_CHANGED` (debounced
 `params_persist_debounce_ms`, default 1000), `RANGE_CHANGED`, and `RUN_COMPLETED` (result
-cache, last `result_cache_runs` = 5 runs). On startup the
-server restores the most recent workspace and lands the user in `RESULTS_STALE`, then
-immediately recalculates.
+cache, last `result_cache_runs` = 5 runs).
+
+**On startup the server renders the workspace list** ([§2′.2](20-workspaces-ux.md#22-the-workspace-list--the-apps-home-screen)),
+which is outside the state machine: it reads stored config and dataset metadata for every
+workspace and drives no transition. **No workspace is restored and nothing is recalculated
+until one is opened**, and the states above apply from that point
+([§2′.9](20-workspaces-ux.md#29-state-machine-revisited)). This replaces an earlier rule under
+which the server restored the most recent workspace on startup and landed the user in
+`RESULTS_STALE`, which was written when there was one implicit workspace and no list to land
+on.
+
+> **Specified but not built: the debounced parameter persist.** `PARAMS_CHANGED` is listed
+> above as a persistence point debounced by `params_persist_debounce_ms`, and that debounce
+> does not exist in the code — the constant is referenced by no implementation. Today a
+> parameter edit is committed by the parameter box's `[ Calculate → ]` and by nothing else, so
+> an edit left uncommitted is lost on navigation. Recorded here rather than quietly deleted
+> because which of the two should change is a product decision: auto-persist matches what this
+> section specifies, and an explicit commit matches what the screen currently affords.
 
 The tables and file layout behind these writes are in
 [§5.1](08-architecture.md#51-diagram).

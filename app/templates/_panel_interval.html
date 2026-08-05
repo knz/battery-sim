@@ -1,0 +1,233 @@
+{#
+  _panel_interval.html — the PERIOD card on the results screen: the window the results describe.
+
+  **Split out of `_panel_results.html`.** It was the top of panel ③ — the preset buttons, the
+  explicit date-range picker, the window description line and the "Simulate cost savings?" toggle,
+  all inside `#panel-results`. It now sits BESIDE the battery box, as the right-hand card of the
+  two-card row at the top of `workspace_results.html`:
+
+      ┌─ Battery ──────────────┐  ┌─ Period ────────────────────┐
+      │  Usable capacity […]   │  │  (1 week)(30 days)(3 months)│   ← this file
+      │  ▸ More settings       │  │  From […]  To […]  [Apply]  │
+      │  [ Calculate ]         │  │  2025-01-01 → 2025-12-31 · … │
+      └────────────────────────┘  │  Simulate cost savings? ⦿ ⦾ │
+                                  └─────────────────────────────┘
+      ┌─ RESULTS ───────────────────────────────────────────────┐   _panel_results.html
+      │  … the energy and cost sections …                       │
+      └─────────────────────────────────────────────────────────┘
+
+  **This is a THIRD swappable fragment, and that is why it is its own file.** The screen already
+  swapped two: `POST /params` replaces `#panel-params`, `POST /results` replaces `#panel-results`.
+  The period controls could not simply be nested inside the battery box, because `POST /params`
+  re-renders that box STANDALONE and passes no `results` key (see main.params()) — the card would
+  come back blank on every Calculate. So it keeps a root of its own, `#panel-interval`, outside
+  both existing swap roots, and only `POST /results` re-renders it. That route now returns THIS
+  fragment and `_panel_results.html` in one response, split on a marker comment; see main.results()
+  and the `recompute()` handler in workspace_results.html.
+
+  It must be re-rendered on every range change and not merely left alone, because two things in it
+  are answers rather than controls: which preset carries `btn-active`, and the window line below
+  the pickers. Both come from the freshly resolved window.
+
+  Reads `results.period_selected` / `period_dates` / `period_days` / `period_run` / `period`,
+  plus `simulate_cost` and `cost_toggle_blocked`. Both render sites supply them: index() for the
+  full page, main.results() for the fragment.
+
+  **Every id and every name here is a contract**, unchanged by the move:
+    * `[data-period]` and `#results-apply-range` are what the DELEGATED click listeners in
+      workspace_results.html key off. They are delegated from `document` because a swapped-in
+      inline <script> re-inserts but does NOT re-execute — so the controls survive a swap with no
+      re-binding, wherever on the page they live.
+    * `#panel-interval [data-period].btn-active` is read back by `currentResultsBody()` to preserve
+      the current window across a parameter save.
+    * `name="setup.simulate_cost"` with `form="params-form"` posts with the BATTERY BOX's form by
+      HTML form association — the toggle reshapes the parameter set, so one form means one POST,
+      one validation and one swap. The association is what lets the control sit here while
+      submitting there.
+    * `#setup-simulate-cost` is the anchor target of the invitation box in `_panel_results.html`.
+    * `#results-recalculating` is toggled by the fetch handler for the duration of a recompute.
+
+  UI chrome is wrapped in _() for translation; ISO dates stay literal. `period_run` is a counted
+  message rendered through msg(), so its plural follows its own interval count.
+#}
+{# `msg()` renders a view-model message: translate the constant msgid, THEN substitute its runtime
+   values. `with context` is REQUIRED, not stylistic — Jinja macro imports do not receive the
+   importing template's context, which is where the i18n extension puts the per-request gettext
+   functions. Without it the macro's strings freeze at the first locale rendered in the process. #}
+{% from "_msg.html" import msg with context %}
+{# The period-preset buttons: (token, label, wireframe-label) triples. The token is the POST request
+   value (results_view.PERIOD_DAYS keys); the label is the human text (translated). The active button
+   is the one whose third element matches the resolved window's preset, mapped from
+   results.period_selected (the wireframe label the view-model highlights). #}
+{% set period_buttons = [
+     ("last_1_week",   _('last 1 week'),   "1 week"),
+     ("last_30_days",  _('last 30 days'),  "1 month"),
+     ("last_3_months", _('last 3 months'), "3 months"),
+     ("last_6_months", _('last 6 months'), "6 months"),
+     ("last_1_year",   _('last 1 year'),   "1 year"),
+   ] %}
+{# Is the shown window an explicit range? `results_view.PERIOD_SELECTED_CUSTOM` is the one
+   `period_selected` value that is NOT a preset span — the route sets it when the request carried
+   start/end. It decides both the highlighted button and whether the date fields start open, so a
+   reload or a fragment swap after Apply comes back showing the range the user set rather than a
+   preset they did not choose. #}
+{% set is_custom = results.period_selected == 'custom' %}
+<section id="panel-interval" class="card bg-base-100 border border-base-300 rounded-box">
+  <div class="card-body gap-3 p-4 lg:p-6">
+    <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+      <h2 class="font-semibold">{{ _('Period') }}</h2>
+    </div>
+
+    {# ── Period selector + explicit date-range picker (§2.4) ───────────────
+       Presets anchor to the END of data coverage (§7.4). Each button POSTs {"period": token}
+       to /results; the date range POSTs {"start","end"}. Both are handled by the DELEGATED
+       listeners in workspace_results.html, so these controls survive a fragment swap without re-binding. #}
+    <div class="flex flex-col gap-3">
+      <div class="flex flex-wrap items-center gap-3">
+        {# A WRAPPING row of separate buttons, not a daisyUI `join`. The join was right when this
+           ribbon spanned the full-width results panel; in a half-width card its five presets
+           overflow, and a join cannot wrap — `join-item` rounds only the first and last child, so a
+           wrapped join shows flat-edged buttons mid-row. Individually rounded buttons in a
+           `flex-wrap` reflow onto a second line cleanly instead. #}
+        <div class="flex flex-wrap gap-1" id="results-period">
+          {% for token, label, sel in period_buttons %}
+          <button type="button" class="btn btn-sm {% if sel == results.period_selected %}btn-active{% endif %}"
+                  data-period="{{ token }}">{{ label }}</button>
+          {% endfor %}
+          {# "custom" is a MODE, not a preset: it carries no `data-period`, so the delegated handler
+             that POSTs {"period": token} skips it, and its own handler just reveals the date fields
+             below. Nothing recomputes until Apply — picking "custom" states an intent, and the app
+             has no range to run until both dates are given. #}
+          <button type="button" id="results-period-custom"
+                  class="btn btn-sm {% if is_custom %}btn-active{% endif %}"
+                  aria-expanded="{{ 'true' if is_custom else 'false' }}"
+                  aria-controls="results-range">{{ _('custom') }}</button>
+        </div>
+        {# The "⟳ recalculating…" affordance (§2.4). Toggled visible by the fetch handler for the
+           duration of a recompute; hidden otherwise. #}
+        <span id="results-recalculating" class="text-sm text-base-content/60 hidden">
+          ⟳ {{ _('recalculating…') }}
+        </span>
+      </div>
+
+      {# Explicit date-range picker: two native date inputs + Apply. The date values are converted
+         to ISO datetimes in the handler — start at 00:00:00Z, end at 23:59:59Z (inclusive of the
+         chosen end day). resolve_window clamps both ends to coverage, so an out-of-range date is
+         not an error, just clamped.
+
+         **Hidden until "custom" is picked**, because the five presets answer this for most readers
+         and two empty date fields under them are a question nobody asked. Hidden rather than
+         absent so the inputs stay in the DOM and keep their ids: the delegated Apply handler reads
+         them by id, and a fresh render re-applies the state from `is_custom` anyway.
+
+         `#results-range` wraps the fields AND the format hint below them, so one class governs the
+         whole picker. The hint describes those two fields and means nothing without them on
+         screen — when it sat outside this element it stayed visible under a collapsed picker,
+         explaining the format of fields the reader could not see.
+
+         The fields are PRE-FILLED with the effective window (`period_start_date`/`period_end_date`,
+         after clamping to coverage), so opening it shows the range currently in force rather than
+         blank fields — and Apply with one field edited means what it looks like it means. #}
+      <div id="results-range" class="flex flex-col gap-1{% if not is_custom %} hidden{% endif %}">
+        <div class="flex flex-wrap items-end gap-2">
+          <label class="form-control">
+            <span class="label-text text-xs mb-1">{{ _('From') }}</span>
+            <input type="date" id="results-range-start" class="input input-bordered input-sm"
+                   value="{{ results.period_start_date | default('', true) }}" />
+          </label>
+          <label class="form-control">
+            <span class="label-text text-xs mb-1">{{ _('To') }}</span>
+            <input type="date" id="results-range-end" class="input input-bordered input-sm"
+                   value="{{ results.period_end_date | default('', true) }}" />
+          </label>
+          <button type="button" id="results-apply-range" class="btn btn-sm btn-outline">{{ _('Apply') }}</button>
+        </div>
+        {# Which order the two fields above are in. A native `<input type=date>` renders in the
+           BROWSER's locale, and the page cannot override that — not with `lang`, not with an
+           attribute, not with CSS — so a Dutch reader on a US-configured browser sees 01/05/2026
+           and cannot tell it from 5 January. The order is not knowable at render time either,
+           which is why this renders EMPTY and is filled in by the script in
+           workspace_results.html, which asks Intl what THIS browser actually does. Text only: the
+           field keeps its native calendar, spinners and mobile keyboard. #}
+        <span class="text-xs text-base-content/60" id="results-range-format"
+              data-fmt-dmy="{{ _('dates read day/month/year') }}"
+              data-fmt-mdy="{{ _('dates read month/day/year') }}"
+              data-fmt-ymd="{{ _('dates read year/month/day') }}"></span>
+      </div>
+
+      {# The selected window, stated ONCE per screen: dates · N days · run description. It travels
+         with the pickers because it describes the range they just set. `period_dates` is two ISO
+         dates and is rendered raw; the day count needs ngettext here; `period_run` is a counted
+         message (its own interval count drives its plural), rendered through msg(). Falls back to
+         the whole `period` line if a view-model predates the split. #}
+      <span class="text-sm text-base-content/60">
+        {%- if results.period_dates -%}
+        {{ results.period_dates }}{% if results.period_days %} · {{ results.period_days }} {{ ngettext('day', 'days', results.period_days) }}{% endif %} · {{ msg(results.period_run) }}
+        {%- else -%}
+        {{ results.period }}
+        {%- endif -%}
+      </span>
+
+      {# ── Simulate cost savings? (§2′.6, §2′.7) ──────────────────────────────────
+           Moved to the setup band in phase 4.2 (§2′.7 dissolved the band), into the results block,
+           and now here with the period controls it sat under. §2′.6 rules out the BATTERY BOX by
+           name; this card is neither that box nor the results, and the toggle keeps the company it
+           has always kept — the window controls directly above it.
+
+           `#setup-simulate-cost` is kept as the id: it is the anchor target the invitation box in
+           `_panel_results.html` links to, and keeping the name means one link, one target, and no
+           id that exists only to be pointed at. The control name `setup.simulate_cost` is unchanged
+           too, so `params_view.parse_form`'s `setup`-gated branch reads it exactly as before.
+
+           **It posts with the battery box's form**, via `form="params-form"` — HTML's explicit form
+           association, the same mechanism `_setup_band.html` used. That is deliberate and it is why
+           the marker still says `setup`: the answer changes which boxes the battery box draws, so
+           the response has to be the re-rendered box, and one form means one POST, one validation
+           and one swap. A separate form here would post WITHOUT the parameter fields, which
+           `parse_form` would treat as "inherit everything" — correct, but it would silently discard
+           whatever the user had typed and not yet submitted. The association works across the card
+           boundary: `form=` names a form by id, wherever on the page it is.
+
+           **Blocked, not Inapplicable, until the workspace has a contract** (§2′.6). The radios
+           carry `disabled` so a blocked toggle cannot change the stored answer, the row is dimmed
+           by `.blocked-control`, and the ⓘ opens the dialog that says how to clear the
+           precondition. Hiding the control instead "would leave a user who wants euro figures with
+           nothing to click and nothing to read".
+
+           `blocked` defaults to false so the standalone `POST /results` fragment — which re-renders
+           this card on every range change — draws the toggle live rather than blocked when the
+           caller did not say. The route passes the real flag; see main.results(). #}
+      {% set cost_blocked = cost_toggle_blocked | default(false, true) %}
+      <div class="flex flex-wrap items-center gap-3{% if cost_blocked %} blocked-control{% endif %}"
+           id="setup-simulate-cost" {% if cost_blocked %}data-blocked="1"{% endif %}>
+        <span class="w-56 label-text cost-label">{{ _('Simulate cost savings?') }}</span>
+        <label class="label gap-1{% if not cost_blocked %} cursor-pointer{% endif %}">
+          <input type="radio" name="setup.simulate_cost" value="yes" form="params-form"
+                 class="radio radio-sm" {% if simulate_cost %}checked{% endif %}
+                 {% if cost_blocked %}disabled{% endif %} />
+          <span class="label-text">{{ _('Yes') }}</span>
+        </label>
+        <label class="label gap-1{% if not cost_blocked %} cursor-pointer{% endif %}">
+          <input type="radio" name="setup.simulate_cost" value="no" form="params-form"
+                 class="radio radio-sm" {% if not simulate_cost %}checked{% endif %}
+                 {% if cost_blocked %}disabled{% endif %} />
+          <span class="label-text">{{ _('No') }}</span>
+        </label>
+        {% if cost_blocked %}
+        {# The adjacent affordance §2.1's Blocked state requires. Its own button and its own dialog,
+           NOT the shared .slot-info-btn one: this dialog carries an ACTION — `[ Set up my contract
+           → ]`, a link to the edit screen — and the shared info dialog is a title-and-body pair
+           with only a close button. #}
+        <button type="button" class="btn btn-ghost btn-xs btn-circle align-middle"
+                id="cost-blocked-info"
+                aria-label="{{ _('Why is this greyed out?') }}">ⓘ</button>
+        {% endif %}
+      </div>
+      {% if not cost_blocked %}
+      <p class="text-xs text-base-content/60">
+        ⓘ {{ _('This answer decides whether the app reports euros as well as kWh.') }}
+      </p>
+      {% endif %}
+    </div>
+  </div>
+</section>

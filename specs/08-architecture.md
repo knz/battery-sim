@@ -14,11 +14,19 @@
 │  BROWSER                                                                  │
 │  Jinja2-rendered HTML · HTMX (fragment swaps) · Plotly (chart JSON)       │
 │  No build step, no SPA framework, no client-side computation.             │
-└───────────────────────────┬───────────────────────────────────────────────┘
-                            │  HTTP (fragments + JSON) · SSE /api/stream
-┌───────────────────────────▼───────────────────────────────────────────────┐
+│                                                                           │
+│    HaStatsClient (ha_fetch.js)  ── fetches from the user's Home Assistant  │
+│      • wss://<user-ha>/api/websocket, auth with the long-lived token       │
+│      • the token stays here; it never reaches the backend (§7.5)           │
+│      • forwards raw rows to the backend over WS /data/ingest/ws            │
+└──────┬────────────────────────────────────────────────┬───────────────────┘
+       │  HTTP (fragments+JSON) · SSE /api/stream         │  wss:// (user's HA)
+       │  · WS /data/ingest/ws (raw rows in)              ▼
+       │                                          [ user's Home Assistant ]
+┌──────▼─────────────────────────────────────────────────────────────────────┐
 │  WEB LAYER — FastAPI                                                      │
-│    routes/data.py     POST /data/source  /data/mapping  /data/fetch       │
+│    routes/data.py     WS /data/ingest/ws   (browser-fetched rows in)      │
+│                       POST /data/slot/{name}/load  (backend-load a slot)  │
 │    routes/params.py   PATCH /params                                       │
 │    routes/results.py  GET  /results  /results/export.csv                  │
 │    routes/stream.py   GET  /api/stream           (SSE)                    │
@@ -30,41 +38,97 @@
                             │
 ┌───────────────────────────▼───────────────────────────────────────────────┐
 │  SERVICE LAYER  (orchestration, state machine, no numerics)               │
-│    IngestService       source config → SeriesFrames → persist             │
+│    IngestService       streamed rows → SeriesFrames → persist             │
 │    WorkspaceService    params CRUD, validation, dirty tracking            │
 │    SimulationService   run_id, debounce, cancellation, LRU result cache   │
 │    JobRunner           ProcessPoolExecutor keyed by workspace_id          │
 └──────┬──────────────────────────────────────┬─────────────────────────────┘
        │                                      │
 ┌──────▼──────────────────────┐   ┌───────────▼────────────────────────────┐
-│  ADAPTERS  (all I/O)        │   │  DOMAIN  (pure functions, no I/O)      │
-│    HaStatsClient            │   │    ingest/     cumulative→delta        │
+│  ADAPTERS  (backend I/O)    │   │  DOMAIN  (pure functions, no I/O)      │
+│    IngestSocket parser      │   │    ingest/     cumulative→delta        │
 │    CsvLoader                │   │    normalize/  grid selection, resample│
-│    PriceLoader              │   │    quality/    checks, flags           │
+│    DatasetStore (persist)   │   │    quality/    checks, flags           │
 │    InterestReporter         │   │    pricing/    import/export curves    │
-│    (future) EntsoeClient    │   │                                        │
+│    sources/  DataSource     │   │                                        │
+│      HomeAssistantSource    │   │                                        │
+│      EnergyChartsSource     │   │                                        │
 └──────┬──────────────────────┘   │    policies/   charge + discharge      │
        │                          │    battery/    step function, limits   │
-       │                          │    simulate/   main loop               │
-       │                          │    metrics/    KPIs, waterfall         │
-       │                          │    benchmark/  perfect-foresight DP    │
+       │      NB: the HA fetch is  │    simulate/   main loop               │
+       │      in the BROWSER, not  │    metrics/    KPIs, waterfall         │
+       │      a backend adapter.   │    benchmark/  perfect-foresight DP    │
        │                          └────────────────────────────────────────┘
 ┌──────▼────────────────────────────────────────────────────────────────────┐
 │  PERSISTENCE                                                              │
 │    SQLite  (SQLAlchemy)                                                   │
-│      workspaces(id, owner_id, name, created_at)                           │
+│      workspaces(id, owner_id, title, created_at, updated_at)              │
 │      datasets(id, workspace_id, source_type, fetched_at, coverage, qa)    │
-│      series_meta(id, dataset_id, name, kind, resolution_s, path)          │
+│      series_meta(id, dataset_id, name, kind, resolution_s, path,          │
+│                  fine_resolution_s, fine_coverage, source_type)           │
 │      params(workspace_id, json, updated_at)          -- current config    │
 │      runs(id, workspace_id, run_id, config_hash, result_json, created_at) │
-│      credentials(workspace_id, ha_url, ha_token_enc)                      │
-│      feature_interest(workspace_id, feature_key, count, last_clicked_at)  │
+│      feature_interest(feature_key, count, last_clicked_at)  -- §5.5 exc.  │
+│                                                                           │
+│      -- No credentials table: the HA token stays in the browser (§7.5).   │
 │                                                                           │
 │    Filesystem                                                             │
-│      <data_dir>/<workspace_id>/series/<name>_<res>.parquet                │
+│      <data_dir>/<workspace_id>/series/<name>.npz                          │
 │      <data_dir>/<workspace_id>/uploads/<original_filename>                │
 └───────────────────────────────────────────────────────────────────────────┘
 ```
+
+> **On series storage format.** The series arrays are persisted as NumPy `.npz` in this
+> increment rather than Parquet, to avoid a pandas dependency for a store the domain layer
+> reads back into plain arrays. The on-disk format is an implementation detail behind
+> `DatasetStore`; a move to Parquet is a later change if columnar tooling is wanted.
+
+### The data-source abstraction (`app/sources/`)
+
+Which source fills which slot lives in an `app/sources/` package: a `SourceDescriptor` (the
+drawer-facing metadata — key, label, kind, blurb), a `DataSource` protocol (`descriptor`,
+`available_for(slot)`, `load(slot, window)`), and a registry that answers, for a given slot,
+which sources may fill it. It has two implementations:
+
+- **`HomeAssistantSource`** — kind `browser_fetch`, available for every slot. Its `load` does
+  not run: an HA frame is produced by the browser→WS ingest path
+  ([§4.3](06-home-assistant-ingestion.md)), not backend-side. The source object exists as the
+  descriptor the drawer shows and the `available_for` rule.
+- **`EnergyChartsSource`** — kind `backend_load`, available only for the `price_spot` slot. Its
+  `load` reads the committed on-disk NL day-ahead prices and bridges the recent tail from the
+  public API ([§4.3](06-home-assistant-ingestion.md)). This is the only source the backend
+  fetches directly. The committed dataset lives at `app/data/spot_prices/` — **shipped content
+  versioned with the app, not per-workspace runtime data** — so it sits beside the code rather
+  than under `<data_dir>/<workspace_id>/`.
+- **`EntsoeSource`** — kind `backend_load`, also available only for the `price_spot` slot: the
+  same NL day-ahead series from an independent origin, the ENTSO-E transparency platform
+  ([§4.3](06-home-assistant-ingestion.md)). Its `load` is purely on-disk with no bridge, so it
+  makes no request. Its committed dataset sits alongside the other at
+  `app/data/spot_prices_entsoe/`, in a format carrying one extra column: each interval's own
+  native resolution, since the hourly and quarter-hourly regimes coexist within a single year.
+  It is produced from the raw monthly ENTSO-E dumps by `scripts/extract_entsoe_prices.py`; the
+  raw corpus itself is hundreds of megabytes and is **not** committed.
+
+Backend-load slots are reified as part of a fetch: the browser declares each staged
+`backend_load` slot over the ingest WS (a `backend_load` message), and the route loads it
+server-side on `done` and folds the frame into the **same** dataset as the fetched HA series —
+all-or-nothing, so a failed load fails the whole fetch and persists nothing. Source selection in
+the drawer only stages; no dataset is written before a fetch (§3.5). `POST /data/slot/{name}/load`
+remains as a standalone route that loads one `backend_load` source and merges its frame into the
+current dataset (a `browser_fetch` source is rejected there, its frame arriving over the WS
+instead); it is the same load logic the reify step uses, kept available though the drawer no
+longer calls it. Per-series provenance is persisted in `series_meta.source_type` (the descriptor
+key of the source that produced each series), so a dataset assembled from more than one source —
+an HA-fetched set of energy meters with an Energy-Charts spot price loaded in — records where
+each series came from.
+
+**`app/sources/` is an adapter, not domain.** It does I/O — network, file, wall-clock — and
+deciding *where data comes from* is precisely that. It therefore sits in the adapter layer, not
+under `domain/`, and the domain-is-pure invariant (§5.2) is intact: nothing in `domain/`
+reaches for a source. The protocol depends on domain *types* (`SeriesFrame`, `SlotSpec`), which
+is the correct direction — an adapter may depend on the domain, not the reverse. A reader
+expecting a thing called a "source" to live in `domain/` should read it as an adapter that
+feeds the domain, the same way `CsvLoader` and `DatasetStore` do.
 
 The `domain/` sub-packages map onto the specification files as follows:
 
@@ -95,13 +159,15 @@ added cost outputs is bit-identical across the flag.
 
 `feature_interest` records that a user asked for a control that is specified but not built
 yet ([§2.1](02-ux-wireframes.md#the-pending-affordance)). `feature_key` is the short stable
-string that names the control; `(workspace_id, feature_key)` is the primary key, so a
-repeat click updates `last_clicked_at` and leaves `count` alone.
+string that names the control, and it is the primary key on its own, so a repeat click updates
+`last_clicked_at` and leaves `count` alone.
 
-The table carries `workspace_id` like every other, for the reason given in §5.5: no table is
-implicitly global. Interest is arguably an installation-level fact rather than a
-workspace-level one, and totalling across workspaces at read time is the right way to get
-that — cheaper than making one table an exception to the rule the whole schema rests on.
+**This table is installation-wide** — the one exception to §5.5's invariant 1, argued there and
+in [20-workspaces-ux.md §2′.10](20-workspaces-ux.md#210-what-the-backend-needs-noted-not-designed).
+It was originally keyed per workspace, on the reasoning that totalling across workspaces at read
+time was cheaper than an exception to the rule the schema rests on. The workspace list showed
+why that is wrong in a way totalling does not fix: the count is one household's boolean wish,
+and a workspace deletion would retract a signal the user never withdrew.
 
 `InterestReporter` is the adapter that performs the outbound POST. It is an adapter and not
 a service because it does I/O and nothing else, and it is the **only** component in the
@@ -152,16 +218,21 @@ every 1,024 intervals. The `run_id` protocol that drives cancellation is in
 ## 5.4 Configuration
 
 Single `config.toml` next to the data directory: bind host/port, data dir, log level,
-default parameter values, encryption key for stored HA tokens, and the feature-interest
-endpoint. Environment variables override. HA tokens are encrypted at rest with a key derived
-from a local secret file (0600); this is deterrence against casual disclosure, not a security
-boundary. See also [§7.5](15-data-quality-and-limits.md#75-operational-notes).
+default parameter values, and the feature-interest endpoint. Environment variables override.
+There is **no HA-token configuration and no token-encryption key**: the Home Assistant token
+stays in the browser and is never stored server-side
+([§4.3](06-home-assistant-ingestion.md), [§7.5](15-data-quality-and-limits.md#75-operational-notes)).
 
 `feature_interest_url` is **empty by default** and no request is made while it is empty. A
 packager or a user who wants the reports to reach someone sets it deliberately. Beside it,
 `installation_id` holds the random identifier described in §7.5; it is generated on first
 run, written back to `config.toml`, and clearing the line generates a fresh one on the next
 start.
+
+Neither preset spot-price source needs **any configuration**. For Energy-Charts the endpoint is
+a fixed public URL, the NL bidding zone is hardcoded for now, and there is **no API key** — the
+API is open. The ENTSO-E source reads only committed on-disk files and makes no request at all.
+Nothing about either source appears in `config.toml`.
 
 Default parameter values shipped in `config.toml` are listed in
 [appendix-a-defaults.md](appendix-a-defaults.md).
@@ -171,11 +242,30 @@ Default parameter values shipped in `config.toml` are listed in
 The following are v1 requirements *because* they make multi-tenancy a later additive
 change rather than a rewrite:
 
-1. **Every persisted row carries `workspace_id`.** No table is implicitly global.
+1. **Every persisted row carries `workspace_id`.** No table is implicitly global. Every
+   read path filters on it too — an omitted filter reintroduces the leak the column exists
+   to prevent.
+
+   **One deliberate exception: `feature_interest`.** Its primary key is `feature_key` alone,
+   and its rows survive the deletion of every workspace, including the last. The reasoning is
+   in [20-workspaces-ux.md §2′.10](20-workspaces-ux.md#210-what-the-backend-needs-noted-not-designed):
+   the invariant's purpose is that user *data* never leaks between workspaces or, later,
+   between accounts, and interest counters are not user data in that sense — they are outbound
+   product telemetry, already reported under the pseudonymous `installation_id` from
+   `config.toml` rather than under any workspace identity. Keying them per workspace also made
+   the counter answer the wrong question: the same household could register the same wish from
+   three analyses, and deleting one would retract a signal the user never withdrew.
+
+   This exception covers `feature_interest` and nothing else. In particular
+   `workspace_state.source_generation` remains per-workspace — it tracks one workspace's
+   fetches, and sharing it would let a fetch in one analysis invalidate a source customization
+   saved in another. Any future candidate for the same treatment needs its own argument that
+   the row is telemetry rather than user data.
 2. **`Workspace` is resolved via a FastAPI dependency**, never read from a global.
-   In v1 `get_principal()` returns a hard-coded `Principal(id="local")` and
-   `get_workspace()` returns the single workspace. Adding auth means replacing exactly
-   these two functions.
+   In v1 `get_principal()` returns a hard-coded `Principal(id="local")`, and
+   `get_workspace()` resolves the workspace named in the `/w/{workspace_id}/…` path and
+   checks it against the principal. Adding auth means replacing `get_principal()` alone —
+   `get_workspace()`'s ownership check already does its part unchanged.
 3. **No module-level mutable state.** Session state, run ids, debounce timers and caches
    live inside `SimulationService`, instantiated per workspace and held in a registry
    keyed by `workspace_id`.
@@ -187,8 +277,10 @@ change rather than a rewrite:
 7. **`owner_id` exists on `workspaces` from day one**, populated with `"local"`.
 
 Deliberately deferred: authentication, authorisation policy, quotas, per-user encryption
-keys, workspace sharing, migration of the v1 single workspace into a user account
-(a one-row `UPDATE` when the time comes).
+keys, workspace sharing, and attaching the existing `"local"` owner's workspaces to a real
+user account once one exists. `migrate_local` already adopted the pre-index installation
+into the workspaces table under that owner, and an owner can hold many workspaces, so this
+is no longer the one-row update it once was.
 
 ## 5.6 Named constants
 

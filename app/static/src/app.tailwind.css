@@ -1,0 +1,193 @@
+/* Tailwind v4 + daisyUI v5 source stylesheet.
+ *
+ * This file is the INPUT to the Tailwind CLI (see package.json build:css); the generated
+ * output is app/static/app.css, which is what the browser loads and what is committed. Edit
+ * this file for custom styles, then regenerate. Do not edit app/static/app.css by hand.
+ *
+ * Tailwind v4 is CSS-first: there is no tailwind.config.js. Content sources are
+ * auto-detected; the `@source` line pins template scanning explicitly since the templates
+ * live outside this file's directory. daisyUI is loaded as a v4 plugin via `@plugin`.
+ *
+ * Custom rules below cover the few widgets daisyUI does not provide directly: the
+ * illustrated radio-card selectors (§2.5), the benchmark bars (§2.4), the tabular figure
+ * columns, and the .cost-label / .cost-field pair that tints the cost-simulation controls.
+ */
+
+@import 'tailwindcss';
+@source '../../templates';
+
+@plugin 'daisyui' {
+  themes: light --default, dark --prefersdark;
+}
+
+/* Pin a concrete sans-serif fallback. Tailwind's default stack leads with ui-sans-serif /
+   system-ui, which resolves fine on a normal desktop but falls back to a wide serif in
+   headless environments (and on minimal systems). Appending common installed families keeps
+   typography sensible everywhere, including the Playwright screenshots used for iteration. */
+@layer base {
+  html {
+    font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
+      'Helvetica Neue', 'DejaVu Sans', Arial, sans-serif;
+  }
+}
+
+@layer components {
+  /* Illustrated radio card: a labelled option whose whole area is the click target and
+     whose selected state is shown by border + background, never colour alone (§2.5). */
+  .radio-card {
+    @apply relative flex cursor-pointer flex-col gap-2 rounded-box border-2 border-base-300
+           bg-base-100 p-4 transition-colors;
+  }
+  .radio-card:hover {
+    @apply border-base-content/30;
+  }
+  .radio-card:has(input:checked) {
+    @apply border-primary bg-primary/5;
+  }
+  .radio-card svg {
+    @apply h-auto w-full text-base-content/80;
+  }
+
+  /* Benchmark bar: a track with an optional filled portion and a marker dot (§2.4). */
+  .bench-track {
+    @apply relative h-3 flex-1 rounded-full bg-base-300;
+  }
+  .bench-fill {
+    @apply absolute inset-y-0 left-0 rounded-full bg-primary/30;
+  }
+  .bench-dot {
+    @apply absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary;
+  }
+
+  /* Right-aligned tabular figures for the breakdown/waterfall columns. */
+  .figure-col {
+    @apply text-right font-mono tabular-nums;
+  }
+}
+
+/* ── CSS-only tabs for the "More settings" pane (specs/20-workspaces-ux.md §2′.6) ──────────
+   Unlayered, for the same reason the cost tint below is: `.tab-panel` has to beat daisyUI's own
+   `.tab` / `.tabs` rules, which Tailwind nests in a layer declared after ours, and a layered
+   block here would lose whatever its specificity.
+
+   **Why CSS and not script.** Every tab's inputs must stay in the DOM and in the submitted form
+   body whichever tab is showing — a JS-swapped or conditionally-rendered tab would post the two
+   the user did not open as CLEARED fields, which is the same data-loss shape as rendering a
+   collapsed `<details>` conditionally. `display:none` does not exclude a control from a form
+   body (only `disabled` does), so hiding by CSS is safe where removing is not.
+
+   The mechanism is a radio group (`name="params-tab"`) whose three inputs sit before the panels,
+   with a general-sibling selector matching the panel whose `data-tab-panel` names the checked
+   radio. The radios carry no dotted path, so `params_view.parse_form` never reads them. */
+.tab-radio {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+  width: 0;
+  height: 0;
+}
+.tab-panel {
+  display: none;
+}
+.tabs-group:has(#params-tab-battery:checked) .tab-panel[data-tab-panel='battery'],
+.tabs-group:has(#params-tab-installation:checked) .tab-panel[data-tab-panel='installation'],
+.tabs-group:has(#params-tab-dispatch:checked) .tab-panel[data-tab-panel='dispatch'] {
+  display: flex;
+}
+/* The active tab's label. daisyUI's `.tab-active` is applied by class in its own examples; here
+   the state lives on the radio, so the label is styled from it. */
+.tabs-group:has(#params-tab-battery:checked) .tab[data-tab='battery'],
+.tabs-group:has(#params-tab-installation:checked) .tab[data-tab='installation'],
+.tabs-group:has(#params-tab-dispatch:checked) .tab[data-tab='dispatch'] {
+  border-bottom-color: var(--color-primary);
+  color: var(--color-primary);
+  font-weight: 600;
+}
+/* Keyboard focus has to be visible: the radio itself is off-screen, so the ring goes on its
+   label. Without this the tab strip is operable by keyboard but gives no sign of where it is. */
+.tab-radio:focus-visible + .tab {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* ── The Blocked cost toggle (specs/20-workspaces-ux.md §2′.6, §2.1's four states) ─────────
+   Blocked is "greyed, with an adjacent affordance saying how to clear the precondition" — the
+   control is still on screen and its ⓘ is still clickable, which is the whole point of Blocked
+   rather than Inapplicable. The radios themselves carry `disabled` (so they cannot be submitted
+   and cannot change the stored answer from a screen that cannot honour it); this dims the labels
+   around them so the state reads without inspecting an attribute. */
+.blocked-control {
+  opacity: 0.55;
+}
+.blocked-control label {
+  cursor: not-allowed;
+}
+
+/* The cost tint lives in @layer utilities, NOT @layer components, and that is load-bearing.
+   daisyUI sets `.input`'s border and `.stat-title`'s color in ITS utilities layer, and a later
+   layer wins over an earlier one no matter how specific the earlier selector is. Written as
+   components these rules parsed, shipped, and did nothing: the cost inputs rendered a border
+   byte-identical to every other input's, and the MONEY SAVED tile — the headline figure of the
+   whole cost section — kept the default colour, while class-name assertions passed throughout.
+   Unlayered, deliberately. Putting them in `@layer utilities` is not enough either: Tailwind
+   nests daisyUI's own rules in a layer it declares AFTER ours, so a layered block here still
+   loses. Unlayered CSS beats every layered rule regardless of order, which is the one placement
+   that survives daisyUI reordering its internals on an upgrade. The cost is that these rules no
+   longer participate in layer ordering at all, so they must stay few and specific — they are
+   three selectors on classes nothing else uses. */
+/* ── Cost-simulation accent ────────────────────────────────────────────────
+   Everything that only exists because cost simulation is on — panel ②'s Pricing box,
+   panel ③'s COST SAVINGS section, and the setup band's toggle that governs both — carries
+   a shared tint, so a reader scanning the page can see at a glance which controls turn kWh
+   into euros and which describe the physical system.
+
+   It is an accent ON TOP of structure that already says the same thing (the COST SAVINGS
+   divider, the box legends, the section's position below the divider). Colour is never the
+   only signal: a reader who cannot distinguish the hue loses nothing, which is the same rule
+   .radio-card follows for its selected state.
+
+   NOT `primary`: that token is already load-bearing for selection state (.radio-card's
+   checked border, .bench-fill / .bench-dot). Reusing it would make "this is a cost field"
+   and "this is selected" the same colour.
+
+   Why the token differs per theme rather than being a flat `text-accent`. daisyUI's `accent`
+   is oklch(77% .152 181.9) — a bright teal — in BOTH the light and dark themes here. On the
+   dark theme's base-100/200 that is ~8.3:1 against the background, comfortably past WCAG AA.
+   On the light theme's white and near-white bases it is ~1.9:1, which is unreadable for the
+   small text these labels use. So light mode takes `accent-content` (the dark teal daisyUI
+   already pairs with accent, ~9.7:1 on base-100) and dark mode takes `accent` itself. Same
+   hue family, legible either way. The dark rule is written twice because daisyUI's dark theme
+   applies through both the prefers-color-scheme media query and an explicit data-theme. */
+.cost-label {
+  color: var(--color-accent-content);
+}
+.cost-field {
+  @apply border-accent-content/40;
+}
+.cost-field:focus,
+.cost-field:focus-within {
+  @apply outline-accent-content/60;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) .cost-label {
+    color: var(--color-accent);
+  }
+  :root:not([data-theme]) .cost-field {
+    @apply border-accent/50;
+  }
+  :root:not([data-theme]) .cost-field:focus,
+  :root:not([data-theme]) .cost-field:focus-within {
+    @apply outline-accent/70;
+  }
+}
+[data-theme='dark'] .cost-label {
+  color: var(--color-accent);
+}
+[data-theme='dark'] .cost-field {
+  @apply border-accent/50;
+}
+[data-theme='dark'] .cost-field:focus,
+[data-theme='dark'] .cost-field:focus-within {
+  @apply outline-accent/70;
+}

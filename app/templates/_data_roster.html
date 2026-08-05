@@ -1,0 +1,155 @@
+{#
+  _data_roster.html — the slot roster (specs/02-ux-wireframes.md §2.2 slot-first,
+  specs/20-workspaces-ux.md §2′.5).
+
+  Shared by panel ① (_panel_data.html) and the configure-data screen (workspace_data.html): ONE
+  copy of the roster markup, because every id and data-* attribute below is a contract with
+  app/static/ha_fetch.js and two copies would be two things to keep in step with it.
+
+  Slot-first design: the table leads with the roster of data slots (roles + requirement markers).
+  Each slot ROW shows its chosen source (row.source) or a "Choose source…" affordance; clicking
+  the affordance opens the shared right-side source-picker DRAWER (mounted by whichever page
+  includes this — workspace_data.html, the only one since phase 4.2), which lists its sources
+  (row.sources) and their config. The drawer is opened by JS reading data-* attributes off the
+  row's button (ha_fetch.js).
+
+  The Home Assistant entity (statistic id) for a slot is chosen INSIDE the drawer, not on this
+  row: there is no entity to choose for any source other than Home Assistant. The row's source
+  button therefore also carries the chosen HA entity inline in its label (e.g.
+  "Home Assistant · sensor.…import_t1"); ha_fetch.js updates that label after the user picks an
+  entity in the drawer this session (the persisted view-model does not carry a re-selectable
+  statistic id, only a "(res, N intervals)" coverage summary, so a persisted HA slot shows just
+  the source label until re-picked). The table has three columns: Role, Req, Source.
+
+  **`#slot-roster` is the module gate.** ha_fetch.js returns immediately when this node is absent,
+  which is what makes the whole file inert on a page with no roster and fully functional on any
+  page that includes this partial. It also carries `data-ingest-ws`, the whole workspace-scoped
+  ingest path, rendered server-side so ha_fetch.js never has to know the URL layout.
+
+  The roster is gated by the two scope answers (§2.2, §2.1): the solar row shows only when
+  cfg.has_pv and the two existing-battery rows only when cfg.has_battery. Gated rows are RENDERED
+  and carry `hidden`, so the radios can re-gate the table client-side without a round-trip
+  (ha_fetch.js `applySetupGating`).
+  The server computes the initial hidden state, so the first paint is right with JS off. A hidden
+  row is not fetchable: ha_fetch.js skips hidden rows when collecting the slots to stream.
+
+  The `req` → marker mapping: required ●, conditional ◐ (PV-only), optional ○.
+
+  A row whose view-model carries an `info` blurb (SlotSpec.info, specs §4.1) also renders an ⓘ
+  button next to its role label; clicking opens the shared #slot-info-dialog (filled by
+  ha_fetch.js from the button's data-info-title/body). Rows without `info` render no icon, so
+  the affordance is generic — a new series gets one by populating that field, not by editing here.
+
+  Reads `data.mapping`, `cfg.*` and `workspace_id` from the render context.
+#}
+{% macro slot_roster(data, cfg, workspace_id) %}
+      <div class="card bg-base-200 border border-base-300" id="slot-roster"
+           data-ingest-ws="/w/{{ workspace_id | urlencode }}/data/ingest/ws">
+        <div class="card-body gap-3 p-4">
+          <h3 class="text-sm font-semibold text-base-content/70">{{ _('Series slots') }}</h3>
+
+          <div class="overflow-x-auto">
+            <table class="table table-sm">
+              <thead>
+                <tr>
+                  <th>{{ _('Role') }}</th>
+                  <th class="text-center">{{ _('Req') }}</th>
+                  <th>{{ _('Source') }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in data.mapping %}
+                  {# Gated rows are RENDERED and hidden with a class, not omitted: the scope
+                     radios re-gate this table client-side as the user answers (ha_fetch.js
+                     `applySetupGating`), and a row that was never rendered could not come back
+                     without a round-trip. The data-*-only attributes tell JS which answer each row
+                     depends on; the server still computes the initial hidden state below, so the
+                     first paint is correct with JS disabled. A hidden row's slot is skipped by
+                     mappedSlots()/stagedBackendSlots(), so it is never fetched. #}
+                  {% set row_hidden = (row.pv_only and not cfg.has_pv) or (row.battery_only and not cfg.has_battery) %}
+                  <tr class="slot-row{% if row_hidden %} hidden{% endif %}"
+                      data-slot-row="{{ row.name }}"
+                      {% if row.pv_only %}data-pv-only="1"{% endif %}
+                      {% if row.battery_only %}data-battery-only="1"{% endif %}>
+                    {# Role label, plus an optional ⓘ info affordance. The icon renders only when
+                       the slot's view-model carries an `info` blurb (specs §4.1), so the roster
+                       is generic: a future series gets an icon by populating SlotSpec.info, with
+                       no change here. Clicking opens the shared #slot-info-dialog; the button
+                       carries the (translated) title + body as data-* for ha_fetch.js. #}
+                    <td>
+                      <span class="align-middle">{{ _(row.role) }}</span>
+                      {% if row.info %}
+                      <button type="button"
+                              class="btn btn-ghost btn-xs btn-circle align-middle slot-info-btn"
+                              aria-label="{{ _('About') }} {{ _(row.role) }}"
+                              data-info-title="{{ _(row.role) }}"
+                              data-info-body="{{ _(row.info) }}">ⓘ</button>
+                      {% endif %}
+                    </td>
+                    <td class="text-center">
+                      {% if row.req == "required" %}<span title="{{ _('required') }}">●</span>
+                      {% elif row.req == "conditional" %}<span title="{{ _('required if you have PV') }}" class="text-primary">◐</span>
+                      {% else %}<span title="{{ _('optional') }}" class="text-base-content/40">○</span>{% endif %}
+                    </td>
+                    <td>
+                      {# The chosen source's label, or a "Choose source…" affordance. Either way
+                         the button opens the drawer for this slot; when a source is chosen the
+                         button also lets the user change it — including, for Home Assistant, the
+                         entity (statistic id) chosen inside the drawer. #}
+                      {% set chosen = namespace(label=None) %}
+                      {% for s in row.sources %}
+                        {% if s.key == row.source %}{% set chosen.label = s.label %}{% endif %}
+                      {% endfor %}
+                      {# The source list carried to the drawer, with labels/blurbs translated
+                         here (their msgids come from sample_data.py). "pending" flags the CSV
+                         option so JS renders it disabled with the [?] affordance. #}
+                      {% set src_list = [] %}
+                      {% for s in row.sources %}
+                        {% set _ = src_list.append({"key": s.key, "kind": s.kind, "label": _(s.label), "blurb": _(s.blurb)}) %}
+                      {% endfor %}
+                      {# The label text ha_fetch.js maintains: it appends the chosen HA entity
+                         (source · entity) once picked in the drawer this session. Rendered inside
+                         a .slot-source-label span so JS can rewrite just the text. For an HA slot
+                         with no entity chosen yet, JS shows "Home Assistant · choose entity…". #}
+                      {# For a fetched Home Assistant slot the persisted statistic id (row.stat_id)
+                         is carried in data-slot-stat-id, and the label is rendered server-side as
+                         "Home Assistant · <id>" so it shows on first paint (no client state, specs
+                         §2.2). ha_fetch.js seeds slotState.statId from this attribute. #}
+                      {% set is_ha = row.source == 'home_assistant' %}
+                      <button type="button"
+                              class="btn btn-sm {% if chosen.label %}btn-ghost{% else %}btn-outline btn-primary{% endif %} slot-source-btn"
+                              data-slot="{{ row.name }}"
+                              data-slot-role="{{ _(row.role) }}"
+                              data-slot-source="{{ row.source or '' }}"
+                              data-slot-stat-id="{{ row.stat_id or '' }}"
+                              data-slot-kind="{{ 'price' if 'price' in (row.name or '') else 'energy' }}"
+                              data-slot-sources="{{ src_list | tojson | forceescape }}">
+                        <span class="slot-source-label">
+                          {%- if is_ha %}{{ _('Home Assistant') }} · {% if row.stat_id %}{{ row.stat_id }}{% else %}{{ _('choose entity…') }}{% endif %}
+                          {%- elif chosen.label %}{{ _(chosen.label) }}
+                          {%- else %}{{ _('Choose source…') }}{% endif -%}
+                        </span>
+                        {% if chosen.label %}<span class="text-xs opacity-60">{{ _('change') }}</span>{% endif %}
+                      </button>
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+
+          <p class="text-xs text-base-content/60">
+            {{ _('● = required.  ○ = optional.  ◐ = required only if you have solar PV. Which rows appear comes from the answers above. Spot price drives the charge and discharge bands, so it is required whether or not you simulate costs.') }}
+          </p>
+
+          {# Fetch progress — hidden until a fetch starts (ha_fetch.js). "Fetch history" pulls
+             only the slots whose chosen source is Home Assistant and that have an entity chosen
+             in the drawer (ha_fetch.js reads that per-slot state, not any per-row DOM select). #}
+          <progress id="ha-fetch-progress" class="progress progress-primary w-full hidden" max="100"></progress>
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <span class="text-sm text-base-content/60" id="ha-fetch-status"></span>
+            <button type="button" class="btn btn-primary btn-sm" id="ha-fetch-btn" disabled>{{ _('Fetch history') }}</button>
+          </div>
+        </div>
+      </div>
+{% endmacro %}

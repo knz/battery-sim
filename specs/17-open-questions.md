@@ -191,10 +191,18 @@
     alternative — reset SoC at each boundary — is arguably cleaner when the boundary is a
     PV commissioning date. Confirm.
 
-12. **Default for `supplier_settlement`.** Set to hourly, since most Dutch dynamic
-    suppliers still bill on the hourly average despite 15-minute EPEX settlement. This
-    default silently disables the price bracket for most users. Is that right, or should
-    the app ask explicitly during setup rather than defaulting?
+12. **RESOLVED — the app asks for `supplier_settlement`.** The question was whether
+    defaulting to hourly, which suppresses the price bracket for most users, was right or
+    whether the app should ask. It asks: a radio pair in the Contract box of the
+    edit-workspace screen ([§2′.4](20-workspaces-ux.md#24-edit-workspace)),
+    worded in terms of how the *supplier bills* rather than how the market settles, since
+    that is what the user can read off their contract. The stored default stays hourly
+    (appendix A), so the answer changes what a user who never opens the box gets only
+    inasmuch as the radio always submits a value. Resolved on the judgement that the
+    bracket is the whole point of the derivation and a silent default hides it from exactly
+    the users who have it; experiment X8's width distribution was not waited for. X8 can
+    still unmake this: if the width turns out to be small on real data, the control does not
+    earn its place on the edit screen and the question would go back to a silent default.
     → [§6.16](14-diagnostics.md#616-price-bracketing-under-settlementresolution-mismatch),
     [experiment X8](19-prototype-experiments.md#x8--does-supplier_settlement-change-the-euro-figure)
 

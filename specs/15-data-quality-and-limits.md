@@ -135,8 +135,9 @@ discharge bands compare against the spot series in both cost modes
 ([§1.4](01-product-brief.md#a-price-series-is-not-a-cost-model)), so an energy-only run
 carries exactly the same error. What *is* cost-gated is
 [§6.16](14-diagnostics.md#616-price-bracketing-under-settlementresolution-mismatch), which
-bounds what the averaging did to the euro figure — a different question, asked only when
-there is a euro figure.
+bounds how far the averaging could shift the saving — a different question, asked only when
+there is a euro figure, and additionally only when the supplier bills quarter-hourly and at
+least one interval's native prices actually differ.
 
 Check 8 is split because its two halves ask different questions. **8a** asks whether the
 meter's two registers are both present and accruing — a fact about the installation and the
@@ -185,18 +186,34 @@ different windows can differ by more than the difference in their data.
 
 ## 7.5 Operational notes
 
-- **Bind to `127.0.0.1` by default.** The app stores a Home Assistant long-lived access
-  token, which is a full-privilege credential. If the user wants LAN access, make them
-  change the bind address deliberately and show a warning when the bind address is not
-  loopback.
-- **Token storage** is encrypted at rest with a key in a `0600` file beside the database.
-  This is deterrence, not a security boundary; say so in the UI.
-- **Never log the token**, including in HTTP client debug output.
-- **What the app sends out, and when.** Two things leave the machine, both to hosts the user
-  nominated: Home Assistant requests, to the URL the user entered; and price fetches, to the
-  source the user selected. Energy data, parameters, results and the contents of the database
-  are never transmitted anywhere. There is one exception, described next, and it is inert
-  unless configured.
+- **Bind to `127.0.0.1` by default.** If the user wants LAN access, make them change the
+  bind address deliberately and show a warning when the bind address is not loopback.
+- **The Home Assistant token stays in the browser.** The fetch runs in the browser
+  ([§4.3](06-home-assistant-ingestion.md)), so the long-lived access token — a full-privilege
+  credential — is held in the browser's local storage and sent only to the Home Assistant
+  instance the user entered. It **never reaches the application backend**, is never written to
+  the database, and there is no server-side token store to encrypt. Clearing the browser's
+  storage removes it. The UI should say plainly that the token lives in the browser and goes
+  only to the user's own Home Assistant.
+- **Never log the token.** It is not present server-side to log; the browser fetch code must
+  likewise keep it out of any console/debug output.
+- **What the app sends out, and when.** From the browser: Home Assistant requests, to the URL
+  the user entered. From the backend: spot-price fetches to `api.energy-charts.info`, and
+  feature-interest reports (below). The rows the browser forwards to the backend over
+  `WS /data/ingest/ws` are energy/price statistics the user asked to import — they stay on the
+  backend and are never onward-transmitted; the HA token is not among them. Parameters, results
+  and the contents of the database are never transmitted anywhere. The two backend egress cases
+  are named next.
+- **Backend spot-price fetch, only when the preset source is selected.** When the user picks the
+  preset Energy-Charts NL source for the spot-price slot
+  ([§2.2](02-ux-wireframes.md#22-panel--data-input-expanded),
+  [§4.3](06-home-assistant-ingestion.md)), the backend fetches NL day-ahead prices from
+  `api.energy-charts.info` to bridge the committed on-disk data to the end of the requested
+  range. This is one of the two things the backend sends out. What is sent is a **bidding zone
+  (`NL`) and a date range, and nothing else** — no user data, no energy data, no parameters, no
+  identifier. It fires **only** when the user selects that source, and not at all if the
+  spot-price slot is filled from Home Assistant instead. The endpoint is a fixed public URL that
+  needs no key ([§5.4](08-architecture.md#54-configuration)).
 - **Feature-interest reports are off unless an endpoint is configured.** Clicking the
   thumbs-up on a not-built-yet control ([§2.1](02-ux-wireframes.md#the-pending-affordance))
   always increments a local counter. It additionally POSTs to `feature_interest_url`, which

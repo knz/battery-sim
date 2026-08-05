@@ -1,0 +1,12 @@
+{
+  "//": "Dev-time only. Tailwind v4 + daisyUI v5 generate app/static/app.css (committed). The app itself needs no Node at runtime — see specs/08-architecture.md §5.1.",
+  "scripts": {
+    "build:css": "tailwindcss -i app/static/src/app.tailwind.css -o app/static/app.css --minify",
+    "watch:css": "tailwindcss -i app/static/src/app.tailwind.css -o app/static/app.css --watch"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.3.3",
+    "daisyui": "^5.7.0",
+    "tailwindcss": "^4.3.3"
+  }
+}

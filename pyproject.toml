@@ -1,0 +1,59 @@
+# Project metadata and build configuration.
+#
+# The version is DYNAMIC and read out of `app/__init__.py` by hatchling, so `app.__version__`
+# is the single place the string exists — see that module for why the app reads it from source
+# rather than from `importlib.metadata` (a PyInstaller bundle does not reliably carry the
+# .dist-info directory that lookup needs).
+#
+# `[project.scripts]` installs `battery-sim` as a console entry point calling the same
+# `app.desktop:main` that `python -m app` and the future frozen build call.
+#
+# The project is AGPL-3.0-only. The licence is declared as a PEP 639 SPDX expression rather
+# than a classifier — see the comment on the `license` field for why.
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "battery-sim"
+dynamic = ["version"]
+description = "Retrospectively simulates what a home battery would have saved a Dutch household, from that household's own historical data, under the post-2027 Dutch regime"
+readme = "README.md"
+# PEP 639 form: an SPDX expression as a string, plus the files it refers to. Hatchling
+# canonicalises the expression at build time and rejects an invalid one, so a typo fails the
+# build rather than shipping. The deprecated alternatives — a `{text = ...}` table, or a
+# `License ::` trove classifier — are deliberately not used; under PEP 639 a classifier
+# alongside an SPDX expression is an error.
+license = "AGPL-3.0-only"
+license-files = ["LICENSE"]
+requires-python = ">=3.12"
+dependencies = [
+    "babel>=2.18.0",
+    "fastapi>=0.139.2",
+    "jinja2>=3.1.6",
+    "numpy>=2.5.1",
+    "python-multipart>=0.0.20",
+    "pywebview>=6.2.1",
+    "uvicorn[standard]>=0.51.0",
+]
+
+[project.scripts]
+battery-sim = "app.desktop:main"
+
+[tool.hatch.version]
+path = "app/__init__.py"
+
+# Named explicitly: the project has no src layout and several top-level directories
+# (specs/, tests/, changelog/), so hatchling's auto-detection has nothing unambiguous to
+# infer from. `app/` includes its templates, static files, locales and data by default —
+# hatchling ships everything under a listed package directory that is not excluded.
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "playwright>=1.61.0",
+    "pytest>=9.1.1",
+]

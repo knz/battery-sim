@@ -51,6 +51,28 @@ identically whether or not costs are modelled. The cost metrics are computed und
 regime, per [§1.3](01-product-brief.md#13-regulatory-regime--fixed-decision), and are not
 computed at all when `cfg.simulate_cost` is false.
 
+**A subset of the energy row needs no simulated battery, and is surfaced before panel ②.**
+`self_sufficiency`, `self_consumption`, and the raw import/export/PV/load totals behind them are
+functions of the *ingested* series and the [§6.3](09-ingest-algorithms.md#63-household-load-reconstruction)
+load reconstruction alone — they do not reference the battery capacity, the policy, or the runs
+`A`/`C`. They are shown in the data summary section inside panel ①
+([§2.3a](02-ux-wireframes.md#23a-the-data-summary--your-data-at-a-glance)) as soon as data
+loads, describing the household as it was recorded. The one energy metric that does need the
+simulated battery is `efc`, which counts *its* cycles; and `saved_kwh` / `saved_pct` compare the
+`A` and `C` runs, so both belong to panel ③'s savings section, not the data summary. Where the household already owns a
+battery, note that `self_consumption` and the reconstructed `load` are net of it — the summary
+section labels them so ([§2.3a](02-ux-wireframes.md#the-pre-existing-battery-and-what-net-of-your-battery-means)),
+since [§6.3](09-ingest-algorithms.md#63-household-load-reconstruction) strips the existing
+battery when reconstructing load. In that same existing-battery case `self_sufficiency` can be
+negative over a finite window — import exceeds load when the battery ends more charged than it
+started, or through round-trip losses — so the summary **display-clamps** it to `max(0, ·)` and shows
+a caveat; the metric itself is unchanged, only its presentation
+([§2.3a](02-ux-wireframes.md#23a-the-data-summary--your-data-at-a-glance)). When instead the
+§6.3 negative-load clamp has discarded a *large* share of the load — export the reconstruction
+cannot account for, usually an under-reporting PV sensor or an unmapped battery — `load` and hence
+`self_sufficiency` and `consumption` are not trustworthy; the summary suppresses those two and warns,
+keeping only the measured grid/price figures ([§2.3a](02-ux-wireframes.md#when-an-input-is-empty-or-the-reconstruction-is-unreliable-say-so)).
+
 **Cost simulation only ever adds.** Every metric in the energy row is bit-identical between
 a run with `simulate_cost` off and the same run with it on; enabling the toggle appends the
 cost row and touches nothing above it. This is the invariant the whole optional-cost design
@@ -137,8 +159,50 @@ def perfect_foresight(frame, cfg):        # n_soc = cfg.dp_soc_levels, n_actions
 
 Complexity `O(T · n_soc · n_actions)` ≈ 8,760 × `dp_soc_levels` × `dp_action_levels`
 (≈ 8,760 × 101 × 41 ≈ 36M at the default levels) vectorised operations —
-a few seconds in numpy. Interpolation of `V` rather than snapping to the nearest SoC level
-avoids a systematic pessimism bias of several percent.
+a few seconds in numpy.
+
+**Interpolate `V`; do not snap to the nearest SoC level.** Snapping rounds a landing SoC
+*upward* about as often as downward, and an upward round credits the battery with energy it
+does not have — a small leak at every transition that compounds over the window. The result
+is **optimistic, not conservative**, and it converges upward as the grid refines rather than
+settling. Measured on one fixture (realised dispatch 27.64 kWh):
+
+| `dp_soc_levels` | snapping | interpolation |
+|---|---|---|
+| 11 | 9.41 | ~27.56 |
+| 21 | 17.41 | 27.59 |
+| 101 | 26.26 | ~27.56 |
+| 401 | 27.13 | ~27.56 |
+
+Interpolation is stable from 11 levels on; snapping is still 0.5 kWh short at 401. The
+practical point is that a snapped figure sits *below* the realised saving, so it **bounds
+nothing** — the one thing this run exists to do. Do not treat snapping as the cheap
+conservative option; it is neither.
+
+> Earlier drafts of this file described the snapping error as "a systematic pessimism bias
+> of several percent". That was wrong in both direction and magnitude, and it was corrected
+> from measurement during implementation.
+
+**Two things the pseudocode above leaves out, both needed for the bound to hold.** Each was
+found by measuring a DP that came out *below* a policy run it is supposed to bound:
+
+- **The starting SoC must be on the state grid.** A plain `linspace` over
+  `[soc_min_kwh, soc_max_kwh]` almost never contains `cfg.initial_soc_kwh`, which is the
+  value the terminal constraint is stated against — so the DP has to charge before it can
+  act, and returns a bound worse than standing still. Move the nearest level onto the
+  starting SoC (leaving the endpoints alone, so the grid still spans the window).
+- **The action grid must be able to represent the actions the policies take.** A uniform
+  `linspace` over `[−max_charge_kw, +max_discharge_kw]` cannot generally express the exact
+  PV surplus or the exact household deficit that §6.6/§6.7 dispatch on, so the DP loses to
+  a P1/D1 policy by a few percent. Append both exact points to the action set per interval,
+  clipped to the rated powers. This strictly enlarges the set the DP minimises over, so it
+  cannot itself break the bound — provided the forward pass uses the same per-interval set
+  as the backward pass.
+
+A residual discretisation error remains — "finish exactly at the starting SoC" is
+state-dependent and cannot share a single action row. It is small (0.025 kWh at the default
+41 action levels, shrinking to 0.003 at 321) and always in the conservative direction, so
+assertions of the bound should carry a slack of that order rather than demand exactness.
 
 The DP obeys the same power, SoC and connection limits, and the same standby draw, so the
 comparison is like-for-like. It does **not** obey the user's price bands — that is the
@@ -168,6 +232,41 @@ block, in that block's own units: the energy DP cannot be beaten on kWh of impor
 and the cost DP cannot be beaten on euros. Asserting it across the two blocks is
 meaningless and will fail correctly-built code, since the cost-optimal dispatch routinely
 avoids less import than the import-optimal one.
+
+### The terminal constraint makes the two sides asymmetric — compare them drift-corrected
+
+The DP must finish at or above its starting SoC. **Nothing imposes that on the policy run**,
+and [§6.11](#611-metrics) deliberately reports SoC drift rather than netting it out. So a
+policy that ends emptier than it started books grid import avoided that it funded from its
+*opening charge* rather than earned by dispatch — a move the benchmark is forbidden. The raw
+comparison is then between a drift-funded figure and a drift-neutral one, and
+`perfect_foresight_saving ≥ policy_saving` can fail **with no defect anywhere**.
+
+This is reachable, not theoretical. A no-PV D1 policy over 48 flat hours drains its opening
+5 kWh to the floor and books **+2.35 kWh** of "saving" against a drift of −4.0 kWh. A 20 kWh
+battery started at 100% over 96 intervals books **+14.20 kWh** against a bound of −2.88.
+
+So state the invariant on a comparable basis. Correct **both** sides for drift before
+asserting:
+
+```python
+comparable_saving = saved_kwh + soc_delta_kwh * cfg.eta_d
+```
+
+`soc_delta_kwh` is `soc_end − soc_start` (negative when the run ended emptier). The `eta_d`
+factor converts the stored residual to the AC side, which is the side `saved_kwh` is measured
+on. The DP's own correction is normally zero — that is what its terminal constraint buys —
+so this is even-handed rather than a thumb on the scale.
+
+**This changes no reported figure.** §6.11's drift metric stays exactly as specified,
+unnetted, and so does `saved_kwh`. What is corrected is the *comparison*, and the capture
+ratio derived from it ([§2.4](02-ux-wireframes.md#24-panel--results-expanded) gives the
+presentation rule) — a ratio whose denominator is already drift-constrained by the terminal
+constraint above.
+
+> This asymmetry was not addressed in earlier drafts: §6.12 constrained the DP's endpoint
+> and said nothing about the policy run's. Added from implementation, where fixture 6 failed
+> on correct code.
 
 A second invariant governs the two export baselines within a block:
 `unconstrained_saving ≥ inheriting_saving`, in that block's units, because the

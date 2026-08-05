@@ -1,0 +1,441 @@
+{#
+  _panel_results.html — Panel ③ Results (specs/02-ux-wireframes.md §2.4).
+
+  Rendered expanded, in TWO SECTIONS (§2.4). ENERGY SAVINGS is always shown: the three KPI
+  tiles, the energy breakdown, the (optional) benchmark bars, the secondary metrics, the
+  monthly chart and the caveats box. COST SAVINGS is shown only when `results.cost` is
+  present — the money KPI tile and its baseline → battery sentence, the money benchmark box,
+  and the "Where the money comes from" waterfall.
+
+  **The two sections are gated by ONE `{% if results.cost %}`**, because §4.5 makes `cost` null
+  WHOLESALE rather than an object of null fields, "at the granularity at which the UI actually
+  branches". app/results_view.py emits the key only under cfg.simulate_cost.
+
+  **Nothing in the cost branch touches anything above the divider.** §2.4: enabling the toggle
+  "adds the second section and changes nothing in the first" — a user who ticks the box must see
+  their kWh numbers stay exactly where they were. That is fixture 18, and it is asserted on the
+  view-model rather than on this file, but the structure here is what keeps it true of the page.
+
+  With cost off, §2.4's "Want to know what this is worth in euros? [ Enable cost simulation ]"
+  affordance sits at the foot of the ENERGY section (not below the caveats), anchored to the
+  setup band's simulate_cost radio.
+
+  **The period controls are no longer here.** The preset buttons, the date-range picker, the
+  window description line and the "Simulate cost savings?" toggle moved to `_panel_interval.html`,
+  the right-hand card of the two-card row at the top of the screen. What remains of the ones this
+  file still depends on: the invitation box below anchors to `#setup-simulate-cost`, which now
+  resolves into that card rather than into this panel. The `③` badge is gone from the title too —
+  the screen no longer numbers its panels.
+
+  Two ways this template is rendered:
+    1. by index() as part of the full page (initial load), and
+    2. by POST /results when the period/date picker recomputes over a new window (specs §3.2
+       RANGE_CHANGED). The route returns `_panel_interval.html` and this template, separated by a
+       marker comment; the browser splits them and swaps each in by its root's outerHTML
+       (#panel-interval and #panel-results). Both are re-rendered because both carry answers about
+       the resolved window — the active preset and the window line up there, the figures here.
+
+  Fragment-swap design (see the delegated listeners at the foot of workspace_results.html — NOT here):
+    * The period/date pickers must keep working after a swap. Because a swapped-in inline <script>
+      re-inserts but does NOT re-execute, the picker's click/apply handlers are DELEGATED from
+      `document` in workspace_results.html (bound once, on a part of the page that is never swapped). They key
+      off `data-period` / #results-apply-range, so the fresh buttons work with no re-binding.
+    * The Plotly chart is drawn by a NAMED window.drawMonthlyChart() (defined in workspace_results.html) that
+      reads the fresh data from the swapped-in #monthly-data <script> node. workspace_results.html calls it on
+      initial load; the delegated fetch-handler calls it again after each swap. The inline draw is
+      therefore gone from this template — only the data node and the chart container remain.
+
+  UI chrome is wrapped in _() for translation; coverage strings and ISO dates stay literal.
+  Labels/titles/caveats come pre-marked from the view-model and are translated here via _().
+
+  FIGURES are neither literal nor translated: they arrive from app/results_view.py as `i18n.num()`
+  pairs and are formatted by the `msg()` macro in the request's locale, because Dutch writes
+  3.924 kWh and +15,9 % where English writes 3,924 kWh and +15.9 %. That is why the KPI tiles',
+  the breakdown rows' and the secondary rows' `value` all go through `msg()` rather than being
+  printed with `{{ }}` — including the "A → B" comparisons, which are a message with two figures in
+  it precisely because neither half can be turned into text before the locale is known.
+
+  The "Your data at a glance" figures are repeated inside this panel, above the Energy savings
+  divider, from the SHARED data_glance macro (_data_glance.html) — the same content as panel ①'s
+  copy, but over the SELECTED range (results.data_summary, computed in app/results_view.py with the
+  spot price clamped to the range too), and framed to match the section below it: rendered with
+  frame='divider', so it carries a divider heading like "Energy savings" and NO card around it.
+  It sits inside #panel-results, so it re-renders on every range change.
+  The ⓘ .slot-info-btn buttons it carries keep working after a fragment swap: their click handler is
+  delegated from `document` in ha_fetch.js and the #slot-info-dialog lives in the never-swapped
+  _panel_data.html. The macro import works in the standalone POST /results render too — the Jinja
+  loader (templates.env) finds _data_glance.html the same way it finds this file.
+
+  This panel now carries ⓘ buttons of its OWN, on the same shared affordance and for the same
+  reason of surviving the swap: on the SELF-SUFFICIENCY tile, and on the "Grid import, no battery"
+  breakdown row. Both are opt-in per item — the view-model sets `info_title`/`info_body` and the
+  loops branch on it — so no other tile or row is affected. The two differ in ONE respect: the
+  tile's body is a plain msgid (`_()`), the row's is an `_msg` pair carrying kWh figures (`msg()`).
+#}
+{# `with context` is REQUIRED, not stylistic: Jinja macro imports do not receive the
+   importing template's context, which is where the i18n extension puts the per-request
+   gettext functions. Without it the macro's strings freeze at the first locale rendered in
+   the process and never change again (an English-first server shows an English band to
+   Dutch users). Covered by test_data_glance_is_translated_in_both_copies. #}
+{% from "_data_glance.html" import data_glance with context %}
+{# `msg()` renders a view-model message: translate the constant msgid, THEN substitute its runtime
+   values. The caveats, the run description, the annualisation notice and two of the KPI fields
+   arrive as (msgid, params) pairs from app/results_view.py for that reason — see _msg.html. Same
+   `with context` requirement as above: without it the macro's gettext functions freeze at the
+   first locale rendered in the process. #}
+{% from "_msg.html" import msg with context %}
+<section id="panel-results" class="bg-base-100 border border-base-300 rounded-box">
+  <div class="p-4 lg:p-6 flex flex-col gap-5">
+
+    <div class="flex flex-wrap items-center gap-2">
+      <span class="font-semibold">{{ _('RESULTS') }}</span>
+    </div>
+
+    {# ── Short-window guard box (§2.4 / §7.4) ───────────────────────────────
+       Shown INSTEAD of an annualised figure when the effective window is under
+       min_annualisation_days. The view-model sets annualisation_disabled + a message. #}
+    {% if results.annualisation_disabled %}
+    <div role="alert" class="alert alert-info py-2">
+      <span class="text-sm">ⓘ {{ msg(results.annualisation_message) }}</span>
+    </div>
+    {% endif %}
+
+    {# ── "Your data at a glance" over the SELECTED range (shared macro) ─────
+       The same figures as panel ①'s copy, but clamped to this window (spot price included), and
+       framed like the "Energy savings" section below it — a divider heading, no card.
+       Guarded: results.data_summary should be present whenever the results view rendered, but the
+       view-model may set it None defensively, in which case the section is simply omitted. #}
+    {% if results.data_summary %}
+    {{ data_glance(results.data_summary, title=_('Your energy use during the selected period'), frame='divider') }}
+    {% endif %}
+
+    {# ══ ENERGY SAVINGS ══════════════════════════════════════════════════ #}
+    <div class="divider divider-start text-xs font-semibold uppercase tracking-wider text-base-content/70">
+      {{ _('Energy savings') }}
+    </div>
+
+    {# ── KPI tiles ─────────────────────────────────────────────────────── #}
+    <div class="stats stats-vertical sm:stats-horizontal border border-base-300 bg-base-200 w-full">
+      {# A tile MAY carry `info_title`/`info_body` — `_N` msgids from the view-model, translated
+         here by `_()` exactly like `title` (the prose belongs beside the reasoning that produces
+         the figure, and only the self-sufficiency tile needs it today). When present the title
+         gets the same shared ⓘ .slot-info-btn every derived metric on the data glance carries:
+         one delegated handler in ha_fetch.js, one #slot-info-dialog at page level, no per-tile
+         JS. Tiles without the keys render exactly as before. #}
+      {% for k in results.kpis %}
+      <div class="stat">
+        <div class="stat-title text-xs">{{ _(k.title) }}{% if k.info_body %}
+          <button type="button" class="btn btn-ghost btn-xs btn-circle align-middle slot-info-btn"
+                  {# The label uses `info_title` ("Self-sufficiency"), NOT `title` — the tile
+                     headings are display-uppercase ("SELF-SUFFICIENCY") and a screen reader
+                     would either spell that out or shout it. #}
+                  aria-label="{{ _('About') }} {{ _(k.info_title) }}"
+                  data-info-title="{{ _(k.info_title) }}"
+                  data-info-body="{{ _(k.info_body) }}">ⓘ</button>{% endif %}</div>
+        <div class="stat-value text-2xl">{{ msg(k.value) }}{% if k.unit %}<span class="text-base font-normal text-base-content/60"> {{ k.unit }}</span>{% endif %}</div>
+        {# `delta`/`extra` are either empty or a message (a pair from results_view, or a plain
+           marked string from the sample view-model — msg() takes both). #}
+        <div class="stat-desc">{% if k.delta %}{{ msg(k.delta) }}{% endif %}{% if k.extra %}<br>{{ msg(k.extra) }}{% endif %}</div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <div class="grid gap-4 lg:grid-cols-2">
+      {# ── Where the energy comes from ─────────────────────────────────── #}
+      <div class="card bg-base-200 border border-base-300">
+        <div class="card-body gap-1 p-4">
+          <h3 class="text-sm font-semibold text-base-content/70">{{ _('Where the energy comes from') }}</h3>
+          {% for row in results.energy_breakdown %}
+            {% if row.rule_above %}<div class="my-1 border-t border-base-300"></div>{% endif %}
+            {% if row.gap_above %}<div class="h-2"></div>{% endif %}
+            {# A row MAY carry `info_title`/`info_body`, same shared ⓘ as the KPI tiles above and
+               the data glance's derived metrics. Here `info_body` is an `_msg` PAIR (it quotes
+               runtime kWh figures), so it renders through `msg()` rather than `_()`; the macro's
+               output is plain text and Jinja escapes it into the attribute. Today only the
+               "Grid import, no battery" row sets it, and only when the simulated import actually
+               differs from the meter's — see results_view. #}
+            <div class="flex justify-between {% if row.rule_above %}font-semibold{% endif %}">
+              <span>{{ _(row.label) }}{% if row.info_body %}<button type="button"
+                      class="btn btn-ghost btn-xs btn-circle align-middle slot-info-btn"
+                      aria-label="{{ _('About') }} {{ _(row.info_title) }}"
+                      data-info-title="{{ _(row.info_title) }}"
+                      data-info-body="{{ msg(row.info_body) }}">ⓘ</button>{% endif %}</span>
+              <span class="figure-col">{{ msg(row.value) }}</span>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      {# ── Secondary metrics ───────────────────────────────────────────── #}
+      <div class="card bg-base-200 border border-base-300">
+        <div class="card-body gap-1 p-4">
+          <h3 class="text-sm font-semibold text-base-content/70">{{ _('Secondary metrics') }}</h3>
+          {% for row in results.secondary %}
+          <div class="flex justify-between">
+            <span>{{ _(row.label) }}</span><span class="figure-col">{{ msg(row.value) }}</span>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    {# ── Benchmark: grid import avoided (§2.4, bounded by §6.12's run-D DP) ──
+       The card body lives in _benchmark_box.html, because it is rendered from TWO places: here
+       when the view-model already carries a `benchmark` key, and standalone by
+       POST /results/benchmark.
+
+       **The key is normally ABSENT and that is not an error.** §6.12's DP costs ~4.6 s on a year of
+       hourly data against ~0.12 s for the rest of this panel, so `results_from` skips it unless
+       asked (`with_benchmark=True`) and GET / and POST /results do not ask. The `{% if %}` branch
+       below therefore fires for the STATIC SAMPLE view-model (app/sample_data.py still supplies a
+       benchmark) and for any caller that did ask; everything else takes the {% else %} branch and
+       gets the lazy-fetch placeholder.
+
+       The placeholder carries the window request as JSON in `data-benchmark-body`, so the fetcher
+       — which lives in workspace_results.html, never in this swapped fragment — knows which window to ask for
+       without holding any state of its own. It re-reads the attribute off the freshly-swapped node
+       after every range change, so the box re-fires with the right window each time. #}
+    {% if results.benchmark %}
+    {# `with` binds the partial's `benchmark` name; the partial is written against a bare
+       `benchmark` so POST /results/benchmark can render it with nothing else in scope. #}
+    {% with benchmark = results.benchmark %}
+    <div id="benchmark-slot">{% include "_benchmark_box.html" %}</div>
+    {% endwith %}
+    {% else %}
+    {# `| e` explicitly: the value is a JSON string full of double quotes, and it has to survive as
+       a double-quoted HTML attribute. Autoescape covers it, but stating the filter makes the
+       requirement legible — dropping it silently produces an attribute that terminates early and a
+       fetcher that reads "{". #}
+    <div id="benchmark-slot" data-benchmark-body="{{ results.benchmark_request | default('{}', true) | e }}">
+      <div class="card bg-base-200 border border-base-300">
+        <div class="card-body gap-3 p-4">
+          <h3 class="text-sm font-semibold text-base-content/70">{{ _('Benchmark: grid import avoided') }}</h3>
+          {# Matches the panel's existing "⟳ recalculating…" idiom (the range picker above). The
+             benchmark DP is the slowest thing on the page, so the wait is stated rather than left
+             as an empty gap the reader might take for a missing feature. #}
+          <p class="text-sm text-base-content/70">⟳ {{ _('computing the perfect-foresight benchmark…') }}</p>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+    {# ── Charts ────────────────────────────────────────────────────────── #}
+    <div class="card bg-base-200 border border-base-300">
+      <div class="card-body gap-3 p-4">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          {# The first tab is the only chart that exists. It plots `results.chart`, which is
+             _monthly_import() — the MEASURED monthly grid import over the window, not a saving,
+             so it is labelled for what it draws. §2.4's wireframe asks for a monthly-savings
+             chart; that series is not built (see changelog/20260724-panel3-battery-simulation.md),
+             and labelling this one "Monthly savings" made the bars read as ~11× the actual
+             saving (3,923 kWh of import beside a 341 kWh saving on the 1-year window).
+             The two sibling tabs draw nothing at all, so they carry the §2.1 pending affordance
+             (disabled + [?] + a feature key) rather than looking like working buttons beside a
+             working one. #}
+          {# The pending tabs carry their [?] INLINE and stay enabled, matching the "⤓ export CSV
+             [?]" button beside them: a `disabled` button swallows its own clicks, so the dialog
+             opener has to remain clickable. `btn-disabled` alone is the DaisyUI look-disabled
+             class without the attribute, which is exactly the pending idiom — the control does
+             nothing but says why when asked. #}
+          {# §2.4: "The Charts box gains options rather than swapping them." The kWh view is
+             always offered and shown by default; the euro view appears BESIDE it only when there
+             is a euro series, and the two are separate views rather than a dual axis (see the
+             draw function in workspace_results.html). The switching is delegated from `document` there, like
+             every other control in this swappable fragment. #}
+          <div class="join">
+            <button type="button" class="btn btn-xs join-item btn-active" data-chart-view="kwh">{{ _('Monthly grid import') }}</button>
+            {% if results.monthly_saved_eur %}
+            <button type="button" class="btn btn-xs join-item" data-chart-view="eur">{{ _('Monthly savings (€)') }}</button>
+            {% endif %}
+            <button type="button" class="btn btn-xs join-item opacity-60" data-pending-name="{{ _('SoC + price chart') }}" data-feature-key="chart_soc_price">{{ _('SoC + price') }} [?]</button>
+            <button type="button" class="btn btn-xs join-item opacity-60" data-pending-name="{{ _('Energy flows chart') }}" data-feature-key="chart_energy_flows">{{ _('Energy flows') }} [?]</button>
+          </div>
+          <button class="btn btn-ghost btn-xs" data-pending-name="{{ _('Export CSV') }}" data-feature-key="export_csv">⤓ {{ _('export CSV') }} [?]</button>
+        </div>
+        <div id="monthly-chart" class="h-64 w-full"></div>
+      </div>
+    </div>
+
+    {# ── Cost section absent (cost off): offer to enable it (§2.4). ───────
+       §2.4 "Panel ③ without cost simulation": a short affordance at the FOOT OF THE ENERGY
+       SECTION, linking back to the `simulate_cost` choice in the setup band (§2.1) — "since it
+       defaults off, some users will otherwise never discover that the app can do this at all".
+       It sits here, above the COST SAVINGS divider, rather than below the caveats where it used
+       to: with cost simulation on there IS a section below this point, and an invitation to
+       enable what is already enabled would sit in the middle of the panel.
+
+       The link is a real anchor to the setup band's radio, which Phase 5 wired. It does not
+       submit anything — the choice is the user's to make and confirm in the band, and a button
+       that silently flipped a simulation-wide toggle from the results panel would recompute the
+       page out from under them. #}
+    {# `cost_blocked` is resolved HERE as well as in `_panel_interval.html`, because the toggle this
+       box points at moved to that card and took the `{% set %}` with it. Undefined is falsy in
+       Jinja, so without this the Blocked branch below would silently never be taken and the box
+       would offer `[ Enable cost simulation ]` — a link to a disabled radio — on exactly the
+       workspaces §2′.7 says it must not. Same expression and same default as the card's, and both
+       render sites pass the key. #}
+    {% set cost_blocked = cost_toggle_blocked | default(false, true) %}
+    {% if not results.cost %}
+    <div class="alert bg-base-200 border border-base-300" data-cost-invitation>
+      <span>{{ _('Want to know what this is worth in euros?') }}</span>
+      {% if cost_blocked %}
+      {# The toggle it points at is Blocked, so a button saying "Enable cost simulation" would send
+         the reader to a control they cannot use and explain nothing. §2′.7 anticipated exactly
+         this: the invitation "needs to point at the toggle's new location, and — under §2′.6 — to
+         say something useful when the toggle it points at is blocked."
+
+         The wording states the precondition and the link goes where the precondition is met — the
+         edit screen with the Contract box in view, the SAME destination the ⓘ dialog's
+         `[ Set up my contract → ]` uses, because there is one way to clear this and two buttons
+         that both claim to lead to it would be two answers to one question.
+
+         The box is otherwise unchanged: §2′.7 holds it as it is ("stays as it is … explicitly a
+         hold rather than a conclusion"), so this is the minimum the deleted anchor forced. #}
+      <a href="/w/{{ workspace_id | urlencode }}/edit#contract" class="btn btn-primary btn-sm">
+        {{ _('Set up my contract →') }}
+      </a>
+      {% else %}
+      <a href="#setup-simulate-cost" class="btn btn-primary btn-sm">{{ _('Enable cost simulation') }}</a>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    {# ══ COST SAVINGS (§2.4) ═════════════════════════════════════════════
+       Rendered ONLY when the view-model carries a `cost` block, which app/results_view.py emits
+       only under cfg.simulate_cost. §4.5 makes `cost` null WHOLESALE rather than an object of
+       null fields, precisely so this is one `{% if %}` rather than a dozen — "the whole cost
+       section is rendered or it is not".
+
+       §2.4 is equally explicit that enabling the toggle "changes nothing in the first" section:
+       every figure above this divider is identical to what an energy-only run shows. Nothing in
+       this branch touches anything above it. #}
+    {% if results.cost %}
+    <div class="divider divider-start text-xs font-semibold uppercase tracking-wider cost-label">
+      {{ _('Cost savings') }}
+    </div>
+
+    {# ── Where the rates behind these figures are edited ──────────────────
+         §2.3's Pricing box used to sit in the battery panel and was how a reader adjusted the
+         contract and rates that produce every euro below. §2′.1 assigns `pricing.*` to the
+         edit-workspace screen, so that box is gone from this screen — and with it the only route
+         from a euro figure to the assumptions behind it.
+
+         **This is the THIRD control pointing at `/w/{id}/edit#contract`, and that is not the
+         duplication the invitation box's comment warns against.** The three are mutually
+         exclusive by cost state: with cost OFF the invitation box offers it, and if the toggle is
+         additionally Blocked its ⓘ dialog does; with cost ON — the only state this branch renders
+         in — neither exists and this one does. A reader sees exactly one at a time.
+
+         The ⓘ is the SHARED .slot-info-btn dialog, not the blocked toggle's bespoke one. That one
+         is bespoke because it carries an action button; here the action is the adjacent link, and
+         a dialog repeating it would be two buttons to one destination on one screen. #}
+    <div class="flex flex-wrap items-center justify-end gap-1 -mt-2">
+      <a href="/w/{{ workspace_id | urlencode }}/edit#contract" class="btn btn-ghost btn-xs"
+         data-cost-edit-contract>{{ _('Edit contract & rates →') }}</a>
+      <button type="button" class="btn btn-ghost btn-xs btn-circle align-middle slot-info-btn"
+              aria-label="{{ _('About these rates') }}"
+              data-info-title="{{ _('Where these figures come from') }}"
+              data-info-body="{{ _('Every euro figure below is produced from your contract type and its rates — the supplier markup, energy tax, VAT, feed-in terms and the day/night window. Those are part of the workspace rather than of this simulation, so they are set on its edit screen. Change them there and come back: the figures are recalculated from the new rates.') }}">ⓘ</button>
+    </div>
+
+    {# ── MONEY SAVED tile + the baseline → battery sentence ─────────────
+       §2.4's wireframe puts the tile and the sentence side by side in one bordered block, not as
+       three peer tiles like the energy row: there is one headline euro figure, and the space
+       beside it carries the two bills it is the difference of. #}
+    <div class="stats stats-vertical sm:stats-horizontal border border-base-300 bg-base-200 w-full">
+      <div class="stat">
+        <div class="stat-title text-xs cost-label">{{ _(results.cost.kpi.title) }}</div>
+        <div class="stat-value text-2xl">{{ msg(results.cost.kpi.value) }}<span class="text-base font-normal text-base-content/60"> {{ results.cost.kpi.unit }}</span></div>
+        <div class="stat-desc">{{ msg(results.cost.kpi.delta) }}</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value text-base font-normal">{{ msg(results.cost.kpi.sentence) }}</div>
+        <div class="stat-desc whitespace-normal">{{ msg(results.cost.kpi.note) }}</div>
+      </div>
+    </div>
+
+    {# ── Benchmark: money saved (§2.4, bounded by §6.12's run-E DP) ──────
+       The SAME partial the energy box uses — it reads `rows`, `gloss`, an optional `title` and an
+       optional `note`, none of which is kWh-specific. It arrives on the same lazy path: run E is
+       another ~4.6 s of DP, so `results_from` computes it only under `with_benchmark=True`, and
+       the key is absent on GET / and POST /results.
+
+       It lazy-fetches on the SAME request as the energy box. POST /results/benchmark runs both
+       DPs anyway when cost simulation is on — run E is gated on `with_benchmark` exactly as run D
+       is — so returning one box and discarding the other would pay for a ~2.3 s pass and throw it
+       away. The response is therefore both boxes, each wrapped in a marked container, and the
+       browser distributes them by slot id. One route, one fetch, one DP bill.
+
+       This slot renders only when cost simulation is on: with it off there is no money box to
+       wait for, and a placeholder that never fills reads as broken. #}
+    {% if results.cost_benchmark %}
+    {# Already rendered — the view-model carried a box (the static sample). #}
+    <div id="cost-benchmark-slot">
+      {% with benchmark = results.cost_benchmark, cost = true %}{% include "_benchmark_box.html" %}{% endwith %}
+    </div>
+    {% elif results.cost %}
+    <div id="cost-benchmark-slot">
+      <div class="card bg-base-100 border border-base-300 rounded-box">
+        <div class="card-body gap-2 p-4">
+          <h3 class="text-sm font-semibold cost-label">{{ _('Benchmark: money saved') }}</h3>
+          <p class="text-xs text-base-content/60">⟳ {{ _('computing…') }}</p>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+    {# ── Where the money comes from (§2.4's waterfall) ───────────────────
+       The rows are `cost.waterfall_rows`, which the view-model has ALREADY pruned of lines that
+       evaluate to zero (§2.4: dropped from the display, never from `cost.waterfall`). This loop
+       renders what it is given and does no filtering of its own — the drop threshold is a
+       display decision with a stated tolerance and belongs beside the figure it tests.
+
+       A `disabled` row carries a WORD where the others carry a figure (§4.5's `"enabled": false`
+       on the degradation line), so its value goes through msg() like any other message. #}
+    <div class="card bg-base-200 border border-base-300">
+      <div class="card-body gap-1 p-4">
+        <h3 class="text-sm font-semibold cost-label">{{ _('Where the money comes from') }}</h3>
+        {% for row in results.cost.waterfall_rows %}
+          {% if row.rule_above %}<div class="my-1 border-t border-base-300"></div>{% endif %}
+          <div class="flex justify-between {% if row.rule_above %}font-semibold{% endif %}">
+            <span>{{ _(row.label) }}</span>
+            <span class="figure-col {% if row.disabled %}text-base-content/50{% endif %}">{{ msg(row.value) }}</span>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {# ── Caveats ───────────────────────────────────────────────────────── #}
+    <div class="card bg-base-200 border border-base-300">
+      <div class="card-body gap-2 p-4">
+        <h3 class="text-sm font-semibold text-base-content/70">{{ _('Caveats for this run') }}</h3>
+        {% for c in results.caveats %}
+        <div role="alert" class="alert alert-warning py-2"><span class="text-sm">⚠ {{ msg(c) }}</span></div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  {# The monthly grid-import data, embedded fresh on every (re)render so the swapped-in fragment carries
+     the new window's series. window.drawMonthlyChart() (workspace_results.html) reads THIS node and draws into
+     #monthly-chart above. The axis title is translated server-side. This node lives INSIDE
+     #panel-results so it is replaced together with the panel on a swap.
+
+     The view-models emit MONTH NUMBERS and the axis labels are made here, by the locale-bound
+     `monthname` filter (app/i18n.month_abbr): the chart is drawn client-side from this node, so
+     these strings are the last point at which the server can put the reader's language on the
+     x-axis. Doing it in the view-model was the old behaviour and it hardcoded English. #}
+  {%- set month_labels = results.chart.months | map('monthname') | list -%}
+  {# `| default(none, true)` on the euro series, explicitly: a view-model that predates it (the
+     static sample) leaves the key ABSENT, and Jinja's Undefined is not JSON-serialisable, so
+     `tojson` would raise rather than emit null. `none` is what the draw function tests for when
+     it decides whether the euro view exists at all. #}
+  <script id="monthly-data" type="application/json">
+    {{ {"months": month_labels,
+        "values": results.chart["values"],
+        "ytitle": _('kWh'),
+        "eur_values": results.monthly_saved_eur | default(none, true),
+        "eur_ytitle": _('€')} | tojson }}
+  </script>
+</section>
