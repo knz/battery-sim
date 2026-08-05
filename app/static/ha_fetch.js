@@ -25,7 +25,8 @@
  *         plus a "Configure" button that opens the shared connection modal. The entity picker is
  *         disabled and Confirm is blocked until the connection tests OK; Confirm then needs a
  *         chosen entity too, so a committed HA slot is always fetchable.
- *       * energy_charts (backend_load)   → Confirm only STAGES the choice; the slot is reified
+ *       * energy_charts (backend_load)   → the default staged for the price_spot slot. Confirm
+ *         only STAGES the choice; the slot is reified
  *         server-side by the next Fetch history, as a `backend_load` message on the ingest WS.
  *         (A POST /w/{id}/data/slot/{slot}/load route does exist, but the all-or-nothing reify
  *         model puts that work in the fetch instead — see "Staged-then-confirm" below. Nothing
@@ -43,7 +44,8 @@
  * state lives in `slotState[name] = { source, statId, kind }` and is the ONLY thing updateSlotButton
  * and mappedSlots read. openDrawer seeds `draft` from the committed slotState (so the current choice
  * shows pre-selected) without touching slotState; a slot with NO committed source gets a default
- * staged into the draft by renderSourceList (defaultSourceFor — Home Assistant when offered), which
+ * staged into the draft by renderSourceList (defaultSourceFor — the preset Energy-Charts source for
+ * the spot-price slot, Home Assistant for every other slot that offers it), which
  * keeps the checked radio and draft.source in agreement and lets the entity <select> populate. That
  * staging is still not a commit. A single Confirm button commits:
  *       * HA source   → writes draft → slotState, refreshes the row label, closes. No reload.
@@ -908,17 +910,31 @@
     if (lastFocus) { try { lastFocus.focus(); } catch (e) { /* ignore */ } }
   }
 
-  // Pick the source to stage for a slot that has none committed yet. Prefer the first
-  // browser_fetch (Home Assistant) option, else the first source offered at all. Returns null when
-  // the slot offers nothing selectable.
+  // The slot whose default is NOT Home Assistant, and the source it takes instead. The spot price
+  // is the one slot a household cannot generally supply from its own HA history: the preset
+  // Energy-Charts dataset is committed on disk and bridged live to the end of the window, so it
+  // fills the slot with no connection to configure. Defaulting to HA here would preselect the one
+  // option that needs setup before it can produce anything.
+  var PRESET_DEFAULT_SOURCE = { slot: "price_spot", key: "energy_charts" };
+
+  // Pick the source to stage for a slot that has none committed yet. For the spot-price slot,
+  // prefer the preset historical source (PRESET_DEFAULT_SOURCE) when it is offered; otherwise, and
+  // as the fallback if it is not, prefer the first browser_fetch (Home Assistant) option, else the
+  // first source offered at all. Returns null when the slot offers nothing selectable.
   //
   // Why this exists: without it a fresh slot leaves draft.source null, so NO radio matches at
   // render time, onSelectSource never fires, and the entity <select> is never populated — while the
   // drawer still LOOKS like Home Assistant is chosen. That mismatch between what the drawer shows
   // and what the draft holds is what kept a successful "Test connection" from filling the select.
-  function defaultSourceFor(sources) {
+  function defaultSourceFor(sources, slotName) {
     if (!sources || !sources.length) return null;
-    for (var i = 0; i < sources.length; i++) {
+    var i;
+    if (slotName === PRESET_DEFAULT_SOURCE.slot) {
+      for (i = 0; i < sources.length; i++) {
+        if (sources[i].key === PRESET_DEFAULT_SOURCE.key) return sources[i];
+      }
+    }
+    for (i = 0; i < sources.length; i++) {
       if (sources[i].kind === "browser_fetch") return sources[i];
     }
     return sources[0];
@@ -934,7 +950,7 @@
     haConfigBtn = null;
 
     if (!draft.source) {
-      var def = defaultSourceFor(sources);
+      var def = defaultSourceFor(sources, draft.slot);
       if (def) draft.source = def.key;
     }
 

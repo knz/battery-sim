@@ -1557,6 +1557,44 @@ def test_a_successful_connection_preselects_the_slots_entity(browser, base_url):
     context.close()
 
 
+def test_the_spot_price_slot_defaults_to_the_energy_charts_preset(browser, base_url):
+    """price_spot is the one slot whose staged default is a preset, not Home Assistant.
+
+    Every other slot takes the first browser_fetch source, because HA is where a household's own
+    meter history comes from. The spot price is different: a household generally cannot supply it
+    from its own HA history, while the Energy-Charts dataset is committed on disk and bridged live
+    to the end of the window — it fills the slot with nothing to configure. Defaulting to HA here
+    would preselect the one option that needs setup before it can produce anything.
+
+    Note this pins the KEY, not the position: `price_spot` offers three sources (HA, energy_charts,
+    entsoe_nl), so "the second one" and "the first backend_load one" would both pass by accident.
+    """
+    url = _workspace_url(base_url)
+    workspace_id = url.rstrip("/").split("/")[-2]
+
+    context = browser.new_context()
+    context.add_cookies([{"name": "lang", "value": "en", "url": base_url}])
+    pg = context.new_page()
+    pg.add_init_script(_HA_WS_STUB)
+    _make_slot_pristine(pg, base_url, workspace_id, slot="price_spot")
+
+    pg.locator("#slot-roster .slot-source-btn[data-slot='price_spot']").click()
+    assert pg.locator("#source-drawer").is_visible()
+
+    ec_radio = pg.locator("#source-drawer input[name='drawer-source'][value='energy_charts']")
+    assert ec_radio.is_checked(), "a fresh price_spot slot must stage the Energy-Charts preset"
+    ha_radio = pg.locator("#source-drawer input[name='drawer-source'][value='home_assistant']")
+    assert not ha_radio.is_checked(), "Home Assistant must not be the spot-price default"
+
+    # The staged default is a real draft choice, not just a checked radio: Confirm commits it
+    # without an entity, which only the backend branch allows.
+    pg.locator("#drawer-confirm").click()
+    pg.wait_for_timeout(150)
+    stored = pg.evaluate(f"localStorage.getItem('ha.slots.{workspace_id}')")
+    assert "energy_charts" in (stored or ""), "the staged default must survive Confirm"
+    context.close()
+
+
 def test_a_manually_chosen_entity_survives_a_repopulate(browser, base_url):
     """The guess is a default, never an override — but only for an id the instance actually has.
 
