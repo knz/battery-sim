@@ -948,11 +948,17 @@ def uncertainty_client(tmp_path, monkeypatch):
     `SupplierSettlement.QUARTER_HOURLY` opens D10's gate (with the default HOURLY the hourly price
     IS what the household paid and there is nothing to caveat). Returns the client and the store
     so a test can close the gate and re-request against the same data.
+
+    The charge policy is pinned to P3 for the same reason: the width is a property of what the
+    battery BUYS inside the band, and the shipped default P1 (solar surplus only) grid-charges
+    nothing, so inheriting it would leave the caveat with no spread to describe.
     """
     monkeypatch.setenv("BATTERY_SIM_DATA_DIR", str(tmp_path))
 
     from app import dataset, simconfig_store
-    from app.domain.simconfig import SimulationConfig, SupplierSettlement
+    from app.domain.simconfig import (
+        ChargePolicy, PolicyConfig, SimulationConfig, SupplierSettlement,
+    )
 
     # Four quarters per hour with a wide, asymmetric intra-hour spread, so the hourly mean sits
     # well inside [min, max] and the width is comfortably above the whole-euro display threshold.
@@ -971,7 +977,7 @@ def uncertainty_client(tmp_path, monkeypatch):
         (_WIN_START, _WIN_END), "test", [], None,
         workspace_id=WORKSPACE_ID,
     )
-    cfg = SimulationConfig()
+    cfg = SimulationConfig(policy=PolicyConfig(charge_policy=ChargePolicy.P3))
     cfg.simulate_cost = True
     cfg.pricing.supplier_settlement = SupplierSettlement.QUARTER_HOURLY
     simconfig_store.save(cfg, WORKSPACE_ID)

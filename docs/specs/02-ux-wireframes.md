@@ -799,9 +799,9 @@ offering to restrict the window is future work.
 │  └────────────────────────────────────────────────────────────────────────┘  │
 │                                                                              │
 │  ┌─ Charge policy ────────────────────────────────────────────────────────┐  │
-│  │  (   ) P1  Solar surplus only (net zero at the grid)       [PV only]   │  │
+│  │  ( • ) P1  Solar surplus only (net zero at the grid)       [PV only]   │  │
 │  │  (   ) P2  Grid charge when spot price is in band                      │  │
-│  │  ( • ) P3  Both                                            [PV only]   │  │
+│  │  (   ) P3  Both                                            [PV only]   │  │
 │  │                                                                        │  │
 │  │        Band A (lower) [ -0.050 ] €/kWh   B (upper) [ 0.040 ] €/kWh     │  │
 │  │        Charge when  A ≤ spot ≤ B.  Compared against EPEX spot.         │  │

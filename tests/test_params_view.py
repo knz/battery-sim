@@ -272,7 +272,7 @@ def test_issue_messages_carry_no_literal_percent_sign():
 def test_summary_line_is_computed_from_the_config():
     """The wireframe shape, from real values — not the sample literal it replaced."""
     assert params_view.summary_line(SimulationConfig()) == (
-        "10.0 kWh · 5.0/5.0 kW · 90% · charge P3 · discharge D1 · energy only"
+        "10.0 kWh · 5.0/5.0 kW · 90% · charge P1 · discharge D1 · energy only"
     )
 
 
@@ -467,7 +467,7 @@ def test_a_corrupt_file_gives_defaults_and_does_not_raise(store):
         store.config_path(store.db.WORKSPACE_ID).write_text(corrupt, encoding="utf-8")
         cfg = store.load(store.db.WORKSPACE_ID)                       # must not raise
         assert cfg.battery.usable_capacity_kwh == 10.0
-        assert cfg.policy.charge_policy is ChargePolicy.P3
+        assert cfg.policy.charge_policy is ChargePolicy.P1
 
 
 def test_an_unknown_key_is_ignored_and_a_missing_group_falls_back(store):

@@ -610,7 +610,7 @@ def connection_capacity_kw_display(phases: int, fuse_a: float) -> float:
 class PolicyConfig:
     """Charge and discharge policy with their price bands (§2.3, §6.6, §6.7).
 
-        charge_policy / discharge_policy   §6.6 / §6.7. Defaults P3 and D1 — appendix A does not
+        charge_policy / discharge_policy   §6.6 / §6.7. Defaults P1 and D1 — appendix A does not
                       tabulate these, but §2.3's wireframe preselects them and app/sample_data.py
                       renders that; sourced to §2.3, not to appendix A.
         band_a / band_b   charge when `A <= spot <= B` (§6.6), against the BARE spot price.
@@ -637,7 +637,7 @@ class PolicyConfig:
     Both bands live in one object because §7.3 check 12 is a check across the two of them.
     """
 
-    charge_policy: ChargePolicy = ChargePolicy.P3
+    charge_policy: ChargePolicy = ChargePolicy.P1
     discharge_policy: DischargePolicy = DischargePolicy.D1
     band_a: float = -0.050
     band_b: float = 0.040

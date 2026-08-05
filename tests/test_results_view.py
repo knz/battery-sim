@@ -645,15 +645,30 @@ def test_results_state_the_parameter_set_they_were_computed_under():
     assert not any("every savings figure is zero" in c for c in _caveats(r))
     assert not any("not wired up yet" in c for c in _caveats(r))
     assert any(
-        "10 kWh usable" in c and "5/5 kW" in c and "charge P3" in c for c in _caveats(r)
+        "10 kWh usable" in c and "5/5 kW" in c and "charge P1" in c for c in _caveats(r)
     )
+
+
+def _grid_charging_cfg():
+    """A config that grid-charges inside the band — P3, explicitly, not the shipped default.
+
+    The three tests below share one scenario: import 2 kWh/h with no PV export and a flat spot
+    price inside the charge band, so the battery fills from the grid and never empties. That is
+    what produces the negative saving, the SoC drift and the floored self-sufficiency they check.
+    The shipped default is P1 (solar surplus only), which grid-charges nothing and would leave all
+    three fixtures inert, so the policy is stated here rather than inherited.
+    """
+    from app.domain.simconfig import ChargePolicy, PolicyConfig, SimulationConfig
+
+    return SimulationConfig(policy=PolicyConfig(charge_policy=ChargePolicy.P3))
 
 
 def test_results_reports_a_negative_saving_honestly():
     """§7.2 item 9: a battery that costs kWh is correct output and must read as a cost.
 
-    Setup: import 2 kWh/h, export 0, NO PV, and a flat spot price of 0.02 €/kWh — inside the
-    default charge band [−0.050, 0.040] and below the default discharge band [0.180, 9.999]. So
+    Setup: import 2 kWh/h, export 0, NO PV, charge policy P3 (see `_grid_charging_cfg`), and a
+    flat spot price of 0.02 €/kWh — inside the default charge band [−0.050, 0.040] and below the
+    default discharge band [0.180, 9.999]. So
     P3 grid-charges whenever the band is open, and D2 never fires (D1 serves the deficit, but the
     battery is charging, not discharging: §6.7's netting resolves the two and charge wins).
 
@@ -678,7 +693,7 @@ def test_results_reports_a_negative_saving_honestly():
         _energy("grid_export_t1", 0.0),
         _price("price_spot", 0.02),
     ])
-    r = results_from(ds, (_WIN_START, _WIN_END))
+    r = results_from(ds, (_WIN_START, _WIN_END), cfg=_grid_charging_cfg())
     assert r is not None
 
     charged_ac = 5.0 / _ETA
@@ -719,7 +734,7 @@ def test_soc_drift_caveat_fires_when_the_battery_ends_more_charged():
         _energy("grid_export_t1", 0.0),
         _price("price_spot", 0.02),
     ])
-    r = results_from(ds, (_WIN_START, _WIN_END))
+    r = results_from(ds, (_WIN_START, _WIN_END), cfg=_grid_charging_cfg())
     assert any("more charged than it started" in c for c in _caveats(r))
 
 
@@ -770,7 +785,7 @@ def test_self_sufficiency_display_clamp_fires_with_its_caveat():
         _energy("grid_export_t1", 0.0),
         _price("price_spot", 0.02),
     ])
-    r = results_from(ds, (_WIN_START, _WIN_END))
+    r = results_from(ds, (_WIN_START, _WIN_END), cfg=_grid_charging_cfg())
     assert r is not None
     ss = next(k for k in r["kpis"] if k["title"] == "SELF-SUFFICIENCY")
     assert _en(ss["value"]).endswith("→ 0%"), "a negative self-sufficiency must display as 0%"
@@ -778,12 +793,11 @@ def test_self_sufficiency_display_clamp_fires_with_its_caveat():
 
     # The underlying metric is untouched — the clamp is presentation only.
     from app.domain.metrics import energy_metrics
-    from app.domain.simconfig import SimulationConfig
     from app.domain.simframe import simulation_frame
     from app.domain.simulate import run_all
 
     frame = simulation_frame(ds, (_WIN_START, _WIN_END))
-    cfg = SimulationConfig()
+    cfg = _grid_charging_cfg()
     m = energy_metrics(run_all(frame, cfg), frame, cfg)
     assert m.self_sufficiency_battery == pytest.approx(-0.108, abs=1e-3)
 
@@ -1551,7 +1565,7 @@ def test_drift_threshold_is_soc_drift_warn_frac_not_a_second_constant():
 # warning applies — run D and run E are ~2.3 s per pass — so `with_benchmark=True` appears only in
 # the tests that are about the boxes, and never over a long window.
 
-from app.domain.simconfig import SimulationConfig  # noqa: E402
+from app.domain.simconfig import ChargePolicy, PolicyConfig, SimulationConfig  # noqa: E402
 from app.i18n import num  # noqa: E402
 from app.results_view import (  # noqa: E402
     WATERFALL_DISPLAY_EPS_EUR,
@@ -1566,10 +1580,33 @@ def _cost_cfg(**kw) -> SimulationConfig:
     `simulate_cost` is set AFTER construction deliberately: `SimulationConfig` applies its forcing
     on READ (the `economic_guard` property), so this is the same state a user's persisted config
     reaches through panel ②, not a special constructor path.
+
+    The charge policy is pinned to P3 rather than left at the shipped default. These are cost and
+    caveat tests: they need the battery to charge from the grid inside the band, because that is
+    what puts a price spread on the bill for §6.10 and D10 to have anything to say about. The
+    shipped default is P1 (solar surplus only), which grid-charges nothing, so leaning on it here
+    would silently empty the fixtures.
     """
-    cfg = SimulationConfig(**kw)
+    cfg = _energy_cfg(**kw)
     cfg.simulate_cost = True
     return cfg
+
+
+def _energy_cfg(**kw) -> SimulationConfig:
+    """The same config as `_cost_cfg` with cost simulation OFF — the other half of the toggle.
+
+    The charge policy is pinned to P3 rather than left at the shipped default. These are cost and
+    caveat tests: they need the battery to charge from the grid inside the band, because that is
+    what puts a price spread on the bill for §6.10 and D10 to have anything to say about. The
+    shipped default is P1 (solar surplus only), which grid-charges nothing, so leaning on it here
+    would silently empty the fixtures.
+
+    It matters that the cost-off half comes from here and not from a bare `SimulationConfig()`:
+    several tests below assert that the energy blocks are bit-identical across the toggle, which
+    only holds if the two configs differ in `simulate_cost` ALONE.
+    """
+    kw.setdefault("policy", PolicyConfig(charge_policy=ChargePolicy.P3))
+    return SimulationConfig(**kw)
 
 
 # A day of prices with a real spread, so the bill is not a constant times a total and a sign error
@@ -1611,7 +1648,7 @@ def test_fixture_18_every_energy_block_is_bit_identical_across_the_cost_toggle()
     value, and those are exactly the two ways a "figure already on screen" can move.
     """
     ds = _cost_dataset()
-    off = results_from(ds, (_WIN_START, _WIN_END), cfg=SimulationConfig())
+    off = results_from(ds, (_WIN_START, _WIN_END), cfg=_energy_cfg())
     on = results_from(ds, (_WIN_START, _WIN_END), cfg=_cost_cfg())
     assert off is not None and on is not None
 
@@ -1690,7 +1727,7 @@ def test_fixture_18_the_per_interval_soc_trace_is_bit_identical():
     ds = _cost_dataset()
     frame = simulation_frame(ds, (_WIN_START, _WIN_END))
     assert frame is not None
-    off = run_all(frame, SimulationConfig())
+    off = run_all(frame, _energy_cfg())
     on = run_all(frame, _cost_cfg())
     for run in ("a", "b", "c"):
         np.testing.assert_array_equal(
@@ -1711,7 +1748,7 @@ def test_fixture_18_the_energy_benchmark_is_bit_identical_across_the_toggle():
     One day of hourly data, so the two DP passes are cheap.
     """
     ds = _cost_dataset()
-    off = results_from(ds, (_WIN_START, _WIN_END), cfg=SimulationConfig(), with_benchmark=True)
+    off = results_from(ds, (_WIN_START, _WIN_END), cfg=_energy_cfg(), with_benchmark=True)
     on = results_from(ds, (_WIN_START, _WIN_END), cfg=_cost_cfg(), with_benchmark=True)
     assert off is not None and on is not None
     assert [(r["label"], _en(r["value"]), r["frac"], r["dot"]) for r in off["benchmark"]["rows"]] \
@@ -2172,7 +2209,7 @@ def test_the_cost_section_is_absent_and_the_affordance_offered_when_cost_is_off(
     rendered page is; here we pin the condition the template branches on.
     """
     ds = _cost_dataset()
-    off = results_from(ds, (_WIN_START, _WIN_END), cfg=SimulationConfig())
+    off = results_from(ds, (_WIN_START, _WIN_END), cfg=_energy_cfg())
     on = results_from(ds, (_WIN_START, _WIN_END), cfg=_cost_cfg())
     assert off is not None and on is not None
     assert not off["cost"]
@@ -2185,7 +2222,7 @@ def test_the_euro_caveats_appear_only_with_cost_simulation_on():
     which fixture 18 above asserts; this is the other half of that statement.
     """
     ds = _cost_dataset()
-    off = _caveats(results_from(ds, (_WIN_START, _WIN_END), cfg=SimulationConfig()))
+    off = _caveats(results_from(ds, (_WIN_START, _WIN_END), cfg=_energy_cfg()))
     on = _caveats(results_from(ds, (_WIN_START, _WIN_END), cfg=_cost_cfg()))
     assert len(on) > len(off)
     added = " ".join(c for c in on if c not in off)

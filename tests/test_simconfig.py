@@ -121,7 +121,7 @@ _APPENDIX_A_DEFAULTS = [
 
 # §2.3 wireframe (appendix A carries no default for these).
 _WIREFRAME_DEFAULTS = [
-    ("policy.charge_policy", ChargePolicy.P3),
+    ("policy.charge_policy", ChargePolicy.P1),
     ("policy.discharge_policy", DischargePolicy.D1),
     ("policy.band_a", -0.050),
     ("policy.band_b", 0.040),
