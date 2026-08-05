@@ -565,3 +565,379 @@ browser as before. What changed is only that the fallback is now for the real re
 window opens, is sized correctly, and that localStorage actually persists across a close/reopen
 cycle all remain untested on any machine, and need a box with WebKit2GTK (or macOS/Windows) to
 check.
+
+## 12. Phase 3 — the PyInstaller `onedir` build
+
+Implemented 2026-08-05. A `onedir` Linux bundle builds, runs, serves, and passes a packaged
+end-to-end suite. **The native window is still not verified and is deferred to phase 4** — see
+§12.8, which should be read before this section is taken as evidence that the app "works".
+
+### 12.1 What was built
+
+`packaging/battery-sim.spec` and `packaging/build-linux.sh`, producing `dist/battery-sim/` — a
+`onedir` bundle of **89MB** (120MB before the Babel trim of D11; measured by `du -sk`, which the
+script's gate reads and integer-divides). Entry point is `app/__main__.py`, so the frozen
+binary takes the same `--port` / `--browser` / `--no-browser` flags as `python -m app`.
+
+A spec file rather than a long command line, as asked. It is also the only practical place to put
+the reasoning: three of its entries exist to defend against failures that no test outside a
+packaged build can observe, and those notes would be lost in a shell invocation.
+
+### 12.2 Decisions
+
+**D7 — `onedir`, confirming D6.** Nothing found during the build argued against it. Two properties
+were used in anger: the bundle is a directory that can be listed (§12.5 and §12.6 both depend on
+that), and no temp directory is created or destroyed per launch, so the `sys.frozen` guard is a
+backstop rather than the only thing standing between the user and data loss.
+
+**D8 — assets collected to their SOURCE-relative paths.** `("app/templates", "app/templates")` and
+the three siblings. Templates, static files, locale catalogs and the shipped spot-price CSVs are
+all found through `Path(__file__).resolve().parent` from inside `app/`, and under PyInstaller
+`app/__init__.py` lands at `<bundle>/_internal/app/`. Matching the relative path exactly means
+those lookups resolve with **zero source changes**, which is the outcome that was wanted. Verified
+rather than assumed — see §12.5.
+
+**D9 — a separate build virtualenv, not `uv sync --no-dev` in place.** The task allowed either.
+`uv sync --no-dev` against the repo's `.venv` would uninstall playwright, pytest and httpx from
+the environment the developer is working in, and the next `uv run pytest` would fail until someone
+re-synced. `build-linux.sh` therefore creates a throwaway venv (default
+`${TMPDIR}/battery-sim-build-venv`, override with `BUILD_VENV=`) and does
+`uv pip install -e . pyinstaller` into it — `[project.dependencies]` only, no dependency group.
+The dev packages are *also* in the spec's `excludes`, which is deliberate redundancy: the script
+makes them absent, the exclude list makes them unbundlable for anyone who runs `pyinstaller`
+by hand against the dev venv. Confirmed after the build that `playwright`, `pytest` and `httpx`
+are still importable from the repo's `.venv`.
+
+PyInstaller is intentionally **not** added to `pyproject.toml`. It is a build tool, not a
+dependency of the application, and putting it in the dev group would place it in every
+contributor's environment for no benefit.
+
+**D10 — the size ceiling is a build-script gate, not a comment.** 150MB, in `build-linux.sh`. On
+breach it prints the ten largest `_internal/` entries and exits non-zero, because the failure it
+anticipates has one overwhelmingly likely cause and naming it saves the reader a `du`. After D11
+the bundle is **89MB** against the 150MB ceiling. The largest contributors are now `numpy.libs`
+27MB, numpy 14MB, `app/` 9.3MB, `libpython3.12.so` 8.7MB.
+
+**D11 — Babel's CLDR data is trimmed to the languages the app supports.** IMPLEMENTED, on the
+user's instruction ("we don't need to keep other locales than those supported in the app"). An
+earlier draft of this section deferred it and, in doing so, **overstated the risk** — the
+correction is worth recording because the wrong version would have discouraged a safe change.
+
+That draft said trimming risked "a locale needed by `negotiate_locale` for some user's
+`Accept-Language` header going missing". That cannot happen as the code stands. `app/i18n.py:70`
+defines `SUPPORTED = ("en", "nl")`, and `resolve_locale` (`:113-126`) returns a member of
+`SUPPORTED` or `DEFAULT_LOCALE` and nothing else: `negotiate_locale` given `de,fr` returns None
+and the app falls back to English. So an arbitrary header locale never reaches `Locale.parse`, and
+the set of locales the app can ask Babel about is exactly `SUPPORTED`. The real risk is narrower
+and entirely internal — a keep-set that fails to cover the app's *own* languages — and that is
+what the guards below are for.
+
+Measured: **1083 `.dat` files → 3** (`en`, `nl`, `root`); babel **32MB → 876KB**; the bundle
+**120MB → 89MB**. A 26% reduction, and Babel goes from the single largest entry to a rounding
+error.
+
+Three things about how it is implemented:
+
+- **The keep-set is derived from `app/i18n.py::SUPPORTED`, not hardcoded**
+  (`packaging/battery_sim_babel_locales.py`). A literal `{"en", "nl", "root"}` would mean that
+  adding a language later ships a bundle that cannot format it — and the symptom is a wrong number
+  format or a 500, not a build error. The parent chain is walked the same way
+  `babel.localedata.load` walks it (consult `parent_exceptions`, else strip the last `_` segment,
+  else `root`), so a future `pt_BR` pulls in `pt` and an `en_GB` pulls in `en_001` unaided. Checked
+  against both of those hypothetical entries.
+- **`root` is always kept**, because every locale inherits from it, and **`global.dat` is
+  untouched** — it lives outside `locale-data/` and carries the territory and `parent_exceptions`
+  tables `Locale.parse` needs for any locale at all.
+- **It had to be a hook override, not a spec-side filter.** This was the one real obstacle. The
+  first attempt filtered the spec's own `datas` and the bundle came back byte-for-byte unchanged
+  at 120MB, because PyInstaller's bundled `hook-babel.py` does an unconditional
+  `collect_data_files('babel')` and a hook's datas are merged independently of the spec's list. The
+  fix is `packaging/hooks/hook-babel.py`, which shadows the stock hook via
+  `hookspath=[packaging/hooks]`. Its `hiddenimports` are copied verbatim from the stock hook and
+  must stay: unpickling `root.dat` needs those four modules.
+
+Guards, because a too-aggressive keep-set is a runtime-only failure: the spec aborts the build if
+the keep-set comes out with fewer than two entries, and `build-linux.sh` asserts after the build
+that a `.dat` exists for every language it reads out of `app/i18n.py` (plus `root`), and that
+`global.dat` survived. `tests/test_packaged.py::test_babel_locale_data_is_bundled` is the
+end-to-end backstop — see §12.11.
+
+### 12.3 The hidden imports, and which of them were actually necessary
+
+The task's list was checked against the installed uvicorn 0.51.0 rather than trusted. All four
+named entries are real and all are resolved by **string**, in `uvicorn/config.py`:
+
+```
+WS_PROTOCOLS   {'websockets-sansio': 'uvicorn.protocols.websockets.websockets_sansio_impl:…', …}
+HTTP_PROTOCOLS {'h11': 'uvicorn.protocols.http.h11_impl:H11Protocol', …}
+LIFESPAN       {'auto': 'uvicorn.lifespan.on:LifespanOn', …}
+(loop map)     {'asyncio': 'uvicorn.loops.asyncio:asyncio_loop_factory', …}
+```
+
+`import_from_string` calls `importlib.import_module` on the left half at Config time. Nothing in
+the bytecode references these modules, so PyInstaller's static analysis genuinely cannot see them.
+The task's warning about `websockets-sansio` versus `websockets` is correct — the launcher pins
+the sansio name (phase 1, §10) and `websockets_sansio_impl` is the module that matches it.
+
+`app.main` is the fifth entry and is needed for a different reason: `_load_asgi_app` imports it
+**inside a function**, deliberately (the data directory must be resolved first), which also keeps
+it out of the module-level import graph.
+
+**`app/sources/registry.py` needed nothing.** The task flagged it as a possible string-lookup
+site. It was read, and its `_BY_KEY` map holds already-**instantiated** objects built from three
+ordinary top-level imports (`HomeAssistantSource`, `EnergyChartsSource`, `EntsoeSource`); `get_source`
+looks up an instance, not a module. A grep for `import_module` / `__import__` / `importlib` across
+all of `app/` returns exactly one hit, and it is a comment in `app/__init__.py`. So there is no
+dynamic module resolution anywhere in the application — the string-lookup problem is entirely
+uvicorn's.
+
+PyInstaller's bundled `hook-uvicorn.py`, `hook-websockets.py` and `hook-babel.py` all ran. It is
+therefore **not established** that every one of the five entries is load-bearing today; the hooks
+may already cover some. They are kept because the hooks are third-party and versioned
+independently, and because the cost is nil. What *is* established is that at least the WebSocket
+entry matters — §12.6 removed it and the build broke.
+
+### 12.4 Excludes
+
+As specified: playwright, pytest, `_pytest`, httpx, watchfiles, uvloop, httptools, tkinter,
+`numpy.testing`, `numpy.f2py`. `uvloop` and `httptools` are correctness as much as size — they are
+what `ws`/`http`/`loop` would have probed for under `"auto"`, and the launcher pins the pure-Python
+alternatives, so bundling them would ship C extensions nothing loads. PyInstaller's warning file
+confirms both were excluded rather than merely absent.
+
+`external_data/` (~429MB), `node_modules/` (~48MB), `tests/`, `specs/` and `changelog/` are not
+packages and cannot be reached by the spec as written; `test_the_bundle_carries_no_development_directories`
+asserts it by name and the size gate catches it by weight.
+
+### 12.5 What was verified, and how
+
+All against the built binary, `dist/battery-sim/battery-sim`, on port 8220, `--no-browser`.
+
+- **HTTP 200 on `GET /`.** The workspace list renders.
+- **The data directory lands per-user, not in the bundle.** This is the check the phase exists
+  for, and it was run the only way that actually tests the guard: `BATTERY_SIM_DATA_DIR`
+  **unset** (so `resolve_data_dir` cannot pre-empt the decision) and `XDG_DATA_HOME` pointed at a
+  scratch directory. `config.toml`, `feature_interest.db`, `desktop.lock` and the workspace
+  directory all appeared under `<scratch>/battery-sim/`. Separately confirmed that **no file
+  under `dist/` was modified after the launch** (compared against the mtime of the freshly
+  written `config.toml`), and that the repo's own `./data` was untouched. `desktop.lock` held
+  `{"port": 8220, "pid": 1383288}`.
+- **The WebSocket route works.** A raw `websockets.connect` to
+  `ws://127.0.0.1:8220/w/<id>/data/ingest/ws`, against a workspace seeded first — the documented
+  404-on-handshake trap from §10 was heeded. The handshake completed and a header/series/rows
+  exchange returned `{"type":"progress","name":"grid_import_t1","rows":2}`, byte-identical to what
+  the phase-1 source run produced. So the pinned `websockets-sansio` implementation is present and
+  carrying frames in both directions, not merely importable.
+- **Templates, static, locales and `app/data`.** `/static/app.css` 200 (165KB), `/static/ha_fetch.js`
+  200 (60KB), the configure-data screen 200 (39KB) and the results screen 200 (61KB) — the last of
+  which prices its counterfactual off the shipped spot-price CSVs, so it exercises `app/data`.
+  Both `.mo` catalogs are in the bundle and genuinely translate: the same page renders "Nieuwe
+  analyse" under `Accept-Language: nl` and "New analysis" under `en`.
+- **Babel's CLDR data is loaded inside the frozen process.** Asserted on the number *format*
+  rather than on any translated word, because that is what isolates Babel from the gettext
+  catalogs: the results screen renders `34,2 %` / `2.410 kWh` in Dutch and `34.2 %` / `2,410 kWh`
+  in English. Only Babel's locale data can produce the Dutch grouping, and it is data rather than
+  an importable module, so nothing in the import graph would have pulled it in.
+
+### 12.6 The sabotage check — the tests are not vacuous
+
+A green packaged suite is worth little if it would also be green on a broken bundle, so a
+deliberately broken one was built: `websockets_sansio_impl` removed from `hiddenimports`, the
+babel `collect_data_files` removed, and `websockets` added to `excludes`. `tests/test_packaged.py`
+went from 8 passed to **1 passed / 7 errors** against it. The bundle and its build directory were
+deleted afterwards and the spec restored from a backup; the good bundle was then rebuilt from the
+restored spec and re-tested at 8 passed.
+
+**This produced the phase's one genuinely surprising finding, and it is good news for R2.** The
+broken bundle did not lose one route quietly — it failed to **start**, with
+`ModuleNotFoundError: No module named 'websockets'` raised from `uvicorn/config.py:487`
+`import_from_string` during `Server.serve`, followed by "the server did not become ready in time".
+
+R2 (§6) predicted the opposite: that a missing WebSocket implementation would break only
+`WS /w/{id}/data/ingest/ws` while everything else stayed green. That prediction was written for
+`ws="auto"`, which *probes* and silently degrades to "no WebSocket support". Because phase 1
+pinned the protocol instead, uvicorn resolves the name eagerly and a missing module is a hard,
+immediate, loud failure. So the phase-1 pin turned out to be a stronger defence than it was
+credited with — it converts R2's silent trap into a crash on launch that no one could ship past.
+
+Stated with its limit: this was observed for the WebSocket implementation specifically, in
+uvicorn 0.51.0. The same eager-resolution reasoning applies to the `http` and `loop` pins, but
+those were not separately sabotaged. `tests/test_packaged.py::test_the_websocket_route_works`
+remains worth keeping regardless — a crash-on-launch is only self-evident to someone who launches
+the packaged build, which is exactly what CI would otherwise not do.
+
+### 12.7 Files added and modified
+
+Added:
+
+- `packaging/battery-sim.spec` — the PyInstaller spec. `datas`, `hiddenimports`, `excludes`, and
+  `EXE`/`COLLECT` for onedir. Carries the reasoning for the three entries whose absence is a
+  runtime-only failure.
+- `packaging/build-linux.sh` — build script (executable). Isolated venv, `--no-dev` install,
+  PyInstaller run, the 150MB gate, and a post-build assertion that the four asset directories and
+  `babel/locale-data` are present. `--keep-venv` reuses the build environment across runs.
+- `tests/test_packaged.py` — 9 tests, skipped unless `BATTERY_SIM_PACKAGED_BINARY` names the built
+  executable. Covers serving, the data-dir location, the lock file, static, templates+`app/data`,
+  the Dutch message catalog, Babel's CLDR data, the WebSocket exchange, and the absence of dev
+  directories from the bundle.
+- `packaging/battery_sim_babel_locales.py` — the CLDR keep-set, derived from
+  `app/i18n.py::SUPPORTED` (D11). Its own module because a PyInstaller spec is `exec`'d and a hook
+  is imported by PyInstaller's loader, so neither can import from the other.
+- `packaging/hooks/hook-babel.py` — shadows PyInstaller's bundled babel hook and applies the trim.
+  The only place the trim can bind; see D11.
+
+Modified:
+
+- `.gitignore` — added `/dist/` and `/build/`, PyInstaller's output and work directories. They
+  were untracked and unignored before, so a `git add -A` would have staged the whole bundle.
+- `changelog/20260805-desktop-packaging.md` — this section.
+
+No application source was changed. That was the point of D8, and it held: `app/`, `pyproject.toml`
+and `uv.lock` are all untouched by this phase.
+
+On the test-file location: `tests/test_packaged.py` rather than `packaging/test_packaged.py`, so
+it is collected by the same `pytest` invocation as everything else and skips itself rather than
+needing a separate command to be remembered.
+
+### 12.8 What is NOT verified — read this before trusting §12.5
+
+**The native window did not run, and a green phase 3 is not evidence that it works.** This
+machine's uv venv cannot see the system `gi` (PyGObject) bindings, so `webview.start()` raises
+`WebViewException` and the launcher falls back to the browser — exactly as §11.3 and the phase-2
+correction describe. The frozen build **inherits this**: PyInstaller collected `webview` and its
+`webview.platforms.gtk` module, but the GTK/WebKit stack those need is not in the bundle and is
+not visible from it. Every check in §12.5 was performed with `--no-browser`, i.e. driving the
+server over HTTP, so what was exercised is the **server and the browser path**, not the window.
+
+That is expected rather than a defect: bundling the GTK/WebKit stack is phase 4's job (D3). But it
+means R5 (Plotly under WebKit2GTK) is still untouched, the window-close shutdown path is still
+only unit-tested against a mock, and nothing here says the app looks right in a native window.
+
+Also not verified:
+
+- **Any platform but Linux.** No macOS or Windows build was attempted; the spec is written to be
+  portable but that is an intention, not a measurement.
+- **Any machine but this one.** The bundle links against this box's glibc. Running it on an older
+  distribution is precisely what the phase-4 Docker build exists to fix, and is untested.
+- **Startup time.** Not measured. The bundle takes noticeably longer than a source run to answer
+  its first request (the readiness poll's 20s budget was ample, but no number was taken).
+- **A full simulation run** in the packaged build. The results screen renders, which needs numpy
+  and the shipped prices, but no long run was driven end to end.
+- **Whether all five hidden imports are individually required** — see §12.3.
+
+### 12.9 Test numbers
+
+Final figures, after the §12.11 review fixes and the D11 trim:
+
+- `uv run pytest tests/test_desktop.py -q` → **58 passed** in 12.33s. Unchanged from phase 2, as
+  expected: this phase touched no application source.
+- `uv run pytest tests/test_packaged.py -q` with the gate unset → **9 skipped** in 0.04s.
+- `BATTERY_SIM_PACKAGED_BINARY=dist/battery-sim/battery-sim uv run pytest tests/test_packaged.py -q`
+  → **9 passed** in 1.36s. (8 before §12.11 split the locale test in two.)
+- Against the deliberately broken bundle of §12.6 → **1 passed / 7 errors**.
+- Against each of the three locale sabotages of §12.11 → 1, 2 and 2 failures respectively.
+
+The full suite was **not** run, on the standing instruction that it carries slow benchmarks. Its
+last recorded figure (§11.6) is stale and this phase does not update it; no application source
+changed, so no change to it is expected, but that is an inference and not a measurement.
+
+### 12.10 Status and what is open
+
+Phase 3 is complete for Linux: the bundle builds, is gated on size, runs, serves, keeps its data
+in the right place, and its WebSocket route works. Changes are left unstaged and uncommitted.
+
+Open, in no particular order and with no recommendation attached:
+
+- **Phase 4 (AppImage + bundled GTK/WebKit)** is the direct continuation and the only route to
+  testing the native window at all (D3, R4, R5).
+- **Wiring the packaged suite into CI**, which is where a crash-on-launch would otherwise go
+  unnoticed until a release. More valuable after §12.11 than before it: the suite now catches a
+  failure mode that a green source-tree run cannot.
+- **Trimming `app/static`** (4.6MB) or the shipped spot-price CSVs (4.1MB) are the next size items
+  after D11, and both are far smaller wins than the Babel trim was. Neither looks worth the risk
+  today; noted only so the next person does not have to re-measure.
+- **A `--onefile` variant** is deliberately not offered; D6/D7 explain why.
+
+### 12.11 Independent review: three findings, and the hole in the packaged suite
+
+An independent review of the phase-3 work re-tested the suite's non-vacuity by building its own
+sabotaged bundles. It confirmed most of §12.5 and §12.6 as written — the size gate genuinely fails
+the build, the excludes genuinely exclude, `app/sources/registry.py` genuinely needs no hidden
+import, and `build-linux.sh` cannot damage the developer's `.venv` on any path. It also found one
+real gap. Recorded here rather than quietly patched, because the gap is instructive: the test that
+missed it *looked* like it covered the case, and its own docstring said so.
+
+**Finding 1 — the packaged suite passed on a bundle with the entire Dutch catalog missing.**
+
+The reviewer deleted `_internal/app/locales/nl/` from a built bundle. The suite stayed at 8 passed.
+That bundle serves "New analysis" to an `Accept-Language: nl` request where the good bundle serves
+"Nieuwe analyse" — i.e. a Dutch-only product shipping fully untranslated, with a green suite.
+
+The cause is that the single test covering locales asserted only on NUMBER SEPARATORS, and those
+come from Babel's CLDR data, not from the `.mo` catalogs. Its docstring claimed it covered "two
+separate bundle entries"; it covered one. `check_assets` did not backstop it either — `_ASSET_DIRS`
+asks whether `locales/` is a non-empty directory, which stays true when only the `nl/` subtree is
+removed.
+
+Two lessons worth carrying forward. First, one assertion cannot cover two independent bundle
+entries just because both happen to be about "locales" — the failure modes are different
+(untranslated text vs wrong number format) and need separate checks. Second, a docstring asserting
+coverage is not coverage; this one was wrong for as long as it existed and nothing contradicted it.
+
+**The fix.** The test is split in two, one per bundle entry:
+
+- `test_the_dutch_message_catalog_is_bundled` asserts on actually-translated text — three
+  msgid/msgstr pairs verified against `app/locales/nl/LC_MESSAGES/messages.mo` and rendered as
+  section headings. Two-sided: the Dutch heading must be present AND the English source string
+  absent, so a catalog that is bundled but not consulted also fails.
+- `test_babel_locale_data_is_bundled` keeps the separator assertion and gains a month-name one
+  (below).
+
+One wrinkle, found while writing it: the first version compared against the raw HTML and failed on
+the good bundle, because the results screen carries an inline `<script>` whose English *comment*
+contains the word "Battery". The assertions now run against the page's `<h1>`..`<h6>` text, which
+is markup the translation actually owns. Worth recording as a caution — the naive check produces a
+false positive that reads exactly like a translation failure.
+
+**Finding 2 — §12.2 overstated the risk of trimming Babel, in the cautious direction.** Corrected
+in D11, which now states the accurate reason trimming is safe (`resolve_locale` returns only a
+member of `SUPPORTED` or `DEFAULT_LOCALE`, so an arbitrary `Accept-Language` never reaches
+`Locale.parse`) and carries the measured figures. On the user's instruction the trim was then
+**implemented** rather than left deferred. A miscalibration in the cautious direction is still a
+miscalibration: it argued against a change that was both safe and worth 31MB.
+
+**Finding 3 — a stale path in `packaging/battery-sim.spec`**, referring to
+`packaging/test_packaged.py` when the file is at `tests/test_packaged.py`. Fixed, with the reason
+for the location noted inline.
+
+**Re-verified by sabotage, after the fixes.** Three bundles, each breaking one thing, run against
+the corrected suite. The real `dist/` was never modified — each sabotage was a copy, deleted
+afterwards.
+
+| sabotage | result | which test failed |
+|---|---|---|
+| `_internal/app/locales/nl/` deleted | 1 failed / 8 passed | the catalog test only — Babel's test correctly still passes, since number formatting is unaffected |
+| `_internal/babel/locale-data/nl.dat` deleted | 2 failed / 7 passed | the Babel test; the nl page 500s with `UnknownLocaleError: unknown locale 'nl'` |
+| `_internal/babel/locale-data/en.dat` deleted | 2 failed / 7 passed | the Babel test; the en page 500s with `UnknownLocaleError: unknown locale 'en'` |
+
+The first row is the hole from Finding 1, now closed. That the catalog sabotage fails *only* the
+catalog test, and the CLDR sabotage *only* the Babel test (plus the page-render test that shares
+the route), is the point: the two failure modes are now distinguished rather than conflated.
+
+**On the `root` fallback, and why the month-name assertion exists.** `root` and `en` format
+numbers identically, so a trim that dropped `en.dat` while keeping `root` could in principle
+satisfy the separator check while serving `M01 M02 M03` where a reader expects `Jan Feb Mar`. In
+practice it does not — `Locale.parse("en")` raises rather than falling back, as the table shows —
+but the assertion is cheap and the reasoning was not obvious enough to leave unguarded. Verified
+positively on the trimmed bundle: English renders `Jan Feb Mar …` and Dutch `jan feb mrt mei okt`,
+so both locales load their real CLDR data and neither has silently degraded to `root`.
+
+**Application source: still untouched.** The reviewer raised whether `check_assets` should verify
+the expected locale SUBDIRECTORIES rather than just a non-empty `locales/`. Judged not worth it
+here, and the judgement is recorded rather than the change made. `check_assets` is a startup check
+whose stated purpose is to name a missing bundle DIRECTORY early; teaching it the app's language
+list would put a second, duplicate source of truth beside `SUPPORTED`, and it would fire on a
+developer mid-translation who has not yet compiled a catalog. The packaged test now covers the case
+directly, at build time, where a fix is free — which is the better place for it. So phase 3 ends
+where it started: `app/`, `pyproject.toml` and `uv.lock` are untouched, and every change is in
+`packaging/`, `tests/`, `.gitignore` and this file.
