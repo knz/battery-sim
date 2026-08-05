@@ -37,6 +37,7 @@ that does, a suite that pops up windows is unusable.
     uv run pytest tests/test_desktop.py
 """
 
+import inspect
 import json
 import os
 import subprocess
@@ -282,6 +283,7 @@ def fake_webview(monkeypatch):
     class FakeWebview:
         def __init__(self):
             self.windows = []
+            self.start_kwargs = []
             self.started = 0
             self.create_raises = None
             self.start_raises = None
@@ -294,6 +296,7 @@ def fake_webview(monkeypatch):
 
         def start(self, *args, **kwargs):
             self.started += 1
+            self.start_kwargs.append(kwargs)
             if self.start_raises is not None:
                 raise self.start_raises
 
@@ -315,18 +318,64 @@ def test_window_mode_opens_a_window_and_reports_that_it_blocked(monkeypatch, fak
     assert title
 
 
-def test_the_window_is_not_a_private_session(monkeypatch, fake_webview, tmp_path):
+def test_the_session_is_not_private_and_stores_under_the_data_dir(
+    monkeypatch, fake_webview, tmp_path
+):
     """pywebview defaults to private_mode=True, which discards localStorage on close.
 
     `app/static/ha_fetch.js` keeps the Home Assistant base URL and long-lived token there, so the
     default would make the user re-enter their token on every launch. Asserted because it is a
     silent, per-launch data loss that no other test would notice.
+
+    Both settings live on `start()`, not on `create_window()` — see
+    `test_our_pywebview_arguments_are_accepted_by_the_installed_pywebview`, which is what pins
+    that down against the real library rather than against this fake.
     """
     monkeypatch.setenv(config.ENV_DATA_DIR, str(tmp_path))
     desktop._show_ui("http://127.0.0.1:8137/", desktop.UiMode.WINDOW)
-    kwargs = fake_webview.windows[0][2]
+
+    kwargs = fake_webview.start_kwargs[0]
     assert kwargs["private_mode"] is False
-    assert str(tmp_path) in kwargs["storage_path"]
+    # Under the data dir, which the launcher owns — never inside the bundle, which is read-only on
+    # macOS and a temp directory deleted on exit under PyInstaller onefile.
+    assert Path(kwargs["storage_path"]) == tmp_path / "webview"
+
+
+def test_our_pywebview_arguments_are_accepted_by_the_installed_pywebview(monkeypatch, tmp_path):
+    """Bind the arguments we actually pass against the REAL pywebview signatures.
+
+    This is the test that was missing when `private_mode`/`storage_path` were passed to
+    `create_window()` instead of `start()`. Every other test here runs against `fake_webview`,
+    whose `**kwargs` accepts anything, so they all passed while the real call raised TypeError —
+    which the then-blanket `except Exception` printed as "native window unavailable".
+
+    `Signature.bind` reproduces exactly the check CPython performs when calling the function, so a
+    misplaced or renamed keyword fails here. It needs no display and no window: nothing is called,
+    only bound. If pywebview is genuinely absent the check is not possible and is skipped rather
+    than faked, since a fake signature would be the same mistake again.
+    """
+    webview = pytest.importorskip("webview")
+
+    recorded = {}
+
+    class RecordingWebview:
+        def create_window(self, *args, **kwargs):
+            recorded["create_window"] = (args, kwargs)
+
+        def start(self, *args, **kwargs):
+            recorded["start"] = (args, kwargs)
+
+    monkeypatch.setenv(config.ENV_DATA_DIR, str(tmp_path))
+    monkeypatch.setitem(sys.modules, "webview", RecordingWebview())
+    desktop._show_window("http://127.0.0.1:8137/")
+
+    assert set(recorded) == {"create_window", "start"}
+    for name in ("create_window", "start"):
+        args, kwargs = recorded[name]
+        signature = inspect.signature(getattr(webview, name))
+        # Raises TypeError on an unexpected or misplaced keyword — the real failure, surfaced as
+        # a test failure naming the argument instead of as a silent browser fallback at runtime.
+        signature.bind(*args, **kwargs)
 
 
 def test_browser_mode_opens_the_browser_and_reports_that_it_did_not_block(monkeypatch, fake_webview):
@@ -354,6 +403,19 @@ def _never_called(*args, **kwargs):
 # ── the fallback when there is no renderer ───────────────────────────────────
 
 
+def _webview_exception(message: str) -> BaseException:
+    """pywebview's real `WebViewException`, or a stand-in when pywebview is not installed.
+
+    The real class is used when available so the test pins the actual inheritance rather than a
+    look-alike; the fallback keeps this file importable in an environment without pywebview.
+    """
+    try:
+        from webview.errors import WebViewException
+    except Exception:  # pragma: no cover - only on a machine without pywebview
+        return RuntimeError(message)
+    return WebViewException(message)
+
+
 @pytest.mark.parametrize(
     "attr, failure",
     [
@@ -361,8 +423,10 @@ def _never_called(*args, **kwargs):
         ("create_raises", ImportError("No module named 'webview'")),
         # pywebview present, no renderer. This is the REAL case on a Linux machine without
         # gir1.2-webkit2-4.1 (or with it installed system-wide but invisible to the venv):
-        # `create_window` succeeds and `start()` is what raises.
+        # `create_window` succeeds and `start()` is what raises. pywebview 6.2.1 raises its own
+        # WebViewException here; older versions and some backends raise a bare RuntimeError.
         ("start_raises", RuntimeError("You must have either QT or GTK … installed")),
+        ("start_raises", _webview_exception("Failed to initialize WebKit2")),
     ],
 )
 def test_a_failed_window_falls_back_to_the_browser(monkeypatch, fake_webview, tmp_path, capsys,
@@ -407,6 +471,26 @@ def test_a_keyboard_interrupt_in_the_gui_loop_is_not_a_renderer_failure(
     monkeypatch.setattr(desktop.webbrowser, "open", _never_called)
 
     with pytest.raises(KeyboardInterrupt):
+        desktop._show_ui("http://127.0.0.1:8137/", desktop.UiMode.WINDOW)
+
+
+@pytest.mark.parametrize("attr", ["create_raises", "start_raises"])
+def test_a_bad_call_into_pywebview_is_not_disguised_as_a_missing_renderer(
+    monkeypatch, fake_webview, tmp_path, attr
+):
+    """A TypeError from our own call must propagate, not become a browser fallback.
+
+    This is the regression guard for the shipped bug: `private_mode`/`storage_path` were passed to
+    `create_window()` rather than `start()`, and the fallback's `except Exception` reported the
+    resulting TypeError to the user as "native window unavailable". A wrong argument is a coding
+    error nobody can fix by installing a package, so it must be loud. Both call sites are covered
+    because either could be the one that drifts after a pywebview upgrade.
+    """
+    monkeypatch.setenv(config.ENV_DATA_DIR, str(tmp_path))
+    setattr(fake_webview, attr, TypeError("got an unexpected keyword argument 'private_mode'"))
+    monkeypatch.setattr(desktop.webbrowser, "open", _never_called)
+
+    with pytest.raises(TypeError, match="private_mode"):
         desktop._show_ui("http://127.0.0.1:8137/", desktop.UiMode.WINDOW)
 
 

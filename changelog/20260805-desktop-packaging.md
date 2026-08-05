@@ -483,3 +483,85 @@ only then requires `stop()` to disagree, so it cannot pass vacuously if a future
 this behaviour — it would fail on the premise instead. Driving it with an actual signal inside
 pytest was rejected: it needs the signal to land while the main thread is in `join()`, which means
 racing the test runner for the main thread. That check was done out of process instead, above.
+
+## The native window never opened: wrong pywebview arguments, hidden by the fallback
+
+**The symptom.** Running the app printed, on stderr:
+
+    native window unavailable (TypeError: create_window() got an unexpected keyword argument
+    'private_mode'); opening in your browser instead
+
+so the WINDOW mode had never actually produced a window on any machine — it had been falling
+back to the browser every time, for a reason that had nothing to do with the machine.
+
+**The cause.** `_show_window` passed `private_mode=False` and `storage_path=...` to
+`webview.create_window()`. Neither is an argument of that function. Verified two ways rather than
+assumed: the pywebview API docs list both under `webview.start`, and `inspect.signature` on the
+installed pywebview 6.2.1 confirms it — `create_window` has no such parameters, `start` has
+`private_mode: bool = True` and `storage_path: str | None = None`. This is coherent with what
+they mean: session persistence is a property of the webview profile for the process, not of an
+individual window.
+
+**Why nothing caught it.** Two independent gaps, and the second is the one that matters.
+
+The tests asserted the wrong thing. `tests/test_desktop.py` fakes `webview` into `sys.modules`,
+and the fake's `create_window(self, title, url, **kwargs)` accepts any keyword at all. The test
+then asserted `kwargs["private_mode"] is False` — i.e. that we made the call we intended, never
+that it was a call the real library would accept. 54 tests passed with the bug in place.
+
+The `except Exception` in `_show_ui` then hid it at runtime. That clause was written for the
+environment cases — no pywebview, or no WebKit2GTK — and it caught our TypeError too, printed it
+in the same "native window unavailable … opening in your browser instead" sentence, and returned
+normally. On this machine, which genuinely lacks the `gi` bindings and so genuinely does fall
+back, the output was indistinguishable from the expected outcome. That is why manual review of
+the running app did not flag it either: the bug was wearing the costume of the expected path.
+
+**The fix.** `create_window()` now gets only the window geometry; `private_mode=False` and
+`storage_path=<data_dir>/webview` moved to `webview.start()`. Intent unchanged and confirmed with
+the user: localStorage must survive window close, so the Home Assistant token in `ha.base_url` /
+`ha.token` is not re-entered every launch, and the storage lives under the app data dir rather
+than pywebview's `~/.pywebview` default or anywhere inside the bundle (read-only on macOS, a temp
+directory deleted on exit under PyInstaller onefile).
+
+**The narrowed fallback.** `_show_ui` no longer catches `Exception`. It now has two clauses:
+
+- `except TypeError: raise` — explicit, first, and commented with the incident. A TypeError out
+  of `_show_window` is our own call being wrong, not a missing package, and nothing the user can
+  act on. Written as a re-raising clause rather than simply omitting it from the tuple, because
+  the point is to be read: it documents at the call site why this one specific exception is not
+  an environment problem.
+- `except _webview_exception_types() as exc:` — `ImportError`, `RuntimeError`, and pywebview's
+  own `WebViewException` when pywebview is importable. Those are the genuine "this machine cannot
+  render a window" cases. `RuntimeError` is kept alongside `WebViewException` because older
+  pywebview versions and some backends raise the bare form for the same condition, and
+  `WebViewException` does not subclass it.
+
+Everything else propagates, which is the actual change in policy: the fallback is now a list of
+known environment failures rather than a catch-all. `_webview_exception_types()` resolves the
+class at call time, since pywebview may not be installed at all — the very case the fallback
+exists for.
+
+**Tests.** `test_our_pywebview_arguments_are_accepted_by_the_installed_pywebview` records the
+args `_show_window` passes and binds them against `inspect.signature(webview.create_window)` and
+`inspect.signature(webview.start)` of the real installed package. `Signature.bind` performs the
+same check CPython does when calling, so a misplaced keyword fails there — no display, no window,
+nothing invoked. Confirmed it is a real regression guard by restoring the old `desktop.py` and
+watching it fail with `TypeError: got an unexpected keyword argument 'private_mode'`.
+`test_a_bad_call_into_pywebview_is_not_disguised_as_a_missing_renderer` asserts the TypeError
+propagates from both call sites, and the existing fallback test gained a `WebViewException` case
+next to the `RuntimeError` one. `uv run pytest tests/test_desktop.py -q`: 58 passed (was 54).
+
+**What was verified, and what was not.** Verified: the launcher on port 8216 with a scratch data
+dir no longer raises TypeError; the message the user now sees is `native window unavailable
+(WebViewException: You must have either QT or GTK with Python extensions installed in order to
+use pywebview.); opening in your browser instead`, preceded by pywebview's own diagnostics naming
+the missing `gi` and `qtpy` modules — a genuine environment cause, not a coding error in disguise.
+The server answered 200 and `<data_dir>/webview/` was created, so `storage_path` did reach
+pywebview.
+
+Not verified: **the native window still has not rendered on this machine.** This venv cannot see
+the system `gi` bindings, so `webview.start()` raises `WebViewException` and falls back to the
+browser as before. What changed is only that the fallback is now for the real reason. That the
+window opens, is sized correctly, and that localStorage actually persists across a close/reopen
+cycle all remain untested on any machine, and need a box with WebKit2GTK (or macOS/Windows) to
+check.

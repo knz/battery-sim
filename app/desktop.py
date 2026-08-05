@@ -399,14 +399,44 @@ def _show_window(url: str) -> None:
         height=_WINDOW_SIZE[1],
         # The app is a data tool with tables and charts; a fixed-size window would clip them.
         resizable=True,
-        # pywebview's default is a PRIVATE session, which discards localStorage on close. That
-        # would be a data-loss bug here rather than a privacy nicety: `app/static/ha_fetch.js`
-        # keeps the Home Assistant base URL and long-lived token in localStorage (`ha.base_url`,
-        # `ha.token`), so a private window would make the user re-enter their token every launch.
+    )
+    # Session persistence is configured on `start()`, NOT on `create_window()` — it is a
+    # process-wide property of the webview profile, not a per-window one. Passing either of these
+    # to `create_window()` raises TypeError (pywebview 6.2.1, and per the documented API).
+    #
+    # pywebview's default is a PRIVATE session, which discards localStorage on close. That would
+    # be a data-loss bug here rather than a privacy nicety: `app/static/ha_fetch.js` keeps the
+    # Home Assistant base URL and long-lived token in localStorage (`ha.base_url`, `ha.token`),
+    # so a private session would make the user re-enter their token every launch.
+    #
+    # `storage_path` must be the app's data dir and never a path inside the bundle: under
+    # PyInstaller onefile the bundle is a temp directory deleted on exit, and on macOS it is
+    # read-only. pywebview's own default (`~/.pywebview`) would work but scatters app state
+    # outside the directory the user can back up or delete as a unit.
+    webview.start(
         private_mode=False,
         storage_path=str(Path(os.environ[config.ENV_DATA_DIR]) / "webview"),
     )
-    webview.start()
+
+
+def _webview_exception_types() -> tuple[type[BaseException], ...]:
+    """pywebview's own "cannot produce a window" exception class, as a tuple for `except`.
+
+    Resolved at call time rather than imported at module level because pywebview may not be
+    installed at all — the case `_show_ui` must survive. When it is missing, the ImportError from
+    `import webview` is what `_show_ui` sees, and that is listed in the `except` clause directly.
+
+    The tuple always contains `ImportError` and `RuntimeError`, and `WebViewException` too when
+    pywebview is importable. pywebview 6.2.1 raises `WebViewException` for a missing renderer, but
+    older versions and some backends surface the same condition as a bare `RuntimeError` ("You
+    must have either QT or GTK … installed"), which `WebViewException` does NOT subclass. All of
+    these are environment facts rather than programming errors, so all belong in the fallback.
+    """
+    try:
+        from webview.errors import WebViewException
+    except Exception:
+        return (ImportError, RuntimeError)
+    return (ImportError, RuntimeError, WebViewException)
 
 
 def _show_ui(url: str, mode: UiMode) -> bool:
@@ -420,6 +450,12 @@ def _show_ui(url: str, mode: UiMode) -> bool:
     That single boolean is what keeps `run` from having three shutdown policies. Getting it wrong
     in the fallback direction is the subtle case: if a WINDOW that fell back to the browser still
     reported True, the launcher would kill the server immediately after opening the tab.
+
+    **The fallback is deliberately narrow.** It catches the exceptions that mean "this machine
+    cannot show a native window" and nothing else. An earlier version caught `Exception`, which
+    also caught our own bad call into pywebview and printed it as an environment limitation — the
+    user saw "native window unavailable" for what was a plain coding error, and no test noticed
+    because the mocks accepted whatever we passed. Anything not in that narrow set now propagates.
     """
     if mode is UiMode.NONE:
         return False
@@ -429,14 +465,27 @@ def _show_ui(url: str, mode: UiMode) -> bool:
 
     try:
         _show_window(url)
-    except Exception as exc:
-        # Deliberately `Exception` and not `BaseException`: a KeyboardInterrupt raised while the
-        # GUI loop is running is the user quitting, and re-opening the app in a browser as a
-        # response to Ctrl-C would be wrong. ImportError (no pywebview at all) and
+    except TypeError:
+        # NOT swallowed, deliberately. A TypeError out of `_show_window` is our own call being
+        # wrong — a bad keyword, a renamed argument after a pywebview upgrade — and it is not
+        # something the user can fix by installing a package. This clause exists because that is
+        # exactly what happened once: `private_mode`/`storage_path` were passed to
+        # `create_window()` instead of `start()`, the blanket `except Exception` below turned the
+        # resulting TypeError into "native window unavailable", and the bug shipped looking like
+        # the expected no-renderer fallback. Letting it propagate makes a coding error loud.
+        raise
+    except _webview_exception_types() as exc:
+        # The genuine environment cases, and only those: ImportError (no pywebview at all — a
+        # build that did not collect it, or a stripped environment) and pywebview's own
         # WebViewException (pywebview present, no renderer — the common Linux case, where
-        # gir1.2-webkit2-4.1 is absent) are both caught here, along with any other failure to
-        # produce a window, because from the user's point of view they are one situation: the
-        # native window is not available and the app should still open.
+        # gir1.2-webkit2-4.1 is absent, or is installed system-wide but invisible to the venv).
+        # From the user's point of view these are one situation: the native window is not
+        # available on this machine and the app should still open.
+        #
+        # Note this is `Exception`-descended and not `BaseException`: a KeyboardInterrupt raised
+        # while the GUI loop is running is the user quitting, and re-opening the app in a browser
+        # as a response to Ctrl-C would be wrong. It propagates, as does every other unexpected
+        # error, which is now the default rather than the exception.
         print(
             f"native window unavailable ({type(exc).__name__}: {exc}); "
             "opening in your browser instead",
