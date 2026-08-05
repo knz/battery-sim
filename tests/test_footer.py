@@ -97,7 +97,10 @@ def test_the_attribution_line_renders_as_markup_not_as_escaped_text(client):
     """
     html = client.get("/").text
 
-    assert f'<a class="link link-hover font-medium" href="{AUTHOR_URL}"' in html
+    # Anchored on the href and the tag, NOT on the full class string — the styling is a separate
+    # concern with its own tests below, and pinning it here made this test fail for a restyle that
+    # had nothing to do with escaping.
+    assert f'<a class="link' in html and f'href="{AUTHOR_URL}"' in html
     assert "data-open-warranty>NO WARRANTY</button>" in html
     # The tell-tale of a broken chain: the anchor escaped into the visible sentence.
     assert "&lt;a class=" not in html
@@ -105,6 +108,36 @@ def test_the_attribution_line_renders_as_markup_not_as_escaped_text(client):
     # And no unfilled hole survived — a missing key would raise, but a surplus one degrades.
     assert "%(author)s" not in html
     assert "%(app)s" not in html
+
+
+def test_the_links_are_underlined_at_rest(client):
+    """daisyUI's `link-hover` hides the underline until `:hover`.
+
+    The first draft used `link link-hover`, which rendered the four pieces as undifferentiated
+    grey text inside an already-dimmed footer — nothing said "clickable" until the pointer was
+    already on it. This is a markup-level proxy for that defect: the real property is the computed
+    `text-decoration-line`, which only a browser can report, but `link-hover` is the one class
+    that would silently turn it off and it is cheap to exclude here.
+    """
+    html = client.get("/").text
+    i = html.index("<footer")
+    footer = html[i : html.index("</footer>", i)]
+
+    assert "link-hover" not in footer, "link-hover hides the underline until :hover"
+    assert footer.count("class=\"link ") == 4, "expected four `link`-styled pieces in the footer"
+
+
+def test_the_warranty_control_is_marked_as_opening_an_explanation(client):
+    """It is a <button>, not an <a> — it expands a term rather than navigating.
+
+    The dotted underline is the convention for that, and it is what distinguishes this piece from
+    the three anchors beside it in the same sentence.
+    """
+    html = client.get("/").text
+    i = html.index("data-open-warranty")
+    tag = html[html.rindex("<button", 0, i) : html.index(">", i)]
+
+    assert "decoration-dotted" in tag, "the warranty control should be dotted, not solid"
 
 
 def test_the_external_links_are_the_intended_urls(client):

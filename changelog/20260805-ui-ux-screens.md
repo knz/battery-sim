@@ -131,6 +131,43 @@ The review also confirmed the informal register is now complete — **no `u`/`uw
 live catalog**. This corrects an earlier note in this file: the one apparently-formal entry left
 was in the obsolete `#~` section, not live. Nothing to align there.
 
+## Follow-up — the links did not look like links
+
+Reported after the first commit: the four interactive pieces in the attribution line were not
+recognisable as clickable.
+
+**Cause.** They carried daisyUI's `link link-hover`. `link-hover` sets
+`text-decoration-line: none` and restores the underline only on `:hover`, so at rest the pieces
+were undifferentiated text — and because the footer is dimmed to `text-base-content/60`, there was
+no colour cue either. Nothing said "clickable" until the pointer was already on the word.
+
+**Fix**, chosen with the user from three options:
+
+- `link` without `link-hover`, so the underline is present at rest. This is the cue.
+- The colour is INHERITED, not set. The links take the footer's muted colour rather than the
+  primary colour: a licence notice should be reachable, not attention-grabbing. `:hover` lifts the
+  text to full strength as the interactive confirmation.
+- The NO WARRANTY control gets a DOTTED underline. It is a `<button>` that expands a term in
+  place, not an `<a>` that navigates, and dotted is the usual convention for that distinction —
+  so it reads as interactive alongside the three anchors without claiming to be a link.
+- `underline-offset-2` throughout keeps the rule clear of the descenders.
+
+There was no house convention to inherit: the footer introduces the app's first inline text links
+(every other link in the app is a `btn`), so this establishes one.
+
+Verified in a browser at 3× on the computed styles, not just the markup: all four report
+`text-decoration-line: underline` and `cursor: pointer`, the button reports `dotted` where the
+three anchors report `solid`, and hovering drops the muted alpha to full strength.
+
+Two tests added (`test_the_links_are_underlined_at_rest`,
+`test_the_warranty_control_is_marked_as_opening_an_explanation`) because the failure mode is
+silent — re-adding `link-hover` looks perfectly reasonable in the markup and makes the links
+invisible. Mutation-checked: adding it back fails the first of the two.
+
+One existing test was loosened as part of this. `test_the_attribution_line_renders_as_markup...`
+had pinned the anchor's FULL class string, so it failed on a restyle that had nothing to do with
+what it tests (the escaping chain). It now anchors on the tag and the href.
+
 ## Verification
 
 - Full suite: 1354 passed, 24 skipped, 0 failures — run BEFORE the Dutch review revisions.

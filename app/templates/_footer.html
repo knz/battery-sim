@@ -43,11 +43,27 @@
 #}
 
 {# The four substituted pieces. Each is wrapped in `Markup` so `interpolate` passes it through as
-   markup instead of escaping it; the visible label inside each is itself translatable. #}
-{%- set author_link %}<a class="link link-hover font-medium" href="https://raphaelposs.com" target="_blank" rel="noopener noreferrer">{{ _('Raphael Poss') }}</a>{% endset -%}
-{%- set warranty_button %}<button type="button" class="link link-hover font-semibold uppercase" data-open-warranty>{{ _('NO WARRANTY') }}</button>{% endset -%}
-{%- set license_link %}<a class="link link-hover" href="https://github.com/knz/battery-sim/blob/master/LICENSE" target="_blank" rel="noopener noreferrer">{{ _('GNU AGPL v3') }}</a>{% endset -%}
-{%- set source_link %}<a class="link link-hover" href="https://github.com/knz/battery-sim" target="_blank" rel="noopener noreferrer">{{ _('Source code available') }}</a>{% endset -%}
+   markup instead of escaping it; the visible label inside each is itself translatable.
+
+   **`link` WITHOUT `link-hover`.** daisyUI's `link-hover` sets `text-decoration-line: none` and
+   restores the underline only on `:hover`, so a first draft using `link link-hover` rendered the
+   links as undifferentiated grey text — in a footer already dimmed to `text-base-content/60`
+   there was no colour cue either, and nothing said "clickable" until the pointer was already on
+   it. Underlined at rest is the cue; do not add `link-hover` back.
+
+   The colour is INHERITED rather than set. `link` only supplies the underline and the pointer,
+   so each piece takes the footer's muted colour and the links read as links without lighting the
+   footer up — a licence notice should be reachable, not attention-grabbing. `:hover` drops the
+   text to full strength (`hover:text-base-content`) as the interactive confirmation.
+
+   The warranty control is a `<button>`, not an `<a>`: it opens an explanation rather than
+   navigating. Its underline is DOTTED to say so — the usual convention for a term that expands
+   in place. `underline-offset-2` on all four keeps the rule off the descenders. #}
+{%- set link_class = 'link decoration-from-font underline-offset-2 hover:text-base-content' -%}
+{%- set author_link %}<a class="{{ link_class }} font-medium" href="https://raphaelposs.com" target="_blank" rel="noopener noreferrer">{{ _('Raphael Poss') }}</a>{% endset -%}
+{%- set warranty_button %}<button type="button" class="{{ link_class }} decoration-dotted font-semibold uppercase" data-open-warranty>{{ _('NO WARRANTY') }}</button>{% endset -%}
+{%- set license_link %}<a class="{{ link_class }}" href="https://github.com/knz/battery-sim/blob/master/LICENSE" target="_blank" rel="noopener noreferrer">{{ _('GNU AGPL v3') }}</a>{% endset -%}
+{%- set source_link %}<a class="{{ link_class }}" href="https://github.com/knz/battery-sim" target="_blank" rel="noopener noreferrer">{{ _('Source code available') }}</a>{% endset -%}
 
 <footer class="mx-auto max-w-4xl px-4 pb-8 pt-4 text-center text-xs text-base-content/60 lg:px-8">
   <p>{{ _('This application does not collect your data and does not send it remotely.') }}</p>
@@ -78,7 +94,7 @@
     </p>
     <p class="pb-2 text-xs text-base-content/70">
       {{ _('The binding text is sections 15 and 16 of the licence, which this summary does not replace.') }}
-      <a class="link" href="https://github.com/knz/battery-sim/blob/master/LICENSE" target="_blank" rel="noopener noreferrer">{{ _('Read the full licence') }}</a>
+      <a class="link underline-offset-2" href="https://github.com/knz/battery-sim/blob/master/LICENSE" target="_blank" rel="noopener noreferrer">{{ _('Read the full licence') }}</a>
     </p>
     <div class="modal-action">
       <form method="dialog"><button class="btn btn-ghost btn-sm">{{ _('close') }}</button></form>
