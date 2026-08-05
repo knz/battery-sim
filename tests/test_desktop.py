@@ -38,6 +38,7 @@ that does, a suite that pops up windows is unusable.
 """
 
 import inspect
+import io
 import json
 import os
 import subprocess
@@ -546,6 +547,37 @@ def test_the_dialog_reports_false_when_tk_cannot_open_a_display(monkeypatch, tmp
     monkeypatch.setitem(sys.modules, "tkinter.ttk", object())
 
     assert desktop._show_fallback_dialog("http://127.0.0.1:8137/", "no renderer") is False
+
+
+def test_absent_std_streams_are_replaced_rather_than_left_as_none(monkeypatch):
+    """A windowed frozen build can start with `sys.stderr is None`; printing to it would crash.
+
+    The launcher writes to stderr in six places, all of them reporting something the user needs
+    (the URL it is serving, the already-running notice, the webview fallback reason). Every one
+    would raise AttributeError rather than print, so the guard runs before argument parsing.
+    """
+    monkeypatch.setattr(sys, "stdout", None)
+    monkeypatch.setattr(sys, "stderr", None)
+
+    desktop._ensure_std_streams()
+
+    assert sys.stdout is not None
+    assert sys.stderr is not None
+    # Writable, not merely non-None — the point is that `print(file=...)` works.
+    print("stdout still works")
+    print("stderr still works", file=sys.stderr)
+
+
+def test_existing_std_streams_are_left_alone(monkeypatch):
+    """The guard must not replace a perfectly good stream — that would swallow real output."""
+    sentinel_out, sentinel_err = io.StringIO(), io.StringIO()
+    monkeypatch.setattr(sys, "stdout", sentinel_out)
+    monkeypatch.setattr(sys, "stderr", sentinel_err)
+
+    desktop._ensure_std_streams()
+
+    assert sys.stdout is sentinel_out
+    assert sys.stderr is sentinel_err
 
 
 def test_a_keyboard_interrupt_in_the_gui_loop_is_not_a_renderer_failure(

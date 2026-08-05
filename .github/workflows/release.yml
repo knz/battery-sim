@@ -343,11 +343,26 @@ jobs:
       # Zipped rather than uploaded as a tree: upload-artifact would otherwise transfer several
       # thousand small files, and on macOS/Linux a plain upload does not preserve the executable
       # bit on the launcher.
-      - name: Archive the bundle (POSIX)
-        if: runner.os != 'Windows'
+      #
+      # macOS archives the `.app` and NOT the bare onedir directory beside it. The spec's
+      # BUNDLE(...) wraps the same COLLECT output, so `dist/battery-sim/` and
+      # `dist/Home Battery Simulator.app/` are two views of one build — shipping both would
+      # double the download to no purpose. The .app is the one a user can double-click.
+      #
+      # `-y` is load-bearing here in a way it is not on Linux: it stores symlinks AS symlinks.
+      # A .app is full of them (Contents/Frameworks, the versioned dylib layout), and following
+      # them instead would both inflate the archive and break the ad-hoc code signature, whose
+      # hashes cover the link structure. `zip` is used rather than `ditto` because it is what the
+      # Linux branch already uses; `ditto --sequesterRsrc --keepParent` would be the more
+      # idiomatic macOS choice if this ever needs resource forks.
+      - name: Archive the bundle (macOS)
+        if: runner.os == 'macOS'
         run: |
           cd dist
-          zip -qry "battery-sim-${{ matrix.artifact }}.zip" battery-sim
+          zip -qry "battery-sim-${{ matrix.artifact }}.zip" "Home Battery Simulator.app"
+
+      # No Linux branch here on purpose: this matrix is macOS and Windows only. Linux is built by
+      # the separate `linux` job above, which produces an AppImage rather than a zipped onedir.
 
       - name: Archive the bundle (Windows)
         if: runner.os == 'Windows'

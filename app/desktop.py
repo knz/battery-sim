@@ -33,6 +33,7 @@ Main items:
     DEFAULT_PORT            8137.
     SingleInstance          the `<data_dir>/desktop.lock` exclusive lock, and its takeover rules.
     check_assets()          fail early and by name when a bundled asset directory is missing.
+    _ensure_std_streams()   stdout/stderr are never None, even in a windowed frozen build.
 """
 
 from __future__ import annotations
@@ -893,6 +894,32 @@ def _stop_or_warn(thread: "_ServerThread") -> None:
         )
 
 
+def _ensure_std_streams() -> None:
+    """Guarantee `sys.stdout` and `sys.stderr` are writable objects, not None.
+
+    A windowed frozen build can start with no standard streams at all. PyInstaller documents this
+    for Windows specifically — since aligning with `pythonw.exe`, it leaves both as `None` rather
+    than substituting a null writer — and the failure it produces is nasty out of proportion to
+    its cause: every `print(..., file=sys.stderr)` becomes `AttributeError: 'NoneType' object has
+    no attribute 'write'`, so the launcher crashes at precisely the six places where it was
+    trying to report something.
+
+    The macOS `.app` this project builds sets `console=False` and is EXPECTED not to need this —
+    a bundle inherits stderr from launchd and it lands in the unified log, which is why the
+    console can be dropped there without losing the messages. This guard is insurance against
+    that expectation being wrong on some macOS version, and against a future Windows build
+    turning off its console. It costs two comparisons at startup.
+
+    `devnull` rather than a buffer that accumulates: if there is genuinely nowhere for this
+    output to go, discarding it is the honest outcome, and holding it in memory for a process
+    that may run for hours would be worse.
+    """
+    if sys.stdout is None:
+        sys.stdout = open(os.devnull, "w")  # noqa: SIM115 - lives as long as the process
+    if sys.stderr is None:
+        sys.stderr = open(os.devnull, "w")  # noqa: SIM115 - lives as long as the process
+
+
 def main(argv: list[str] | None = None) -> int:
     """Entry point for `python -m app`, for the `battery-sim` script, and for the frozen build."""
     # FIRST statement of the entry point, before argument parsing and before any import that
@@ -904,6 +931,7 @@ def main(argv: list[str] | None = None) -> int:
     # costs nothing and removes a fork bomb that would otherwise appear the day §5.3 lands, in
     # the packaged build only.
     multiprocessing.freeze_support()
+    _ensure_std_streams()
 
     parser = argparse.ArgumentParser(
         prog="battery-sim",

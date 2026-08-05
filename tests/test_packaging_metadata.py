@@ -22,6 +22,7 @@ with PyInstaller is not possible on Linux or macOS — the shape is asserted str
 from __future__ import annotations
 
 import importlib.util
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -211,6 +212,78 @@ def test_the_rendered_resource_is_syntactically_valid_python():
     text = version_info.render_version_info("0.1.0", "1a2b3c4")
 
     compile(text, "version_info.txt", "eval")
+
+
+# ── the macOS bundle ──────────────────────────────────────────────────────────
+#
+# The spec cannot be EXECUTED here: it calls Analysis/EXE/COLLECT/BUNDLE, which PyInstaller
+# injects into the spec's namespace and which do real work. These tests read it as text instead.
+# That is weaker than executing it and is not pretending otherwise — it catches a deleted or
+# renamed setting, not a misbehaving one. The things that can only be seen on macOS (the bundle
+# actually launching, Finder showing the icon) are listed as unverified in the changelog.
+
+SPEC_TEXT = (PACKAGING / "battery-sim.spec").read_text()
+
+
+def test_the_spec_builds_an_app_bundle_on_macos():
+    """Without BUNDLE(...) the macOS build is a directory nobody can double-click."""
+    assert "BUNDLE(" in SPEC_TEXT
+    assert 'MACOS_APP_NAME = "Home Battery Simulator.app"' in SPEC_TEXT
+
+
+def test_the_bundle_identifier_is_reverse_dns_and_looks_deliberate():
+    """macOS keys per-app state to this string, so it must be set and must not be a placeholder."""
+    match = re.search(r'MACOS_BUNDLE_ID = "([^"]+)"', SPEC_TEXT)
+    assert match, "MACOS_BUNDLE_ID is missing from the spec"
+    bundle_id = match.group(1)
+
+    assert bundle_id.count(".") >= 2, f"{bundle_id!r} does not look like reverse-DNS"
+    assert "example" not in bundle_id
+    assert " " not in bundle_id
+
+
+def test_the_console_is_off_on_macos_only():
+    """A .app with console=True opens a Terminal window beside itself on every launch.
+
+    Windows and Linux keep their console — it is where the launcher's stderr messages go, and on
+    macOS those reach the unified log instead, which is why it can be dropped only there.
+    """
+    assert 'console=sys.platform != "darwin"' in SPEC_TEXT
+
+
+def test_the_icon_container_is_chosen_per_platform():
+    """Windows accepts only .ico and macOS only .icns; both come from the one master SVG."""
+    assert 'ICON_NAME = "battery-sim.icns" if sys.platform == "darwin" else "battery-sim.ico"' in (
+        SPEC_TEXT
+    )
+
+
+@pytest.mark.parametrize("name", ["battery-sim.icns", "battery-sim.ico"])
+def test_both_icon_containers_are_committed(name):
+    """The spec names these by path; a missing one fails the build on that platform only."""
+    icon = PACKAGING / name
+    assert icon.is_file(), f"{icon} is missing — packaging/icon/render.py generates it"
+    assert icon.stat().st_size > 1000
+
+
+def test_the_plist_version_is_plain_dotted_numbers():
+    """CFBundleVersion is specified as dot-separated numbers, not free text.
+
+    This is why the build SHA is NOT folded in here the way it is on Windows: Finder and
+    `softwareupdate` treat a non-conforming value as malformed rather than displaying it. The
+    commit stays recoverable from the bundled app/_build_info.py.
+    """
+    assert re.fullmatch(r"\d+(\.\d+)*", __version__), (
+        f"{__version__!r} is not plain dotted numbers; the macOS Info.plist would be malformed"
+    )
+    # Set from `__version__` rather than restated as a literal.
+    assert '"CFBundleShortVersionString": __version__' in SPEC_TEXT
+    assert '"CFBundleVersion": __version__' in SPEC_TEXT
+
+
+def test_retina_support_is_declared():
+    """Without NSHighResolutionCapable the whole UI is upscaled and blurry on a Retina display."""
+    assert '"NSHighResolutionCapable": True' in SPEC_TEXT
 
 
 def test_the_resource_is_written_where_the_spec_looks_for_it(monkeypatch, tmp_path):
