@@ -17,6 +17,13 @@ tests/artifacts/
 /dist/
 /build/
 
+# The Windows VERSIONINFO resource, regenerated from app/__init__.py and app/_build_info.py on
+# every build by packaging/battery_sim_version_info.py. Committing it would restate the version
+# string in a file nothing validates — the drift this project's single-source rule exists to
+# prevent. Note that app/_build_info.py IS committed (with placeholder values) and is therefore
+# deliberately absent from this list; see its docstring for why.
+/packaging/version_info.txt
+
 # Local runtime data: SQLite DB + config.toml (installation_id, feature_interest_url).
 # Anchored to the repo root so it does NOT match app/data/, which holds committed shipped
 # datasets (app/data/spot_prices/*.csv — the seeded Energy-Charts spot prices — and

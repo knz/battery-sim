@@ -32,6 +32,22 @@ ROOT = PACKAGING_DIR.parent
 sys.path.insert(0, str(PACKAGING_DIR))
 from battery_sim_babel_locales import babel_locale_keep_set  # noqa: E402
 
+# ── the Windows version resource ──────────────────────────────────────────────
+#
+# Generated HERE rather than committed, so the resource cannot disagree with `app.__version__`
+# (see packaging/battery_sim_version_info.py for the full reasoning). It is written on every
+# platform but referenced only by the `version=` argument below, which is None off Windows —
+# generating it unconditionally keeps the code path exercised by a Linux build rather than
+# leaving a Windows-only branch that nobody runs until release day.
+#
+# The build SHA it embeds comes from `app/_build_info.py`, which the packaging scripts refresh
+# by running `packaging/build_info.py` first. A bare `pyinstaller` invocation skips that step and
+# picks up whatever that file currently says — "unknown" in a clean checkout, which is correct
+# for a build nobody stamped.
+from battery_sim_version_info import write_version_info  # noqa: E402
+
+write_version_info()
+
 # ── the assets ────────────────────────────────────────────────────────────────
 #
 # Every one of these is found at runtime through `Path(__file__).resolve().parent`, from inside
@@ -137,10 +153,19 @@ EXCLUDES = [
     "watchfiles",
     "uvloop",
     "httptools",
-    "tkinter",
     "numpy.testing",
     "numpy.f2py",
 ]
+
+# `tkinter` WAS excluded here and no longer is. `app/desktop.py::_show_fallback_dialog` uses it to
+# show the app's URL when the native webview cannot open — the one moment when the user has no
+# other way to reach the application, since stderr is invisible to a double-clicked bundle. An
+# exclude would turn that dialog into the ImportError branch it already handles, silently, on
+# exactly the machines it exists for.
+#
+# The cost is real but bounded: Tk adds roughly 10MB to the bundle, which the size gate in
+# build-linux.sh will account for. If that gate ever fails after this change, the gate's limit is
+# what to look at, not this decision.
 
 a = Analysis(  # noqa: F821 - injected by PyInstaller
     [str(ROOT / "app" / "__main__.py")],
@@ -177,6 +202,21 @@ exe = EXE(  # noqa: F821 - injected by PyInstaller
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    # Windows and macOS read this; PyInstaller ignores it on Linux, where the icon reaches the
+    # user through the AppImage's .desktop entry instead (build-appimage.sh). A `.ico` is the
+    # only format the Windows resource compiler accepts — `battery-sim.icns` is the macOS
+    # counterpart and stays unused until a BUNDLE(...) block exists.
+    icon=str(PACKAGING_DIR / "battery-sim.ico"),
+    # Windows-only, and None everywhere else. See packaging/battery_sim_version_info.py for why
+    # the SHA lives in the string block rather than the numeric tuple.
+    #
+    # The `sys.platform` guard is belt-and-braces rather than strictly required: PyInstaller
+    # clears `version` off Windows itself (building/api.py, "Ignoring version information;
+    # supported only on Windows!"). Guarding here keeps that warning out of every Linux build,
+    # where it would be noise the build script's output does not need. It also avoids handing
+    # PyInstaller a path it would only discard — its versioninfo module imports `win32api` and
+    # cannot even be imported on Linux, so the narrower the contact with it the better.
+    version=str(PACKAGING_DIR / "version_info.txt") if sys.platform == "win32" else None,
 )
 
 # ONEDIR, and this is a decision rather than a default (changelog D6).

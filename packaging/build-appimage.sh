@@ -379,7 +379,36 @@ chmod +x "$APPDIR/AppRun"
 #
 # appimagetool requires both, at the AppDir root, with matching names.
 
-cat > "$APPDIR/battery-sim.desktop" <<'DESKTOP'
+# The version line carries the app version and, when it is known, the commit the bundle was
+# built from — `0.1.0+g1a2b3c4`. `X-AppImage-Version` is the field appimagetool and the AppImage
+# ecosystem read; the freedesktop `Version=` key means something else entirely (the spec version
+# of the .desktop format itself), so writing the app's version there would be wrong.
+#
+# **Both values are read out of the BUNDLE, not the source tree.** That is deliberate. The
+# bundle is what ships, `build-linux.sh` restores app/_build_info.py to its committed placeholder
+# when it finishes, and this script does not rebuild when dist/battery-sim already exists — so
+# the source tree may legitimately say "unknown" while the bundle carries a real SHA. Reading the
+# bundle means the label describes the artifact rather than the checkout that happens to be
+# around it.
+# The version string comes from the source rather than the bundle: unlike the SHA it cannot
+# drift (the release version-gate compares it against the tag) and the launcher has no
+# --version flag to ask the bundle directly.
+APP_VERSION="$(
+    grep -oE '__version__ *= *"[^"]+"' "$ROOT/app/__init__.py" | grep -oE '"[^"]+"' | tr -d '"'
+)"
+BUNDLED_BUILD_INFO="$(find "$BUNDLE/_internal" -name '_build_info.py*' -path '*/app/*' 2>/dev/null | head -1)"
+BUILD_SHA="$(
+    grep -oE "BUILD_SHA *= *['\"][^'\"]+['\"]" "${BUNDLED_BUILD_INFO:-/dev/null}" 2>/dev/null |
+        grep -oE "['\"][^'\"]+['\"]" | tr -d "'\"" || true
+)"
+if [ -n "$BUILD_SHA" ] && [ "$BUILD_SHA" != "unknown" ]; then
+    DESKTOP_VERSION="${APP_VERSION}+g${BUILD_SHA}"
+else
+    DESKTOP_VERSION="${APP_VERSION}"
+fi
+echo "    desktop entry version: $DESKTOP_VERSION"
+
+cat > "$APPDIR/battery-sim.desktop" <<DESKTOP
 [Desktop Entry]
 Type=Application
 Name=Home Battery Simulator
@@ -388,6 +417,7 @@ Exec=battery-sim
 Icon=battery-sim
 Categories=Utility;Science;
 Terminal=false
+X-AppImage-Version=${DESKTOP_VERSION}
 DESKTOP
 
 # The icon. `packaging/battery-sim.png` is committed and is what ships; it is RENDERED from the

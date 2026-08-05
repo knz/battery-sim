@@ -66,6 +66,37 @@ VIRTUAL_ENV="$BUILD_VENV" uv pip install --python "$BUILD_VENV/bin/python" -e "$
 echo "==> cleaning previous output"
 rm -rf "$ROOT/build" "$DIST"
 
+# Stamp the build's commit SHA into app/_build_info.py, which the spec reads (for the Windows
+# VERSIONINFO) and the AppImage's .desktop entry reads (for X-AppImage-Version).
+#
+# This WRITES INTO THE SOURCE TREE, which is why the restore below is a trap and not a line at
+# the end of the script: a build that fails partway must not leave a developer's checkout with a
+# modified, committed file. The trap fires on error and on interrupt as well as on success.
+#
+# `git checkout --` restores the committed placeholder rather than the previous working-tree
+# contents. That is the intended behaviour — the file's committed state IS the placeholder, and a
+# developer who had edited it by hand is doing something the file's own docstring warns against.
+# Outside a git checkout (a source tarball), the restore is skipped; there is nothing to restore
+# to, and build_info.py will have written "unknown" there anyway.
+echo "==> stamping the build SHA"
+# The `git ls-files --error-unmatch` check asks whether the file is TRACKED, which is not the
+# same question as whether this is a git checkout. An untracked copy — someone building from a
+# tarball inside an unrelated repository, or before the file was first committed — cannot be
+# restored by `git checkout` and would otherwise produce a confusing error from the trap.
+# The warning is deliberate: a restore that silently does nothing leaves a stamped, committed
+# file in the working tree, which is exactly the state this trap exists to prevent.
+restore_build_info() {
+    if ! git -C "$ROOT" ls-files --error-unmatch app/_build_info.py >/dev/null 2>&1; then
+        echo "note: app/_build_info.py is not tracked by git; leaving it as the build wrote it" >&2
+        return
+    fi
+    if ! git -C "$ROOT" checkout -- app/_build_info.py; then
+        echo "WARNING: could not restore app/_build_info.py; it still carries the build SHA." >&2
+    fi
+}
+trap restore_build_info EXIT INT TERM
+"$BUILD_VENV/bin/python" "$ROOT/packaging/build_info.py"
+
 echo "==> running PyInstaller"
 # `--noconfirm` so a rebuild does not stop on a prompt; the spec supplies everything else.
 (cd "$ROOT" && "$BUILD_VENV/bin/pyinstaller" --noconfirm --clean packaging/battery-sim.spec)

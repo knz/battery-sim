@@ -21,10 +21,12 @@
 #
 # ## Why workflow_dispatch exists at all
 #
-# Several things in here cannot be tested any other way — the FUSE handling below is unverified,
-# and the three non-Linux jobs have never run. Requiring a tag to exercise them would mean
-# either cutting throwaway tags or debugging in the only run that matters. Manual dispatch
+# Several things in here cannot be tested any other way. Requiring a tag to exercise them would
+# mean either cutting throwaway tags or debugging in the only run that matters. Manual dispatch
 # builds and uploads artifacts without creating a release.
+#
+# It has since done its job twice over: run 31032747998 (2026-08-05) settled the FUSE question
+# below AND gave the three non-Linux jobs their first execution. All three passed.
 #
 # ## Why the Linux job pins ubuntu-24.04 and not ubuntu-latest
 #
@@ -43,13 +45,21 @@
 #
 # ## The non-Linux jobs are continue-on-error, and what that is absorbing
 #
-# It is not "untested CI". It is genuinely unfinished packaging work. There is no macOS or
-# Windows build script — build-linux.sh is bash with POSIX paths — so these jobs invoke
-# `pyinstaller packaging/battery-sim.spec` directly, and that spec has no `BUNDLE(...)` block, no
-# icon, no code signing, and `console=True`. What comes out is a raw PyInstaller onedir
-# directory: not a double-clickable `.app`, not an installer, and on Windows it opens a console
-# window beside the app. Even a green run here produces something that is not yet a shippable
-# desktop build.
+# It is not "untested CI" — all three ran and passed on 2026-08-05 (run 31032747998; the Windows
+# job produced a working battery-sim.exe and a 32MB artifact in 57 seconds). It is genuinely
+# unfinished packaging work. There is no macOS or Windows build script — build-linux.sh is bash
+# with POSIX paths — so these jobs invoke `pyinstaller packaging/battery-sim.spec` directly.
+#
+# Windows has since been tightened: the spec now sets an icon and generates a VERSIONINFO
+# resource carrying the version and the build SHA, so the exe is identifiable once downloaded.
+# What is still missing there is an installer and code signing — the artifact remains a ZIP of an
+# onedir tree, and an unsigned one, so first-run SmartScreen warnings are expected. `console=True`
+# is also still set on purpose: the launcher prints its URL and its fallback reason to stderr, and
+# that channel stays until the new fallback dialog (app/desktop.py::_show_fallback_dialog) has
+# been looked at on a real Windows machine.
+#
+# macOS is untouched by that work: still no `BUNDLE(...)` block, so what comes out is a raw
+# onedir directory rather than a double-clickable `.app`, and unsigned besides.
 #
 # The intent is that this is temporary. Each platform should be tightened to blocking once it has
 # gone green once and its output has been looked at. A job that is allowed to stay amber
@@ -317,6 +327,16 @@ jobs:
       # `--no-sync` skips the sync entirely and runs against the environment as installed, which
       # answers both. `--no-dev` was considered and is weaker: it fixes (1) but still performs a
       # sync, leaving (2) live.
+      # Stamps app/_build_info.py with GITHUB_SHA, which the spec reads when it generates the
+      # Windows VERSIONINFO resource. build-linux.sh does this itself for the Linux job; these
+      # runners invoke PyInstaller directly, so the step is explicit here.
+      #
+      # No restore afterwards: the runner's checkout is discarded at the end of the job, and
+      # nothing later in it reads the file. build-linux.sh traps a restore because it runs on
+      # developer machines, where leaving a committed file modified would be rude.
+      - name: Stamp the build SHA
+        run: uv run --no-sync python packaging/build_info.py
+
       - name: Build the onedir bundle
         run: uv run --no-sync pyinstaller --noconfirm --clean packaging/battery-sim.spec
 

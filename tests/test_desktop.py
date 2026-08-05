@@ -436,12 +436,17 @@ def test_a_failed_window_falls_back_to_the_browser(monkeypatch, fake_webview, tm
     setattr(fake_webview, attr, failure)
     opened = []
     monkeypatch.setattr(desktop.webbrowser, "open", lambda url, **kw: opened.append(url))
+    # No dialog: this test is about the BROWSER half of the fallback. Patched to the
+    # "could not be shown" answer rather than left to chance, because an unpatched call would
+    # open a real window on any machine with tkinter and a display — see the module docstring.
+    monkeypatch.setattr(desktop, "_show_fallback_dialog", lambda url, reason: False)
 
     blocked = desktop._show_ui("http://127.0.0.1:8137/", desktop.UiMode.WINDOW)
 
     assert opened == ["http://127.0.0.1:8137/"]
-    # False, not True: the fallback opened a TAB, and a tab does not own the session. Reporting
-    # True here would have `run` stop the server the instant the browser was launched.
+    # False, not True: the dialog could not be shown, so all the user got was a TAB, and a tab
+    # does not own the session. Reporting True here would have `run` stop the server the instant
+    # the browser was launched.
     assert blocked is False
     # One line, on stderr, naming the reason — not a silent downgrade.
     message = capsys.readouterr().err
@@ -455,10 +460,92 @@ def test_a_missing_pywebview_module_falls_back_rather_than_raising(monkeypatch, 
     monkeypatch.setitem(sys.modules, "webview", None)  # forces ImportError on `import webview`
     opened = []
     monkeypatch.setattr(desktop.webbrowser, "open", lambda url, **kw: opened.append(url))
+    monkeypatch.setattr(desktop, "_show_fallback_dialog", lambda url, reason: False)
 
     assert desktop._show_ui("http://127.0.0.1:8137/", desktop.UiMode.WINDOW) is False
     assert opened == ["http://127.0.0.1:8137/"]
     assert "browser" in capsys.readouterr().err
+
+
+def test_a_shown_dialog_owns_the_session(monkeypatch, fake_webview, tmp_path):
+    """A dialog that appeared BLOCKED until the user closed it, so its close is the user quitting.
+
+    This is the mirror of the assertion above, and the pair is the whole contract: the boolean
+    `_show_ui` returns tracks whether anything blocked, not whether the window succeeded. Getting
+    it wrong in this direction would leave the server running after the user closed the dialog.
+    """
+    monkeypatch.setenv(config.ENV_DATA_DIR, str(tmp_path))
+    fake_webview.start_raises = _webview_exception("Failed to initialize WebKit2")
+    monkeypatch.setattr(desktop.webbrowser, "open", lambda url, **kw: None)
+    monkeypatch.setattr(desktop, "_show_fallback_dialog", lambda url, reason: True)
+
+    assert desktop._show_ui("http://127.0.0.1:8137/", desktop.UiMode.WINDOW) is True
+
+
+def test_the_dialog_is_told_the_url_and_the_reason(monkeypatch, fake_webview, tmp_path):
+    """The URL is the point of the dialog; the reason is what makes it more than a dead end."""
+    monkeypatch.setenv(config.ENV_DATA_DIR, str(tmp_path))
+    fake_webview.start_raises = _webview_exception("Failed to initialize WebKit2")
+    monkeypatch.setattr(desktop.webbrowser, "open", lambda url, **kw: None)
+    calls = []
+    monkeypatch.setattr(
+        desktop, "_show_fallback_dialog", lambda url, reason: calls.append((url, reason)) or True
+    )
+
+    desktop._show_ui("http://127.0.0.1:8137/", desktop.UiMode.WINDOW)
+
+    assert len(calls) == 1
+    url, reason = calls[0]
+    assert url == "http://127.0.0.1:8137/"
+    assert "Failed to initialize WebKit2" in reason
+
+
+def test_the_browser_is_opened_even_when_the_dialog_appears(monkeypatch, fake_webview, tmp_path):
+    """The dialog ADDS to the fallback rather than replacing it.
+
+    If the browser were opened only when the dialog could not be shown, a user who closed the
+    dialog without pressing either button would be left with a running server and no page. The
+    ordering makes the worst case a browser tab that was not needed.
+    """
+    monkeypatch.setenv(config.ENV_DATA_DIR, str(tmp_path))
+    fake_webview.start_raises = _webview_exception("Failed to initialize WebKit2")
+    opened = []
+    monkeypatch.setattr(desktop.webbrowser, "open", lambda url, **kw: opened.append(url))
+    monkeypatch.setattr(desktop, "_show_fallback_dialog", lambda url, reason: True)
+
+    desktop._show_ui("http://127.0.0.1:8137/", desktop.UiMode.WINDOW)
+
+    assert opened == ["http://127.0.0.1:8137/"]
+
+
+def test_the_dialog_reports_false_when_tkinter_is_missing(monkeypatch, tmp_path):
+    """No tkinter (a separate package on many Linux distributions) must not become a crash.
+
+    Exercised through the real import machinery, the same way the missing-pywebview test above
+    works, rather than by stubbing the function that does the importing.
+    """
+    monkeypatch.setenv(config.ENV_DATA_DIR, str(tmp_path))
+    monkeypatch.setitem(sys.modules, "tkinter", None)  # forces ImportError on `import tkinter`
+
+    assert desktop._show_fallback_dialog("http://127.0.0.1:8137/", "no renderer") is False
+
+
+def test_the_dialog_reports_false_when_tk_cannot_open_a_display(monkeypatch, tmp_path):
+    """A headless machine has no display to draw on; the browser fallback still stands."""
+    monkeypatch.setenv(config.ENV_DATA_DIR, str(tmp_path))
+
+    class _FakeTkModule:
+        class TclError(Exception):
+            pass
+
+        @staticmethod
+        def Tk():
+            raise _FakeTkModule.TclError("no display name and no $DISPLAY environment variable")
+
+    monkeypatch.setitem(sys.modules, "tkinter", _FakeTkModule)
+    monkeypatch.setitem(sys.modules, "tkinter.ttk", object())
+
+    assert desktop._show_fallback_dialog("http://127.0.0.1:8137/", "no renderer") is False
 
 
 def test_a_keyboard_interrupt_in_the_gui_loop_is_not_a_renderer_failure(

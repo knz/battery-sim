@@ -25,6 +25,7 @@ Main items:
     UiMode                  WINDOW / BROWSER / NONE — the three ways the UI can be presented.
     _show_ui(url, mode)     dispatch over `UiMode`; returns whether the call blocked.
     _show_window(url)       the pywebview window. Raises when there is no renderer.
+    _show_fallback_dialog() the tkinter "here is the URL" dialog, when the window fails.
     _ServerThread           uvicorn on a daemon thread, with a cooperative `stop()`.
     resolve_data_dir()      per-user data dir, set into the environment via `setdefault`.
     choose_port(preferred)  `preferred` if bindable, otherwise an ephemeral port.
@@ -439,6 +440,136 @@ def _webview_exception_types() -> tuple[type[BaseException], ...]:
     return (ImportError, RuntimeError, WebViewException)
 
 
+def _show_fallback_dialog(url: str, reason: str) -> bool:
+    """Show a native dialog carrying `url` when the webview could not open. True if it appeared.
+
+    The problem this solves is specific to the packaged builds. When the native window fails, the
+    launcher's only account of what happened is a line on stderr — and stderr is not somewhere a
+    desktop user looks. On Windows it is a console window that `console=False` would remove
+    entirely; on macOS a double-clicked bundle has no terminal attached at all. The user sees an
+    application that started and then apparently did nothing.
+
+    So the fallback gets a UI: the URL as SELECTABLE text (the whole point — a URL that cannot be
+    copied is not much better than one printed where nobody looks), a copy button, and a button
+    that opens the browser.
+
+    **Tkinter and not the webview.** The window this replaces is the one that just failed, so
+    pywebview is not available to draw its own error. Tkinter is in the standard library, needs
+    no new dependency, and its toolkits (Win32/Cocoa/X11) are unrelated to the WebKit/WebView2
+    renderers whose absence caused the failure — the two do not fail together.
+
+    **It returns a boolean rather than raising**, because it is itself a fallback and every one of
+    its failure modes is survivable. Tkinter is genuinely optional: it is absent from many Linux
+    python packages (python3-tk is a separate apt package), and a headless machine has no display
+    to draw on. The caller opens the browser regardless; this dialog only adds a way to reach the
+    URL when that does not work either. A fallback that can break the thing it is backing up
+    would be worse than no fallback.
+
+    Note the deliberate asymmetry with `_show_window`, which raises on TypeError so that a bad
+    call into pywebview stays loud. That reasoning does not carry over: this function runs only
+    when the app is already degraded, and turning a cosmetic dialog bug into a crash at that
+    moment would take away the browser fallback too.
+    """
+    try:
+        import tkinter as tk
+        from tkinter import ttk
+    except ImportError:
+        # No tkinter in this Python build. Common on Linux, where it ships separately.
+        return False
+
+    try:
+        root = tk.Tk()
+    except Exception:
+        # No display, no window server, or a Tk that failed to initialise. `tk.TclError` is the
+        # documented case, but Tk reports environment problems through several exception types
+        # and this is a last-resort path — anything at all here means "no dialog".
+        return False
+
+    try:
+        root.title(f"{_WINDOW_TITLE} — could not open a window")
+        root.resizable(False, False)
+
+        frame = ttk.Frame(root, padding=16)
+        frame.grid(sticky="nsew")
+
+        ttk.Label(
+            frame,
+            text="The application is running, but a native window could not be opened.",
+            wraplength=460,
+            justify="left",
+        ).grid(row=0, column=0, columnspan=2, sticky="w")
+
+        ttk.Label(
+            frame,
+            text=f"Reason: {reason}",
+            wraplength=460,
+            justify="left",
+            foreground="#666666",
+        ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(4, 12))
+
+        ttk.Label(
+            frame,
+            text="Open this address in your browser:",
+            justify="left",
+        ).grid(row=2, column=0, columnspan=2, sticky="w")
+
+        # `readonly` rather than `disabled`: both prevent editing, but a disabled Entry does not
+        # allow selection either, which would defeat the purpose. The URL must be selectable so
+        # it can be copied by hand when the button below is not what the user reaches for.
+        url_var = tk.StringVar(value=url)
+        url_entry = ttk.Entry(frame, textvariable=url_var, width=52, state="readonly")
+        url_entry.grid(row=3, column=0, columnspan=2, sticky="we", pady=(4, 12))
+        url_entry.focus_set()
+        url_entry.selection_range(0, tk.END)
+
+        status = tk.StringVar(value="")
+
+        def copy_url() -> None:
+            root.clipboard_clear()
+            root.clipboard_append(url)
+            # Tk's clipboard is owned by the process and is empty once it exits, on X11 in
+            # particular. `update()` pushes the ownership out to the window server now, so the
+            # copied text survives long enough to be pasted after this dialog closes.
+            root.update()
+            status.set("Copied.")
+
+        def open_browser() -> None:
+            _show_browser(url)
+            status.set("Asked your browser to open the page.")
+
+        ttk.Button(frame, text="Copy address", command=copy_url).grid(
+            row=4, column=0, sticky="w"
+        )
+        ttk.Button(frame, text="Open in browser", command=open_browser).grid(
+            row=4, column=1, sticky="e"
+        )
+
+        ttk.Label(frame, textvariable=status, foreground="#666666").grid(
+            row=5, column=0, columnspan=2, sticky="w", pady=(12, 0)
+        )
+
+        ttk.Label(
+            frame,
+            text="Closing this window stops the application.",
+            wraplength=460,
+            justify="left",
+            foreground="#666666",
+        ).grid(row=6, column=0, columnspan=2, sticky="w", pady=(12, 0))
+
+        root.mainloop()
+    except Exception:
+        # Same reasoning as the constructor above: this is the degraded path already.
+        return False
+    finally:
+        try:
+            root.destroy()
+        except Exception:
+            # Already torn down by mainloop's exit; nothing to do.
+            pass
+
+    return True
+
+
 def _show_ui(url: str, mode: UiMode) -> bool:
     """Show the app's UI at `url`. Returns True if the call OWNED the session, False otherwise.
 
@@ -486,13 +617,25 @@ def _show_ui(url: str, mode: UiMode) -> bool:
         # while the GUI loop is running is the user quitting, and re-opening the app in a browser
         # as a response to Ctrl-C would be wrong. It propagates, as does every other unexpected
         # error, which is now the default rather than the exception.
+        reason = f"{type(exc).__name__}: {exc}"
         print(
-            f"native window unavailable ({type(exc).__name__}: {exc}); "
-            "opening in your browser instead",
+            f"native window unavailable ({reason}); opening in your browser instead",
             file=sys.stderr,
         )
+        # The browser is opened FIRST, and unconditionally. The dialog is an addition to the
+        # fallback, not a replacement for it: if it were opened first and the user closed it
+        # without pressing anything, they would be left with a running server and no page. This
+        # ordering means the worst case is a browser tab the user did not need.
         _show_browser(url)
-        return False
+
+        # If the dialog appeared, it blocked until the user closed it, and that close is the
+        # user quitting — the same signal `_show_window` returning normally carries. Reporting
+        # True hands `run` its shutdown, exactly as a native window would.
+        #
+        # If it could not appear (no tkinter, no display), this is the pre-existing behaviour:
+        # the browser tab is open, nothing is blocking, and False keeps the server running for
+        # it. See the docstring above on why that distinction is a boolean rather than a raise.
+        return _show_fallback_dialog(url, reason)
     return True
 
 
