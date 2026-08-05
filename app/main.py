@@ -13,13 +13,11 @@ per-locale Jinja environment renders the response. Environments are built once p
 never mutated, so mixed-locale concurrent requests cannot cross-contaminate. The header carries
 a language toggle that posts to /lang/{code}, which sets the `lang` cookie.
 
-Beyond the scaffold, this layer now serves the pending affordance's back end
-(docs/specs/02-ux-wireframes.md §2.1, docs/specs/08-architecture.md §5.1): POST /feature-interest/{key}
-records a thumbs-up in the local counter (app/db.py) and fires the optional, fire-and-forget
-outbound POST (app/interest.py). The counter write always succeeds and the endpoint always
-returns success, whatever the outbound request does.
+The pending affordance (docs/specs/02-ux-wireframes.md §2.1) has no back end here: its dialog
+links straight to a pre-filled GitHub issue form, composed in app/features.py. Nothing about a
+feature request is recorded locally, so this layer neither serves nor stores one.
 
-Beyond the pending affordance, this layer now serves the Home Assistant **data import**
+This layer serves the Home Assistant **data import**
 (docs/specs/06-home-assistant-ingestion.md, browser-fetch increment). The browser fetches statistics
 from the user's own HA instance directly and streams the raw rows to
 `WS /w/{id}/data/ingest/ws`; the backend normalises them into SeriesFrames (app/domain) and
@@ -106,14 +104,13 @@ and `POST /w/{id}/data` persists the household answers then re-checks the gate, 
 **Routes are workspace-scoped** (phase 1). Everything that reads or writes one analysis's data
 lives under `/w/{workspace_id}/…` and resolves its workspace through `deps.get_workspace`
 (docs/specs/08-architecture.md §5.1, §5.5 invariant 2) instead of defaulting to the module constant
-`db.WORKSPACE_ID`. Four routes stay FLAT, each for its own reason:
+`db.WORKSPACE_ID`. Three routes stay FLAT, each for its own reason:
 
   * `GET /` — the list. It is ABOUT every workspace, so it belongs to none — but it is still
     scoped to the requesting principal (`Depends(deps.get_principal)`), which
     `workspaces.list_summaries(owner_id)` filters by (owner-scoping phase 1).
   * `POST /workspaces` — creates one; there is no id to scope it by yet, but the created row is
     owned by the requesting principal, the same dependency passed to `workspaces.create`.
-  * `POST /feature-interest/{key}` — installation-wide since phase 0 (§2′.10, app/db.py).
   * `GET /lang/{code}` — sets a cookie; there is nothing workspace-shaped about a language.
 
 **The three state-changing routes are same-site only** (`app/csrf.py`). `POST /workspaces`,
@@ -146,8 +143,7 @@ Routes:
     WS   /w/{id}/data/ingest/ws         → stream browser-fetched HA rows in; persist SeriesFrames
     POST /w/{id}/data/slot/{name}/load  → load one slot from a backend_load source; merge + report
     GET  /lang/{code}                   → set the language cookie, redirect back
-    POST /feature-interest/{key}        → record interest in a pending control; 204 on success
-    /static/*                           → CSS, generated stylesheet, Plotly, topology SVGs
+    /static/*                         → CSS, generated stylesheet, Plotly, topology SVGs
 
 Run:  uv run uvicorn app.main:app --reload
 """
@@ -172,17 +168,14 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.staticfiles import StaticFiles
 
 from app import (
-    config,
     csrf,
     data_screen_view,
     data_view,
     dataset,
     db,
     deps,
-    features,
     i18n,
     ingest_ws,
-    interest,
     params_view,
     results_screen_view,
     results_view,
@@ -247,10 +240,6 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="Home Battery Simulator", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
-
-# Config is resolved once at import time. This also generates and persists the installation_id
-# on first run (app/config.py) so it is stable across restarts.
-CONFIG = config.load()
 
 # Jinja environments live in app/i18n.py: one per locale, built on first use from this package's
 # templates/ directory and never mutated afterwards, so concurrent requests in different languages
@@ -338,9 +327,7 @@ def delete_workspace(ws: Annotated[deps.Workspace | None, Depends(deps.get_optio
     JSON 404 body was what the user actually saw before.
 
     `workspaces.delete` removes the workspace row, every row keyed by its id, and the whole
-    directory. `feature_interest` is deliberately untouched: it is installation-wide since phase 0
-    and records what this household wants, which survives the deletion of the analysis it was
-    clicked from — including the deletion of the last one.
+    directory.
     """
     if ws is not None:
         workspaces.delete(ws.id)
@@ -1168,29 +1155,6 @@ def results_benchmark(
             f"{box.render(benchmark=cost_bench, cost=True)}</div>"
         )
     return HTMLResponse(html)
-
-
-@app.post("/feature-interest/{feature_key}", status_code=204)
-async def feature_interest(feature_key: str):
-    """Record a thumbs-up for a pending control and fire the optional outbound report.
-
-    Rejects any key outside the closed vocabulary (app/features.py) with 404. On a known key
-    the local counter is upserted (once per key, installation-wide) and the outbound POST is
-    scheduled fire-and-forget: the endpoint returns 204 regardless of whether that request
-    succeeds, fails, or is disabled by an unset URL (§2.1, §5.1 invariants).
-
-    This route stays FLAT — unscoped by workspace — where the rest are being re-rooted under
-    `/w/{id}/…`. The counter records what this household wants, not what one analysis wants
-    (docs/specs/20-workspaces-ux.md §2′.10; see app/db.py for the invariant-1 exception).
-    """
-    if not features.is_known(feature_key):
-        raise HTTPException(status_code=404, detail="unknown feature key")
-
-    db.record_interest(feature_key)
-    # Fire-and-forget: awaiting would tie the response to the outbound request, which the spec
-    # forbids. report() no-ops when no endpoint is configured.
-    asyncio.get_running_loop().create_task(interest.report(feature_key, CONFIG))
-    return Response(status_code=204)
 
 
 @app.websocket("/w/{workspace_id}/data/ingest/ws")

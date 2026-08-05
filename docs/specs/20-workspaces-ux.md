@@ -955,7 +955,14 @@ must cover; none of them are settled here.
   mapping, which lives in `series_meta` and goes with the data — §2′.3 sets out the split and
   the dialog copy states it; "delete analysis" must remove the workspace
   directory and every row keyed by its id — with one exception, below.
-- **`feature_interest` becomes installation-wide**, dropping `workspace_id` from its key. It
+- **`feature_interest` becomes installation-wide**, dropping `workspace_id` from its key.
+  **— SUPERSEDED. The table no longer exists.** A feature request is filed as a GitHub issue
+  ([§2.1](02-ux-wireframes.md#the-pending-affordance)) and nothing is recorded locally, so the
+  exception this decision introduced is gone and §5.5's invariant 1 holds without carve-outs.
+  The reasoning is kept below because it is the test any future candidate for an exception has
+  to pass, not because the table it describes is still there.
+
+  It
   records that *this household* wants a feature, which is a fact about the person using the
   app rather than about any one analysis: a user who thumbs up "upload CSV" from one workspace
   has not said something narrower by having done it there. Keying it per workspace also makes
@@ -1012,13 +1019,14 @@ The five that the first round's answers left open:
 | 13 | Where the band-overlap warning lives | Charge and discharge merge into one tab; warning below both | [§2′.6](#the-advanced-pane-is-tabbed-not-nested) |
 | 14 | "Changed" on configure data | A slot's source changed but `[ Fetch history ]` not yet pressed | [§2′.8](#28-the-footer-and-the-two-entry-points) |
 | 15 | Minimum data duration for the wizard | None — §7.4's short-window guard covers it | [§2′.8](#-next---on-step-2-is-blocked-until-house-load-can-be-reconstructed) |
-| 10 | `feature_interest` and workspace deletion | Elevated to installation-wide; `workspace_id` dropped | [§2′.10](#210-what-the-backend-needs-noted-not-designed) |
+| 10 | `feature_interest` and workspace deletion | Elevated to installation-wide; `workspace_id` dropped — **superseded, table removed** | [§2′.10](#210-what-the-backend-needs-noted-not-designed) |
 | 16 | What sets `pricing.configured` | Saving the screen, not editing a field | [§2′.6](#a-contract-configured-is-an-explicit-flag) |
 
-Decision 10 is the one with reach beyond this document: it makes `feature_interest` the first
-deliberate exception to §5.5's "no table is implicitly global" invariant, and
-[08-architecture.md](08-architecture.md) should record it as such rather than leaving the two
-statements in conflict.
+Decision 10 had reach beyond this document: it made `feature_interest` the first deliberate
+exception to §5.5's "no table is implicitly global" invariant. It has since been superseded —
+the table was removed when feature requests moved to GitHub issues — so the invariant holds
+without exceptions again, and [08-architecture.md](08-architecture.md) records that rather than
+the carve-out.
 
 ### Still open
 

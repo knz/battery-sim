@@ -1,0 +1,76 @@
+{# ── "Not built yet" dialog — the pending affordance (docs/specs/02-ux-wireframes.md §2.1).
+     Shared by every pending control on every screen; the control name and the link target are
+     filled in by the script below from the `[?]` button that was clicked.
+
+     Included by workspace_results.html, workspace_data.html and workspace_edit.html. It was
+     copied verbatim into all three until the GitHub-issue change, which had to edit every line
+     of it — three identical edits being the argument for extracting the partial.
+
+     The action is a LINK to a pre-filled GitHub issue form, not a button posting to this app.
+     Nothing about the request is recorded locally: the issue is the whole record. `href` is set
+     per click by the script; `target=_blank` because the dialog is opened mid-analysis and
+     navigating away would discard the screen's state. #}
+<dialog id="pending-dialog" class="modal" data-feature-key="">
+  <div class="modal-box">
+    <h3 class="text-lg font-bold">{{ _('Not built yet') }}</h3>
+    <p class="py-2">
+      <span id="pending-control-name" class="font-medium">{{ _('This control') }}</span>
+      {{ _('is part of the plan for this simulator, but it is not built yet. The app is being written one feature at a time and this one has not been reached.') }}
+    </p>
+    <p class="pb-2 text-sm text-base-content/70">
+      {{ _('If you would use it, say so — it decides what gets built next. This opens a form on GitHub, already filled in with the name of this control. Filing it needs a GitHub account.') }}
+    </p>
+    <div class="modal-action">
+      {# No `href` until a [?] is clicked: the dialog is shared, so at render time there is no
+         feature to link to, and an anchor without href is inert rather than a link to nowhere. #}
+      <a id="pending-request" class="btn btn-primary btn-sm btn-disabled" target="_blank" rel="noopener noreferrer">
+        {{ _('👍 I want this') }}
+      </a>
+      <form method="dialog"><button class="btn btn-ghost btn-sm">{{ _('close') }}</button></form>
+    </div>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>{{ _('close') }}</button></form>
+</dialog>
+
+<script>
+  // The pending affordance (§2.1). A [?] button opens the shared dialog for its control and
+  // points the request link at that control's pre-filled GitHub issue form.
+  //
+  // Delegated from `document`, so a [?] inside a swappable fragment — or one created at runtime
+  // by ha_fetch.js for the drawer's CSV option — opens the dialog with no re-binding.
+  //
+  // The URL is composed server-side (app/features.py) and emitted here as a key → URL map, so
+  // the repo slug, the issue template and the feature titles live in one place rather than being
+  // rebuilt in JS. Keys absent from the map leave the link disabled rather than sending the user
+  // to a half-formed issue.
+  (function () {
+    var dialog = document.getElementById('pending-dialog');
+    var nameEl = document.getElementById('pending-control-name');
+    var linkEl = document.getElementById('pending-request');
+    if (!dialog || !nameEl || !linkEl) return;
+
+    var issueUrls = {
+      {%- for key in feature_keys | sort %}
+      {{ key | tojson }}: {{ feature_issue_url(key) | tojson }}{% if not loop.last %},{% endif %}
+      {%- endfor %}
+    };
+
+    document.addEventListener('click', function (ev) {
+      var btn = ev.target.closest && ev.target.closest('[data-pending-name]');
+      if (!btn) return;
+      var key = btn.getAttribute('data-feature-key') || '';
+      // Already translated server-side; assigned as TEXT, never as markup.
+      nameEl.textContent = btn.getAttribute('data-pending-name') || '';
+      dialog.setAttribute('data-feature-key', key);
+      var url = issueUrls[key];
+      if (url) {
+        linkEl.href = url;
+        linkEl.classList.remove('btn-disabled');
+      } else {
+        linkEl.removeAttribute('href');
+        linkEl.classList.add('btn-disabled');
+      }
+      dialog.showModal();
+    });
+  })();
+</script>

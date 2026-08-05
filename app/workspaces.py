@@ -68,8 +68,8 @@ Two different operations, per §2′.3:
     slot's source mapping does not survive, because it lives in `series_meta`, which is part of
     what is being deleted. See `delete_data` and §2′.3.
   * `delete` removes the workspace row, every row keyed by its id, and the whole workspace
-    directory. `feature_interest` is deliberately NOT touched — it is installation-wide and
-    survives the deletion of every workspace, including the last (see `app/db.py`).
+    directory. Every table it leaves behind is keyed by some other workspace's id; there is no
+    longer an installation-wide table to make an exception for (see `app/db.py`).
 
 The ROW deletes within EACH FUNCTION's own `with` block are atomic: a block is a transaction
 (`db._Connection`), so `delete_data` cannot leave `series_meta` rows whose `datasets` parent is
@@ -450,10 +450,6 @@ def delete_data(workspace_id: str) -> None:
 
 def delete(workspace_id: str) -> None:
     """Remove the workspace, every row keyed by its id, and its directory (§2′.3).
-
-    `feature_interest` is NOT touched, and that is the point of it being installation-wide: a
-    thumbs-up records what this household wants and must survive the deletion of the analysis it
-    was clicked from, including the deletion of the last one (see `app/db.py`).
 
     **This is NOT one transaction, and an earlier version of this docstring wrongly said it was.**
     The claim was that the `delete_data` call nests into this function's block the way

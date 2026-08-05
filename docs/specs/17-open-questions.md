@@ -374,7 +374,7 @@
     - *Fetch from an external source.* A holiday API or dataset, refreshed periodically.
       Always current, but introduces a network dependency and an external point of failure
       into an app whose [§7.5](15-data-quality-and-limits.md#75-operational-notes) posture is
-      deliberately local-only — the same reason `feature_interest_url` is empty by default.
+      deliberately local-only — the app's only backend egress is the optional spot-price fetch.
 
     Two things bound how much rides on this. It is a retrospective simulator over past years,
     so the moveable-feast dates for the simulated window are already settled history, which

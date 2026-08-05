@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-05 21:14+0200\n"
+"POT-Creation-Date: 2026-08-05 22:10+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -685,8 +685,9 @@ msgid "How is your battery connected across the phases?"
 msgstr ""
 
 msgid ""
-"If you would use it, say so. It tells us what to build next, and it is "
-"the only signal we get."
+"If you would use it, say so — it decides what gets built next. This opens"
+" a form on GitHub, already filled in with the name of this control. "
+"Filing it needs a GitHub account."
 msgstr ""
 
 msgid "Imported"
@@ -1087,9 +1088,6 @@ msgid "Terugleverkosten"
 msgstr ""
 
 msgid "Test connection"
-msgstr ""
-
-msgid "Thanks. We have recorded that you want this."
 msgstr ""
 
 msgid ""
@@ -1851,9 +1849,6 @@ msgstr ""
 
 #, python-format
 msgid "✓ Imported %(count)s series. Reloading…"
-msgstr ""
-
-msgid "✓ Noted"
 msgstr ""
 
 #, python-format

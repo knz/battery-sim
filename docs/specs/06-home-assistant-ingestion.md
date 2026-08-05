@@ -105,8 +105,8 @@ configuration in which that source is staged for the spot-price slot
 ([§2.2](02-ux-wireframes.md), §3.5), and only then if the requested window extends past the
 committed tail. Selecting either source in the drawer stages it but loads nothing; no request
 fires on selection. That egress is described in
-[§7.5](15-data-quality-and-limits.md#75-operational-notes) alongside the HA requests and the
-feature-interest POST.
+[§7.5](15-data-quality-and-limits.md#75-operational-notes) alongside the HA requests; it is the
+backend's only one.
 
 There is no separate slot for the intra-interval price minimum and maximum, from this source
 or any other:

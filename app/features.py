@@ -1,23 +1,45 @@
 """The closed vocabulary of feature keys for pending controls (docs/specs/02-ux-wireframes.md §2.1).
 
 A control that is specified but not yet built renders "pending": disabled, with a `[?]`
-affordance that opens the shared dialog and offers a thumbs-up. Each such control carries a
-short, stable key naming it in the `feature_interest` counter table and in the outbound POST
-body. The keys are a **closed vocabulary**: allocated when a control is first marked pending,
-never reused for anything else, and kept after the feature ships (the counter row outlives the
-key so historical interest is not lost).
+affordance that opens the shared dialog. The dialog offers a link to file a feature request as
+a GitHub issue, pre-filled with the control's name. Each such control carries a short, stable
+key naming it, plus a human-readable title that goes into the issue.
+
+Nothing about a request is recorded locally: the issue on GitHub is the whole record. This
+module therefore holds no counters — it names the pending controls and composes the URL that
+reports one.
+
+Main items:
+  * FEATURE_KEYS / RETIRED_KEYS — the closed vocabulary, active and shipped.
+  * FEATURE_TITLES — key → human-readable control name, shown in the issue.
+  * title_for(key) / is_known(key) — accessors.
+  * issue_url(key) — the pre-filled GitHub "new issue" URL for a key.
 
 Ongoing-work rule — read before adding or removing an entry:
-  * When you mark a NEW control pending, add its key here (and only here) and reference it from
-    the template via `feature_key="<key>"`. Choose `<box>_<control>` shaped names.
-  * When you BUILD a feature, remove the control's pending markup from the template. Leave this
-    key in place (retired, not deleted) so the counter row keeps its meaning. Move it under the
-    "Retired" list below rather than removing the line.
-  * Never rename a key or repoint it at a different control — that would make every historical
-    counter row a lie (same discipline as the series names in docs/specs/05-data-formats.md).
+  * When you mark a NEW control pending, add its key to FEATURE_KEYS and its title to
+    FEATURE_TITLES (and only here), then reference the key from the template via
+    `feature_key="<key>"`. Choose `<box>_<control>` shaped names.
+  * When you BUILD a feature, remove the control's pending markup from the template and move
+    the key to RETIRED_KEYS. Keep its title: issues filed under that key are still open on
+    GitHub and still have to be readable. Retire, do not delete.
+  * Never rename a key or repoint it at a different control — it is the join between an issue
+    already filed and the control it was about (same discipline as the series names in
+    docs/specs/05-data-formats.md).
 
-The route POST /feature-interest/{feature_key} rejects any key not in FEATURE_KEYS.
+`_check_titles_cover_keys()` runs at import and fails loudly if a key has no title.
 """
+
+from urllib.parse import urlencode
+
+# The upstream repository that receives feature requests. Matches the "Source code available"
+# link in app/templates/_footer.html, which is the only other place the slug appears.
+GITHUB_REPO = "knz/battery-sim"
+
+# The issue form the link targets, .github/ISSUE_TEMPLATE/feature.yml. A YAML *form* rather
+# than a Markdown template because only a form supports per-field pre-filling: the `feature`
+# query parameter below fills the form's `feature` input while leaving the rest for the user.
+# With a Markdown template a `body` parameter would replace the template body outright.
+_ISSUE_TEMPLATE = "feature.yml"
 
 # Active pending controls. Keep in sync with the `feature_key="..."` attributes in the
 # templates. See changelog/20260723-pending-affordance-impl.md for the allocation record.
@@ -38,8 +60,7 @@ FEATURE_KEYS: frozenset[str] = frozenset(
     }
 )
 
-# Retired keys — features that have shipped. Their counter rows are kept; the keys are never
-# reused.
+# Retired keys — features that have shipped. The keys are never reused.
 RETIRED_KEYS: frozenset[str] = frozenset(
     {
         # Shipped in Phase 6 as a real checkbox (_panel_params.html, `policy.allow_grid_export`),
@@ -51,7 +72,68 @@ RETIRED_KEYS: frozenset[str] = frozenset(
     }
 )
 
+# Human-readable control names, one per key, active and retired alike. These name the control
+# the way the UI does — the wording matches the `data-pending-name` on each trigger — so that
+# someone reading the issue on GitHub recognises what was clicked.
+#
+# Deliberately NOT translated. The title crosses into a GitHub issue read by the maintainer
+# alongside issues from every other locale, so it is stable English regardless of the UI
+# language. The dialog around the link is translated; this string is not.
+FEATURE_TITLES: dict[str, str] = {
+    "export_csv": "Export CSV",
+    "data_source_csv": "Upload CSV",
+    "chart_soc_price": "SoC + price chart",
+    "chart_energy_flows": "Energy flows chart",
+    "pricing_contract_fixed": "Fixed price contract",
+    "pricing_contract_variable": "Variable price contract",
+    "pricing_tlk_tiered": "Terugleverkosten tiered by annual volume",
+    # Retired, kept readable for issues already filed (see the ongoing-work rule above).
+    "discharge_allow_export": "Allow export to grid",
+    "simulate_cost": "Simulate cost savings",
+}
+
+
+def _check_titles_cover_keys() -> None:
+    """Fail at import if a key has no title, rather than at click time with a bare key.
+
+    The two collections are edited by hand and drift silently otherwise: a key added without a
+    title would compose an issue naming the feature only by its internal slug.
+    """
+    missing = (FEATURE_KEYS | RETIRED_KEYS) - FEATURE_TITLES.keys()
+    if missing:
+        raise AssertionError(f"feature keys without a title in FEATURE_TITLES: {sorted(missing)}")
+
+
+_check_titles_cover_keys()
+
 
 def is_known(feature_key: str) -> bool:
-    """True if the key names a currently-pending control (accepted by the interest route)."""
+    """True if the key names a currently-pending control."""
     return feature_key in FEATURE_KEYS
+
+
+def title_for(feature_key: str) -> str:
+    """The human-readable control name for a key, falling back to the key itself.
+
+    The fallback never fires for a key in the vocabulary (`_check_titles_cover_keys` sees to
+    that at import); it keeps a caller passing an unknown key from raising.
+    """
+    return FEATURE_TITLES.get(feature_key, feature_key)
+
+
+def issue_url(feature_key: str) -> str:
+    """The pre-filled GitHub "new issue" URL for a pending control.
+
+    Fills the issue form's title and its `feature` field; the "why would you use it" field is
+    left empty, since that answer is the reason the issue is worth filing at all. The key is
+    carried alongside the title so an issue can be traced back to the exact control.
+    """
+    title = title_for(feature_key)
+    query = urlencode(
+        {
+            "template": _ISSUE_TEMPLATE,
+            "title": f"Feature request: {title}",
+            "feature": f"{title} ({feature_key})",
+        }
+    )
+    return f"https://github.com/{GITHUB_REPO}/issues/new?{query}"

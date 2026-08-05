@@ -5,9 +5,9 @@ being simulated, the grid connection it sits behind, the charge/discharge polici
 installation topology. It is pure data plus the quantities derived from it, plus validation.
 
 **Not to be confused with `app/config.py`.** That module is the APPLICATION's runtime config —
-data directory, feature-interest endpoint, installation id — one instance per process, read from
-disk at startup. This one is a per-run simulation input: many can exist at once, it changes every
-time the user moves a slider, and none of it is machine- or install-scoped. Two different things
+now just the data directory, resolved per call from the environment. This one is a per-run
+simulation input: many can exist at once, it changes every time the user moves a slider, and none
+of it is machine- or install-scoped. Two different things
 that both want the word "config"; they stay in separate modules and neither imports the other.
 
 **No persistence and no UI wiring here.** Loading/storing a parameter set and rendering these

@@ -79,10 +79,13 @@ rather than as f-strings, so they carry stable msgids and are translated.
 
 ## Feature keys — the closed vocabulary
 
-Feature keys are short, stable strings naming pending controls in the counter table and the
-POST body. They are allocated when a control is first marked pending and never reused. The
-authoritative list is `app/features.py` (`FEATURE_KEYS`); the templates carry the same key in
-`data-feature-key="..."`; the route `POST /feature-interest/{key}` rejects unknown keys.
+Feature keys are short, stable strings naming pending controls. They are allocated when a
+control is first marked pending and never reused. The authoritative list is `app/features.py`
+(`FEATURE_KEYS`), which also carries a human-readable title per key (`FEATURE_TITLES`, checked
+at import to cover every key); the templates carry the same key in `data-feature-key="..."`.
+The key and title compose the pre-filled GitHub issue URL the dialog links to — which is why a
+key is never renamed or repointed: it is the join between an issue already filed and the
+control it was about.
 
 ### Currently pending
 
@@ -105,38 +108,42 @@ authoritative list is `app/features.py` (`FEATURE_KEYS`); the templates carry th
 
 ## How to add a pending control
 
-1. Choose a `<box>_<control>`-shaped key (e.g. `battery_rte`). Add it to `FEATURE_KEYS` in
-   `app/features.py` and to the table above.
+1. Choose a `<box>_<control>`-shaped key (e.g. `battery_rte`). Add it to `FEATURE_KEYS` **and a
+   human-readable title to `FEATURE_TITLES`** in `app/features.py`, and to the table above. The
+   title is what names the feature in the GitHub issue, so it reads as a control name rather
+   than a slug; it is deliberately untranslated, since it crosses into an issue tracker read
+   alongside every other locale's. A key without a title fails at import.
 2. In the template, render the control disabled and add a `[?]` button carrying
-   `data-pending-name="<human label>"` and `data-feature-key="<key>"`. The shared dialog and
-   its script (in `index.html`) do the rest.
+   `data-pending-name="<human label>"` and `data-feature-key="<key>"`. The shared dialog partial
+   `_pending_dialog.html` and its script do the rest.
 3. Record the allocation in the changelog.
 
 ## How to retire a key (feature shipped)
 
 1. Remove the control's `disabled` and its `[?]` button from the template.
 2. Move the key's row from *Currently pending* to *Retired* above, and in `app/features.py`
-   move it from `FEATURE_KEYS` to `RETIRED_KEYS`. The counter row in the database is left
-   untouched — the key must never be reused or repointed, or historical counts become a lie.
+   move it from `FEATURE_KEYS` to `RETIRED_KEYS`. **Keep its `FEATURE_TITLES` entry** — issues
+   filed under that key are still open on GitHub and still have to be readable. The key must
+   never be reused or repointed: it is what ties an existing issue to the control it was about.
 
 ## Backend status
 
-Built ([changelog 20260723-pending-affordance-impl](../../changelog/20260723-pending-affordance-impl.md)):
+**There is no backend.** A thumbs-up is a link to a pre-filled GitHub issue form
+([changelog 20260805-feature-request-github-redirect](../../changelog/20260805-feature-request-github-redirect.md)):
+the browser navigates, the issue is the whole record, and the app stores and transmits nothing.
+`app/features.py` composes the URL (`issue_url`), rendered into the shared dialog partial
+`app/templates/_pending_dialog.html` as a key → URL map. The issue form itself is
+`.github/ISSUE_TEMPLATE/feature.yml` — a YAML *form*, because only a form supports the
+per-field pre-filling that puts the control's name into the issue.
 
-- `feature_interest(feature_key, count, last_clicked_at)` in a local SQLite file under the
-  data dir (`app/db.py`), upsert-once per `feature_key`. This table is installation-wide, not
-  per-workspace — the deliberate and only exception to [§5.5](08-architecture.md)'s invariant 1,
-  argued there. It was originally keyed `(workspace_id, feature_key)`; the workspaces restructure
-  re-keyed it, collapsing existing rows by `feature_key` and keeping the earliest
-  `last_clicked_at`.
-- `InterestReporter` outbound POST (`app/interest.py`): fire-and-forget, off unless
-  `feature_interest_url` is set; body is `{feature_key, app_version, installation_id}`.
-- `config.toml` loading and first-run `installation_id` generation (`app/config.py`).
-- `POST /feature-interest/{key}` (`app/main.py`) and the dialog's acknowledge-in-place script.
-
-Storage note: this uses the standard-library `sqlite3` for the single counter table. The full
-six-table schema of [§5.1](08-architecture.md) is expected to move to SQLAlchemy when it lands;
-`feature_interest` migrates with it.
+Removed with that change, having been built in
+[20260723-pending-affordance-impl](../../changelog/20260723-pending-affordance-impl.md):
+the `feature_interest` counter table and its re-key migration (`app/db.py`, which now drops the
+table on connect), the `InterestReporter` outbound POST (`app/interest.py`), `config.toml`
+loading with first-run `installation_id` generation (`app/config.py`), and
+`POST /feature-interest/{key}` with the dialog's acknowledge-in-place script. Two consequences
+reach other sections: [§5.5](08-architecture.md)'s invariant 1 has no exceptions any more, and
+the app has no egress adapter at all.
 
 ## Owner scoping (built without authentication)
 

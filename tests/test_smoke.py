@@ -636,48 +636,34 @@ def test_new_pending_controls_marked(page, data_page_en):
     assert page.locator("[data-feature-key=chart_energy_flows]").count() >= 1
 
 
-def test_thumbsup_acknowledges_in_place(page):
-    # Clicking the thumbs-up flips the button to "✓ Noted" and shows the thanks line, without
-    # reporting any failure. Uses panel ③'s "Export CSV" button: it is present unconditionally
-    # (unlike the Pricing box's pending contract radios, which only exist once cost simulation is
-    # on) and results export genuinely is still unbuilt. This test used the setup band's
-    # "Simulate cost savings" control until the cost path was wired, and the Allow-export checkbox
-    # before that; both are real settings now and carry no pending affordance.
+def test_thumbsup_links_to_a_prefilled_github_issue(page):
+    # Clicking the thumbs-up used to flip the button to "✓ Noted" and POST to a counter route.
+    # It is a LINK now: the request is filed as a GitHub issue and nothing is recorded locally,
+    # so what this asserts is the composed href rather than an in-place acknowledgement.
+    #
+    # Uses panel ③'s "Export CSV" button: it is present unconditionally (unlike the Pricing box's
+    # pending contract radios, which only exist once cost simulation is on) and results export
+    # genuinely is still unbuilt.
     # Scoped to `button[...]`: #pending-dialog itself carries data-feature-key (the script parks
     # the clicked control's key there), so a bare attribute selector matches two elements once any
     # earlier test has opened the dialog.
     page.locator("button[data-feature-key=export_csv]").click()
     dialog = page.locator("#pending-dialog")
     assert dialog.get_by_role("heading", name="Not built yet").is_visible()
-    dialog.get_by_role("button", name="I want this").click()
-    assert dialog.get_by_text("✓ Noted").is_visible()
-    assert dialog.get_by_text("Thanks. We have recorded that you want this.").is_visible()
+
+    link = dialog.get_by_role("link", name="I want this")
+    href = link.get_attribute("href")
+    assert href.startswith("https://github.com/knz/battery-sim/issues/new?"), href
+    # The form, the title and the feature field are all pre-filled from the control that was
+    # clicked — the whole point of composing the URL server-side (app/features.py).
+    assert "template=feature.yml" in href
+    assert "Export+CSV" in href
+    assert "export_csv" in href
+    # Opens in a new tab: the dialog is reached mid-analysis and navigating away would lose it.
+    assert link.get_attribute("target") == "_blank"
+    # Not followed. The suite must pass offline, and whether github.com is up is not this app's
+    # defect — the same rule test_workspace_results.py applies to the footer's external links.
     page.keyboard.press("Escape")
-
-
-# ── Feature-interest counter route (docs/specs/08-architecture.md §5.1) ─────────────
-
-
-def _post(url: str) -> int:
-    """POST with no body; return the HTTP status (treating a 4xx as its code, not an error)."""
-    import urllib.error
-
-    try:
-        with urlopen(Request(url, method="POST"), timeout=5) as resp:
-            return resp.status
-    except urllib.error.HTTPError as e:
-        return e.code
-
-
-def test_feature_interest_known_key(base_url):
-    # A known key returns 204 (success), and a repeat click is still 204 (idempotent upsert).
-    assert _post(base_url + "/feature-interest/export_csv") == 204
-    assert _post(base_url + "/feature-interest/export_csv") == 204
-
-
-def test_feature_interest_unknown_key(base_url):
-    # A key outside the closed vocabulary is rejected.
-    assert _post(base_url + "/feature-interest/definitely_not_a_key") == 404
 
 
 def test_chart_rendered(page):

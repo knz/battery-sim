@@ -198,43 +198,42 @@ different windows can differ by more than the difference in their data.
 - **Never log the token.** It is not present server-side to log; the browser fetch code must
   likewise keep it out of any console/debug output.
 - **What the app sends out, and when.** From the browser: Home Assistant requests, to the URL
-  the user entered. From the backend: spot-price fetches to `api.energy-charts.info`, and
-  feature-interest reports (below). The rows the browser forwards to the backend over
+  the user entered, and — only if the user clicks the thumbs-up on a not-built-yet control —
+  a navigation to a GitHub issue form (below). From the backend: spot-price fetches to
+  `api.energy-charts.info`, and nothing else. The rows the browser forwards to the backend over
   `WS /data/ingest/ws` are energy/price statistics the user asked to import — they stay on the
   backend and are never onward-transmitted; the HA token is not among them. Parameters, results
-  and the contents of the database are never transmitted anywhere. The two backend egress cases
-  are named next.
+  and the contents of the database are never transmitted anywhere. **The backend has exactly one
+  egress case**, named next.
 - **Backend spot-price fetch, only when the preset source is selected.** When the user picks the
   preset Energy-Charts NL source for the spot-price slot
   ([§2.2](02-ux-wireframes.md#22-panel--data-input-expanded),
   [§4.3](06-home-assistant-ingestion.md)), the backend fetches NL day-ahead prices from
   `api.energy-charts.info` to bridge the committed on-disk data to the end of the requested
-  range. This is one of the two things the backend sends out. What is sent is a **bidding zone
+  range. This is the only thing the backend sends out. What is sent is a **bidding zone
   (`NL`) and a date range, and nothing else** — no user data, no energy data, no parameters, no
   identifier. It fires **only** when the user selects that source, and not at all if the
   spot-price slot is filled from Home Assistant instead. The endpoint is a fixed public URL that
   needs no key ([§5.4](08-architecture.md#54-configuration)).
-- **Feature-interest reports are off unless an endpoint is configured.** Clicking the
-  thumbs-up on a not-built-yet control ([§2.1](02-ux-wireframes.md#the-pending-affordance))
-  always increments a local counter. It additionally POSTs to `feature_interest_url`, which
-  is **empty in a stock configuration**, so on an installation nobody has configured, nothing
-  is ever transmitted. Where it is set, the body is three fields and no more: the feature key
-  (a short string such as `battery_rte`), the application version, and the installation id.
-  No energy data, no parameters, no results, no hostname, no IP beyond what any HTTP request
-  discloses. The request is asynchronous and fire-and-forget: failures are ignored, nothing
-  is retried or queued, and the user is never told either way.
-- **The installation id is a persistent pseudonymous identifier, and should be described as
-  one.** It is a random value generated on first run and stored in `config.toml`. It is not
-  derived from the hardware, the MAC address, the hostname, the user account, the household
-  or anything about the data — it carries no information about who or where the installation
-  is, what it consumes or how it is configured. But it is deliberately **stable across
-  runs**, because its purpose is to let ten clicks from one household be counted as one
-  household rather than ten. That stability is exactly what makes it an identifier: an
-  endpoint operator can tell that two reports came from the same installation. This is a real
-  property and the UI should not describe it as anonymous. Deleting the `installation_id`
-  line from `config.toml` generates a new one at the next start, which breaks the link to
-  everything sent before. The id only ever leaves a machine whose operator set an endpoint;
-  with the endpoint unset it is a local value that is never used.
+- **A feature request is a GitHub issue the user files themselves, not a report the app
+  sends.** Clicking the thumbs-up on a not-built-yet control
+  ([§2.1](02-ux-wireframes.md#the-pending-affordance)) opens a pre-filled issue form on
+  `github.com` in a new tab. The app transmits nothing and records nothing: it composes a URL
+  naming the control, and the browser navigates to it. What the URL carries is the feature key
+  and its human-readable title — no energy data, no parameters, no results, no identifier of
+  any kind. Whether to submit the form, and what to put in it, is entirely the user's choice,
+  and abandoning the tab leaves no trace anywhere.
+
+  The disclosure worth making plainly is that this is a **navigation to a third party**:
+  GitHub sees the request as it sees any page visit, and a submitted issue is public and
+  attributed to the user's GitHub account. The dialog says the link opens GitHub and needs an
+  account, so the user knows before clicking rather than after.
+
+  **This replaced a local counter with an optional outbound POST** carrying the feature key,
+  the app version and a persistent pseudonymous `installation_id` generated on first run.
+  That mechanism is gone in full, and with it the last thing in the app that could send
+  anything to a host the user had not nominated. There is no longer any installation
+  identifier: the app generates none, stores none and transmits none.
 - Target performance: hourly year (8,760 intervals) end-to-end under 3 s including the DP;
   5-minute month (8,640 intervals) comparable. 5-minute year (105k intervals) is the case
   that may need Numba — see [§5.3](08-architecture.md#53-compute).

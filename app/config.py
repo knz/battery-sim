@@ -1,17 +1,14 @@
 """Runtime configuration for the Home Battery Simulator (docs/specs/08-architecture.md §5.4).
 
-Resolves the data directory and reads `config.toml` from it. In this increment the only
-config that matters is the feature-interest egress pair:
+Resolves the data directory: `BATTERY_SIM_DATA_DIR`, or — see `data_dir()` — `./data/` beside
+the repo for an ordinary source run and a per-user OS location for a frozen build. Created on
+first use.
 
-    feature_interest_url   the outbound POST endpoint; empty by default, and while empty no
-                           request is ever made (§7.5). A packager/user sets it deliberately.
-    installation_id        a random, persistent pseudonymous identifier (§7.5). Generated on
-                           first run, written back to config.toml, regenerated if the line is
-                           cleared. It is NOT derived from hardware/host/account/data.
-
-Resolution order for each value: environment variable → config.toml → default. The data
-directory itself is `BATTERY_SIM_DATA_DIR`, or — see `data_dir()` — `./data/` beside the repo
-for an ordinary source run and a per-user OS location for a frozen build. Created on first use.
+This module used to carry a `Config` dataclass and a `load()` that read `config.toml`, holding
+the `feature_interest_url` / `installation_id` pair for the feature-interest telemetry. That
+whole limb went when feature requests moved to GitHub issues (app/features.py): nothing about a
+request is recorded or transmitted, so neither value has a consumer, and the app no longer reads
+or writes `config.toml` at all. What remains is data-directory resolution.
 
 ## Why the per-user path helper lives HERE rather than in app/desktop.py
 
@@ -23,19 +20,14 @@ in `app.desktop` would mean `config` importing `desktop`, and `desktop` already 
 cleaner: `config` stays a leaf that imports nothing from the app, and `desktop` sits above it.
 
 Main items:
-    APP_VERSION            the app version reported in the POST body.
+    APP_VERSION            the app version, single-sourced from app/__init__.py.
     ENV_DATA_DIR           the name of the data-directory environment variable.
     user_data_dir()        the per-user, per-OS data location (no side effects, not created).
     data_dir()             resolved, ensured-to-exist data directory.
-    load() -> Config       the resolved config; generates+persists installation_id if absent.
-    Config                 dataclass carrying feature_interest_url, installation_id, app_version.
 """
 
 import os
-import secrets
 import sys
-import tomllib
-from dataclasses import dataclass
 from pathlib import Path
 
 from app import __version__
@@ -47,20 +39,8 @@ APP_VERSION = __version__
 
 ENV_DATA_DIR = "BATTERY_SIM_DATA_DIR"
 _ENV_DATA_DIR = ENV_DATA_DIR
-_ENV_URL = "BATTERY_SIM_FEATURE_INTEREST_URL"
-_ENV_INSTALL_ID = "BATTERY_SIM_INSTALLATION_ID"
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-
-
-@dataclass(frozen=True)
-class Config:
-    """Resolved runtime configuration (only the egress pair is used in this increment)."""
-
-    feature_interest_url: str
-    installation_id: str
-    app_version: str = APP_VERSION
-
 
 _APP_DIR_NAME = "BatterySim"
 """The directory name used on macOS and Windows, where per-app directories are Title Case."""
@@ -131,54 +111,3 @@ def data_dir() -> Path:
     return d
 
 
-def _config_path() -> Path:
-    return data_dir() / "config.toml"
-
-
-def _read_toml() -> dict:
-    path = _config_path()
-    if not path.exists():
-        return {}
-    with path.open("rb") as fh:
-        return tomllib.load(fh)
-
-
-def _generate_installation_id() -> str:
-    """A random pseudonymous id — see §7.5. Not derived from anything about the machine."""
-    return secrets.token_hex(16)
-
-
-def _persist_installation_id(install_id: str) -> None:
-    """Append `installation_id` to config.toml, creating the file if needed.
-
-    Deliberately minimal: we only ever add this one line, so a full TOML writer is not
-    warranted. Existing content is left untouched; the line is appended once.
-    """
-    path = _config_path()
-    existing = path.read_text(encoding="utf-8") if path.exists() else ""
-    if existing and not existing.endswith("\n"):
-        existing += "\n"
-    line = f'installation_id = "{install_id}"\n'
-    path.write_text(existing + line, encoding="utf-8")
-
-
-def load() -> Config:
-    """Resolve config; generate and persist an installation_id on first run.
-
-    The URL is empty unless set (env or config.toml) — while empty, no POST is ever made.
-    The installation_id is read from env or config.toml; if neither has it, a fresh one is
-    generated and written back to config.toml so it stays stable across runs.
-    """
-    toml = _read_toml()
-
-    url = os.environ.get(_ENV_URL, toml.get("feature_interest_url", "")).strip()
-
-    install_id = os.environ.get(_ENV_INSTALL_ID) or toml.get("installation_id")
-    if not install_id:
-        install_id = _generate_installation_id()
-        # Only persist when the value did not come from the environment — an env-provided id
-        # is the operator's to manage, and we should not write it into the file.
-        if not os.environ.get(_ENV_INSTALL_ID):
-            _persist_installation_id(install_id)
-
-    return Config(feature_interest_url=url, installation_id=install_id)

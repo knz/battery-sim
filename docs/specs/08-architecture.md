@@ -30,7 +30,9 @@
 │    routes/params.py   PATCH /params                                       │
 │    routes/results.py  GET  /results  /results/export.csv                  │
 │    routes/stream.py   GET  /api/stream           (SSE)                    │
-│    routes/feedback.py POST /feature-interest/{feature_key}                │
+│                                                                           │
+│    NB: no feedback route. A pending control's thumbs-up is a LINK to a    │
+│    pre-filled GitHub issue form; the backend serves nothing for it (§2.1).│
 │                                                                           │
 │    deps.py:  get_principal() -> Principal        ← v1 returns "local"      │
 │              get_workspace(principal, id) -> Workspace                    │
@@ -49,7 +51,7 @@
 │    IngestSocket parser      │   │    ingest/     cumulative→delta        │
 │    CsvLoader                │   │    normalize/  grid selection, resample│
 │    DatasetStore (persist)   │   │    quality/    checks, flags           │
-│    InterestReporter         │   │    pricing/    import/export curves    │
+│                             │   │    pricing/    import/export curves    │
 │    sources/  DataSource     │   │                                        │
 │      HomeAssistantSource    │   │                                        │
 │      EnergyChartsSource     │   │                                        │
@@ -68,7 +70,9 @@
 │                  fine_resolution_s, fine_coverage, source_type)           │
 │      params(workspace_id, json, updated_at)          -- current config    │
 │      runs(id, workspace_id, run_id, config_hash, result_json, created_at) │
-│      feature_interest(feature_key, count, last_clicked_at)  -- §5.5 exc.  │
+│                                                                           │
+│      -- Every table is workspace-keyed. `feature_interest` was the one    │
+│      -- exception and is gone; see §5.5.                                  │
 │                                                                           │
 │      -- No credentials table: the HA token stays in the browser (§7.5).   │
 │                                                                           │
@@ -155,43 +159,31 @@ the spot price as a dispatch signal, which exists in both modes. Fixture 18 in
 [16-validation-harness.md](16-validation-harness.md) asserts that everything except the
 added cost outputs is bit-identical across the flag.
 
-### Feature interest
+### Feature interest — no backend at all
 
-`feature_interest` records that a user asked for a control that is specified but not built
-yet ([§2.1](02-ux-wireframes.md#the-pending-affordance)). `feature_key` is the short stable
-string that names the control, and it is the primary key on its own, so a repeat click updates
-`last_clicked_at` and leaves `count` alone.
+A user asking for a control that is specified but not built yet
+([§2.1](02-ux-wireframes.md#the-pending-affordance)) produces **no server-side state and no
+outbound request**. The `[?]` dialog's thumbs-up is a link to a pre-filled GitHub issue form;
+the browser follows it and the issue is the whole record.
 
-**This table is installation-wide** — the one exception to §5.5's invariant 1, argued there and
-in [20-workspaces-ux.md §2′.10](20-workspaces-ux.md#210-what-the-backend-needs-noted-not-designed).
-It was originally keyed per workspace, on the reasoning that totalling across workspaces at read
-time was cheaper than an exception to the rule the schema rests on. The workspace list showed
-why that is wrong in a way totalling does not fix: the count is one household's boolean wish,
-and a workspace deletion would retract a signal the user never withdrew.
+The only backend involvement is composing the URL: a closed vocabulary of feature keys, each
+with a human-readable title, rendered into the dialog as a key → URL map. Keys are never
+renamed or repointed, because a key is the join between an issue already filed and the control
+it was about.
 
-`InterestReporter` is the adapter that performs the outbound POST. It is an adapter and not
-a service because it does I/O and nothing else, and it is the **only** component in the
-application that sends anything to a host the user did not nominate as a data source. The
-egress posture it implies is stated in
-[§7.5](15-data-quality-and-limits.md#75-operational-notes) and is the authoritative
-description; this section covers only the mechanism.
+**This replaced a `feature_interest(feature_key, count, last_clicked_at)` table and an
+`InterestReporter` adapter** that POSTed to a configurable endpoint. Two things follow from
+the removal, both of which simplify the surrounding design:
 
-Three invariants, which stand in place of a fixture. Every fixture in
-[16-validation-harness.md](16-validation-harness.md) is pure-domain — arrays in, numbers
-out, no I/O — and this path is I/O and nothing else, so it is asserted here rather than
-forced into a harness built for something different:
-
-1. **A failed POST is invisible.** Timeout, refused connection, DNS failure, non-2xx
-   response and an unset endpoint are all handled identically: the request is abandoned and
-   nothing changes. No user-visible state, no error surface, no retry, no queue. The
-   `[?]` dialog acknowledges before the request resolves and never revises that
-   acknowledgement.
-2. **The counter increments exactly once per feature per workspace.** The write is an upsert,
-   not an append. Interest is a boolean fact about a household, and the count is meaningful
-   only when summed across installations.
-3. **An unset endpoint disables the request and nothing else.** The counter still increments,
-   the dialog still acknowledges. Reporting is an optional addition to a local feature, not
-   the feature itself.
+1. **§5.5's invariant 1 has no exceptions any more.** `feature_interest` was the sole
+   installation-wide table, argued for at length here and in
+   [20-workspaces-ux.md §2′.10](20-workspaces-ux.md#210-what-the-backend-needs-noted-not-designed)
+   on the grounds that a feature request is a fact about the household rather than about one
+   analysis. Every table is workspace-keyed again.
+2. **The application has no egress adapter.** `InterestReporter` was the only component that
+   sent anything to a host the user did not nominate as a data source. Nothing does now, which
+   makes [§7.5](15-data-quality-and-limits.md#75-operational-notes)'s egress posture a property
+   of the code rather than of a default setting someone could change.
 
 ## 5.2 Why this split
 
@@ -217,17 +209,17 @@ every 1,024 intervals. The `run_id` protocol that drives cancellation is in
 
 ## 5.4 Configuration
 
-Single `config.toml` next to the data directory: bind host/port, data dir, log level,
-default parameter values, and the feature-interest endpoint. Environment variables override.
-There is **no HA-token configuration and no token-encryption key**: the Home Assistant token
-stays in the browser and is never stored server-side
+Single `config.toml` next to the data directory: bind host/port, data dir, log level and
+default parameter values. Environment variables override. There is **no HA-token
+configuration and no token-encryption key**: the Home Assistant token stays in the browser and
+is never stored server-side
 ([§4.3](06-home-assistant-ingestion.md), [§7.5](15-data-quality-and-limits.md#75-operational-notes)).
 
-`feature_interest_url` is **empty by default** and no request is made while it is empty. A
-packager or a user who wants the reports to reach someone sets it deliberately. Beside it,
-`installation_id` holds the random identifier described in §7.5; it is generated on first
-run, written back to `config.toml`, and clearing the line generates a fresh one on the next
-start.
+The file carried two more settings until feature requests moved to GitHub issues:
+`feature_interest_url`, the outbound endpoint, empty by default; and `installation_id`, the
+random pseudonymous identifier described in §7.5, generated on first run and written back.
+Both are gone with the mechanism they served. **The app now writes no `config.toml` of its
+own** — as implemented, the only setting it reads is the data directory, from the environment.
 
 Neither preset spot-price source needs **any configuration**. For Energy-Charts the endpoint is
 a fixed public URL, the NL bidding zone is hardcoded for now, and there is **no API key** — the
@@ -246,21 +238,17 @@ change rather than a rewrite:
    read path filters on it too — an omitted filter reintroduces the leak the column exists
    to prevent.
 
-   **One deliberate exception: `feature_interest`.** Its primary key is `feature_key` alone,
-   and its rows survive the deletion of every workspace, including the last. The reasoning is
-   in [20-workspaces-ux.md §2′.10](20-workspaces-ux.md#210-what-the-backend-needs-noted-not-designed):
-   the invariant's purpose is that user *data* never leaks between workspaces or, later,
-   between accounts, and interest counters are not user data in that sense — they are outbound
-   product telemetry, already reported under the pseudonymous `installation_id` from
-   `config.toml` rather than under any workspace identity. Keying them per workspace also made
-   the counter answer the wrong question: the same household could register the same wish from
-   three analyses, and deleting one would retract a signal the user never withdrew.
-
-   This exception covers `feature_interest` and nothing else. In particular
-   `workspace_state.source_generation` remains per-workspace — it tracks one workspace's
-   fetches, and sharing it would let a fetch in one analysis invalidate a source customization
-   saved in another. Any future candidate for the same treatment needs its own argument that
-   the row is telemetry rather than user data.
+   **This invariant now holds without exception.** `feature_interest` was the one carve-out —
+   keyed on `feature_key` alone and surviving the deletion of every workspace — argued for in
+   [20-workspaces-ux.md §2′.10](20-workspaces-ux.md#210-what-the-backend-needs-noted-not-designed)
+   on the grounds that interest counters were product telemetry rather than user data. The
+   table is gone: feature requests are filed as GitHub issues
+   ([§2.1](02-ux-wireframes.md#the-pending-affordance)) and nothing is stored locally. The
+   argument that justified the exception is worth keeping in view anyway, because it is the
+   test any future candidate has to pass — a row is exempt only if it is genuinely not user
+   data, and `workspace_state.source_generation` is the standing example of one that is not
+   exempt: it tracks one workspace's fetches, and sharing it would let a fetch in one analysis
+   invalidate a source customization saved in another.
 2. **`Workspace` is resolved via a FastAPI dependency**, never read from a global.
    In v1 `get_principal()` returns a hard-coded `Principal(id="local")`, and
    `get_workspace()` resolves the workspace named in the `/w/{workspace_id}/…` path and

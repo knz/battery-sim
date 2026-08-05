@@ -646,12 +646,17 @@ def _show_ui(url: str, mode: UiMode) -> bool:
 def _load_asgi_app():
     """Import and return `app.main:app`. **Call only after `resolve_data_dir()`.**
 
-    This import is inside a function, and that is not a style choice. `app/main.py` runs
-    `CONFIG = config.load()` at MODULE level, and `config.load()` resolves the data directory and
-    WRITES a generated `installation_id` into it. So the directory that the whole installation
-    then uses is decided by whatever `BATTERY_SIM_DATA_DIR` holds at the moment this module is
-    first imported — and a module-level `from app.main import app` at the top of this file would
-    make that moment "before the launcher has run", i.e. the source-run default.
+    This import is inside a function, and that is not a style choice. Importing `app.main` pulls
+    in the whole persistence layer and runs its module-level work — the lifespan's migrations and
+    every `config.data_dir()` call resolve `BATTERY_SIM_DATA_DIR` as they find it. So the
+    directory the installation uses is decided by whatever that variable holds around the moment
+    this module is first imported, and a module-level `from app.main import app` at the top of
+    this file would make that moment "before the launcher has run", i.e. the source-run default.
+
+    `app/main.py` used to make this sharper still by running `CONFIG = config.load()` at module
+    level, which WROTE a generated `installation_id` into the directory on import. That line is
+    gone with the feature-interest telemetry (app/config.py), so the import no longer writes
+    anything by itself — but it still binds paths, and the ordering requirement stands.
 
     The symptom is invisible in development, where the default happens to be right. In a packaged
     build it is data written INSIDE the app bundle: read-only on macOS, and under PyInstaller

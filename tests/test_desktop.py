@@ -9,10 +9,12 @@ a regression in any of them would ship silently, so each gets its own test:
     mode (data written into a roaming profile, or into the app bundle) is a per-OS one that no
     single CI machine would otherwise see.
   * **the ordering hazard**: `BATTERY_SIM_DATA_DIR` must be set BEFORE `app.main` is imported,
-    since importing that module runs `config.load()` and writes an installation_id into whatever
-    directory is resolved at that instant. `tests/conftest.py::_isolate_data_dir` documents the
-    same hazard; `app.desktop._load_asgi_app` is what avoids it, and a module-level import
-    creeping back into `app/desktop.py` is exactly what is asserted against here.
+    since importing that module binds paths and mounts static files against whatever directory is
+    resolved at that instant. (It used to be sharper still: a module-level `config.load()` WROTE
+    an installation_id there on import. That went with the feature-interest telemetry.)
+    `tests/conftest.py::_isolate_data_dir` documents the same hazard;
+    `app.desktop._load_asgi_app` is what avoids it, and a module-level import creeping back into
+    `app/desktop.py` is exactly what is asserted against here.
   * **the bind host**, which is a security property (`app/csrf.py`'s threat model assumes the
     loopback), so it is asserted to be 127.0.0.1 and to be absent as a configurable.
   * **the single-instance lock**, held and taken over, since two processes against one SQLite
@@ -167,10 +169,11 @@ def test_resolve_data_dir_keeps_a_preexisting_value(monkeypatch, tmp_path):
 def test_desktop_does_not_import_app_main_at_module_level():
     """The property `_load_asgi_app` exists to preserve, asserted where it can be seen.
 
-    Importing `app.main` runs `CONFIG = config.load()`, which WRITES an installation_id into
-    whatever data directory is resolved at that moment. A module-level `from app.main import app`
-    in `app/desktop.py` would fix that directory before `resolve_data_dir()` ever ran — invisible
-    in a source checkout, and in a packaged build it puts the user's data inside the app bundle.
+    Importing `app.main` binds paths against whatever data directory is resolved at that moment.
+    A module-level `from app.main import app` in `app/desktop.py` would fix that directory before
+    `resolve_data_dir()` ever ran — invisible in a source checkout, and in a packaged build it
+    puts the user's data inside the app bundle. (The import used to WRITE there too, via a
+    module-level `config.load()`; that is gone, but the ordering requirement is not.)
 
     Checked two ways, because either alone is weak: the source has no top-level import of it, and
     importing `app.desktop` in a fresh interpreter leaves `app.main` absent from `sys.modules`.
@@ -1182,7 +1185,10 @@ def test_the_launcher_serves_on_the_chosen_port_and_writes_only_to_its_data_dir(
         # The data directory it was given is the one it used, lock file included.
         assert (data_dir / "desktop.lock").exists()
         assert json.loads((data_dir / "desktop.lock").read_text())["port"] == port
-        assert (data_dir / "config.toml").exists()  # written by the import-time config.load()
+        # The workspace index, opened by serving `/`. This used to assert `config.toml`, written
+        # by an import-time `config.load()`; that call went with the feature-interest telemetry
+        # and the app no longer writes config.toml at all, so the DB is the witness now.
+        assert (data_dir / "feature_interest.db").exists()
     finally:
         proc.terminate()
         proc.wait(timeout=15)

@@ -64,8 +64,7 @@
   Workspace scoping. The routes this page fetches live under `/w/{id}/…`
   (docs/specs/08-architecture.md §5.1), so the page states its workspace once — `data-workspace-id` on
   `<body>` — and the scripts below build every path from it via `wsPath()`. Nothing here writes a
-  scoped path as a literal; `/lang/{code}` and `/feature-interest/{key}` are flat routes and are the
-  only literals left.
+  scoped path as a literal; `/lang/{code}` is a flat route and is the only literal left.
 #}
 <!doctype html>
 <html lang="{{ lang.current }}" data-theme="light">
@@ -168,30 +167,7 @@
     <form method="dialog" class="modal-backdrop"><button>{{ _('close') }}</button></form>
   </dialog>
 
-  {# ── "Not built yet" dialog — the pending affordance (§2.1). Shared by any pending
-       control; the control name and feature key are filled in by the script below. The
-       thumbs-up posts to /feature-interest/{key} and acknowledges in place. #}
-  <dialog id="pending-dialog" class="modal" data-feature-key="">
-    <div class="modal-box">
-      <h3 class="text-lg font-bold">{{ _('Not built yet') }}</h3>
-      <p class="py-2">
-        <span id="pending-control-name" class="font-medium">{{ _('This control') }}</span>
-        {{ _('is part of the plan for this simulator, but it is not built yet. The app is being written one feature at a time and this one has not been reached.') }}
-      </p>
-      <p class="pb-2 text-sm text-base-content/70">
-        {{ _('If you would use it, say so. It tells us what to build next, and it is the only signal we get.') }}
-      </p>
-      {# Acknowledgement line — hidden until the thumbs-up is clicked (§2.1). #}
-      <p id="pending-thanks" class="pb-2 text-sm text-success hidden">
-        {{ _('Thanks. We have recorded that you want this.') }}
-      </p>
-      <div class="modal-action">
-        <button id="pending-thumbsup" class="btn btn-primary btn-sm">{{ _('👍 I want this') }}</button>
-        <form method="dialog"><button class="btn btn-ghost btn-sm">{{ _('close') }}</button></form>
-      </div>
-    </div>
-    <form method="dialog" class="modal-backdrop"><button>{{ _('close') }}</button></form>
-  </dialog>
+  {% include "_pending_dialog.html" %}
 
   {# ── "Set up your contract first" — the Blocked cost toggle's dialog (§2′.6) ──────
        §2′.6 draws this dialog verbatim and it is transcribed here, wording and all. It is what
@@ -258,49 +234,6 @@
         var btn = ev.target.closest && ev.target.closest('#cost-blocked-info');
         if (!btn) return;
         dialog.showModal();
-      });
-    })();
-
-    // The pending affordance (§2.1, §5.1). A [?] button opens the shared dialog for its
-    // control; the thumbs-up POSTs to /feature-interest/{key} and acknowledges in place. Keys
-    // already thumbed this session are remembered so reopening shows "✓ Noted" and a second
-    // click neither re-counts nor re-POSTs. The POST is fire-and-forget: the UI acknowledges
-    // regardless of its outcome (failures are never surfaced).
-    (function () {
-      var dialog = document.getElementById('pending-dialog');
-      var nameEl = document.getElementById('pending-control-name');
-      var thanksEl = document.getElementById('pending-thanks');
-      var thumbsBtn = document.getElementById('pending-thumbsup');
-      var labelWant = {{ _('👍 I want this') | tojson }};
-      var labelNoted = {{ _('✓ Noted') | tojson }};
-      var thumbed = new Set();  // feature keys already acknowledged this session
-
-      function renderState(key) {
-        var noted = thumbed.has(key);
-        thumbsBtn.textContent = noted ? labelNoted : labelWant;
-        thumbsBtn.disabled = noted;
-        thanksEl.classList.toggle('hidden', !noted);
-      }
-
-      // Delegated from `document`, so a [?] inside either swappable fragment opens the dialog
-      // after every swap with no re-binding.
-      document.addEventListener('click', function (ev) {
-        var btn = ev.target.closest && ev.target.closest('[data-pending-name]');
-        if (!btn) return;
-        nameEl.textContent = btn.getAttribute('data-pending-name') || '';
-        dialog.setAttribute('data-feature-key', btn.getAttribute('data-feature-key') || '');
-        renderState(dialog.getAttribute('data-feature-key'));
-        dialog.showModal();
-      });
-
-      thumbsBtn.addEventListener('click', function () {
-        var key = dialog.getAttribute('data-feature-key');
-        if (!key || thumbed.has(key)) return;  // second click does not count twice (§2.1)
-        thumbed.add(key);
-        renderState(key);  // acknowledge in place, before the request resolves
-        // Fire-and-forget: the acknowledgement above is never revised by the result.
-        fetch('/feature-interest/' + encodeURIComponent(key), { method: 'POST' })
-          .catch(function () { /* failures are ignored (§2.1, §5.1) */ });
       });
     })();
   </script>
