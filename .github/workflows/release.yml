@@ -143,14 +143,15 @@ jobs:
     env:
       # appimagetool is ITSELF an AppImage and mounts via FUSE. build-appimage.sh has no
       # workaround for a FUSE-less environment — unlike packaging/verify-appimage-isolated.sh,
-      # which sets this variable explicitly. Setting it in the job env means the appimagetool
-      # process inherits it and self-extracts instead of mounting, with no change to the script.
+      # which sets this variable explicitly. Two routes are provided here: this variable, which
+      # tells the AppImage runtime to self-extract rather than mount, and libfuse2t64 installed
+      # below, which makes the mount path work.
       #
-      # THIS PATH IS UNVERIFIED. It has not been exercised on a GitHub runner, and the claim that
-      # inheritance alone is sufficient is reasoning about how the AppImage runtime reads its
-      # environment, not an observation. libfuse2t64 is installed below as a second route: if the
-      # variable does not take effect, a working FUSE makes the mount path succeed anyway. If
-      # this job fails inside appimagetool, this is the first thing to look at.
+      # MEASURED on the first dispatch run (2026-08-05, run 31032747998): the build produced no
+      # extraction messages, so appimagetool MOUNTED — libfuse2t64 is what carried it, and this
+      # variable did not take effect. Keeping both was the right call; the variable alone would
+      # most likely have failed. Do not remove libfuse2t64 on the theory that the env var covers
+      # it. If this job ever fails inside appimagetool, the apt package is the thing to check.
       APPIMAGE_EXTRACT_AND_RUN: "1"
     steps:
       - uses: actions/checkout@v7
