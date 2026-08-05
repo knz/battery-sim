@@ -64,8 +64,12 @@ configurations produce a euro ratio above 1, all in the liquidating half. See
 What is NOT emitted this increment (later phases):
   * the "intervals battery was full / empty" secondary row — it needs a SoC-bound comparison the
     metrics layer does not own yet; omitted rather than guessed.
-  * annualisation — a short-window run (< min_annualisation_days) sets `annualisation_disabled`
-    with a message so the template can show the §2.4 info box; nothing is annualised here anyway.
+  * annualisation — no annualised figure is computed or rendered anywhere in the app. §7.4's
+    short-window guard (`min_annualisation_days`, and §6.15's epoch-boundary trigger) is the
+    guard on a feature that does not exist yet, so it is not emitted either: the §2.4 info box
+    it drove told the user an annual projection had been withheld and pointed at a range
+    selection that would not produce one. Restore both together — see `min_annualisation_days`
+    below, which is retained as the threshold that guard will use.
   * §6.13's euro-basis resolution bias — a cost-only §4.5 field with no domain-layer
     implementation to render.
 
@@ -212,9 +216,10 @@ PV_PRESENT_FLOOR_KWH = 1.0
 
 # Below this many days a window is too short to annualise without large seasonal error — battery
 # savings are strongly seasonal, so scaling e.g. a July week to a year overstates by ~2–3× (specs
-# §7.4, appendix-a `min_annualisation_days` = 90). We do not annualise anything this increment; the
-# flag just lets the template show the §2.4 short-window info box. There is no config field for this
-# yet, so it is a module constant matching the spec default.
+# §7.4, appendix-a `min_annualisation_days` = 90). CURRENTLY UNREAD: nothing in the app annualises,
+# so there is no projection to withhold and §7.4's guard is not emitted (see `results_from`). Kept
+# because the threshold is the spec's, not a decision to remake when the annualised figure lands.
+# There is no config field for it yet, so it is a module constant matching the spec default.
 min_annualisation_days = 90
 
 # §2.4: the "…if export allowed" benchmark row renders only when the unconstrained fields are
@@ -2232,27 +2237,12 @@ def results_from(
     if cost_bench is not None:
         result["cost_benchmark"] = _cost_benchmark_block(cost_bench, cfg)
 
-    # Short-window guard (§7.4): below min_annualisation_days annualisation is disabled. We annualise
-    # nothing here; the flag + message let the template show the §2.4 info box. Uses the EFFECTIVE
-    # span (what the run actually covers), not the requested one.
-    span_days = (eff[1] - eff[0]).days
-    if span_days < min_annualisation_days:
-        result["annualisation_disabled"] = True
-        # A COUNTED message: `min_annualisation_days` drives the "days" plural. It is 90 today, so
-        # only the plural form is ever selected — but the count is what gettext needs to pick a
-        # form, and hard-coding the plural would break the moment the constant changes or a
-        # language with a different plural rule is added.
-        result["annualisation_message"] = _msg_n(
-            "Annualised projection is disabled for ranges under %(n)s day. "
-            "Battery savings are strongly seasonal; scaling a short window to a year can overstate "
-            "annual savings by a factor of roughly 2–3. Select 6 months or 1 year to see an annual "
-            "figure.",
-            "Annualised projection is disabled for ranges under %(n)s days. "
-            "Battery savings are strongly seasonal; scaling a short window to a year can overstate "
-            "annual savings by a factor of roughly 2–3. Select 6 months or 1 year to see an annual "
-            "figure.",
-            min_annualisation_days,
-            n=num(min_annualisation_days, "count"),
-        )
+    # §7.4's short-window guard is NOT emitted: it guards a feature that does not exist. Nothing in
+    # this app annualises anything, so the info box it set ("Annualised projection is disabled for
+    # ranges under 90 days … Select 6 months or 1 year to see an annual figure") described a
+    # withheld projection the user could not obtain by any selection. It is dropped until an
+    # annualised figure is implemented, at which point the guard comes back WITH it — and should
+    # then also cover §6.15's epoch-boundary trigger (specs §7.4), which this never implemented.
+    # `min_annualisation_days` above is retained as that threshold.
 
     return result

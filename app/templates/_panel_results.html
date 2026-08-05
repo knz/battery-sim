@@ -79,8 +79,8 @@
    Dutch users). Covered by test_data_glance_is_translated_in_both_copies. #}
 {% from "_data_glance.html" import data_glance with context %}
 {# `msg()` renders a view-model message: translate the constant msgid, THEN substitute its runtime
-   values. The caveats, the run description, the annualisation notice and two of the KPI fields
-   arrive as (msgid, params) pairs from app/results_view.py for that reason — see _msg.html. Same
+   values. The caveats, the run description and two of the KPI fields arrive as (msgid, params)
+   pairs from app/results_view.py for that reason — see _msg.html. Same
    `with context` requirement as above: without it the macro's gettext functions freeze at the
    first locale rendered in the process. #}
 {% from "_msg.html" import msg with context %}
@@ -91,15 +91,11 @@
       <span class="font-semibold">{{ _('RESULTS') }}</span>
     </div>
 
-    {# ── Short-window guard box (§2.4 / §7.4) ───────────────────────────────
-       Shown INSTEAD of an annualised figure when the effective window is under
-       min_annualisation_days. The view-model sets annualisation_disabled + a message. #}
-    {% if results.annualisation_disabled %}
-    <div role="alert" class="alert alert-info py-2">
-      <span class="text-sm">ⓘ {{ msg(results.annualisation_message) }}</span>
-    </div>
-    {% endif %}
-
+    {# §2.4 / §7.4's short-window guard box is deliberately absent. It said an annualised
+       projection had been withheld and to select 6 months or 1 year to get one — but no
+       annualised figure exists anywhere in the app, so nothing was withheld and no selection
+       produced one. Restored together with the annualised figure; results_view.py keeps
+       `min_annualisation_days` as its threshold. #}
     {# ── "Your data at a glance" over the SELECTED range (shared macro) ─────
        The same figures as panel ①'s copy, but clamped to this window (spot price included), and
        framed like the "Energy savings" section below it — a divider heading, no card.
