@@ -136,6 +136,26 @@ across users, so a second concurrent user on the same machine falls back to the 
 instead of being pointed at the first user's mount. Acceptable for a single-user desktop
 app; would need revisiting for a multi-seat machine.
 
+## U10 — Do not bundle tzdata, and do not audit the other `dlopen`ed subsystems
+
+Both were offered as follow-ups from the AppImage work and both were declined.
+
+**tzdata.** In a bare container the app fails with `ZoneInfoNotFoundError: 'Europe/Amsterdam'`,
+because the timezone database comes from the host. Every real desktop ships it, so this is not
+user-facing; the exposure is limited to minimal container or chroot environments, which are not
+the target. Reversible at any time by adding it to the bundle — the failure is loud and
+immediate rather than silent, so if it ever bites, it will be obvious what happened.
+
+**The `dlopen` audit.** `packaging/check-appdir-closure.py` reads `DT_NEEDED` entries, so it
+cannot see libraries opened by name at runtime. GStreamer's plugins are the one known instance
+(see [[U9]]); `libGLESv2.so.2` is also absent in a bare container and non-fatal, as compositing
+is already disabled. No systematic search was made for others.
+
+The residual risk is a subsystem that degrades quietly rather than failing outright — the
+GStreamer case was noticed only because it prints a warning. Accepted knowingly. Worth
+revisiting if an unexplained behavioural difference ever appears between the AppImage and a
+source run, since this is the class of cause that would not show up in the closure check.
+
 ## U9 — The GStreamer `appsink` warning stays
 
 Left as-is. It is one line of stderr on startup, from WebKit's media pipeline probing for
