@@ -103,6 +103,24 @@
        view-model may set it None defensively, in which case the section is simply omitted. #}
     {% if results.data_summary %}
     {{ data_glance(results.data_summary, title=_('Your energy use during the selected period'), frame='divider') }}
+
+    {# ── Where the figures above are edited ────────────────────────────────
+         The counterpart of the "Edit contract & rates →" link under Cost savings below: every
+         figure in the band above comes from the dataset, and the dataset is edited on the data
+         screen. Same ghost-link styling, same right-aligned placement.
+
+         It lives HERE and not in the `data_glance` macro because that macro is shared with
+         panel ① on the data screen, where a link back to the data editor would point at the
+         screen the reader is already on.
+
+         No ⓘ beside it, unlike the contract link: that one exists because the euro figures'
+         provenance (markup, tax, VAT, feed-in) is not self-evident, whereas these figures come
+         from the dataset this link leads to. A dialog saying so would be a second control to one
+         destination. #}
+    <div class="flex flex-wrap items-center justify-end gap-1 -mt-2">
+      <a href="/w/{{ workspace_id | urlencode }}/data" class="btn btn-ghost btn-xs"
+         data-energy-edit-data>{{ _('Update your data →') }}</a>
+    </div>
     {% endif %}
 
     {# ══ ENERGY SAVINGS ══════════════════════════════════════════════════ #}

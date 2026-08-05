@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-05 23:12+0200\n"
+"POT-Creation-Date: 2026-08-05 23:36+0200\n"
 "PO-Revision-Date: 2026-07-23 20:40+0200\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: en\n"
@@ -1520,6 +1520,9 @@ msgid "Two conversions PV→battery"
 msgstr "Two conversions PV→battery"
 
 msgid "Type"
+msgstr ""
+
+msgid "Update your data →"
 msgstr ""
 
 msgid "Upload CSV"

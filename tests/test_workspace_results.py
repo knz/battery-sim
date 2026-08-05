@@ -336,6 +336,22 @@ def test_the_cost_section_links_to_the_contract_on_the_edit_screen(with_data):
     assert "data-cost-invitation" not in html, "the cost-off invitation must not render with cost on"
 
 
+def test_the_energy_section_links_to_the_data_screen(with_data):
+    """The "Your energy use" band offers a way back to the dataset behind its figures.
+
+    The counterpart of the Cost-savings link to `/w/{id}/edit#contract`: that one leads to the
+    rates, this one to the data. Unlike it, this link does not depend on cost state — the energy
+    band renders whenever `results.data_summary` does — so `with_data` here is only about having a
+    real dataset to summarise.
+    """
+    client, _mod = with_data
+
+    html = _get(client)
+    link = re.search(r"<a[^>]*data-energy-edit-data[^>]*>", html)
+    assert link, "the energy band must offer a link to the data screen"
+    assert 'href="/w/w1/data"' in link.group(0), link.group(0)
+
+
 def test_the_contract_link_is_absent_when_cost_is_off(with_data):
     """The counterpart: with cost OFF there is no Cost savings section, so no link from it.
 
