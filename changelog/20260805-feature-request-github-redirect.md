@@ -177,6 +177,30 @@ templates. `HEAD` (`60316d2`) turned out to be a strict ancestor of `origin/mast
 - The new dialog sentence failed 20 `test_no_english_leakage` cases until translated.
 - Jinja's `tojson` emits `&` as `&` inside `<script>`, so a literal substring assertion
   on the URL failed; the test compares against the escaped form (the code was correct).
+- **CI's "app.css is up to date" job failed after the first push, because of `feature.yml`.**
+  That job rebuilds the stylesheet from its Tailwind sources and diffs it against the
+  committed file. The delta was six daisyUI `.textarea` rules, and the cause is the new issue
+  form: **Tailwind v4 auto-scans the repository root** in addition to the explicit
+  `@source '../../templates'`, so the `type: textarea` lines in
+  `.github/ISSUE_TEMPLATE/feature.yml` are read as class names and pull in daisyUI's textarea
+  component. The rules are inert — nothing renders a `.textarea` element — but the generated
+  file is committed and the gate compares bytes, so the rebuild has to be committed with it.
+
+  Worth knowing for the next person who adds a YAML issue form or any root-level file
+  containing bare words that happen to be daisyUI class names: it will grow `app.css`, and the
+  fix is `npm run build:css` plus committing the result.
+
+  **I got this wrong first and recorded the wrong cause.** My initial check restored
+  `origin/master`'s `app/static/` and `app/templates/` but left `.github/` at the branch
+  version, so the rebuild still saw `feature.yml` and still produced `.textarea` — which I read
+  as proof of pre-existing drift on master. It is not: exporting `origin/master` to a clean
+  directory reproduces its committed CSS byte-for-byte, and adding only `feature.yml` makes
+  `.textarea` appear. The first "Rebuild app.css" commit message stated the wrong cause and was
+  amended.
+
+  (Unrelated trap in the same area: `npm install` inside a git worktree rewrites
+  `package-lock.json`'s `name` field to the worktree directory name. Reverted, not committed —
+  and `npm ci` is what CI runs anyway.)
 
 ## Specs updated
 
