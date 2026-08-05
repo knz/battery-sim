@@ -1487,3 +1487,104 @@ def test_pricing_survives_a_save_and_load_with_costs_off(tmp_path, monkeypatch):
     loaded = store.load(store.db.WORKSPACE_ID)
     for f in dataclasses.fields(PricingConfig):
         assert getattr(loaded.pricing, f.name) == getattr(custom, f.name), f.name
+
+
+# ── retained.results_period: the remembered results window ────────────────────────────────────
+
+
+def _store_in(tmp_path, monkeypatch):
+    """A freshly-reloaded simconfig_store bound to `tmp_path` (same recipe as the tests above)."""
+    monkeypatch.setenv("BATTERY_SIM_DATA_DIR", str(tmp_path))
+    import importlib
+
+    import app.config as config
+    importlib.reload(config)
+    import app.db as db
+    importlib.reload(db)
+    import app.simconfig_store as store
+    importlib.reload(store)
+    return store
+
+
+def test_results_period_is_absent_until_chosen(tmp_path, monkeypatch):
+    # Nothing stored on a fresh workspace: the caller then computes the data-derived default.
+    store = _store_in(tmp_path, monkeypatch)
+    store.save(SimulationConfig(), store.db.WORKSPACE_ID)
+    assert store.load_results_period(store.db.WORKSPACE_ID) is None
+
+
+def test_results_period_round_trips_a_preset(tmp_path, monkeypatch):
+    store = _store_in(tmp_path, monkeypatch)
+    store.save(SimulationConfig(), store.db.WORKSPACE_ID)
+    store.save_results_period(store.db.WORKSPACE_ID, {"preset": "last_3_months"})
+    assert store.load_results_period(store.db.WORKSPACE_ID) == {"preset": "last_3_months"}
+
+
+def test_results_period_round_trips_a_range(tmp_path, monkeypatch):
+    store = _store_in(tmp_path, monkeypatch)
+    store.save(SimulationConfig(), store.db.WORKSPACE_ID)
+    rng = {"start": "2026-01-01T00:00:00+00:00", "end": "2026-03-01T00:00:00+00:00"}
+    store.save_results_period(store.db.WORKSPACE_ID, rng)
+    assert store.load_results_period(store.db.WORKSPACE_ID) == rng
+
+
+def test_results_period_survives_a_parameter_save(tmp_path, monkeypatch):
+    """The regression this guards: `to_dict` rebuilds `retained` from NAMED keys, so a slot with no
+    carry-forward line is dropped by the next save. Without it the user's chosen period vanished
+    the first time they pressed Calculate."""
+    store = _store_in(tmp_path, monkeypatch)
+    store.save(SimulationConfig(), store.db.WORKSPACE_ID)
+    store.save_results_period(store.db.WORKSPACE_ID, {"preset": "last_1_week"})
+    store.save(SimulationConfig(has_pv=True), store.db.WORKSPACE_ID)
+    assert store.load_results_period(store.db.WORKSPACE_ID) == {"preset": "last_1_week"}
+
+
+def test_results_period_save_does_not_disturb_the_parameter_set(tmp_path, monkeypatch):
+    """It writes ONE slot: a period change must not rewrite (or materialise defaults into) the
+    stored parameters."""
+    store = _store_in(tmp_path, monkeypatch)
+    cfg = SimulationConfig(pricing=_non_default_pricing(), simulate_cost=True)
+    store.save(cfg, store.db.WORKSPACE_ID)
+    before = store.config_path(store.db.WORKSPACE_ID).read_text()
+    store.save_results_period(store.db.WORKSPACE_ID, {"preset": "last_6_months"})
+    loaded = store.load(store.db.WORKSPACE_ID)
+    for f in dataclasses.fields(PricingConfig):
+        assert getattr(loaded.pricing, f.name) == getattr(cfg.pricing, f.name), f.name
+    # And the only textual difference is the new slot.
+    after = store.config_path(store.db.WORKSPACE_ID).read_text()
+    assert "results_period" in after and "results_period" not in before
+
+
+def test_results_period_ignores_a_malformed_entry(tmp_path, monkeypatch):
+    # A half-written entry must read as "nothing chosen" rather than reach resolve_window.
+    store = _store_in(tmp_path, monkeypatch)
+    store.save(SimulationConfig(), store.db.WORKSPACE_ID)
+    store.save_results_period(store.db.WORKSPACE_ID, {"start": "2026-01-01T00:00:00+00:00"})
+    assert store.load_results_period(store.db.WORKSPACE_ID) is None
+
+
+def test_results_period_is_stored_before_any_parameter_save(tmp_path, monkeypatch):
+    """A user who fetches data and picks a period before ever saving the parameter screen has no
+    config document yet. Their choice must still be remembered, so the document is CREATED — but
+    holding the `retained` block ALONE, never appendix-A defaults `load()` would read back as
+    though the user had chosen them."""
+    store = _store_in(tmp_path, monkeypatch)
+    store.save_results_period(store.db.WORKSPACE_ID, {"preset": "last_1_year"})
+    assert store.load_results_period(store.db.WORKSPACE_ID) == {"preset": "last_1_year"}
+
+    import json
+    doc = json.loads(store.config_path(store.db.WORKSPACE_ID).read_text())
+    assert list(doc) == ["retained"]          # nothing else was materialised
+    assert "battery" not in doc and "pricing" not in doc
+
+
+def test_a_period_only_document_still_loads_appendix_a_defaults(tmp_path, monkeypatch):
+    """The created document must read exactly like no document at all, apart from the period."""
+    store = _store_in(tmp_path, monkeypatch)
+    store.save_results_period(store.db.WORKSPACE_ID, {"preset": "last_1_year"})
+    loaded = store.load(store.db.WORKSPACE_ID)
+    fresh = SimulationConfig()
+    assert loaded.battery.usable_capacity_kwh == fresh.battery.usable_capacity_kwh
+    assert loaded.simulate_cost == fresh.simulate_cost
+    # And it is not mistaken for a document this build cannot read.
+    assert store.is_document_readable(store.db.WORKSPACE_ID) is True

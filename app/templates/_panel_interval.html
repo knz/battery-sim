@@ -29,9 +29,9 @@
   are answers rather than controls: which preset carries `btn-active`, and the window line below
   the pickers. Both come from the freshly resolved window.
 
-  Reads `results.period_selected` / `period_dates` / `period_days` / `period_run` / `period`,
-  plus `simulate_cost` and `cost_toggle_blocked`. Both render sites supply them: index() for the
-  full page, main.results() for the fragment.
+  Reads `results.period_selected` / `period_dates` / `period_days` / `period_run` / `period` /
+  `period_coverage_gaps`, plus `simulate_cost` and `cost_toggle_blocked`. Both render sites supply
+  them: index() for the full page, main.results() for the fragment.
 
   **Every id and every name here is a contract**, unchanged by the move:
     * `[data-period]` and `#results-apply-range` are what the DELEGATED click listeners in
@@ -56,10 +56,18 @@
    functions. Without it the macro's strings freeze at the first locale rendered in the process. #}
 {% from "_msg.html" import msg with context %}
 {# The period-preset buttons: (token, label, wireframe-label) triples. The token is the POST request
-   value (results_view.PERIOD_DAYS keys); the label is the human text (translated). The active button
-   is the one whose third element matches the resolved window's preset, mapped from
-   results.period_selected (the wireframe label the view-model highlights). #}
+   value (results_view.PERIOD_DAYS keys, plus results_view.PERIOD_DEFAULT — see below, which is a
+   rule rather than a span and so is NOT in that dict); the label is the human text (translated).
+   The active button is the one whose third element matches the resolved window's preset, mapped
+   from results.period_selected (the wireframe label the view-model highlights). #}
+{# "default" leads the row because it is the window the screen opens on and the one to come back
+   to: the trailing year narrowed to the span every mapped series actually covers. Unlike the five
+   that follow it is NOT a span — it re-derives from the data each time it is used, so it stays
+   correct after a re-fetch. Its selector value is the token itself (`results_view.PERIOD_DEFAULT`),
+   not a wireframe label, because the view-model states it outright rather than inferring it from
+   the window's length. #}
 {% set period_buttons = [
+     ("default",       _('default'),       "default"),
      ("last_1_week",   _('last 1 week'),   "1 week"),
      ("last_30_days",  _('last 30 days'),  "1 month"),
      ("last_3_months", _('last 3 months'), "3 months"),
@@ -167,6 +175,35 @@
         {{ results.period }}
         {%- endif -%}
       </span>
+
+      {# ── "Some data is unavailable over this period" ────────────────────────────
+         Rendered only when `period_coverage_gaps` is non-empty: the mapped series whose coverage
+         does not span the selected window (results_view.coverage_gaps). Small print, because it
+         qualifies the figures rather than replacing them — the results ARE computed over this
+         window, and every series that does cover it contributes normally.
+
+         It is a property of the RESOLVED WINDOW, so it appears for the computed opening default
+         and for typed ranges as much as for preset clicks. The opening default will often carry
+         it: narrowing to PV coverage does not extend the grid registers, and a price series that
+         starts later than the meter is common.
+
+         Each series is named by its ROLE (data_view.ROLE_LABEL, translated here) with the span it
+         actually covers, so the reader can tell which figures are affected — a short price series
+         qualifies the euro rows, a short PV series the self-consumption ones. `covered_from`/`_to`
+         are None for a series with no coverage at all, which reads as "no data" rather than an
+         empty arrow. #}
+      {% set gaps = results.period_coverage_gaps | default([], true) %}
+      {% if gaps %}
+      <p class="text-xs text-warning" id="results-coverage-warning">
+        ⚠ {{ ngettext('One series does not cover this whole period:',
+                      'Some series do not cover this whole period:', gaps | length) }}
+        {% for gap in gaps -%}
+        <span class="whitespace-nowrap">{{ _(gap.label) }}
+          {%- if gap.covered_from and gap.covered_to %} ({{ gap.covered_from }} → {{ gap.covered_to }})
+          {%- else %} ({{ _('no data') }}){% endif %}</span>{% if not loop.last %}, {% endif %}
+        {%- endfor %}
+      </p>
+      {% endif %}
 
       {# ── Simulate cost savings? (§2′.6, §2′.7) ──────────────────────────────────
            Moved to the setup band in phase 4.2 (§2′.7 dissolved the band), into the results block,

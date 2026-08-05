@@ -853,12 +853,14 @@ def index(
     try:
         loaded = dataset.load_latest(workspace_id)
         if loaded is not None and loaded.frames:
-            # The COMPUTED energy-savings view-model over the default window (last_1_year,
-            # coverage-anchored) instead of the static sample. `results_from` returns None when the
-            # frames yield no simulatable grid — in that case the sample `ctx["results"]` stays as
-            # the empty-state fallback.
+            # The COMPUTED energy-savings view-model over the OPENING window — the user's
+            # remembered choice if they have made one, else the data-derived default (see
+            # `_opening_window`) — instead of the static sample. `results_from` returns None when
+            # the frames yield no simulatable grid, in which case the sample `ctx["results"]` stays
+            # as the empty-state fallback.
+            window, custom, selected = _opening_window(ws.id, loaded)
             computed_results = results_view.results_from(
-                loaded, results_view.resolve_window(loaded), cfg=cfg
+                loaded, window, cfg=cfg, custom_range=custom, period_selected=selected
             )
             if computed_results is not None:
                 ctx["results"] = computed_results
@@ -1031,7 +1033,31 @@ def results(
     # button the selector highlights and whether the date fields stay open, so an applied range
     # comes back as "custom" with the fields showing instead of snapping to the nearest preset.
     custom_range = body.get("start") is not None or body.get("end") is not None
-    result = results_view.results_from(loaded, window, cfg=cfg, custom_range=custom_range)
+    # Remember the choice for the next `GET /w/{id}` (`_opening_window`). Written here rather than
+    # in `_resolve_results_window` because the benchmark route shares that helper and re-sends the
+    # ALREADY-RESOLVED window as an explicit start/end — recording that would silently convert a
+    # preset the user picked into a frozen custom range the moment the benchmark box loaded.
+    #
+    # A preset stores its TOKEN; a range stores the EFFECTIVE window (post-clamp), so what comes
+    # back is what was actually simulated rather than what was typed past the edge of the data.
+    if custom_range:
+        simconfig_store.save_results_period(
+            ws.id,
+            {"start": window[0].isoformat(), "end": window[1].isoformat()},
+        )
+    elif body.get("period") is not None:
+        simconfig_store.save_results_period(ws.id, {"preset": body["period"]})
+    # The "default" button is the one request whose resolved window cannot be recognised after the
+    # fact — it is a plain pair of datetimes, and `_period_selected_for` would map it to whichever
+    # preset happens to be nearest in length, highlighting a button the user did not press.
+    selected = (
+        results_view.PERIOD_DEFAULT
+        if body.get("period") == results_view.PERIOD_DEFAULT
+        else None
+    )
+    result = results_view.results_from(
+        loaded, window, cfg=cfg, custom_range=custom_range, period_selected=selected
+    )
     if result is None:
         raise HTTPException(status_code=409, detail="no simulatable data")
 
@@ -1068,6 +1094,86 @@ def results(
     return HTMLResponse(html)
 
 
+def _derived_default(loaded) -> tuple[tuple[datetime, datetime], bool, str | None]:
+    """The data-derived opening window, as `(window, custom_range, period_selected)`.
+
+    Shared by the "nothing remembered" case, the explicit `default` button and every fallback, so
+    the rule lives in one place. `period_selected` is `PERIOD_DEFAULT` — the "default" button is
+    what is highlighted whenever this window is in force, including on a first visit where the user
+    has not pressed it, because that is exactly what the screen is showing.
+    """
+    w_start, w_end, is_preset = results_view.default_window(loaded)
+    return (w_start, w_end), not is_preset, results_view.PERIOD_DEFAULT
+
+
+def _opening_window(
+    workspace_id: str, loaded
+) -> tuple[tuple[datetime, datetime], bool, str | None]:
+    """The window `GET /w/{id}` opens on: `(window, custom_range, period_selected)`.
+
+    Four cases, in order:
+
+      * **Nothing remembered** — the user has not touched the ribbon on this workspace. The window
+        is `results_view.default_window`: the trailing year ∩ grid coverage, then ∩ PV coverage
+        when a solar series is mapped. Nothing is written back: the default is derived from the
+        data and must stay free to move when the data does.
+
+      * **The remembered `default` TOKEN** — the user pressed the "default" button, which is a
+        standing instruction to re-derive rather than a window. Recomputed on every load, exactly
+        like the case above; the only difference is that the choice is now explicit and survives
+        until they pick something else.
+
+      * **A remembered SPAN PRESET** — re-resolved against CURRENT coverage on every load, so
+        re-fetching a dataset that reaches further back moves the window. That is the point of
+        storing the token rather than the dates it resolved to.
+
+      * **A remembered RANGE** — kept verbatim, because the user typed it. `resolve_window` clamps
+        it to coverage, so a re-fetch that shortened the data yields the overlapping part rather
+        than an error. When it no longer overlaps AT ALL there is nothing to show, and the screen
+        falls back to the `last_1_year` preset AND rewrites the stored value to that preset, so the
+        fallback is sticky rather than re-derived (and re-failing) on every subsequent load.
+
+    Never raises: any failure to resolve a remembered period falls back to the computed default.
+    The results screen must render.
+    """
+    stored = simconfig_store.load_results_period(workspace_id)
+
+    if stored is None or stored.get("preset") == results_view.PERIOD_DEFAULT:
+        return _derived_default(loaded)
+
+    if "preset" in stored:
+        try:
+            return results_view.resolve_window(loaded, period=stored["preset"]), False, None
+        except ValueError:
+            return _derived_default(loaded)
+
+    try:
+        return (
+            results_view.resolve_window(
+                loaded,
+                start=_as_utc(datetime.fromisoformat(stored["start"])),
+                end=_as_utc(datetime.fromisoformat(stored["end"])),
+            ),
+            True,
+            None,
+        )
+    except (TypeError, ValueError):
+        # The stored range no longer overlaps the data (or is unparseable). Flip to the preset and
+        # make that the remembered choice, per the decision recorded in changelog
+        # 20260805-results-period-default-and-coverage-warning.md.
+        simconfig_store.save_results_period(
+            workspace_id, {"preset": results_view.DEFAULT_PERIOD}
+        )
+        try:
+            return (
+                results_view.resolve_window(loaded, period=results_view.DEFAULT_PERIOD),
+                False,
+                None,
+            )
+        except ValueError:
+            return _derived_default(loaded)
+
+
 def _resolve_results_window(workspace_id: str, body: dict):
     """Turn a `POST /w/{id}/results`-shaped body into (loaded_dataset, window), or a clean 4xx.
 
@@ -1077,6 +1183,9 @@ def _resolve_results_window(workspace_id: str, body: dict):
     `deps.get_workspace`. The contract, otherwise unchanged from what `/results` already had:
 
         {"period": "<preset>"}             — one of results_view.PERIOD_DAYS, coverage-anchored, OR
+        {"period": "default"}              — re-derive the opening window (results_view
+                                             .PERIOD_DEFAULT); a RULE, not a span, so it is
+                                             resolved here rather than by `resolve_window`, OR
         {"start": "<iso>", "end": "<iso>"} — an explicit range (tz-aware UTC, like _parse_window).
 
     Errors are clean 4xx/409, never a 500 stack trace:
@@ -1094,6 +1203,20 @@ def _resolve_results_window(workspace_id: str, body: dict):
     period = body.get("period")
     start_raw = body.get("start")
     end_raw = body.get("end")
+
+    # The "default" button: a rule rather than a span, so it is answered here and never reaches
+    # `resolve_window` (which knows only PERIOD_DAYS and would reject it). Combining it with a
+    # range is still an error, and is caught by the same mutual-exclusivity check as any preset —
+    # hence the explicit test rather than an early return above the marshalling.
+    if period == results_view.PERIOD_DEFAULT:
+        if start_raw is not None or end_raw is not None:
+            raise HTTPException(
+                status_code=400,
+                detail="give either a preset period or an explicit start/end range, not both",
+            )
+        w_start, w_end, _ = results_view.default_window(loaded)
+        return loaded, (w_start, w_end)
+
     kwargs: dict = {}
     if period is not None:
         kwargs["period"] = period

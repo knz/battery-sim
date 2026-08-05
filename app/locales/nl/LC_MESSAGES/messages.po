@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-05 22:59+0200\n"
+"POT-Creation-Date: 2026-08-05 23:12+0200\n"
 "PO-Revision-Date: 2026-07-23 20:30+0200\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: nl\n"
@@ -891,6 +891,11 @@ msgstr "Op je meterkast, of op de rekening van je netbeheerder."
 
 msgid "One conversion PV→battery"
 msgstr "Eén omzetting PV→batterij"
+
+msgid "One series does not cover this whole period:"
+msgid_plural "Some series do not cover this whole period:"
+msgstr[0] "Eén reeks beslaat niet deze hele periode:"
+msgstr[1] "Sommige reeksen beslaan niet deze hele periode:"
 
 msgid "Only a label, so you can tell your analyses apart."
 msgstr "Alleen een label, zodat je je analyses uit elkaar kunt houden."
@@ -2028,6 +2033,9 @@ msgid_plural "days"
 msgstr[0] "dag"
 msgstr[1] "dagen"
 
+msgid "default"
+msgstr "standaard"
+
 msgid "disabled"
 msgstr "uitgeschakeld"
 
@@ -2105,6 +2113,9 @@ msgstr "vereist aandacht"
 
 msgid "net of your existing battery"
 msgstr "na aftrek van je bestaande batterij"
+
+msgid "no data"
+msgstr "geen data"
 
 msgid "none detected"
 msgstr "geen gevonden"

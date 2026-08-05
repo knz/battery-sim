@@ -39,6 +39,7 @@ import numpy as np
 import pytest
 
 from app.i18n import format_num, month_abbr
+from app import results_view
 from app.results_view import PERIOD_DAYS, resolve_window, results_from
 from tests.test_data_summary import (
     HOURS,
@@ -1171,6 +1172,171 @@ def test_resolve_window_all_presets_known():
     for name in PERIOD_DAYS:
         start, end = resolve_window(ds, period=name)
         assert end > start
+
+
+# ── default_window: the trailing year ∩ grid coverage ∩ PV coverage ───────────────────────────
+#
+# Step 1 is the `last_1_year` preset (data-anchored, per §7.4); step 2 narrows to the solar series'
+# own coverage when one is mapped. The third return value is what the ribbon preselects: True only
+# when step 2 changed nothing AND step 1 was a full 365 days.
+
+
+def _with_solar(ds, *, start_day: int, days: int):
+    """Attach an hourly `solar_production` frame spanning `days` from `_COV_START + start_day`."""
+    from app.domain.frames import QUALITY_DTYPE, SeriesFrame
+
+    n = days * 24
+    origin = np.datetime64("2026-01-01T00:00:00") + np.timedelta64(start_day * 86400, "s")
+    idx = (np.arange(n).astype("timedelta64[s]") * 3600 + origin).astype("datetime64[s]")
+    ds.frames.append(
+        SeriesFrame("solar_production", "energy", 3600, idx, np.full(n, 0.5),
+                    np.zeros(n, dtype=QUALITY_DTYPE))
+    )
+    ds.series_sources["solar_production"] = "test"
+    return ds
+
+
+def test_default_window_no_pv_full_year_is_the_preset():
+    # 400 days of grid data, no solar mapped: step 1 gives a full 365-day window and step 2 is
+    # skipped, so the ribbon preselects the `last 1 year` preset.
+    ds = _long_dataset(400)
+    start, end, is_preset = results_view.default_window(ds)
+    assert (start, end) == resolve_window(ds, period="last_1_year")
+    assert is_preset is True
+
+
+def test_default_window_no_pv_short_history_is_custom():
+    # Only 200 days of grid data: step 1 clamps to coverage start, so the window is not a full year
+    # and no preset describes it → custom.
+    ds = _long_dataset(200)
+    start, end, is_preset = results_view.default_window(ds)
+    assert (start, end) == resolve_window(ds, period="last_1_year")
+    assert is_preset is False
+
+
+def test_default_window_narrows_start_to_pv_coverage():
+    # The usual solar case: PV mapped only part-way through the meter history. The default starts
+    # where PV starts, and reads as custom because no preset spans that.
+    #
+    # NOTE the end: `_long_dataset`'s advertised window stops at 2027-01-01 and `effective_window`
+    # clips frame coverage to it, so grid coverage ends at day 365 however many frames were built.
+    ds = _with_solar(_long_dataset(400), start_day=300, days=100)
+    start, end, is_preset = results_view.default_window(ds)
+    assert start == _COV_START + timedelta(days=300)
+    assert end == _COV_START + timedelta(days=365)
+    assert is_preset is False
+
+
+def test_default_window_pv_covering_the_whole_year_keeps_the_preset():
+    # PV present for the entire trailing year: step 2 is a no-op, so the preset survives. This is
+    # the "more than a year of PV" case.
+    ds = _with_solar(_long_dataset(400), start_day=0, days=400)
+    start, end, is_preset = results_view.default_window(ds)
+    assert (start, end) == resolve_window(ds, period="last_1_year")
+    assert is_preset is True
+
+
+def test_default_window_long_pv_but_short_grid_is_still_custom():
+    # 200 days of GRID data with PV covering all of it. Step 2 changes nothing, yet step 1 never
+    # reached a full year — so `is_preset` must be False. Ample PV alone does not make it a preset.
+    ds = _with_solar(_long_dataset(200), start_day=0, days=200)
+    _, _, is_preset = results_view.default_window(ds)
+    assert is_preset is False
+
+
+def test_default_window_pv_ending_early_pulls_the_end_back():
+    # A PV sensor that stopped reporting before the meter did: the intersection moves the END, so
+    # the default window ends before the data does.
+    ds = _with_solar(_long_dataset(400), start_day=100, days=100)
+    start, end, is_preset = results_view.default_window(ds)
+    assert start == _COV_START + timedelta(days=100)
+    assert end == _COV_START + timedelta(days=200)
+    assert is_preset is False
+
+
+def test_default_window_partial_pv_overlap_narrows_to_the_overlap():
+    # PV covering only the first 20 days of a 365-day window. That is still an overlap, so the
+    # default narrows to it rather than keeping the grid window — the figures on the screen then
+    # all rest on real PV data, which is the point of step 2.
+    ds = _with_solar(_long_dataset(400), start_day=0, days=20)
+    start, end, is_preset = results_view.default_window(ds)
+    assert start == _COV_START
+    assert end == _COV_START + timedelta(days=20)
+    assert is_preset is False
+
+
+def test_default_window_disjoint_pv_keeps_the_grid_window():
+    # PV coverage entirely OUTSIDE the trailing year: the meter runs 2026, the PV frame sits in
+    # 2025 (a re-mapped sensor whose history predates the meter's). Intersecting would leave
+    # nothing to simulate, so step 1's grid-only window stands.
+    from app.domain.frames import QUALITY_DTYPE, SeriesFrame
+
+    ds = _long_dataset(400)
+    n = 20 * 24
+    origin = np.datetime64("2025-01-01T00:00:00")
+    idx = (np.arange(n).astype("timedelta64[s]") * 3600 + origin).astype("datetime64[s]")
+    ds.frames.append(
+        SeriesFrame("solar_production", "energy", 3600, idx, np.full(n, 0.5),
+                    np.zeros(n, dtype=QUALITY_DTYPE))
+    )
+    start, end, _ = results_view.default_window(ds)
+    assert (start, end) == resolve_window(ds, period="last_1_year")
+
+
+# ── coverage_gaps: which mapped series fall short of the window ───────────────────────────────
+
+
+def test_coverage_gaps_empty_when_every_series_spans_the_window():
+    ds = _long_dataset(400)
+    window = resolve_window(ds, period="last_30_days")
+    assert results_view.coverage_gaps(ds, window) == []
+
+
+def test_coverage_gaps_reports_a_short_series_with_its_span():
+    # PV mapped part-way through, window = the full grid coverage → solar is short at the start.
+    ds = _with_solar(_long_dataset(400), start_day=300, days=100)
+    window = (_COV_START, _COV_START + timedelta(days=400))
+    gaps = results_view.coverage_gaps(ds, window)
+    assert [g["series"] for g in gaps] == ["solar_production"]
+    assert gaps[0]["label"] == "Solar production"
+    assert gaps[0]["covered_from"] == "2026-10-28"  # _COV_START + 300 days
+
+
+def test_coverage_gaps_includes_price_series():
+    # A price series that starts after the meter data qualifies the COST rows, so it must be
+    # reported even though it is not an energy series.
+    from app.domain.frames import QUALITY_DTYPE, SeriesFrame
+
+    ds = _long_dataset(400)
+    n = 100 * 24
+    origin = np.datetime64("2026-01-01T00:00:00") + np.timedelta64(300 * 86400, "s")
+    idx = (np.arange(n).astype("timedelta64[s]") * 3600 + origin).astype("datetime64[s]")
+    ds.frames.append(
+        SeriesFrame("price_spot", "price", 3600, idx, np.full(n, 0.1),
+                    np.zeros(n, dtype=QUALITY_DTYPE))
+    )
+    window = (_COV_START, _COV_START + timedelta(days=400))
+    assert [g["series"] for g in results_view.coverage_gaps(ds, window)] == ["price_spot"]
+
+
+def test_coverage_gaps_is_bounds_only_not_interior_holes():
+    # A DOCUMENTED limitation, pinned so it is not mistaken for a bug: a series with a hole in the
+    # middle still spans the window by its first/last timestamp, so it is NOT reported.
+    from app.domain.frames import QUALITY_DTYPE, SeriesFrame
+
+    ds = _long_dataset(400)
+    # Two hourly blocks with a 50-day hole between them, but bounds covering the whole window.
+    a = np.arange(24 * 10)
+    b = np.arange(24 * 10) + 24 * 60
+    off = np.concatenate([a, b]).astype("timedelta64[s]") * 3600
+    idx = (off + np.datetime64("2026-01-01T00:00:00")).astype("datetime64[s]")
+    n = len(idx)
+    ds.frames.append(
+        SeriesFrame("house_load", "energy", 3600, idx, np.full(n, 1.0),
+                    np.zeros(n, dtype=QUALITY_DTYPE))
+    )
+    window = (_COV_START, _COV_START + timedelta(days=1))
+    assert [g["series"] for g in results_view.coverage_gaps(ds, window)] == []
 
 
 # ── The capture ratio's PRESENTATION, and the four shapes it must distinguish ─────────────────
