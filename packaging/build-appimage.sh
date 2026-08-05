@@ -390,8 +390,13 @@ Categories=Utility;Science;
 Terminal=false
 DESKTOP
 
-# A placeholder icon: appimagetool refuses to build without one, and the app has no artwork yet.
-# Replace `packaging/battery-sim.png` when it does.
+# The icon. `packaging/battery-sim.png` is committed and is what ships; it is RENDERED from the
+# master `packaging/icon/battery-sim.svg` by `packaging/icon/render.py`, so edit the SVG and
+# re-run that script rather than touching the PNG. The artwork is a placeholder — replacing it
+# means replacing the SVG and re-rendering; nothing here changes.
+#
+# The inline generator below stays as a last resort: appimagetool refuses to build without an
+# icon, and this keeps the build working if the PNG is ever missing from a checkout.
 if [ -f "$ROOT/packaging/battery-sim.png" ]; then
     cp "$ROOT/packaging/battery-sim.png" "$APPDIR/battery-sim.png"
 else
