@@ -31,14 +31,22 @@ Covered:
 from __future__ import annotations
 
 import importlib
-from datetime import datetime, timezone
+import re
+from datetime import date, datetime, timezone
 
 import numpy as np
 import pytest
 from starlette.testclient import TestClient
 
 from app.domain.frames import QUALITY_DTYPE, SeriesFrame
-from tests.conftest import WORKSPACE_ID, page, seed_workspace, w
+from tests.conftest import (
+    WORKSPACE_ID,
+    ids_inside,
+    page,
+    seed_workspace,
+    split_panels,
+    w,
+)
 
 # A fixed hourly window so totals are exact: 30 days × 24 h of 1 h intervals from 2026-01-01 UTC.
 _DAYS = 30
@@ -169,6 +177,93 @@ def test_results_explicit_range(client):
     assert 'id="panel-results"' in r.text
 
 
+def test_an_explicit_range_comes_back_as_custom_not_as_the_nearest_preset(client):
+    """The selector highlights "custom" for a range, and keeps the date fields open.
+
+    `_period_selected_for` maps a window's SPAN back to the nearest preset, which is all it can do
+    with two datetimes — so a 7-day explicit range used to come back highlighted as "1 week" with
+    the picker hidden again, i.e. showing the user a preset they had not chosen and taking away the
+    control they had just used. The route therefore tells the view-model that the request carried
+    start/end (`results_from(custom_range=True)`), which is the only place that fact exists.
+    """
+    card, _ = split_panels(
+        client.post(
+            w("/results"),
+            json={"start": "2026-01-05T00:00:00Z", "end": "2026-01-12T00:00:00Z"},
+        ).text
+    )
+    # The custom button is active and NO preset is — exactly one choice reads as selected.
+    assert 'id="results-period-custom"' in card
+    custom_tag = re.search(r'<button[^>]*id="results-period-custom"[^>]*>', card).group(0)
+    assert "btn-active" in custom_tag, custom_tag
+    assert 'aria-expanded="true"' in custom_tag, custom_tag
+    assert "btn-active" not in card[: card.index('id="results-period-custom"')], (
+        "a preset is highlighted alongside custom"
+    )
+    # The date row is NOT hidden, and carries the applied window.
+    row = re.search(r'<div[^>]*id="results-range"[^>]*>', card).group(0)
+    assert "hidden" not in row, row
+    assert 'value="2026-01-05"' in card
+    assert 'value="2026-01-12"' in card
+
+
+def test_a_preset_leaves_the_date_row_hidden_and_custom_inactive(client):
+    """The other half of the same contract: a preset window is not "custom".
+
+    Asserted because the flag defaults to False — a regression that dropped the argument at the
+    call site would leave every window looking custom, and only this direction would catch it.
+    """
+    card, _ = split_panels(client.post(w("/results"), json={"period": "last_1_week"}).text)
+    custom_tag = re.search(r'<button[^>]*id="results-period-custom"[^>]*>', card).group(0)
+    assert "btn-active" not in custom_tag, custom_tag
+    assert 'aria-expanded="false"' in custom_tag, custom_tag
+    row = re.search(r'<div[^>]*id="results-range"[^>]*>', card).group(0)
+    assert "hidden" in row, row
+    # The preset the caller asked for is the one highlighted. `class` precedes `data-period` in the
+    # tag, so match the whole button rather than assuming an attribute order.
+    week = re.search(r'<button[^>]*data-period="last_1_week"[^>]*>', card).group(0)
+    assert "btn-active" in week, week
+
+
+def test_the_date_format_hint_is_inside_the_collapsible_picker(client):
+    """The hint hides with the fields it describes.
+
+    It explains which order the two date inputs are in, so on screen without them it explains the
+    format of fields the reader cannot see. It was a SIBLING of the collapsible row at first, which
+    left it visible under a collapsed picker — the `hidden` class governs one element, not the
+    markup that happens to follow it. Asserted structurally rather than through the browser, since
+    it is nesting that makes it true.
+    """
+    card, _ = split_panels(client.post(w("/results"), json={"period": "last_1_week"}).text)
+    # Real containment, not index order: "the hint appears after the row's opening tag" is true of
+    # the arrangement this test exists to reject, so only nesting answers the question.
+    inside = ids_inside(card, "results-range")
+    assert "results-range-format" in inside, (
+        "the format hint is outside the collapsible picker, so it stays visible when it collapses"
+    )
+    # The fields it describes are in there too.
+    assert "results-range-start" in inside and "results-range-end" in inside, inside
+    # And it is the containing element that carries the hidden state.
+    row_tag = re.search(r'<div[^>]*id="results-range"[^>]*>', card).group(0)
+    assert "hidden" in row_tag, row_tag
+
+
+def test_the_date_fields_are_prefilled_with_the_effective_window(client):
+    """Opening the picker shows the range in force, not blank fields.
+
+    The values are the EFFECTIVE window — after resolve_window clamps to coverage — so a request
+    reaching past the data shows what was actually simulated. The fixture's coverage is 30 days, so
+    a one-year preset clamps, and the fields must show the clamped ends rather than a year ago.
+    """
+    card, _ = split_panels(client.post(w("/results"), json={"period": "last_1_year"}).text)
+    start = re.search(r'id="results-range-start"[^>]*value="([^"]*)"', card).group(1)
+    end = re.search(r'id="results-range-end"[^>]*value="([^"]*)"', card).group(1)
+    assert start and end, (start, end)
+    # Clamped to the fixture's coverage, so the span is the ~30 days of data, not 365.
+    span = (date.fromisoformat(end) - date.fromisoformat(start)).days
+    assert 0 < span <= 31, (start, end, span)
+
+
 def test_results_headline_carries_real_simulated_figures(client):
     """The rendered fragment shows a REAL run, and renders a negative saving honestly end-to-end.
 
@@ -227,8 +322,10 @@ def test_results_data_glance_styled_like_energy_savings(client):
         r.text.index("Your energy use during the selected period") + 1,
     )
     assert divider_cls in r.text[head - 300 : head]
-    # The old band's card frame is gone from this panel entirely.
-    assert "card bg-base-100" not in r.text
+    # The old band's card frame is gone from this panel entirely. Scoped to the results half of the
+    # response: the period card beside it IS a `card bg-base-100`, by the same house style every
+    # top-level card on the screen uses, and it is not what this assertion is about.
+    assert "card bg-base-100" not in split_panels(r.text)[1]
     # Casing is presentation: the msgid stays sentence-case, CSS uppercases it.
     assert "Energy savings" in r.text
     assert "ENERGY SAVINGS" not in r.text

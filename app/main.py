@@ -62,12 +62,20 @@ second copy of the coercion table. It is also the one caller that passes
 **`GET /w/{id}/results` is the results screen** (phase 4.2, §2′.6). It was the three-panel page —
 the setup band plus panels ①, ② and ③ — until phase 4 split it in two. What renders now is the
 capacity-first battery box (`_panel_params.html`: usable capacity alone, then a collapsed
-"More settings" pane holding three tabs) above the results block (`_panel_results.html`), on ONE
-screen that scrolls together, which §2′.6 calls the equivalent of §3.4's "reopening panel ① or ②
-does not collapse panel ③". The screen has NO footer buttons in either mode: it is the end of both
-the card path and the wizard path, and it is left through the back link.
+"More settings" pane holding three tabs) BESIDE the period card (`_panel_interval.html`: the preset
+buttons, the date-range picker, the window line and the cost toggle), the two of them over the
+results block (`_panel_results.html`), on ONE screen that scrolls together, which §2′.6 calls the
+equivalent of §3.4's "reopening panel ① or ② does not collapse panel ③". The screen has NO footer
+buttons in either mode: it is the end of both the card path and the wizard path, and it is left
+through the back link.
 
-The **cost toggle** moved into the results block here (§2′.7 dissolved the setup band). It keeps
+The period card is a fragment of its own because the two POSTs that refresh this screen carry
+different context: `POST /w/{id}/params` re-renders the battery box with no `results` key, so the
+card cannot live inside it. `POST /w/{id}/results` returns the card and the results block together,
+joined by `PANEL_SPLIT`.
+
+The **cost toggle** moved into the setup band's place here (§2′.7 dissolved the band), and travels
+with the period controls it sat under, into the period card. It keeps
 its name `setup.simulate_cost` and its `form="params-form"` association, so `params_view.parse_form`
 reads it exactly as before; what is new is that it is **Blocked** — greyed, disabled, with an ⓘ
 opening a dialog that links to the edit screen's Contract box — until
@@ -192,6 +200,13 @@ from app.sources import registry
 from app.sources.base import SourceKind
 
 BASE_DIR = Path(__file__).resolve().parent
+
+# Separates the two fragments POST /w/{id}/results returns — `_panel_interval.html` (the period
+# card) then `_panel_results.html` — which the browser splits on before swapping each into its own
+# root. An HTML COMMENT so that a response rendered into a page by anything that does not split it
+# is still valid markup showing both halves in order. The literal is duplicated in the
+# `recompute()` handler in workspace_results.html; changing it means changing both.
+PANEL_SPLIT = "<!--panel-split-->"
 
 log = logging.getLogger(__name__)
 
@@ -779,10 +794,11 @@ def index(
 
     **Phase 4.2 made this the screen §2′.6 specifies**, where before it was the whole three-panel
     page. Panel ① went to `/w/{id}/data` in 4.1 and the setup band is dissolved (§2′.7), so what
-    renders now is two things that scroll together: the capacity-first battery box
-    (`_panel_params.html`) and the results block (`_panel_results.html`). That they are ONE screen
-    is the constraint §2′.6 is emphatic about — a capacity change and its effect have to be visible
-    at once — which is why the parameters did not get a route of their own.
+    renders now is a row of two control cards — the capacity-first battery box
+    (`_panel_params.html`) beside the period card (`_panel_interval.html`) — over the results block
+    (`_panel_results.html`), all scrolling together. That they are ONE screen is the constraint
+    §2′.6 is emphatic about — a capacity change and its effect have to be visible at once — which is
+    why the parameters did not get a route of their own.
 
     **No `?mode=wizard`.** §2′.6 gives this screen no footer in either mode: it is the end of both
     the card path and the wizard path, so there is nothing for a mode to select. `POST /w/{id}/data`
@@ -974,12 +990,16 @@ def results(
     ws: Annotated[deps.Workspace, Depends(deps.get_workspace)],
     body: dict = Body(...),
 ):
-    """Recompute panel ③ over a requested window and return the rendered fragment (specs §3.2).
+    """Recompute the results over a requested window and return the rendered fragments (§3.2).
 
-    The period/date picker in panel ③ POSTs here to recompute the ENERGY SAVINGS view-model over
-    a sub-window without a full page reload. The response is the rendered `_panel_results.html`
-    fragment (HTML, not JSON) so the browser swaps it in place (main.py: index() renders the same
-    template as part of the page; here it is rendered standalone).
+    The period/date picker POSTs here to recompute the ENERGY SAVINGS view-model over a sub-window
+    without a full page reload. The response is HTML, not JSON: `_panel_interval.html` (the period
+    card) and `_panel_results.html`, joined by `PANEL_SPLIT`, which the browser splits before
+    swapping each into its own root. index() renders both templates as part of the page; here they
+    are rendered standalone.
+
+    The period card is in the response because it states the resolved window — the active preset
+    and the "dates · N days · N intervals" line — which only this handler knows after clamping.
 
     Body (mutually exclusive):
         {"period": "<preset>"}            — one of results_view.PERIOD_DAYS, coverage-anchored, OR
@@ -1002,24 +1022,44 @@ def results(
     # disagree about which battery the panel is describing. Scoped: this workspace's config, over
     # this workspace's dataset.
     cfg = simconfig_store.load(ws.id)
-    result = results_view.results_from(loaded, window, cfg=cfg)
+    # Whether this window came from the date fields rather than a preset — read off the REQUEST,
+    # because the resolved window cannot say (see results_from's `custom_range`). It decides which
+    # button the selector highlights and whether the date fields stay open, so an applied range
+    # comes back as "custom" with the fields showing instead of snapping to the nearest preset.
+    custom_range = body.get("start") is not None or body.get("end") is not None
+    result = results_view.results_from(loaded, window, cfg=cfg, custom_range=custom_range)
     if result is None:
         raise HTTPException(status_code=409, detail="no simulatable data")
 
-    # Render the fragment standalone from the request locale's environment (as index() does).
+    # Render the fragments standalone from the request locale's environment (as index() does).
     #
-    # **The fragment reads four things beyond `results.*` since phase 4.2**, all because §2′.6
-    # moved the cost toggle into it: the toggle's checked state, its Blocked flag, and the
-    # workspace id the Blocked branch's link and the ⓘ dialog's destination are built from. Every
-    # one of them is re-read here rather than carried on the request, so a swap lands the toggle in
-    # the state the STORE is in — which matters, because the recompute that triggers this swap can
-    # be the one the toggle itself just caused.
+    # **TWO fragments, in one response.** A range change repaints the period card as well as the
+    # results: the card carries the answers the picker just produced — which preset is active and
+    # the "dates · N days · N intervals" line — and those are computed from the resolved window,
+    # not known to the browser that asked. They are returned together, joined by a marker comment
+    # the client splits on, because they are no longer siblings in the DOM (the card is in the
+    # two-column row at the top of the screen, the panel spans the full width below it) and so no
+    # single container encloses just them. One request rather than two, so the two halves cannot
+    # end up describing different windows.
+    #
+    # **Both fragments read four things beyond `results.*`**, all because the cost toggle travels
+    # with the period controls: the toggle's checked state, its Blocked flag, and the workspace id
+    # the Blocked branch's link and the ⓘ dialog's destination are built from. Every one of them is
+    # re-read here rather than carried on the request, so a swap lands the toggle in the state the
+    # STORE is in — which matters, because the recompute that triggers this swap can be the one the
+    # toggle itself just caused.
     locale = i18n.resolve_locale(request)
-    html = i18n.env_for(locale).get_template("_panel_results.html").render(
-        results=result,
-        workspace_id=ws.id,
-        simulate_cost=cfg.simulate_cost,
-        cost_toggle_blocked=not simconfig_store.is_pricing_configured(ws.id),
+    env = i18n.env_for(locale)
+    context = {
+        "results": result,
+        "workspace_id": ws.id,
+        "simulate_cost": cfg.simulate_cost,
+        "cost_toggle_blocked": not simconfig_store.is_pricing_configured(ws.id),
+    }
+    html = (
+        env.get_template("_panel_interval.html").render(**context)
+        + PANEL_SPLIT
+        + env.get_template("_panel_results.html").render(**context)
     )
     return HTMLResponse(html)
 

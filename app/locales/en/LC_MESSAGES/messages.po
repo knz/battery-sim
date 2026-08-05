@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-03 12:37+0200\n"
+"POT-Creation-Date: 2026-08-05 19:04+0200\n"
 "PO-Revision-Date: 2026-07-23 20:40+0200\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: en\n"
@@ -938,6 +938,9 @@ msgstr "PV only"
 msgid "Perfect foresight"
 msgstr "Perfect foresight"
 
+msgid "Period"
+msgstr "Period"
+
 msgid ""
 "Pick where each series comes from. Choose a source per slot; for Home "
 "Assistant, connect once from the source drawer (Configure) and that "
@@ -1838,11 +1841,23 @@ msgstr ""
 msgid "connection closed"
 msgstr "connection closed"
 
+msgid "custom"
+msgstr "custom"
+
 msgid "daily"
 msgstr "daily"
 
 msgid "dal from"
 msgstr "dal from"
+
+msgid "dates read day/month/year"
+msgstr "dates read day/month/year"
+
+msgid "dates read month/day/year"
+msgstr "dates read month/day/year"
+
+msgid "dates read year/month/day"
+msgstr "dates read year/month/day"
 
 msgid "day"
 msgid_plural "days"

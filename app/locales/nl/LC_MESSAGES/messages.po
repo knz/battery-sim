@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-03 12:37+0200\n"
+"POT-Creation-Date: 2026-08-05 19:04+0200\n"
 "PO-Revision-Date: 2026-07-23 20:30+0200\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: nl\n"
@@ -959,6 +959,9 @@ msgstr "alleen met PV"
 
 msgid "Perfect foresight"
 msgstr "Perfecte vooruitblik"
+
+msgid "Period"
+msgstr "Periode"
 
 msgid ""
 "Pick where each series comes from. Choose a source per slot; for Home "
@@ -1949,11 +1952,23 @@ msgstr "berekenen…"
 msgid "connection closed"
 msgstr "verbinding gesloten"
 
+msgid "custom"
+msgstr "aangepast"
+
 msgid "daily"
 msgstr "dagelijks"
 
 msgid "dal from"
 msgstr "dal van"
+
+msgid "dates read day/month/year"
+msgstr "datums zijn dag/maand/jaar"
+
+msgid "dates read month/day/year"
+msgstr "datums zijn maand/dag/jaar"
+
+msgid "dates read year/month/day"
+msgstr "datums zijn jaar/maand/dag"
 
 msgid "day"
 msgid_plural "days"

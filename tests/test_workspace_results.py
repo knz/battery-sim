@@ -522,24 +522,34 @@ def test_the_installation_tab_says_so_when_there_is_nothing_to_configure(env):
 # ── The cost toggle (§2′.6, §2′.7) ────────────────────────────────────────────────────────────
 
 
-def test_the_cost_toggle_sits_in_the_results_block_under_the_period_selector(env):
-    """§2′.6: "inside the results block, under the period selector and above the result sections".
+def test_the_cost_toggle_sits_under_the_period_selector_in_the_period_card(env):
+    """It stays under the period selector — which is now in the period card, not the results block.
 
-    Position, because that is what the spec states and because the toggle would work equally well
-    in the battery box — which is the placement §2′.6 rules out by name.
+    §2′.6 placed the toggle "inside the results block, under the period selector and above the
+    result sections". The layout reshape moved the period selector OUT of the results block into a
+    card of its own beside the battery box, and the toggle travelled with it: what §2′.6 is
+    protecting is that the toggle keeps the company of the window controls and stays out of the
+    battery box, and both still hold. The clause about the results block described where the
+    selector was, not an independent claim about the toggle.
+
+    Position, because the toggle would work equally well in the battery box — which §2′.6 rules out
+    by name, and which the last assertion still enforces.
     """
     client, mod = env
     _seed(mod)
     html = _get(client)
 
-    panel = html[html.index('id="panel-results"'):]
-    toggle = panel.index('id="setup-simulate-cost"')
-    period = panel.index('id="results-period"')
-    energy = panel.index("Energy savings")
-    assert period < toggle < energy, (period, toggle, energy)
+    card = html[html.index('id="panel-interval"'):html.index('id="panel-results"')]
+    period = card.index('id="results-period"')
+    toggle = card.index('id="setup-simulate-cost"')
+    assert period < toggle, (period, toggle)
 
-    # In the results block and NOT in the battery box (§2′.6 rules that out explicitly).
-    box = html[html.index('id="panel-params"'):html.index('id="panel-results"')]
+    # Above the result sections, which are now a separate panel below the whole card.
+    assert html.index('id="setup-simulate-cost"') < html.index("Energy savings")
+
+    # NOT in the battery box (§2′.6 rules that out explicitly). It posts with that box's form by
+    # `form="params-form"` association, which is what lets it sit outside the box it submits to.
+    box = html[html.index('id="panel-params"'):html.index('id="panel-interval"')]
     assert 'name="setup.simulate_cost"' not in box
 
 
