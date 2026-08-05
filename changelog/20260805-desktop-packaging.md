@@ -1489,3 +1489,342 @@ Open, with no recommendation attached:
 - **Wiring all three packaged suites into CI**, carried forward from §12.10 and §13.12 and now
   covering a third file.
 - **The container build for portability** (D12), unchanged from §13.12.
+
+## 15. Phase 6 — a user-reported missing library, and why phase 4's verification did not catch it
+
+### 15.1 The report
+
+The user ran the phase 4 AppImage on their own machine (Ubuntu 24.04, the same box the image was
+built on) without `--browser`, and got a browser instead of a window:
+
+    WARNING **: Failed to load shared library 'libwebkit2gtk-4.1.so.0' referenced by the typelib:
+    libmanette-0.2.so.0: cannot open shared object file: No such file or directory
+    native window unavailable (Error: g-invoke-error-quark: Could not locate
+    webkit_get_major_version: ... undefined symbol: webkit_get_major_version (1))
+
+`libmanette-0.2.so.0` — WebKit's gamepad support — is a direct `NEEDED` entry of
+`libwebkit2gtk-4.1.so.0` and was absent from the AppDir. The `undefined symbol` message is a
+consequence, not a second fault: when `libwebkit2gtk` fails to load, the typelib's introspection
+call resolves against `libjavascriptcoregtk` alone, which does not define
+`webkit_get_major_version`.
+
+### 15.2 Root cause: an unanchored alternation in EXCLUDE_RE
+
+The build's library collector walks `ldd` transitively and drops anything matching
+
+    EXCLUDE_RE='^(ld-linux|libc|libm|libdl|...|libwayland)'
+
+Every alternative is anchored at the left and **not at the right**. `^libm` therefore matches
+`libmanette-0.2.so.0`, `libmount.so.1` and `libmd.so.0` as readily as `libm.so.6`; `^libc` matches
+`libcairo.so.2` and `libcrypto.so.3`; `^librt` matches `librtmp.so.1`. The intent was to leave a
+short list of host-supplied libraries (libc, libm, the GL and X stacks) out of the image. The
+effect was to also drop ten libraries that the bundle genuinely needs.
+
+This was a single-character-class mistake, not a design flaw in the collection approach. The
+approach — transitive `ldd` closure from a root set — was already right. What was missing was any
+check that its OUTPUT was complete.
+
+### 15.3 The full set of wrongly excluded libraries
+
+Computed as the transitive `NEEDED` closure by SONAME over the same root set the build uses,
+compared against the AppDir's actual contents. Ten, of which the user's report surfaced one:
+
+    libcairo.so.2            libcairo-gobject.so.2     libcap.so.2
+    libcom_err.so.2          libcrypto.so.3            libcurl-gnutls.so.4
+    libmanette-0.2.so.0      libmd.so.0                libmount.so.1
+    librtmp.so.1
+
+That `libcairo` was missing and the image still rendered anything at all is worth noting: the host
+supplied it, because the AppImage prepends its own directory to `LD_LIBRARY_PATH` rather than
+replacing it. Every one of these was being satisfied by the host on the build machine. On a machine
+without them the failures would have been assorted and confusing.
+
+### 15.4 The verification failure — the more important half
+
+Phase 4 (§13) claimed self-containment was verified by running the image under `unshare -m` with
+the host's `girepository-1.0`, `webkit2gtk-4.1` and `python3/dist-packages` masked by tmpfs, and
+presented a screenshot as evidence. **That claim was overstated and the screenshot proved less than
+it appeared to.**
+
+The masking covered three specific subdirectories. It did not cover
+`/usr/lib/x86_64-linux-gnu` itself, which is where all ten of the missing libraries live. So the
+masked run resolved `libmanette`, `libcairo`, `libcrypto` and the rest from the host exactly as an
+unmasked run would, produced a window, and produced a screenshot — while the image was, at that
+moment, unable to run on a machine lacking those libraries. The screenshot is real; what it
+demonstrates is narrower than "the AppImage carries its own WebKit stack". It demonstrates that the
+image carries its own typelibs, its own PyGObject and its own WebKit helper processes — the three
+things that were masked.
+
+The general lesson, recorded because it is the reusable part: a negative test that masks a
+hand-picked list of paths verifies only that list. It cannot discover a dependency nobody thought
+to mask, which is precisely the class of bug it is supposed to catch.
+
+### 15.5 D14 — a static closure check at build time, as the primary guard
+
+Chosen over strengthening the runtime masking as the main defence, though both are done.
+
+The check: for every ELF file in the AppDir, read its `NEEDED` entries, and require that each one
+either resolve inside the AppDir or appear on an explicit, exact-match allowlist of libraries the
+image deliberately leaves to the host. It runs in `build-appimage.sh` before `appimagetool`, so a
+missing library fails the build rather than the user's launch.
+
+Why this over the runtime check as primary:
+
+  * It needs no display, no X server, no container and no `unshare` privileges, so it can run
+    anywhere, including CI, and it costs about a second.
+  * It is exhaustive by construction rather than by the author's imagination. It cannot miss a
+    library because nobody thought to mask its directory — the failure mode of §15.4.
+  * It fails at BUILD time, on the machine that has the information, rather than at run time on a
+    machine that does not.
+
+Its limit, stated: it verifies the dynamic-link closure only. Anything `dlopen`ed by name at
+runtime — the gdk-pixbuf loaders, the GIO modules, the typelibs — carries no `NEEDED` entry and is
+invisible to it. Those remain covered by the existing per-item assertions in `tests/test_appimage.py`
+and by the runtime check below.
+
+The exclusion list is now expressed as exact SONAME prefixes matched against a `[.-]` boundary, so
+`libm` matches `libm.so.6` and no longer matches `libmanette-0.2.so.0`. Both the build and the test
+derive the allowlist from the same shape of rule.
+
+### 15.6 The runtime check, strengthened, as a secondary
+
+The `unshare -m` run now masks the whole of `/usr/lib/x86_64-linux-gnu` (plus `/lib/x86_64-linux-gnu`
+and the same three subdirectories as before), leaving only the loader itself reachable, and the
+image is launched with the host's library path deliberately unavailable. This is what §13's check
+should have been. It is kept as a secondary guard because it exercises the actual load, which the
+static check cannot: it catches a library that is present but wrong, and it catches the `dlopen`
+paths the static check is blind to.
+
+### 15.7 Files modified
+
+  * `packaging/build-appimage.sh` — the `EXCLUDE_RE` anchoring fix, and a new closure-verification
+    step that fails the build.
+  * `tests/test_appimage.py` — a new test asserting the same closure property against the built
+    image, gated as the rest of the file is.
+  * `packaging/check-appdir-closure.py` — NEW. The static closure check, shared by the build and
+    the test so the two cannot disagree about what self-contained means.
+  * `packaging/verify-appimage-isolated.sh` — NEW. The runtime check, rewritten as a container run
+    rather than a tmpfs mask (see §15.9).
+
+### 15.8 Fails-then-passes, both guards
+
+Demonstrated in that order, against the actual phase 4 artifact and then the rebuilt one. The
+broken layout was reconstructed exactly — the fixed AppDir with the ten dropped libraries removed —
+and repackaged with appimagetool so both guards saw a real AppImage rather than a directory.
+
+| guard | phase 4 (broken) | rebuilt (fixed) |
+|---|---|---|
+| `check-appdir-closure.py` | exit 1, names 8 missing sonames incl. `libmanette-0.2.so.0` | exit 0, "library closure is self-contained" |
+| `verify-appimage-isolated.sh` | exit 1, no window, `libcairo.so.2: cannot open shared object file` | exit 0, window titled "Home Battery Simulator" |
+| `test_the_library_closure_is_self_contained` | 1 failed, missing libraries listed | 1 passed |
+
+The closure check reports 8 rather than 10 because `libcrypto` and `librtmp` are reached only
+through `libcurl-gnutls`, which was itself absent — they surface once it is bundled, and the
+rebuilt image carries all ten.
+
+### 15.9 The runtime check is now a container, not a mask
+
+Replacing the `unshare -m` + tmpfs approach outright. A pristine `ubuntu:24.04` has no GTK, no
+WebKit, no libmanette, no python3-gi and no typelibs — not hidden, simply never installed — so
+there is nothing to overlook masking. The container installs only what an AppImage is entitled to
+expect from any host: an X server, and the X11/Wayland/EGL/GL client libraries the build
+deliberately does not bundle because they must match the user's display server and driver. The
+script asserts that absence before it runs, so the test bed cannot drift into quietly helping.
+
+Note on why the mask approach was not merely tightened: `unshare` and `bwrap` both need
+unprivileged user namespaces, which are restricted by AppArmor on this machine
+(`kernel.apparmor_restrict_unprivileged_userns = 1`), so the phase 4 method could not be reproduced
+here at all. Also checked and rejected: `ld.so --inhibit-cache --library-path`, which looked like it
+would give a hermetic search path but does not — the loader still falls back to its BUILTIN default
+directories, and the broken layout resolved `libmanette` from `/lib/x86_64-linux-gnu` under it.
+That near-miss is worth recording: it is the same shape of incomplete isolation as the original.
+
+### 15.10 Verification actually performed
+
+- **Rebuilt** with the fixed collector. All ten previously-dropped libraries present. 119 libraries
+  in the AppDir, up from 109. **106 MB** (110,914,040 bytes), up from ~105 MB.
+- **The user's own scenario, on this machine**: the AppImage launched under Xvfb with no
+  `--browser`. Window "Home Battery Simulator" opened; the log is clean — no libmanette warning, no
+  "native window unavailable", no browser fallback. Screenshot shows the rendered workspace list.
+- **The stronger case**: the same AppImage in the clean container. Window opened, with
+  `WebKitWebProcess` and `WebKitNetworkProcess` both running off the bundled payload on a machine
+  with no WebKit installed at all. This is the claim phase 4 made and did not establish.
+- **Test numbers.** Targeted files only; the full suite was not run, per the standing instruction.
+  - `tests/test_appimage.py` with the gate on → **8 passed** in 2.72s (was 7; the new test is the eighth).
+  - `tests/test_desktop.py` → **58 passed** in 12.30s (unchanged; no application source changed).
+  - `tests/test_packaged.py` with the gate on → **9 passed** in 1.45s.
+  - `tests/test_packaged_ingest.py`, both gates on → **10 passed** in 2.86s.
+  - All three gated files with gates off → **22 skipped** in 0.05s.
+
+### 15.11 Two incidental findings, neither fixed
+
+Both surfaced from running in a genuinely bare container and are recorded rather than acted on,
+because neither is the reported bug and neither affects a normal desktop.
+
+- **`tzdata` is not bundled.** On a container without the system tzdata the app dies at import with
+  `ZoneInfoNotFoundError: 'No time zone found with key Europe/Amsterdam'`. Every real desktop has
+  tzdata, so this is not a user-facing bug today; it does mean the AppImage is not self-contained
+  with respect to the timezone database, which for an app whose pricing logic is
+  Europe/Amsterdam-specific is arguably a gap worth closing. Not done here — it is outside the
+  reported fault and would change what the bundle carries.
+- **`libGLESv2.so.2` and a GStreamer element are looked up and missing** in a bare container
+  (`GStreamer element appsink not found`). Both are non-fatal: the window opens and renders. The
+  GLES lookup is compositing, already disabled via `WEBKIT_DISABLE_COMPOSITING_MODE`; appsink is
+  HTML5 media, which this UI does not use.
+
+### 15.12 What is NOT verified
+
+- **That the closure is right on a machine other than this one.** The build still collects from the
+  build host, so D12 (a container build for portability) is unchanged and still open.
+- **`dlopen`ed dependencies.** The static check is blind to them by construction. The gdk-pixbuf
+  loaders, GIO modules and typelibs have their own named assertions, but a plugin that appears
+  upstream later would be caught by neither.
+- **Whether the ten libraries were the only fallout of the anchoring bug.** The closure check says
+  the dynamic-link graph is now complete, which is a stronger statement than a hand review, but it
+  is a statement about NEEDED entries only.
+- **The user's actual desktop session.** Verified under Xvfb here, not against a real compositor
+  with their own graphics driver.
+
+### 15.13 Status
+
+The reported bug is fixed and the fix is guarded at build time, in the test suite, and by a runtime
+check that would have caught it. Changes are **unstaged and uncommitted**.
+
+The honest summary of this phase: the bug itself was a one-character regex mistake, and the
+substantive work was establishing why a whole phase of verification did not notice it. The build
+now computes its own closure and fails on a gap, rather than depending on the exclusion list being
+written correctly.
+
+## 16. Phase 7 — the GStreamer `appsink` warning on startup
+
+### 16.1 The report
+
+The user launches the AppImage and, before anything else, sees on stderr:
+
+    GStreamer element appsink not found. Please install it.
+
+The app works — the window opens, everything renders — but the line reads as a fault to a
+non-technical user, which is the audience. `appsink` lives in `gstreamer1.0-plugins-base`; WebKitGTK
+probes for it when it initialises its media backend. The app has no `<video>`, `<audio>` or WebRTC:
+it is server-rendered HTML, plain DOM JavaScript, and Plotly.
+
+### 16.2 The approach chosen, and the one rejected
+
+Rejected: filtering the line out of stderr. stderr is a working diagnostic channel in this project —
+the phase 6 libmanette failure and an earlier pywebview `TypeError` both surfaced there — and a
+filter risks swallowing the next genuine error. Also rejected, per instruction: bundling
+`gstreamer1.0-plugins-base`, which adds weight for a capability the app never uses.
+
+Chosen: stop WebKit initialising the media backend at all, so the probe never runs.
+
+### 16.3 Root cause, found before anything was tried
+
+Running the AppImage under Xvfb with `GST_DEBUG=GST_REGISTRY:5` and correlating the emitting PID
+against `ps` gives the mechanism directly:
+
+- The line comes from the **WebKitWebProcess**, not from the launcher or the main app process.
+- It is emitted at timestamp `0:00:00.001`, i.e. in the web process's first millisecond.
+- GStreamer locates its own library with `dladdr()`, finds it at
+  `/tmp/appimage_extracted_<hash>/usr/lib/x86_64-linux-gnu`, and therefore scans **only**
+  `<that dir>/gstreamer-1.0` for plugins — a directory the AppDir does not have. `GST_PLUGIN_PATH`
+  and `GST_PLUGIN_SYSTEM_PATH` are unset, so nothing else is scanned. The host's own 109 plugins in
+  `/usr/lib/x86_64-linux-gnu/gstreamer-1.0` are never looked at.
+
+So the AppImage bundles the GStreamer *shared libraries* — `libgstreamer-1.0`, `libgstapp-1.0` and
+eight more, pulled in because `libwebkit2gtk` lists them as `NEEDED` — but not the *plugins*, which
+are `dlopen`ed and therefore invisible to the closure collector (the blind spot §15.12 already
+names). Bundling the libraries is what redirects the plugin search away from the host's plugins.
+
+The precise call site was located by disassembly: `Source/WebCore/platform/graphics/gstreamer/
+GStreamerSinksWorkarounds.cpp`, which calls `gst_element_factory_find("appsink")` and, on NULL,
+calls `WTFLogAlways` with this message. It is a probe for a GStreamer bug fixed in 1.24, not a
+media feature the page asked for.
+
+### 16.4 What was tried, and the result: NEGATIVE
+
+**Avenue 1 — WebKitSettings properties.** Introspected rather than assumed. WebKit2GTK 2.52.3 on
+this machine does have `enable-media` (2.38+), plus `enable-media-stream`, `enable-mediasource`,
+`enable-webaudio`, `enable-media-capabilities`, `enable-encrypted-media`. pywebview 6.2.1 exposes
+none of them and its GTK backend sets three of them to True itself, so reaching them needs a
+monkeypatch of `BrowserView.__init__` — the URL is loaded at the end of that method, so every
+pywebview event hook (`initialized`, `before_show`, `loaded`) runs too late.
+
+Implemented in `app/desktop.py`, AppImage rebuilt, run under Xvfb: **the warning is still there.**
+
+**Avenue 1b — WebKit runtime features.** WebKit 2.52 also carries a feature registry separate from
+the settings properties (`webkit_settings_get_all_features` / `set_feature_enabled`), including a
+`GStreamer` feature and a `Media` feature, both defaulting to True. Both are settable. Added to the
+same patch, rebuilt, rerun: **the warning is still there.**
+
+Both results are consistent with the timing evidence. The web process brings GStreamer up in its
+first millisecond, before any settings have been delivered over IPC, so no setting on the UI-process
+side can gate it.
+
+**Avenue 2 — an environment variable.** No `WEBKIT_DISABLE_MEDIA` or equivalent exists. The
+library's string table was dumped and every `WEBKIT_*` string inspected; the media-related ones are
+all `WEBKIT_GST_*` tuning knobs, none of which is a master switch. The closest,
+`WEBKIT_GST_WORKAROUND_BASE_SINK_POSITION_FLUSH`, belongs to the very function that emits the
+message — but the disassembly shows the env var is read *after* the `appsink` lookup, on the branch
+taken only when the element was found. Tested anyway with `Never` and `Always`: **warning still
+present in both.** Inventing a plausible-looking variable would have been a false fix; this one is
+real and simply cannot help.
+
+**Avenue 3 — bundling `gstreamer1.0-plugins-base`.** Not attempted, per instruction.
+
+**Not adopted — pointing GStreamer at the host's plugins.** Setting `GST_PLUGIN_SYSTEM_PATH` and
+`GST_PLUGIN_SCANNER` in AppRun to the host's Debian paths does produce a completely clean log on
+this machine. It is rejected as a fix: it hardcodes a Debian-specific layout, and on a host without
+`gstreamer1.0-plugins-base` installed it degrades to exactly the warning being fixed. It would look
+like a fix here and not be one on the machines that matter.
+
+### 16.5 Application source: reverted, nothing changed
+
+`app/desktop.py` was modified during the investigation (a `_disable_webkit_media` helper wrapping
+pywebview's GTK `BrowserView.__init__`) and **reverted**, because it did not achieve its purpose.
+Carrying a monkeypatch of another library's internals that changes WebKit's media behaviour for no
+measured benefit is not justified. `git diff -- app/` is empty. The AppImage was rebuilt after the
+revert and is byte-for-byte the same size as before this phase: **110,914,040 bytes (106 MB)**.
+
+### 16.6 Verification performed
+
+- **BEFORE**: the pre-existing AppImage under Xvfb → `app.log` is two lines, the second being
+  `GStreamer element appsink not found. Please install it.`
+- **AFTER each candidate**: same command, same harness, same host. Warning present in all of them.
+- **The app still works**, on the rebuilt image: window "Home Battery Simulator" opens; the
+  workspace list renders.
+- **Plotly still renders.** A year of hourly rows (8,760 intervals × 3 series) was replayed into a
+  fresh workspace over the packaged build's own ingest WebSocket, and the results screen was driven
+  in the native window. The monthly chart draws 12 bars Jan–Dec with y-axis ticks at 0/50/100/150
+  and the `kWh` axis label. Screenshot in the scratchpad as `plot3/03-results-scrolled.png`.
+- **Tests.** Targeted only, per the standing instruction. `tests/test_appimage.py` +
+  `tests/test_desktop.py` with the AppImage gate on → **66 passed** in 14.58s.
+  `tests/test_packaged.py` with its gate on → **9 passed** in 1.32s.
+
+### 16.7 Status: not cleanly fixable without bundling or patching
+
+Reported plainly rather than forced. The warning cannot be removed by configuration from the
+embedding side: it is emitted by the web process before any configuration reaches it, and the only
+environment variable in the neighbourhood is consulted after the failing lookup.
+
+What remains, none of them adopted here:
+
+- **Bundle `gstreamer1.0-plugins-base`** into `<AppDir>/usr/lib/x86_64-linux-gnu/gstreamer-1.0`.
+  This is the one option that addresses the actual cause — the plugin directory GStreamer looks in
+  is empty — and it would very likely also fix whatever else silently degrades from having the
+  GStreamer libraries without their plugins. Cost is size and carrying a media stack the app does
+  not use. Explicitly ruled out for this phase.
+- **Filter stderr** in the launcher. Cheap and effective, and the objection to it stands: stderr is
+  where the libmanette failure and the pywebview `TypeError` surfaced, and a filter is a place for
+  the next one to disappear. A filter narrowed to this exact literal string would be a much smaller
+  risk than a general one, if it is revisited.
+- **Leave it.** The app is correct and the line is one cosmetic message.
+
+### 16.8 Not verified
+
+- **That no OTHER dlopen-based subsystem is in the same state.** GStreamer's plugins are missing for
+  a structural reason — the closure check cannot see `dlopen` — and the same reasoning applies to
+  any other plugin directory WebKit or GTK reaches for. Only GStreamer was investigated.
+- **Whether the missing plugins cost anything beyond the message.** The app has no media, so
+  probably not, but nothing was measured; the claim here is only that the window opens and the
+  results screen renders.
+- **The user's real desktop.** Everything above is Xvfb on this build host.

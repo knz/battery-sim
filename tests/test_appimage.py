@@ -37,6 +37,12 @@ So the checks below are about the payload and the environment, not about the app
     in. Without them the window opens WHITE and stays white: the UI process is fine and the web
     process never starts, which reads as an app bug rather than a packaging one.
 
+  * **every bundled library's own dependencies are bundled too.** The one that reached a user: the
+    phase 4 image was missing `libmanette-0.2.so.0` and nine others, because the build's exclusion
+    pattern was anchored on the left only and `^libm` matched `libmanette`. It went unnoticed
+    because AppRun PREPENDS to LD_LIBRARY_PATH, so the build machine's own /usr/lib supplied them
+    all. See `test_the_library_closure_is_self_contained`.
+
   * **AppRun sets the environment variables** the stack resolves its data through.
 
 Main items:
@@ -46,6 +52,7 @@ Main items:
     test_pygobject_is_inside_the_frozen_bundle
     test_optparse_is_bundled
     test_the_webkit_helper_processes_are_bundled
+    test_the_library_closure_is_self_contained   every NEEDED entry resolves in the AppDir.
     test_apprun_exports_the_lookup_variables
     test_the_appimage_serves_over_http   the one end-to-end check, and its limits.
 """
@@ -201,6 +208,54 @@ def test_the_webkit_and_gtk_libraries_are_bundled(extracted):
     libdir = extracted / "usr" / "lib" / _ARCH_TRIPLET
     for lib in ("libwebkit2gtk-4.1.so.0", "libjavascriptcoregtk-4.1.so.0", "libgtk-3.so.0"):
         assert (libdir / lib).exists(), f"{lib} is missing from the AppImage"
+
+
+def test_the_library_closure_is_self_contained(extracted):
+    """Every NEEDED entry of every bundled ELF resolves in the AppDir or on the host allowlist.
+
+    **This is the check that was missing, and its absence is what reached a user.** The phase 4
+    image shipped without `libmanette-0.2.so.0` — a direct NEEDED entry of libwebkit2gtk, for
+    gamepad support — along with nine others: libcairo, libcairo-gobject, libcap, libcom_err,
+    libcurl-gnutls, libcrypto, libmd, libmount and librtmp. The build's exclusion pattern was
+    anchored on the left only, so `^libm` matched `libmanette` as readily as `libm.so.6`.
+
+    Nothing noticed for a whole phase, because `AppRun` PREPENDS the AppDir to LD_LIBRARY_PATH
+    instead of replacing it: on the build machine every one of those libraries loaded from the
+    host's /usr/lib and the window opened normally. The phase 4 self-containment check — the app
+    under `unshare -m` with three named directories masked by tmpfs — passed for the same reason.
+    The missing libraries were not in any of the three masked directories, so masking them changed
+    nothing. A check that hides a hand-written list can only verify that list.
+
+    This test enumerates from the ARTIFACT instead, so it has no such blind spot, and it shares its
+    implementation with the build-time gate in `packaging/check-appdir-closure.py` — the build and
+    the test cannot drift into disagreeing about what self-contained means.
+
+    Its limit: dynamic linkage only. dlopen()ed plugins carry no NEEDED entry and are covered by
+    the named assertions above instead.
+    """
+    import importlib.util
+
+    checker = Path(__file__).resolve().parents[1] / "packaging" / "check-appdir-closure.py"
+    assert checker.is_file(), f"the closure checker is missing at {checker}"
+
+    # Loaded by path: the file is a build script with a hyphenated name, not an importable module.
+    spec = importlib.util.spec_from_file_location("check_appdir_closure", checker)
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    gaps = mod.check(extracted)
+    by_soname: dict[str, list] = {}
+    for elf, soname in gaps:
+        by_soname.setdefault(soname, []).append(str(elf))
+
+    assert not by_soname, (
+        "libraries missing from the AppImage: "
+        + ", ".join(f"{s} (needed by {by_soname[s][0]})" for s in sorted(by_soname))
+        + ". These resolve from the host's /usr/lib on this machine because LD_LIBRARY_PATH is "
+        "prepended, so the image can work here and still fail for a user — which is exactly what "
+        "happened with libmanette-0.2.so.0 after phase 4."
+    )
 
 
 def test_apprun_exports_the_lookup_variables(extracted):

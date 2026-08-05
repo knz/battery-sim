@@ -177,7 +177,18 @@ while IFS= read -r m; do LIB_ROOTS+=("$m"); done < <(
 )
 
 # Left to the host, deliberately. See the note above.
-EXCLUDE_RE='^(ld-linux|libc|libm|libdl|libpthread|librt|libresolv|libnsl|libutil|libstdc\+\+|libgcc_s|libGL|libGLX|libGLdispatch|libEGL|libgbm|libdrm|libX11|libxcb|libXext|libXrender|libXi|libXfixes|libXdamage|libXcomposite|libXcursor|libXrandr|libXinerama|libxshmfence|libwayland)'
+#
+# **Every alternative must be followed by the `[.-]` boundary below.** The first version of this
+# pattern was anchored on the left only, and `^libm` then matched `libmanette-0.2.so.0` (WebKit's
+# gamepad dependency), `libmount.so.1` and `libmd.so.0`; `^libc` matched `libcairo.so.2` and
+# `libcrypto.so.3`; `^librt` matched `librtmp.so.1`. Ten libraries the bundle genuinely needs were
+# silently dropped. It was not caught for a whole phase because the build machine's own
+# /usr/lib/x86_64-linux-gnu supplied them all — LD_LIBRARY_PATH is PREPENDED, not replaced — so the
+# image worked everywhere it was tested and failed on the first machine that mattered.
+# A SONAME is `<name>.so.<n>` or `<name>-<version>.so.<n>`, so `[.-]` is the boundary that
+# separates the library name from everything after it. The closure check further down is the
+# backstop that makes a mistake here fail the build instead of the user's launch.
+EXCLUDE_RE='^(ld-linux|libc|libm|libdl|libpthread|librt|libresolv|libnsl|libutil|libstdc\+\+|libgcc_s|libGL|libGLX|libGLdispatch|libEGL|libgbm|libdrm|libX11|libX11-xcb|libxcb|libxcb-render|libxcb-shm|libXext|libXrender|libXi|libXfixes|libXdamage|libXcomposite|libXcursor|libXrandr|libXinerama|libxshmfence|libwayland|libwayland-client|libwayland-cursor|libwayland-egl|libwayland-server)[.-]'
 
 collect() {
     local seen="$APPDIR/.seen"
@@ -411,6 +422,29 @@ if [ -z "$APPIMAGETOOL" ]; then
         chmod +x "$APPIMAGETOOL"
     fi
 fi
+
+# ── the closure check ─────────────────────────────────────────────────────────
+#
+# Every NEEDED entry of every ELF file in the AppDir must resolve either INSIDE the AppDir or to a
+# library on the host allowlist. Anything else means the image is incomplete and will fail on the
+# user's machine — or, worse, will NOT fail on this one, because LD_LIBRARY_PATH is prepended and
+# the build host quietly supplies the gap.
+#
+# This is the primary self-containment guard, and it replaced a runtime check that had passed while
+# the image was broken. That check masked three named directories (girepository-1.0, webkit2gtk-4.1,
+# python3/dist-packages) with tmpfs and ran the app under unshare; the ten libraries it was missing
+# all lived in /usr/lib/x86_64-linux-gnu itself, which was not masked, so they resolved from the
+# host and the window opened. A mask-a-list check verifies only that list — it cannot discover a
+# dependency nobody thought of, which is the exact class of bug it is meant to catch.
+#
+# A static check has none of that failure mode: it enumerates from the ARTIFACT rather than from
+# the author's list, needs no display, no X server and no container, and runs in about a second.
+#
+# Its limit, stated: it sees dynamic linkage only. Whatever is dlopen()ed by name at runtime — the
+# gdk-pixbuf loaders, the GIO modules, the typelibs — has no NEEDED entry and is invisible here.
+# Those are covered by the named assertions in tests/test_appimage.py.
+echo "==> verifying the library closure"
+python3 "$ROOT/packaging/check-appdir-closure.py" "$APPDIR"
 
 echo "==> AppDir size: $(du -sh "$APPDIR" | cut -f1)"
 echo "==> running appimagetool"

@@ -138,6 +138,42 @@ app; would need revisiting for a multi-seat machine.
 
 ---
 
+## R1 — CLOSED, 2026-08-05: the premise holds
+
+The user ran the packaged AppImage with `--browser` against their own Home Assistant and
+**retrieved data without problem**. A page served at `http://127.0.0.1:8137` opened a
+WebSocket to their HA and its origin check accepted that origin.
+
+This is the question the whole desktop direction rests on, and it was the last substantive
+unknown. `--browser` serves the same origin and scheme as the native window, so the result
+transfers to window mode; what it does not exercise is the WebKit renderer, which phase 4
+covered separately.
+
+Scope of the claim: verified against **one** HA instance, on one machine. Whether that HA was
+reached over plain `http://` or `https://` was not recorded, so the specific plain-HTTP LAN
+case in `20260805-ha-verification-procedure.md` may still be open. The origin question — the
+part that could have invalidated the direction — is settled either way, since the page origin
+is `http://127.0.0.1:<port>` regardless of how HA itself is served.
+
+## A12 — Phase 4's self-containment claim was overstated, and the method is being fixed
+
+The same user run failed in window mode: `libmanette-0.2.so.0`, a transitive dependency of
+WebKit, is missing from the AppImage, so `libwebkit2gtk` fails to load and the typelib cannot
+resolve `webkit_get_major_version`.
+
+The significant part is not the missing library but that **phase 4's masked-namespace test
+passed while this bug was present**. The `unshare -m` masking covered the webkit-specific
+directories but evidently not the general library path, so the screenshot proved less than it
+was presented as proving. A negative result from an incomplete isolation looks identical to a
+genuine pass.
+
+Being fixed by computing the full transitive closure at build time rather than maintaining a
+hand-written library list, plus a static check that every `NEEDED` entry of every bundled
+library resolves inside the AppDir. A static check needs no display, no container and no X
+server, and would have caught this at build time.
+
+---
+
 ## Open questions for the user
 
 - **A3's `RuntimeError`** — keep for compatibility, or drop to tighten error surfacing?
