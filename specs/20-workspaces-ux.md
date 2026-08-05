@@ -84,7 +84,8 @@ updated first**.
 │  │  │  9,983 intervals · hourly                                        │  │  │
 │  │  └──────────────────────────────────────────────────────────────────┘  │  │
 │  │                                                                        │  │
-│  │  [ Results ]  [ Configure data ]  [ Update ]   [ Delete data ] [ 🗑 ]   │  │
+│  │  [ Results ]  [ Configure data ]  [ Configure workspace ]              │  │
+│  │                                  [ Delete data ]  [ Delete analysis ]  │  │
 │  └────────────────────────────────────────────────────────────────────────┘  │
 │                                                                              │
 │  ┌────────────────────────────────────────────────────────────────────────┐  │
@@ -99,7 +100,8 @@ updated first**.
 │  │  │  8,760 intervals · hourly                                        │  │  │
 │  │  └──────────────────────────────────────────────────────────────────┘  │  │
 │  │                                                                        │  │
-│  │  [ Results ]  [ Configure data ]  [ Update ]   [ Delete data ] [ 🗑 ]   │  │
+│  │  [ Results ]  [ Configure data ]  [ Configure workspace ]              │  │
+│  │                                  [ Delete data ]  [ Delete analysis ]  │  │
 │  └────────────────────────────────────────────────────────────────────────┘  │
 │                                                                              │
 │  ┌────────────────────────────────────────────────────────────────────────┐  │
@@ -111,7 +113,8 @@ updated first**.
 │  │  │  Choose your data sources to get a result.                       │  │  │
 │  │  └──────────────────────────────────────────────────────────────────┘  │  │
 │  │                                                                        │  │
-│  │  [ Configure data ]  [ Update ]                              [ 🗑 ]    │  │
+│  │  [ Configure data ]  [ Configure workspace ]                           │  │
+│  │                                                   [ Delete analysis ]  │  │
 │  └────────────────────────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -168,14 +171,22 @@ different facts and the card should not report a deliberate configuration as a m
 |---|---|---|
 | `[ Results ]` | [§2′.6](#26-results) | data is loaded |
 | `[ Configure data ]` | [§2′.5](#25-configure-data) | always |
-| `[ Update ]` | [§2′.4](#24-edit-workspace) | always |
+| `[ Configure workspace ]` | [§2′.4](#24-edit-workspace) | always |
 | `[ Delete data ]` | modal, then stays on the list | data is loaded |
-| `[ 🗑 ]` (delete analysis) | modal, then stays on the list | always |
+| `[ Delete analysis ]` | modal, then stays on the list | always |
 
 `[ Results ]` is first and visually primary: on a workspace that has data, it is what the user
 came for. The two destructive actions are separated from the three navigational ones by a gap,
-and the workspace-deleting one is an icon at the far end — the furthest thing on the card from
-where the pointer usually lands.
+and the workspace-deleting one is at the far end — the furthest thing on the card from where the
+pointer usually lands.
+
+**Both destructive actions are named in words, not drawn as an icon.** The workspace-deleting one
+was once a bare `🗑`. The two deletions on this card destroy very different amounts of work —
+one throws away a dataset that can be loaded again, the other throws away the analysis itself —
+and a glyph leaves that difference to be inferred from position. Position still carries the
+ordering (the gap, and the far end), but the label carries the meaning. Distance from the pointer
+is what keeps the heavier action from being hit by accident; it stays `btn-ghost` so that
+spelling it out does not also make it the loudest thing in the row.
 
 ### The header
 
@@ -269,7 +280,7 @@ sentence changed.
 ## 2′.4 Edit workspace
 
 The household's fixed facts: what and where it is, what it is connected to, and what it pays.
-Reached by `[ Update ]` from a card, or as step 1 of the new-workspace wizard.
+Reached by `[ Configure workspace ]` from a card, or as step 1 of the new-workspace wizard.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
@@ -744,7 +755,7 @@ Rules:
   [§2′.2](#22-the-workspace-list--the-apps-home-screen) — configured, no data — exist as a
   legitimate state.
 - **`[ Cancel ]` discards this screen's edits only**, and never deletes the workspace. A user
-  who wants the workspace gone uses `[ 🗑 ]` on the card.
+  who wants the workspace gone uses `[ Delete analysis ]` on the card.
 - **`[ ← Previous ]` keeps what was entered**, consistent with the retention rule everywhere
   else in the app.
 - The back link (`← Your analyses`) is present on every screen in both modes. In the wizard it

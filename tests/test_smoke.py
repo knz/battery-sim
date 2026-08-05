@@ -1129,8 +1129,8 @@ def test_the_empty_list_invites_creation_rather_than_showing_a_phantom(browser, 
 
 # ── The edit-workspace screen (phase 3, §2′.4, §2′.8) ─────────────────────────────────────────
 
-def test_the_update_button_reaches_the_edit_screen_and_saves(browser, base_url):
-    """§2′.2's `[ Update ]` → §2′.4's screen → `[ Save ]` → back to the list, in a real browser.
+def test_the_configure_workspace_button_reaches_the_edit_screen_and_saves(browser, base_url):
+    """§2′.2's `[ Configure workspace ]` → §2′.4 → `[ Save ]` → the list, in a real browser.
 
     The whole round trip through the controls a user actually touches: the card's action, the
     title input, the connection dropdown, and the footer's `[ Save ]`. Asserted end to end rather
@@ -1147,7 +1147,7 @@ def test_the_update_button_reaches_the_edit_screen_and_saves(browser, base_url):
     pg.goto(base_url + "/", wait_until="networkidle")
 
     card = pg.locator(f'[data-workspace-id="{workspace_id}"]')
-    card.get_by_role("link", name="Update").click()
+    card.get_by_role("link", name="Configure workspace").click()
     pg.wait_for_load_state("networkidle")
     assert "/edit" in pg.url
 

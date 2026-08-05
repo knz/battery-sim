@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-05 20:20+0200\n"
+"POT-Creation-Date: 2026-08-05 21:14+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -359,6 +359,9 @@ msgid "Configure the Home Assistant connection first."
 msgstr ""
 
 msgid "Configure the connection first"
+msgstr ""
+
+msgid "Configure workspace"
 msgstr ""
 
 msgid "Configure…"
@@ -1341,9 +1344,6 @@ msgid "Two conversions PV→battery"
 msgstr ""
 
 msgid "Type"
-msgstr ""
-
-msgid "Update"
 msgstr ""
 
 msgid "Upload CSV"
