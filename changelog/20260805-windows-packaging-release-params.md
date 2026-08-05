@@ -189,14 +189,41 @@ new plumbing in both.
   `tests/test_packaged.py`, `tests/test_packaged_ingest.py` — 27 passed, no skips.
 - Full suite: 1367 passed, 24 skipped.
 
-## NOT verified (needs a Windows host)
+## CI verification (dispatch run 31036845955, branch, 2026-08-05)
 
-- That the VERSIONINFO resource is accepted by the Windows resource compiler and shows the
-  expected fields in file properties. Only its structure and syntax are checked here.
-- That the icon is embedded and rendered correctly.
-- The fallback dialog's appearance and behaviour — it has never been drawn on any platform, as
-  this machine has no tkinter. Its logic is tested through injection only.
+Dispatched on `worktree-packaging-release-params` after the work was committed. **All five jobs
+passed**; `Draft the GitHub release` skipped as designed (gated on a `v*` tag, so a branch
+dispatch builds artifacts without drafting a release).
+
+What the Windows job proves that nothing local could:
+
+- `Copying icon to EXE` — the icon is embedded.
+- `Copying version information to EXE` — the VERSIONINFO resource was ACCEPTED by the Windows
+  resource writer. This is the check that could not be run off Windows, since PyInstaller's
+  `versioninfo` module imports `win32api`.
+- `build sha: 21c8670 (source: ci)` — the `GITHUB_SHA` branch resolves correctly on a real
+  runner and matches the pushed commit. Locally only the `git` and `unknown` branches ran.
+- No new build warnings: the same three pre-existing ones (`pycparser.lextab`,
+  `pycparser.yacctab`, `tzdata`) and nothing else.
+- The Linux job's `Verify the built artifacts` step passed, so the packaged suites — including
+  the new `_build_info` file check — pass against a CI-built AppImage, not just a local one.
+
+**Size cost of Tk, measured rather than estimated.** The Windows artifact went from 33,556,296
+bytes (run 31032747998) to 36,608,686 bytes (run 31036845955): about 2.9MiB compressed, not the
+~10MB first guessed in the spec comment, which has been corrected to the measurement. The Linux
+bundle is unchanged at 89MB against the 150MB gate.
+
+## STILL not verified (needs a human at a Windows machine)
+
+CI proves the resource and icon were WRITTEN. It cannot show what they look like.
+
+- That file properties display the expected publisher/product/version fields, and that the icon
+  renders correctly in Explorer.
+- The fallback dialog's appearance and behaviour. It has never been drawn on any platform — this
+  development machine has no tkinter, and CI does not run a GUI. Its logic is tested through
+  injection only, so the layout is an untested first attempt.
 - Whether a WebView2-less Windows machine reaches the dialog at all (the MSHTML hypothesis).
+  Unchanged by this run: CI runners have WebView2, so they exercise neither branch.
 
 ## Current Status
 
@@ -206,11 +233,17 @@ build succeeds.
 
 Next steps, in no fixed order — these are options, not a decided sequence:
 
-- **Get a Windows run.** `workflow_dispatch` on this branch would exercise the icon and the
-  VERSIONINFO resource for the first time. This is the only way to close the "NOT verified" list
-  above, and it is cheap (the Windows job took 57s).
+- **DONE: the Windows run.** Dispatch 31036845955 passed all five jobs and confirmed the icon and
+  version resource are embedded. PR #4 opened against master.
+- **Download the Windows artifact and look at it.** `bundle-windows-x86_64` (artifact 8942947500)
+  from that run. Right-click → Properties → Details is what shows whether the VERSIONINFO fields
+  read sensibly; the icon shows in Explorer. This is the remaining verification and needs a
+  Windows machine.
 - **Look at the dialog.** It needs a human on a Windows or macOS machine; nothing here can draw
   it. Its layout is a first attempt and will probably want adjusting.
+- **The branch name.** `worktree-packaging-release-params` reads as scratch infrastructure rather
+  than a feature branch. Renaming means a re-push and recreating PR #4 — cheaper before review
+  than after.
 - **Decide `console=False`.** Deferred by the user pending a look at the built result. The
   dialog now covers the case that made `console=True` load-bearing, so the two are linked.
 - **The WebView2 question.** If a WebView2-less machine degrades to MSHTML instead of raising,

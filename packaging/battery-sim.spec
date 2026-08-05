@@ -174,9 +174,10 @@ EXCLUDES = [
 # exclude would turn that dialog into the ImportError branch it already handles, silently, on
 # exactly the machines it exists for.
 #
-# The cost is real but bounded: Tk adds roughly 10MB to the bundle, which the size gate in
-# build-linux.sh will account for. If that gate ever fails after this change, the gate's limit is
-# what to look at, not this decision.
+# The cost is real but bounded, and MEASURED rather than estimated: the Windows release artifact
+# went from 33,556,296 to 36,608,686 bytes across runs 31032747998 and 31036845955 — about 2.9MiB
+# compressed. The Linux bundle stayed at 89MB against build-linux.sh's 150MB gate. If that gate
+# ever fails after this change, the gate's limit is what to look at, not this decision.
 
 a = Analysis(  # noqa: F821 - injected by PyInstaller
     [str(ROOT / "app" / "__main__.py")],
