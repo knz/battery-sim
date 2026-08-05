@@ -391,9 +391,25 @@ jobs:
       - name: List what was collected
         run: find artifacts -type f -printf '%p  (%s bytes)\n'
 
-      # Draft, deliberately. The macOS and Windows attachments may be missing or may be raw
-      # PyInstaller directories rather than usable desktop builds, and the release notes need a
-      # human anyway. Publishing is a decision, not a side effect of pushing a tag.
+      # Draft, deliberately. The macOS attachments are raw PyInstaller onedir trees rather than
+      # `.app` bundles, any of the continue-on-error platforms may be missing entirely, nothing
+      # here is code-signed, and the release notes need a human anyway. Publishing is a decision,
+      # not a side effect of pushing a tag.
+      #
+      # ## What the assets look like, since it is asked every time
+      #
+      # This step attaches the files INSIDE each downloaded artifact directory, so a release asset
+      # has ONE layer of zip and not two. The doubled zip people notice
+      # (`bundle-windows-x86_64.zip` containing `battery-sim-windows-x86_64.zip`) comes from
+      # downloading an artifact off the Actions run page, where GitHub adds a wrapper of its own;
+      # `download-artifact` above strips that wrapper, so it never reaches a release.
+      #
+      # The remaining zip is load-bearing: a release asset is a single file and a PyInstaller
+      # onedir bundle is several thousand. Removing it would mean onefile — ruled out, see the
+      # COLLECT block in packaging/battery-sim.spec, because onefile unpacks to a temp directory
+      # that is deleted on exit and the default data directory would go with it — or an installer,
+      # which does not exist yet. The AppImage needs none of this and attaches as a bare
+      # executable.
       - name: Create the draft release
         uses: softprops/action-gh-release@v3
         with:
