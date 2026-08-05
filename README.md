@@ -4,6 +4,16 @@
 
 <h1 align="center">Home Battery Simulator</h1>
 
+**Nederlands**
+
+Een webapp die op je eigen computer draait en achteraf uitrekent wat een thuisbatterij een
+Nederlands huishouden bespaard zou hebben — op basis van de eigen historische gegevens van dat
+huishouden, gerekend met de regels van na 2027, wanneer salderen niet meer bestaat. De app
+beantwoordt de vraag "wat als ik deze batterij had gehad, in deze periode". Hij voorspelt dus
+niets en stuurt niets aan.
+
+**English**
+
 A locally-run web app that retrospectively simulates what a home battery would have saved a
 Dutch household, using that household's own historical data under the post-2027 Dutch regime in
 which net metering (*salderen*) no longer exists. It answers "what if I had owned this battery,
