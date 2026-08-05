@@ -19,6 +19,21 @@ a regression in any of them would ship silently, so each gets its own test:
     file is the corruption case the lock exists to prevent.
   * **the version**, cross-checked against pyproject.toml so the two cannot drift.
 
+Phase 2 adds a second group, around the native window and the threading inversion it forced:
+
+  * **UI-mode dispatch** — the three CLI flags, and what each mode actually does. The default
+    being the native WINDOW is the phase-2 behaviour change and is pinned here.
+  * **the fallback** when pywebview is absent or cannot produce a window. This is not a
+    hypothetical: it is the path taken on this dev machine, where the venv cannot see the system
+    `gi` bindings, so `webview.start()` raises. Tested for both the import failure and the
+    start failure, and for reporting non-blocking so `run` does not kill the server.
+  * **the shutdown handshake** — the server now runs on a background thread (pywebview owns the
+    main one) and must be stopped by `should_exit` plus a bounded join, not by the daemon flag.
+
+**No test here opens a real window or a real browser.** `webview` is faked into `sys.modules`
+and `webbrowser.open` is monkeypatched; the machine running the suite has no display, and on one
+that does, a suite that pops up windows is unusable.
+
     uv run pytest tests/test_desktop.py
 """
 
@@ -26,6 +41,8 @@ import json
 import os
 import subprocess
 import sys
+import threading
+import time
 import tomllib
 from pathlib import Path
 
@@ -206,20 +223,535 @@ def test_an_explicit_port_is_honoured_by_the_argument_parser(monkeypatch):
     """`--port N` reaches `run()` verbatim — no free-port probe, no silent substitution."""
     seen = {}
 
-    def fake_run(port=None, open_browser=True):
-        seen.update(port=port, open_browser=open_browser)
+    def fake_run(port=None, ui=desktop.UiMode.WINDOW):
+        seen.update(port=port, ui=ui)
         return 0
 
     monkeypatch.setattr(desktop, "run", fake_run)
     assert desktop.main(["--port", "8137", "--no-browser"]) == 0
-    assert seen == {"port": 8137, "open_browser": False}
+    assert seen == {"port": 8137, "ui": desktop.UiMode.NONE}
 
 
-def test_the_browser_opens_by_default(monkeypatch):
+# ── the UI mode: flag parsing and dispatch ───────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "argv, expected",
+    [
+        ([], desktop.UiMode.WINDOW),
+        (["--browser"], desktop.UiMode.BROWSER),
+        (["--no-browser"], desktop.UiMode.NONE),
+    ],
+)
+def test_the_flags_select_the_ui_mode(monkeypatch, argv, expected):
+    """The native window is the DEFAULT — the phase-2 behaviour change, pinned here."""
     seen = {}
     monkeypatch.setattr(desktop, "run", lambda **kw: seen.update(kw) or 0)
-    desktop.main([])
-    assert seen == {"port": None, "open_browser": True}
+    assert desktop.main(argv) == 0
+    assert seen == {"port": None, "ui": expected}
+
+
+def test_browser_and_no_browser_are_mutually_exclusive():
+    """Not a style point: with both accepted, the last one would silently win and a CI job that
+    passed `--no-browser` after a configured `--browser` would open a window on the runner."""
+    with pytest.raises(SystemExit):
+        desktop.main(["--browser", "--no-browser"])
+
+
+def test_the_cli_documents_all_three_modes():
+    result = subprocess.run(
+        [sys.executable, "-m", "app", "--help"],
+        cwd=REPO_ROOT, capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "--browser" in result.stdout and "--no-browser" in result.stdout
+
+
+# ── the UI mode: what each one actually does ─────────────────────────────────
+
+
+@pytest.fixture
+def fake_webview(monkeypatch):
+    """A stand-in `webview` module in `sys.modules`, so `_show_window` imports THIS.
+
+    No test in this suite may open a real window: the machine running them has no display, and
+    on one that does, a suite that pops up windows is unusable. `_show_window` imports `webview`
+    inside the function precisely so it can be swapped here.
+    """
+
+    class FakeWebview:
+        def __init__(self):
+            self.windows = []
+            self.started = 0
+            self.create_raises = None
+            self.start_raises = None
+
+        def create_window(self, title, url, **kwargs):
+            if self.create_raises is not None:
+                raise self.create_raises
+            self.windows.append((title, url, kwargs))
+            return object()
+
+        def start(self, *args, **kwargs):
+            self.started += 1
+            if self.start_raises is not None:
+                raise self.start_raises
+
+    fake = FakeWebview()
+    monkeypatch.setitem(sys.modules, "webview", fake)
+    return fake
+
+
+def test_window_mode_opens_a_window_and_reports_that_it_blocked(monkeypatch, fake_webview, tmp_path):
+    """`_show_ui` returning True is what tells `run` the user has quit — see `run`'s shutdown."""
+    monkeypatch.setenv(config.ENV_DATA_DIR, str(tmp_path))
+    monkeypatch.setattr(desktop.webbrowser, "open", _never_called)
+
+    assert desktop._show_ui("http://127.0.0.1:8137/", desktop.UiMode.WINDOW) is True
+
+    assert fake_webview.started == 1
+    (title, url, kwargs) = fake_webview.windows[0]
+    assert url == "http://127.0.0.1:8137/"
+    assert title
+
+
+def test_the_window_is_not_a_private_session(monkeypatch, fake_webview, tmp_path):
+    """pywebview defaults to private_mode=True, which discards localStorage on close.
+
+    `app/static/ha_fetch.js` keeps the Home Assistant base URL and long-lived token there, so the
+    default would make the user re-enter their token on every launch. Asserted because it is a
+    silent, per-launch data loss that no other test would notice.
+    """
+    monkeypatch.setenv(config.ENV_DATA_DIR, str(tmp_path))
+    desktop._show_ui("http://127.0.0.1:8137/", desktop.UiMode.WINDOW)
+    kwargs = fake_webview.windows[0][2]
+    assert kwargs["private_mode"] is False
+    assert str(tmp_path) in kwargs["storage_path"]
+
+
+def test_browser_mode_opens_the_browser_and_reports_that_it_did_not_block(monkeypatch, fake_webview):
+    """`webbrowser.open` returns in milliseconds while the tab lives on, so reporting True here
+    would make `run` shut the server down immediately after opening it."""
+    opened = []
+    monkeypatch.setattr(desktop.webbrowser, "open", lambda url, **kw: opened.append(url))
+
+    assert desktop._show_ui("http://127.0.0.1:8137/", desktop.UiMode.BROWSER) is False
+
+    assert opened == ["http://127.0.0.1:8137/"]
+    assert fake_webview.started == 0  # no window was even attempted
+
+
+def test_none_mode_shows_nothing_at_all(monkeypatch, fake_webview):
+    monkeypatch.setattr(desktop.webbrowser, "open", _never_called)
+    assert desktop._show_ui("http://127.0.0.1:8137/", desktop.UiMode.NONE) is False
+    assert fake_webview.started == 0
+
+
+def _never_called(*args, **kwargs):
+    raise AssertionError("the browser must not be opened in this case")
+
+
+# ── the fallback when there is no renderer ───────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "attr, failure",
+    [
+        # pywebview absent entirely — a build that did not collect it, or a stripped environment.
+        ("create_raises", ImportError("No module named 'webview'")),
+        # pywebview present, no renderer. This is the REAL case on a Linux machine without
+        # gir1.2-webkit2-4.1 (or with it installed system-wide but invisible to the venv):
+        # `create_window` succeeds and `start()` is what raises.
+        ("start_raises", RuntimeError("You must have either QT or GTK … installed")),
+    ],
+)
+def test_a_failed_window_falls_back_to_the_browser(monkeypatch, fake_webview, tmp_path, capsys,
+                                                   attr, failure):
+    """A machine with no webview renderer must still get a usable app, not a traceback."""
+    monkeypatch.setenv(config.ENV_DATA_DIR, str(tmp_path))
+    setattr(fake_webview, attr, failure)
+    opened = []
+    monkeypatch.setattr(desktop.webbrowser, "open", lambda url, **kw: opened.append(url))
+
+    blocked = desktop._show_ui("http://127.0.0.1:8137/", desktop.UiMode.WINDOW)
+
+    assert opened == ["http://127.0.0.1:8137/"]
+    # False, not True: the fallback opened a TAB, and a tab does not own the session. Reporting
+    # True here would have `run` stop the server the instant the browser was launched.
+    assert blocked is False
+    # One line, on stderr, naming the reason — not a silent downgrade.
+    message = capsys.readouterr().err
+    assert "browser" in message
+    assert len(message.strip().splitlines()) == 1
+
+
+def test_a_missing_pywebview_module_falls_back_rather_than_raising(monkeypatch, tmp_path, capsys):
+    """The import itself failing, exercised through the real import machinery rather than a stub."""
+    monkeypatch.setenv(config.ENV_DATA_DIR, str(tmp_path))
+    monkeypatch.setitem(sys.modules, "webview", None)  # forces ImportError on `import webview`
+    opened = []
+    monkeypatch.setattr(desktop.webbrowser, "open", lambda url, **kw: opened.append(url))
+
+    assert desktop._show_ui("http://127.0.0.1:8137/", desktop.UiMode.WINDOW) is False
+    assert opened == ["http://127.0.0.1:8137/"]
+    assert "browser" in capsys.readouterr().err
+
+
+def test_a_keyboard_interrupt_in_the_gui_loop_is_not_a_renderer_failure(
+    monkeypatch, fake_webview, tmp_path
+):
+    """Ctrl-C during the window's event loop means quit. Opening a browser tab in response would
+    be the opposite of what was asked, so the fallback catches Exception and not BaseException."""
+    monkeypatch.setenv(config.ENV_DATA_DIR, str(tmp_path))
+    fake_webview.start_raises = KeyboardInterrupt()
+    monkeypatch.setattr(desktop.webbrowser, "open", _never_called)
+
+    with pytest.raises(KeyboardInterrupt):
+        desktop._show_ui("http://127.0.0.1:8137/", desktop.UiMode.WINDOW)
+
+
+# ── the server thread and its shutdown ───────────────────────────────────────
+
+
+class _FakeServer:
+    """Stands in for `uvicorn.Server`: blocks in `run()` until `should_exit` is set.
+
+    That is the contract `_ServerThread` depends on and the only part of uvicorn it uses, so it
+    is the part worth faking. A real uvicorn here would need a port, an ASGI app and a data dir.
+    """
+
+    def __init__(self, exit_on_flag=True):
+        self.should_exit = False
+        self.ran = threading.Event()
+        self._exit_on_flag = exit_on_flag
+
+    def run(self):
+        self.ran.set()
+        while not (self.should_exit and self._exit_on_flag):
+            time.sleep(0.01)
+
+
+def test_the_server_runs_on_a_background_thread_not_the_main_one():
+    """The whole reason for the phase-2 restructure: `webview.start()` needs the main thread."""
+    server = _FakeServer()
+    thread = desktop._ServerThread(server)
+    thread.start()
+    try:
+        assert server.ran.wait(timeout=5)
+        assert thread.is_alive()
+        assert threading.current_thread() is threading.main_thread()
+    finally:
+        assert thread.stop(timeout=5)
+
+
+def test_stop_sets_should_exit_and_joins():
+    """`should_exit` rather than the daemon flag, because it is what runs the ASGI shutdown.
+
+    A daemon thread killed by interpreter exit never fires the lifespan shutdown event and can be
+    mid-request when it dies — which is why `stop()` both sets the flag and waits for the thread.
+    """
+    server = _FakeServer()
+    thread = desktop._ServerThread(server)
+    thread.start()
+    assert server.ran.wait(timeout=5)
+
+    assert thread.stop(timeout=5) is True
+
+    assert server.should_exit is True
+    assert not thread.is_alive()
+
+
+def test_stop_reports_false_when_the_server_ignores_the_flag():
+    """A request that will not finish must not hang a closed window's process forever. `stop()`
+    returns False, `run` says so on stderr, and the daemon flag ends the thread at exit."""
+    server = _FakeServer(exit_on_flag=False)
+    thread = desktop._ServerThread(server)
+    thread.start()
+    try:
+        assert server.ran.wait(timeout=5)
+        assert thread.stop(timeout=0.3) is False
+        assert thread.is_alive()
+    finally:
+        server._exit_on_flag = True  # let the daemon thread wind down
+
+
+def test_the_server_thread_is_a_daemon():
+    """The backstop for a `stop()` that times out, not the primary mechanism (see above)."""
+    assert desktop._ServerThread(_FakeServer())._thread.daemon is True
+
+
+def test_stop_reports_false_when_the_thread_object_falsely_claims_to_have_stopped():
+    """The regression test for the interrupted-join defect. See `_ServerThread`.
+
+    CPython's `Thread._wait_for_tstate_lock` catches an exception raised while a `join()` is in
+    progress — a Ctrl-C, in the case that matters — and calls `self._stop()`, permanently marking
+    the Thread object stopped while the OS thread runs on (bpo-45274). After that, `join(timeout)`
+    returns in about a millisecond and `is_alive()` answers False.
+
+    A `stop()` built on either would then report a clean shutdown INSTANTLY, at exactly the moment
+    the user pressed Ctrl-C and uvicorn had not yet run the ASGI lifespan shutdown — and the "did
+    not stop in time" warning could never fire, because the false answer arrives before the real
+    one is possible.
+
+    The corrupted state is induced here the same way CPython induces it — dropping the reference
+    to the thread-state lock and then calling the private `Thread._stop()`, which is precisely the
+    pair of statements `_wait_for_tstate_lock` runs in its own `except` clause — on a thread that
+    is genuinely still running. So this is the real mechanism rather than a stand-in for it. The
+    assertions below first confirm the Thread object really is lying, and only then require
+    `stop()` to disagree with it.
+
+    Driving it with an actual SIGINT was tried and rejected for this suite: it needs the signal to
+    land while the main thread is inside `join()`, which under pytest means racing the test runner
+    for the main thread and delivering a signal that a mistimed run leaves uncaught. The
+    end-to-end SIGINT check was done out of process instead, against the real launcher.
+    """
+    server = _FakeServer(exit_on_flag=False)  # will not honour should_exit — still running
+    thread = desktop._ServerThread(server)
+    thread.start()
+    try:
+        assert server.ran.wait(timeout=5)
+
+        # Induce exactly what an interrupted join leaves behind. `_stop()` requires the tstate
+        # lock reference to be gone first and asserts on it, which is why both lines are needed.
+        thread._thread._tstate_lock = None
+        thread._thread._stop()
+
+        # The premise: the Thread object now lies in both of the ways `stop()` must not trust.
+        assert thread._thread.is_alive() is False, "premise broken: Thread still reports alive"
+        started = time.monotonic()
+        thread._thread.join(timeout=5)
+        assert time.monotonic() - started < 0.5, "premise broken: join() actually waited"
+
+        # The property under test: `stop()` is not fooled, because it waits on the completion
+        # Event the thread sets in its own `finally` — which is still unset, correctly.
+        started = time.monotonic()
+        assert thread.stop(timeout=0.3) is False
+        assert time.monotonic() - started >= 0.25, "stop() returned early — it trusted the Thread"
+        assert thread.is_alive() is True  # ours, not the Thread object's
+    finally:
+        server._exit_on_flag = True
+
+
+def test_stop_reports_true_only_once_the_server_call_has_returned():
+    """Completion is the target function returning, not the thread being scheduled out.
+
+    Pins the direction the fix must not overshoot in: an Event set anywhere other than after
+    `server.run()` returns would make `stop()` true too early, which is the same false-clean
+    shutdown by another route.
+    """
+    server = _FakeServer()
+    thread = desktop._ServerThread(server)
+    thread.start()
+    assert server.ran.wait(timeout=5)
+
+    # Running: not finished, whatever else is true.
+    assert thread._finished.is_set() is False
+    assert thread.stop(timeout=5) is True
+    assert thread._finished.is_set() is True
+
+
+def test_a_server_that_raises_still_counts_as_finished(monkeypatch):
+    """`finally`, so a crashed server does not cost a full ten-second wait on the way out.
+
+    A server that dies on `bind()` has finished as surely as one that shut down cleanly, and a
+    `stop()` that waited the full ten seconds for a thread already gone would be a pointless hang
+    on the way out.
+
+    The exception is left to propagate out of the thread — `_ServerThread` deliberately does not
+    swallow it, since a launcher that hid a server crash would be worse than a noisy one — so the
+    excepthook is silenced for the duration rather than the exception being caught.
+    """
+
+    class _Crashing:
+        should_exit = False
+
+        def run(self):
+            raise RuntimeError("bind failed")
+
+    monkeypatch.setattr(threading, "excepthook", lambda args: None)
+
+    thread = desktop._ServerThread(_Crashing())
+    thread.start()
+    assert thread.stop(timeout=5) is True
+    assert thread.is_alive() is False
+
+
+def test_run_waits_on_the_event_rather_than_joining_the_thread():
+    """`run`'s non-blocking branch must not call `Thread.join()`, which POISONS the Thread object
+    when a Ctrl-C interrupts it — after which the `stop()` in the except handler is worthless.
+
+    Asserted at the seam rather than by driving a real signal: `_ServerThread.wait` is the method
+    `run` is required to use, and `Thread.join` is the one it must not.
+    """
+    import inspect
+
+    source = inspect.getsource(desktop.run)
+    assert "thread.wait()" in source
+    assert "thread.join()" not in source, "run() joins the Thread — see _ServerThread"
+
+    # And `wait` must not be a `Thread.join` in disguise.
+    wait_source = inspect.getsource(desktop._ServerThread.wait)
+    assert "_finished.wait" in wait_source
+    assert "_thread.join" not in wait_source
+
+
+def test_both_shutdown_paths_warn_when_the_server_does_not_stop(capsys):
+    """The warning must exist on the Ctrl-C path too, not only on the window path — the whole
+    point of `stop()` returning an honest False is that something acts on it."""
+    server = _FakeServer(exit_on_flag=False)
+    thread = desktop._ServerThread(server)
+    thread.start()
+    try:
+        assert server.ran.wait(timeout=5)
+        desktop._stop_or_warn(thread)
+        assert "did not stop" in capsys.readouterr().err
+    finally:
+        server._exit_on_flag = True
+
+
+def test_no_warning_when_the_server_stops_cleanly(capsys):
+    server = _FakeServer()
+    thread = desktop._ServerThread(server)
+    thread.start()
+    assert server.ran.wait(timeout=5)
+    desktop._stop_or_warn(thread)
+    assert capsys.readouterr().err == ""
+
+
+# ── run(): the shutdown handshake ────────────────────────────────────────────
+
+
+def _run_with_fakes(monkeypatch, tmp_path, ui, blocked, server=None):
+    """Drive `run()` with every collaborator faked but the sequencing real.
+
+    What stays real is the part under test: the lock, the readiness gate, the order of the poll
+    and the UI call, and what `run` does with `_show_ui`'s answer. Faked are uvicorn (no port to
+    bind) and the UI (no display).
+    """
+    monkeypatch.setenv(config.ENV_DATA_DIR, str(tmp_path))
+    server = server if server is not None else _FakeServer()
+    calls = []
+
+    monkeypatch.setattr(desktop, "_load_asgi_app", lambda: object())
+    monkeypatch.setattr(desktop, "check_assets", lambda *a, **kw: None)
+    monkeypatch.setattr(desktop, "choose_port", lambda *a, **kw: 8137)
+    monkeypatch.setattr(desktop, "wait_until_ready", lambda *a, **kw: calls.append("ready") or True)
+
+    def fake_show(url, mode):
+        calls.append(("show", url, mode))
+        return blocked
+
+    monkeypatch.setattr(desktop, "_show_ui", fake_show)
+
+    import uvicorn
+
+    monkeypatch.setattr(uvicorn, "Config", lambda *a, **kw: kw)
+    monkeypatch.setattr(uvicorn, "Server", lambda cfg: server)
+
+    code = desktop.run(ui=ui)
+    return code, calls, server
+
+
+def test_run_shuts_the_server_down_when_the_window_closes(monkeypatch, tmp_path):
+    """The native-window session: `_show_ui` returning is the user quitting, so the server stops.
+
+    Without this, closing the window would leave uvicorn serving with no way back to it — the
+    port stays bound and the single-instance lock stays held, so the next launch refuses to start.
+    """
+    code, calls, server = _run_with_fakes(
+        monkeypatch, tmp_path, desktop.UiMode.WINDOW, blocked=True
+    )
+
+    assert code == 0
+    assert server.should_exit is True
+    # Readiness first, THEN the UI. A window opened before `GET /` answers shows a
+    # connection-refused page and never retries.
+    assert calls[0] == "ready"
+    assert calls[1] == ("show", "http://127.0.0.1:8137/", desktop.UiMode.WINDOW)
+
+
+def test_run_waits_instead_of_shutting_down_when_the_ui_did_not_block(monkeypatch, tmp_path):
+    """Browser and headless modes: `_show_ui` returns at once and the session outlives it, so
+    `run` must block on the server rather than treating the return as a quit."""
+    server = _FakeServer()
+    finished = threading.Event()
+
+    def call_run():
+        _run_with_fakes(monkeypatch, tmp_path, desktop.UiMode.BROWSER, blocked=False, server=server)
+        finished.set()
+
+    caller = threading.Thread(target=call_run, daemon=True)
+    caller.start()
+    try:
+        assert server.ran.wait(timeout=5)
+        # It is still inside run(), waiting — not returned, and the server was NOT asked to stop.
+        assert not finished.wait(timeout=0.5)
+        assert server.should_exit is False
+    finally:
+        server.should_exit = True
+    assert finished.wait(timeout=5)
+
+
+def test_run_gives_up_when_the_server_never_becomes_ready(monkeypatch, tmp_path):
+    """No UI is shown and the exit code is non-zero: a window on a dead server is worse than a
+    message, and the server thread is still stopped so the lock is not left held."""
+    monkeypatch.setenv(config.ENV_DATA_DIR, str(tmp_path))
+    server = _FakeServer()
+    monkeypatch.setattr(desktop, "_load_asgi_app", lambda: object())
+    monkeypatch.setattr(desktop, "check_assets", lambda *a, **kw: None)
+    monkeypatch.setattr(desktop, "choose_port", lambda *a, **kw: 8137)
+    monkeypatch.setattr(desktop, "wait_until_ready", lambda *a, **kw: False)
+    monkeypatch.setattr(desktop, "_show_ui", _never_called)
+
+    import uvicorn
+
+    monkeypatch.setattr(uvicorn, "Config", lambda *a, **kw: kw)
+    monkeypatch.setattr(uvicorn, "Server", lambda cfg: server)
+
+    assert desktop.run(ui=desktop.UiMode.WINDOW) == 1
+    assert server.should_exit is True
+
+
+def test_a_second_launch_shows_the_running_instance_and_exits_zero(monkeypatch, tmp_path):
+    """The single-instance rule survives phase 2: no second server, no second uvicorn thread.
+
+    The UI IS shown — pointed at the running instance's port — because that is what a user
+    double-clicking the icon again is asking for, and a second window on one server is not the
+    two-SQLite-writers case the lock guards against.
+    """
+    monkeypatch.setenv(config.ENV_DATA_DIR, str(tmp_path))
+    holder = desktop.SingleInstance(tmp_path / "desktop.lock")
+    assert holder.acquire()
+    holder.write_state(9137)
+    try:
+        monkeypatch.setattr(desktop, "server_answers", lambda port, **kw: port == 9137)
+        shown = []
+        monkeypatch.setattr(desktop, "_show_ui", lambda url, mode: shown.append(url) or True)
+        # Nothing may start: a second server against one SQLite file is the corruption case.
+        monkeypatch.setattr(desktop, "_load_asgi_app", _never_called)
+        monkeypatch.setattr(desktop, "_ServerThread", _never_called)
+
+        assert desktop.run(ui=desktop.UiMode.WINDOW) == 0
+        assert shown == ["http://127.0.0.1:9137/"]
+    finally:
+        holder.release()
+
+
+def test_a_second_launch_refuses_when_the_holder_is_not_answering(monkeypatch, tmp_path):
+    """Locked but silent: a start in progress, or a wedged instance. Starting a second server
+    against the same database is what the lock exists to prevent, so this refuses rather than
+    races it."""
+    monkeypatch.setenv(config.ENV_DATA_DIR, str(tmp_path))
+    holder = desktop.SingleInstance(tmp_path / "desktop.lock")
+    assert holder.acquire()
+    holder.write_state(9137)
+    try:
+        monkeypatch.setattr(desktop, "server_answers", lambda port, **kw: False)
+        monkeypatch.setattr(desktop, "_show_ui", _never_called)
+        monkeypatch.setattr(desktop, "_load_asgi_app", _never_called)
+        assert desktop.run(ui=desktop.UiMode.WINDOW) == 1
+    finally:
+        holder.release()
 
 
 # ── the bind host ────────────────────────────────────────────────────────────

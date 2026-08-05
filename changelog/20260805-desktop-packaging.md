@@ -295,3 +295,191 @@ upgrade test) rather than the premise itself.
   `app/main.py`). A packaged-build WebSocket test must therefore seed a real workspace first, or a
   correct server looks like a broken one.
 - Plan approved by the user.
+- Phase 2 (native window): implemented, reviewed, and one defect found and fixed. See §11, and
+  §11.7 for the correction.
+
+## 11. Phase 2 — the pywebview window
+
+### 11.1 What was asked
+
+Replace the browser tab with a native pywebview window, still running from source. No PyInstaller
+(that is phase 3). Three UI modes on the CLI; a fallback to the browser when pywebview cannot
+produce a window; the readiness poll, the single-instance lock, `BIND_HOST`, and the
+data-dir-before-import ordering all preserved.
+
+### 11.2 The threading inversion — the one structural change
+
+Phase 1 ran uvicorn on the main thread (`server.run()`) and opened the browser from a short-lived
+daemon thread. pywebview's `webview.start()` is a blocking GUI loop that must own the **main**
+thread — GTK and Cocoa both require their event loop there — so the two swap places:
+
+- uvicorn now runs on a **background daemon thread** (`_ServerThread`), started via
+  `server.run()` inside that thread;
+- the main thread does the readiness poll and then calls the UI function;
+- when the UI function returns (window closed, or `webbrowser.open` returning immediately in
+  `--browser` mode), the main thread sets `uvicorn.Server.should_exit = True` and **waits for the
+  server to confirm it has finished**, with a timeout.
+
+The wait is the point. `daemon=True` alone would let the interpreter exit with the server thread
+mid-request — no ASGI shutdown event, no chance to close the SQLite connection cleanly. `should_exit`
+is uvicorn's cooperative-stop flag: its serve loop checks it each tick and runs the normal shutdown
+path. The daemon flag is kept as a backstop for the case where the wait times out
+(`_SHUTDOWN_TIMEOUT_S`, 10s) rather than as the primary mechanism.
+
+**The first version of this used `Thread.join()` for that wait, and it was wrong on the Ctrl-C
+path.** See §11.7 — the correction is a completion `Event`, not a join.
+
+`--browser` and `--no-browser` differ in *when* the main thread stops waiting:
+
+- `--browser`: `webbrowser.open` returns immediately, so the launcher must NOT shut down on
+  return. It blocks on the server thread instead (phase 1's behaviour, just inverted), and the
+  server is stopped by Ctrl-C / SIGTERM as before.
+- native window: `webview.start()` returns when the last window closes, and that return **is** the
+  quit signal, so shutdown follows immediately.
+- `--no-browser`: no UI at all; block on the server thread.
+
+That difference is expressed as `_show_ui(url, mode)` returning a bool — whether the UI call was a
+"blocking, owns the session" call or a fire-and-forget one — rather than as three separate code
+paths in `run`. The mode itself is the `UiMode` enum, one value per CLI flag.
+
+### 11.3 The fallback, and why it is not optional here
+
+`webview.create_window()` succeeds on this machine, but `webview.start()` then raises
+`webview.errors.WebViewException("You must have either QT or GTK with Python extensions
+installed…")`. **Verified directly** — the dev machine has `gir1.2-webkit2-4.1` installed at the
+system level, but the uv-managed virtualenv does not see the system `gi` module, so
+`import webview.platforms.gtk` fails with `ModuleNotFoundError: No module named 'gi'` and the QT
+path fails too. So on this checkout, today, the native window does not start.
+
+This makes the fallback the path actually exercised in development rather than a defensive
+afterthought. It is written to catch **both** the missing-import case and the start-failure case,
+around the whole of create+start, and to fall through to `webbrowser.open` with a single line on
+stderr naming the reason. `BaseException` is deliberately not caught — a `KeyboardInterrupt`
+during the GUI loop is a quit, not a renderer failure.
+
+Note the shape this imposes: a fallback that opened the browser and returned immediately would,
+under the rule in §11.2, look like a native window that had just been closed and would shut the
+server down instantly. So the fallback also downgrades the answer from blocking to non-blocking —
+`_show_ui` returns False on the fallback path, the same as it does for `UiMode.BROWSER`.
+
+### 11.3a The HA token now persists to app-managed disk storage — deliberate
+
+`_show_window` passes `private_mode=False` and `storage_path=<data_dir>/webview`. pywebview
+defaults to a private session, which discards localStorage when the window closes;
+`app/static/ha_fetch.js` keeps `ha.base_url` and `ha.token` there, so the default would make the
+user re-enter their long-lived Home Assistant token on every launch.
+
+Recording the consequence rather than only the fix, because it is a change in kind and not just in
+location. `specs/15-data-quality-and-limits.md` §7.5 says the token "never leaves the browser". The
+webview **is** the browser here, so the letter of that still holds — the token does not reach the
+server, is not sent anywhere, and the architectural property from F1 is untouched. What changes is
+the storage medium: previously the token sat in a browser-managed profile that the user's browser
+owned and could clear through its own UI; now it sits in a directory this app creates and manages,
+under the app's data directory. A user clearing their browser's site data no longer clears it.
+
+Accepted as the better of the two options — the alternative is re-entering the token on every
+launch, which is worse for the user and would likely push them to store it somewhere less
+protected. Recorded as a decision so it is not later mistaken for an oversight. No permission
+hardening on that directory was added; whether it should be is left open rather than settled here.
+
+### 11.4 Files modified
+
+- `app/desktop.py` — docstring rewritten for the new structure; `_show_ui` replaced by
+  `_show_window` (pywebview), `_show_browser`, and `_show_ui(url, mode)` dispatching over the
+  three modes and reporting back whether it blocked; `_ServerThread` added; `run()` reworked to
+  own the shutdown handshake; `--browser` flag added to `main()`.
+- `pyproject.toml` — `pywebview>=6.2.1` added to `[project.dependencies]`.
+- `uv.lock` — relocked by `uv add`; **14 new package entries**. Only three of them install on
+  Linux (`pywebview`, `bottle`, `proxy-tools` — verified against `uv pip list` after `uv sync`).
+  The other eleven are platform-markered transitives that the resolver records but does not
+  install here: the `pyobjc-*` set for macOS, `pythonnet`/`clr-loader`/`cffi`/`pycparser` for the
+  Windows backend, and `qtpy` for pywebview's QT path. They will matter at phases 3 and 6, when
+  the macOS and Windows builds are actually made.
+- `tests/test_desktop.py` — extended with the phase-2 tests (flag dispatch, the three UI modes,
+  both fallback paths, the shutdown handshake, and the §11.7 regression).
+
+### 11.5 Obstacles
+
+- **No GUI backend in the venv** (§11.3). Not worked around: the fallback is the designed response,
+  and phase 4's AppImage is where the bundled GTK stack arrives. Worth carrying forward as a phase-3
+  input — a PyInstaller build on this machine will inherit the same missing `gi`.
+- **No display for tests.** Every pywebview interaction in the suite is mocked via a fake module
+  installed into `sys.modules`; no test opens a window.
+
+### 11.6 Current status and what is NOT verified
+
+Implemented. `tests/test_desktop.py` is at **54 passed** (phase 1 left it at 27). The full suite
+was run once, before the §11.7 correction, at 1327 passed / 2 skipped against a phase-1 baseline of
+1306/2; it has **not** been re-run since, on a standing instruction not to run it (it carries slow
+benchmarks). So the whole-suite number above is stale by the §11.7 diff, which touches only
+`app/desktop.py` and `tests/test_desktop.py`.
+
+`uv run python -m app --no-browser --port 8199` was started, answered `HTTP 200` on `GET /`, and
+released the port when sent SIGTERM. Stated precisely, because an earlier draft of this file
+overclaimed it: SIGTERM raises no `KeyboardInterrupt`, so that run exercised the interpreter's
+default terminate-on-SIGTERM and **not** the `except KeyboardInterrupt` branch. It shows the
+server starts, serves, and does not survive a terminate. It says nothing about the shutdown path
+under Ctrl-C — that is covered separately, and by a different check, in §11.7.
+
+Not verified, and it should not be read as working:
+
+- **Whether the window renders at all.** No GUI backend is available in this environment (§11.3),
+  so `webview.start()` has never successfully run here. Every native-window assertion in the tests
+  is against a mock. The first real evidence will come from a machine or bundle with a working
+  WebKit2GTK plus `gi` binding.
+- **R5 (Plotly under WebKit2GTK)** is untouched and remains open — it cannot be probed until the
+  above works.
+- **The window-close shutdown path.** The Ctrl-C path is now verified end to end (§11.7), but the
+  window path reaches the same `_stop_or_warn` only after `webview.start()` returns, and
+  `webview.start()` has never run here. Unit-tested against a fake; not observed against a real
+  window close.
+
+### 11.7 Correction: the interrupted-join defect, found in review
+
+An independent review found a real defect in the first version of §11.2's shutdown, on the
+`--browser` / `--no-browser` path specifically. Recorded rather than quietly fixed, because the
+mechanism is non-obvious and the wrong version looked correct.
+
+**What was wrong.** `run` waited with `Thread.join()` and, on `KeyboardInterrupt`, called
+`stop()`, which set `should_exit` and then did `Thread.join(timeout)` and checked `is_alive()`.
+When a signal interrupts a `Thread.join()`, CPython's `_wait_for_tstate_lock` catches the
+exception and calls `self._stop()`, permanently marking the **Thread object** stopped while the OS
+thread keeps running (bpo-45274). Every later `join(timeout=…)` then returns in about a
+millisecond and `is_alive()` answers False. So `stop()` reported a clean shutdown immediately,
+at precisely the moment the user pressed Ctrl-C and uvicorn had not yet run the ASGI lifespan
+shutdown — and the "did not stop within 10s" warning could never fire, because the false answer
+arrives before a true one is possible.
+
+Reproduced directly before fixing: after an interrupted join, `join(timeout=10)` returned in
+0.0 ms, `is_alive()` was False, and a completion `Event` set in the target's `finally` was still
+unset — the thread had not reached it.
+
+**Why a re-poll would not have worked.** The Thread object's state is already corrupted at the
+moment the handler runs, so no amount of waiting and re-checking `is_alive()` recovers the truth.
+The answer has to come from somewhere the interrupt cannot touch.
+
+**The fix.** `_ServerThread` now wraps the target in its own `_run`, which sets a
+`threading.Event` in a `finally` once `server.run()` has returned. `stop()` returns
+`self._finished.wait(timeout)`; `is_alive()` returns `not self._finished.is_set()`. Neither
+consults `Thread.is_alive()` nor `Thread.join()` at all — including as a conjunct, which was an
+error in an intermediate version of the fix and which the regression test caught: ANDing the
+corrupted value in carries the same lie through. `run`'s wait is now `_ServerThread.wait()`
+(`Event.wait`), so the Thread object is never poisoned in the first place, and both shutdown
+paths go through one `_stop_or_warn` helper so the warning cannot be present on one and missing
+on the other. `finally` rather than `else`, so a server that dies on `bind()` also counts as
+finished instead of costing a full ten-second wait.
+
+**Verified end to end, out of process.** The real launcher under `UiMode.NONE`, sent a genuine
+`SIGINT` while sitting in the wait, with the ASGI app wrapped to observe lifespan messages:
+`lifespan.startup` → `lifespan.shutdown` → `server.run()` returned → `stop() -> True after 105ms`
+→ `run()` returned 0. Both the shutdown firing and `stop()` having genuinely waited are what the
+old code failed to do.
+
+**On the regression test.** The corrupted state is induced in-process the same way CPython induces
+it — clear `_tstate_lock`, then call `Thread._stop()` — on a thread that is genuinely still
+running, so it exercises the real mechanism rather than a proxy for it. The test asserts the
+premise first (the Thread object really does report False and return from `join` instantly) and
+only then requires `stop()` to disagree, so it cannot pass vacuously if a future CPython changes
+this behaviour — it would fail on the premise instead. Driving it with an actual signal inside
+pytest was rejected: it needs the signal to land while the main thread is in `join()`, which means
+racing the test runner for the main thread. That check was done out of process instead, above.
