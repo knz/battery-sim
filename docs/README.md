@@ -1,7 +1,7 @@
 <!--
-Index for the user-facing documentation. This tree is written for a household running the
-app, not for someone working on it — developer instructions stay in the top-level README.md.
-Two parallel language trees, en/ and nl/, each self-contained.
+Index for the documentation tree. The household-facing pages are the two parallel language
+trees, en/ and nl/, each self-contained; maintainers/ and specs/ sit alongside them and are
+English only. This index leads with the household pages, since that is who lands here.
 -->
 
 # Documentation
@@ -22,6 +22,8 @@ Deze documentatie bestaat in twee talen. / This documentation exists in two lang
 
 ---
 
-Working *on* the app rather than using it? The developer instructions — running from source,
-rebuilding the stylesheet, updating translations, the test suite — are in the
-[top-level README](../README.md).
+Working *on* the app rather than using it?
+
+- **[maintainers/](maintainers/README.md)** — running from source, the layout, rebuilding the
+  stylesheet, the test suite, updating translations
+- **[specs/](specs/README.md)** — the specification the app implements

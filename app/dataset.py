@@ -1,4 +1,4 @@
-"""Dataset persistence — SeriesFrames to disk, metadata to SQLite (specs/08-architecture.md §5.1).
+"""Dataset persistence — SeriesFrames to disk, metadata to SQLite (docs/specs/08-architecture.md §5.1).
 
 The browser-side fetch increment: the browser fetches from Home Assistant and streams raw rows
 to the backend, which normalises them into SeriesFrames (app/domain) and persists them here so

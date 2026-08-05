@@ -537,7 +537,7 @@ def test_continuing_sets_topology_approximated(client):
 
 
 def test_fixture_12_an_approximated_run_is_identical_to_the_three_phase_case(client):
-    """**Spec fixture 12** (specs/16-validation-harness.md, §2.5b, §7.3 check 18).
+    """**Spec fixture 12** (docs/specs/16-validation-harness.md, §2.5b, §7.3 check 18).
 
     Both halves, as the fixture states them:
 

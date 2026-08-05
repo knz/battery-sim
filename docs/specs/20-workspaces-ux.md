@@ -259,7 +259,7 @@ held apart from the data — it is part of it. When a fetch persists a series, t
 the Home Assistant statistic id are stored in `series_meta` alongside that series, and the slot
 roster renders the slot's source from the dataset on every reload; this is branch 1 of "Two
 things carry a source choice across a reload" in
-[`app/static/ha_fetch.js`](../app/static/ha_fetch.js)'s header, which describes the split
+[`app/static/ha_fetch.js`](../../app/static/ha_fetch.js)'s header, which describes the split
 accurately. Deleting the measurements deletes those rows, so the slot returns to being
 unassigned.
 

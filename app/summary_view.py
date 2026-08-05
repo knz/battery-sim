@@ -6,7 +6,7 @@ It is the battery-free slice of the §6.11 energy metrics over the §6.3 load re
 the figures that follow from the household's OWN recorded data before the *simulated* battery
 (panel ②) is configured.
 
-What it computes (specs/12-metrics-and-benchmarks.md §6.11, §6.3):
+What it computes (docs/specs/12-metrics-and-benchmarks.md §6.11, §6.3):
     grid.imported / grid.exported          Σ import, Σ export over the window.
     household.consumption                   Σ reconstructed load (§6.3), per-interval clamped.
     household.self_sufficiency              1 − import.sum() / load.sum(), display-clamped to ≥ 0%.

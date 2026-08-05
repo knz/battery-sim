@@ -1,7 +1,7 @@
 """Energy-Charts day-ahead price API client + response parsing (pure-ish adapter).
 
 This is the low-level access to https://api.energy-charts.info/price — the public NL
-day-ahead spot-price endpoint the spot-price data source is built on (specs/06-home-assistant
+day-ahead spot-price endpoint the spot-price data source is built on (docs/specs/06-home-assistant
 -ingestion.md, spot-price backend source). It is shared by two callers:
 
   * scripts/fetch_spot_prices.py — the one-off/refresh downloader that seeds the committed

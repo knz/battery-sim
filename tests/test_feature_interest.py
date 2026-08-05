@@ -1,4 +1,4 @@
-"""Unit tests for the feature-interest back end (specs/08-architecture.md §5.1).
+"""Unit tests for the feature-interest back end (docs/specs/08-architecture.md §5.1).
 
 These are pure-Python, no browser: they assert the counter's upsert invariant, the config's
 first-run installation_id generation, and the reporter's egress posture (off unless a URL is
@@ -54,7 +54,7 @@ def test_distinct_keys_independent(app_modules):
 def test_old_shape_rows_collapse_by_key(app_modules):
     """An existing per-workspace table is re-keyed on `feature_key` alone.
 
-    specs/20-workspaces-ux.md §2′.10: the merge is a UNION, not a sum — interest is boolean per
+    docs/specs/20-workspaces-ux.md §2′.10: the merge is a UNION, not a sum — interest is boolean per
     household, so two workspaces having thumbed the same key is still one wish — and it keeps the
     EARLIEST `last_clicked_at`, which is when the household first asked.
     """

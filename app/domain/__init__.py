@@ -1,7 +1,7 @@
-"""Pure domain layer for the Home Battery Simulator (specs/08-architecture.md §5.1–5.2).
+"""Pure domain layer for the Home Battery Simulator (docs/specs/08-architecture.md §5.1–5.2).
 
 Arrays in, arrays and value objects out — no HTTP, no database, no clock. This is the part
-the validation harness (specs/16-validation-harness.md) tests against hand-computed fixtures,
+the validation harness (docs/specs/16-validation-harness.md) tests against hand-computed fixtures,
 and it is deliberately import-light: only numpy and the standard library.
 
 Modules in this increment (the data-import path only — no simulation yet):

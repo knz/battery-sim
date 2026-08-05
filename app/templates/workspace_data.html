@@ -1,5 +1,5 @@
 {#
-  workspace_data.html — the configure-data screen (specs/20-workspaces-ux.md §2′.5, §2′.8).
+  workspace_data.html — the configure-data screen (docs/specs/20-workspaces-ux.md §2′.5, §2′.8).
 
   `GET /w/{id}/data` renders this; `POST /w/{id}/data` persists the two scope answers and
   redirects. The view-model is `app/data_screen_view.py`.
@@ -566,7 +566,7 @@
   })();
   </script>
 
-  {# Browser-side Home Assistant fetch and the source drawer (specs/06-home-assistant-ingestion.md).
+  {# Browser-side Home Assistant fetch and the source drawer (docs/specs/06-home-assistant-ingestion.md).
      The token stays in the browser and is sent only to the user's own HA; fetched rows stream to
      the backend over the workspace-scoped ingest WS (§7.5).
 

@@ -65,7 +65,7 @@
   }
 }
 
-/* ── CSS-only tabs for the "More settings" pane (specs/20-workspaces-ux.md §2′.6) ──────────
+/* ── CSS-only tabs for the "More settings" pane (docs/specs/20-workspaces-ux.md §2′.6) ──────────
    Unlayered, for the same reason the cost tint below is: `.tab-panel` has to beat daisyUI's own
    `.tab` / `.tabs` rules, which Tailwind nests in a layer declared after ours, and a layered
    block here would lose whatever its specificity.
@@ -110,7 +110,7 @@
   outline-offset: 2px;
 }
 
-/* ── The Blocked cost toggle (specs/20-workspaces-ux.md §2′.6, §2.1's four states) ─────────
+/* ── The Blocked cost toggle (docs/specs/20-workspaces-ux.md §2′.6, §2.1's four states) ─────────
    Blocked is "greyed, with an adjacent affordance saying how to clear the precondition" — the
    control is still on screen and its ⓘ is still clickable, which is the whole point of Blocked
    rather than Inapplicable. The radios themselves carry `disabled` (so they cannot be submitted

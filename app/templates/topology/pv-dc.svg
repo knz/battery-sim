@@ -1,4 +1,4 @@
-<!-- DC-coupled / hybrid PV topology (specs/03-topology-selector.md §2.5a).
+<!-- DC-coupled / hybrid PV topology (docs/specs/03-topology-selector.md §2.5a).
      240×160 viewBox, single currentColor stroke at 2px, no fills, no external deps. -->
 <svg viewBox="0 0 240 160" role="img" aria-label="DC-coupled hybrid: PV connects by DC into a hybrid inverter that also holds the battery; one AC connection feeds grid and load. One conversion from PV to battery." xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round">
   <!-- PV box -->

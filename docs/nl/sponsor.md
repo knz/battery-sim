@@ -2,7 +2,7 @@
 De uitnodiging om het project te steunen (Nederlands).
 
 PLAATSINGSBESLUIT: dit hoort in docs/ en in README.md, en mag NERGENS in de app-interface
-terechtkomen. specs/01-product-brief.md:186 en specs/15-data-quality-and-limits.md §7.5
+terechtkomen. docs/specs/01-product-brief.md:186 en docs/specs/15-data-quality-and-limits.md §7.5
 sluiten telemetrie en naar buiten gerichte elementen uit; een sponsorlink in het venster zou
 het eerste zijn dat het product naar buiten richt. Zie
 changelog/20260805-desktop-packaging.md §17.1.

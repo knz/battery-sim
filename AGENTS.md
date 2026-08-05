@@ -8,7 +8,7 @@ data, priced under the post-2027 Dutch regime in which net metering (salderen) n
 exists. It is a counterfactual simulator, not a forecaster and not a controller: it answers
 "what if I had owned this battery, operated under this policy, over this period".
 
-The specification lives in `specs/` — start at [specs/README.md](specs/README.md).
+The specification lives in `docs/specs/` — start at [docs/specs/README.md](docs/specs/README.md).
 
 ## Agent session persistence and context tracking
 

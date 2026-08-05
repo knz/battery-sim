@@ -58,7 +58,7 @@ process but not across a restart.
 
 `economic_guard` is different, and appendix A says so separately: it is "*additionally* **forced**
 off rather than merely hidden, because it reads a cost-model output"
-(specs/appendix-a-defaults.md). It is the forcing, not the inertness, that puts it here. If a
+(docs/specs/appendix-a-defaults.md). It is the forcing, not the inertness, that puts it here. If a
 second forced-off field ever appears, revisit this — but a list of two is still not a pattern.
 
 **Being forced is exactly what `SimulationConfig` alone cannot survive, and this is the one
@@ -536,7 +536,7 @@ def _retained_block(workspace_id: str) -> dict:
 
 
 def is_pricing_configured(workspace_id: str) -> bool:
-    """Whether the user has told us what they pay (specs/20-workspaces-ux.md §2′.6).
+    """Whether the user has told us what they pay (docs/specs/20-workspaces-ux.md §2′.6).
 
     The one reader is whether the cost toggle is Blocked. False on a workspace that has never
     saved the contract screen, including one with no document at all. Never raises, for the same

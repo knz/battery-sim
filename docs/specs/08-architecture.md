@@ -333,7 +333,7 @@ belongs to:
    every digit.
 
 The rule binds new code as written and the existing pseudocode in these specs, which has
-been swept to obey it (see [changelog](../changelog/) for the pass). When a value that
+been swept to obey it (see [changelog](../../changelog/) for the pass). When a value that
 looks like a genuine literal turns out to encode a choice — the weekend mask omitting public
 holidays, say ([§8.21](17-open-questions.md)) — that is a signal the classification was
 wrong and the value wants a name and a decision, not that the rule has an exception.

@@ -1,7 +1,7 @@
 """Raw statistics rows → SeriesFrame (specs §6.1, §4.3).
 
 This is the pure normalisation the backend performs on rows the browser fetched from Home
-Assistant (specs/06-home-assistant-ingestion.md, browser-side fetch increment). It never does
+Assistant (docs/specs/06-home-assistant-ingestion.md, browser-side fetch increment). It never does
 I/O: it takes plain Python lists of rows and a series role, and returns a `SeriesFrame`
 (app/domain/frames.py).
 

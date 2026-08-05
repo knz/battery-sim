@@ -1,7 +1,7 @@
 """Simulation-grid selection and per-series reconciliation metadata (specs §6.2).
 
 This increment does not resample series onto the grid or run a simulation — that is a later
-increment. What it does compute is the metadata panel ① shows (specs/02-ux-wireframes.md §2.2
+increment. What it does compute is the metadata panel ① shows (docs/specs/02-ux-wireframes.md §2.2
 "Granularity, per series"): the chosen simulation grid, and how each series *would* reconcile
 onto it — `exact`, `held`, or `averaged` — plus the price-granularity-lost diagnostic
 (specs §6.2 note, §4.5 `diagnostics.price_granularity_lost`).
@@ -155,7 +155,7 @@ def price_granularity_lost(frames: list[SeriesFrame], grid_s: int | None) -> dic
 
 
 def grid_report(frames: list[SeriesFrame], window: tuple[datetime, datetime]) -> dict:
-    """Panel-① granularity/grid view-model (specs/02-ux-wireframes.md §2.2).
+    """Panel-① granularity/grid view-model (docs/specs/02-ux-wireframes.md §2.2).
 
     Returns the chosen grid, its interval count over the window, and one entry per series with
     its native resolution and reconciliation. `warn` is set only on `averaged` — the single

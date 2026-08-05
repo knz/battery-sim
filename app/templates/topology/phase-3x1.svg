@@ -1,4 +1,4 @@
-<!-- 3 × 1-phase batteries (specs/03-topology-selector.md §2.5b).
+<!-- 3 × 1-phase batteries (docs/specs/03-topology-selector.md §2.5b).
      The second topology version 1 does not model — selecting it raises the soft block
      (check 18) and, if the user continues, sets topology.approximated.
      240×160 viewBox, single currentColor stroke at 2px, no fills, no external deps. -->

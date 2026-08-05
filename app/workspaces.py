@@ -1,4 +1,4 @@
-"""The workspace index and its service layer (specs/20-workspaces-ux.md §2′.2, §2′.10; §5.1).
+"""The workspace index and its service layer (docs/specs/20-workspaces-ux.md §2′.2, §2′.10; §5.1).
 
 Until this module existed, "the workspace" was the module constant `db.WORKSPACE_ID` and there
 was no record anywhere of which workspaces exist, what they are called, or when they were last

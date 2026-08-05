@@ -2,7 +2,7 @@
 The sponsorship invitation (English).
 
 PLACEMENT DECISION: this lives in docs/ and README.md and MUST NOT appear anywhere in the
-app UI. specs/01-product-brief.md:186 and specs/15-data-quality-and-limits.md §7.5 rule out
+app UI. docs/specs/01-product-brief.md:186 and docs/specs/15-data-quality-and-limits.md §7.5 rule out
 telemetry and outward-facing affordances; an in-app sponsor link would be the first one the
 product has. See changelog/20260805-desktop-packaging.md §17.1.
 

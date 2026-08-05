@@ -1,4 +1,4 @@
-"""InterestReporter — the outbound feature-interest POST (specs/08-architecture.md §5.1, §7.5).
+"""InterestReporter — the outbound feature-interest POST (docs/specs/08-architecture.md §5.1, §7.5).
 
 This is the *only* component in the app that sends anything to a host the user did not nominate
 as a data source, and its posture is deliberately conservative:

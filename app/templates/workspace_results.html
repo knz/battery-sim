@@ -1,5 +1,5 @@
 {#
-  workspace_results.html — the RESULTS screen (specs/20-workspaces-ux.md §2′.6).
+  workspace_results.html — the RESULTS screen (docs/specs/20-workspaces-ux.md §2′.6).
 
   `GET /w/{id}/results` renders this. It is the end of both entry paths — the card's `[ Results ]`
   and the wizard's step 3 — and it is left through the back link.
@@ -62,7 +62,7 @@
   is inlined below. That was the one behaviour the deletion would have taken with it silently.
 
   Workspace scoping. The routes this page fetches live under `/w/{id}/…`
-  (specs/08-architecture.md §5.1), so the page states its workspace once — `data-workspace-id` on
+  (docs/specs/08-architecture.md §5.1), so the page states its workspace once — `data-workspace-id` on
   `<body>` — and the scripts below build every path from it via `wsPath()`. Nothing here writes a
   scoped path as a literal; `/lang/{code}` and `/feature-interest/{key}` are flat routes and are the
   only literals left.
@@ -81,8 +81,8 @@
 </head>
 {# `data-workspace-id` is the ONE place the page states which workspace it is showing. Every
    `fetch()` below builds its path from it — no route path is written as a literal any more,
-   because these routes are workspace-scoped (`/w/{id}/…`, specs/08-architecture.md §5.1,
-   specs/20-workspaces-ux.md §2′.10). This screen loads no `ha_fetch.js` since phase 4.2, so the
+   because these routes are workspace-scoped (`/w/{id}/…`, docs/specs/08-architecture.md §5.1,
+   docs/specs/20-workspaces-ux.md §2′.10). This screen loads no `ha_fetch.js` since phase 4.2, so the
    ingest WebSocket and the per-workspace slot store (§2′.11) read it on the data screen instead. #}
 <body class="min-h-screen bg-base-200 text-base-content"
       data-workspace-id="{{ workspace_id }}">
@@ -324,7 +324,7 @@
     // `document` plus a named chart-draw function. This binds ONCE; the fresh buttons/inputs work
     // with no re-binding after every swap.
     (function () {
-      // Every route this IIFE calls is workspace-scoped (specs/08-architecture.md §5.1), so no
+      // Every route this IIFE calls is workspace-scoped (docs/specs/08-architecture.md §5.1), so no
       // path is a literal: `wsPath('/results')` → `/w/<id>/results`, with the id read once from
       // <body data-workspace-id>. Reading it at load rather than per call is deliberate — the
       // attribute is on a node no fragment swap replaces, and a page that somehow lost it should

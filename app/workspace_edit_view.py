@@ -1,4 +1,4 @@
-"""The view-model for the edit-workspace screen (specs/20-workspaces-ux.md §2′.4, §2′.8).
+"""The view-model for the edit-workspace screen (docs/specs/20-workspaces-ux.md §2′.4, §2′.8).
 
 `GET /w/{id}/edit` and `POST /w/{id}/edit` render and write the household's fixed facts: the
 workspace title, the postcode, the grid connection and the contract. This module turns a

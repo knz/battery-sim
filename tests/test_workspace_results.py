@@ -1,4 +1,4 @@
-"""The results screen (specs/20-workspaces-ux.md §2′.6, §2′.7).
+"""The results screen (docs/specs/20-workspaces-ux.md §2′.6, §2′.7).
 
 Phase 4.2 turned `GET /w/{id}/results` from the three-panel page into the screen §2′.6 specifies:
 panels ② and ③ combined, with ② reduced to a capacity-first battery box. Most of the CONTENT is a

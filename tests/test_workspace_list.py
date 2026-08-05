@@ -1,4 +1,4 @@
-"""The workspace list screen and its routes (specs/20-workspaces-ux.md §2′.2, §2′.3).
+"""The workspace list screen and its routes (docs/specs/20-workspaces-ux.md §2′.2, §2′.3).
 
 Phase 2 turned `GET /` into a list of analyses and moved the three-panel page to
 `GET /w/{id}/results`. What these tests pin is the part of that a route status code cannot see:

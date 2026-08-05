@@ -948,7 +948,7 @@ and does not ask again. With `has_pv = false` the panel changes as follows, and 
   unable to distinguish "this app cannot do solar-surplus charging" from "this app is not
   offering it to me right now". A greyed option with a stated reason answers both questions
   and names the toggle that unlocks it. The dispatch semantics are untouched — see
-  [§6.6](../specs/08-simulation-core.md) — since a disabled radio is never submitted and the
+  [§6.6](08-architecture.md) — since a disabled radio is never submitted and the
   stored answer survives for when PV is turned back on.
 
   Note the split this implies in the code: `offerable_charge_policies()` remains the

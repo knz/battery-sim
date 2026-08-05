@@ -190,7 +190,7 @@ RTE_MIN = 0.5
 # The nominal single-phase voltage of the Dutch LV network. Not in appendix A as such; it is the
 # constant INFERRED from appendix A's "→ 5.75 kW (1×25 A) / 17.3 kW (3×25 A)" and background E-A's
 # connection-capacity table, both of which come out exactly as `phases × amps × 230 V`. The figure
-# 230 appears nowhere in specs/ — it is pinned by those two published data points and nothing else.
+# 230 appears nowhere in docs/specs/ — it is pinned by those two published data points and nothing else.
 # Named rather than inlined so the derivation reads as the physics it is.
 NOMINAL_PHASE_VOLTAGE_V = 230.0
 
@@ -781,7 +781,7 @@ class SimulationConfig:
                       Shared by BOTH perfect-foresight runs (D and E) — the two objectives differ
                       only in `transition_cost`, so a single pair of grid sizes is correct.
         postcode      the household's Dutch postcode, empty by default
-                      (specs/20-workspaces-ux.md §2′.4). **Nothing in this module or in the
+                      (docs/specs/20-workspaces-ux.md §2′.4). **Nothing in this module or in the
                       simulation core reads it**, and no §6 algorithm takes it as an input; it is
                       collected while the user is on the edit screen so a later
                       sunrise/sunset-aware diagnostic does not have to ask for it. Stored as the
