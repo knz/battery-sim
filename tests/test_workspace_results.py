@@ -863,12 +863,26 @@ def test_the_params_form_action_is_scoped_at_this_render_site(env):
     assert 'action="/params"' not in html
 
 
+# The only external URLs any screen is allowed to carry, all from `_footer.html`. Kept as an
+# explicit allowlist so a stray external link elsewhere on the page still fails the test below.
+_FOOTER_EXTERNAL_LINKS = {
+    "https://raphaelposs.com",
+    "https://github.com/knz/battery-sim",
+    "https://github.com/knz/battery-sim/blob/master/LICENSE",
+}
+
+
 def test_every_link_and_form_action_on_the_page_resolves(env):
     """No dangling href and no 404-ing action — the class of defect §2′.7 flagged by name.
 
     Fragment links are checked against the ids on the page; path links and form actions are
-    requested. External and `javascript:` links are not expected here and their absence is asserted
-    rather than skipped over.
+    requested. `javascript:` links are not expected here and their absence is asserted rather than
+    skipped over.
+
+    External links are allowed only where the page is KNOWN to carry them — the footer's author,
+    licence and repository links (`_footer.html`). They are listed explicitly rather than skipped
+    by scheme, so an external URL appearing anywhere else still fails this test. They are not
+    requested: the suite must pass offline, and whether github.com is up is not this app's defect.
     """
     client, mod = env
     _seed(mod)
@@ -879,7 +893,10 @@ def test_every_link_and_form_action_on_the_page_resolves(env):
     assert hrefs, "no links at all — the scraping is wrong"
 
     for href in sorted(hrefs):
-        assert not href.startswith(("http://", "https://", "javascript:")), href
+        assert not href.startswith("javascript:"), href
+        if href in _FOOTER_EXTERNAL_LINKS:
+            continue
+        assert not href.startswith(("http://", "https://")), href
         if href.startswith("#"):
             assert href[1:] in ids, f"fragment {href} resolves to nothing"
             continue

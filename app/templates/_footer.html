@@ -1,0 +1,106 @@
+{#
+  _footer.html — the site footer, included at the bottom of every screen.
+
+  Two lines and one dialog:
+
+    1. the privacy statement — the app runs locally and nothing leaves the machine;
+    2. the attribution/licence line, carrying four interactive pieces: the author's site,
+       the NO WARRANTY button, the licence, and the source repository;
+    3. the warranty dialog that the NO WARRANTY button opens.
+
+  There is no base template in this codebase — every screen is a standalone full page — so this
+  partial is `{% include %}`d by each of the four (workspaces, workspace_edit, workspace_data,
+  workspace_results), the same way `_workspace_card.html` and the panels are reused. Adding a
+  screen means adding the include; there is nowhere central that would do it automatically.
+
+  **The attribution line is ONE msgid with holes, not six concatenated chunks.** It carries four
+  links/buttons, so the naive spelling breaks the sentence into fragments and lets the markup fall
+  between them. That hands translators word-salad and makes Dutch word order impossible to honour
+  — Dutch does not put "Licensed as X" where English does. Instead the whole sentence is a single
+  translatable string with `%(name)s` holes, and the anchors are substituted in afterwards.
+
+  The escaping is `_msg.html`'s: `_( ... ) | e | interpolate(...) | safe`. Piping the translated
+  string through `e` first makes it a `Markup`, and `Markup.__mod__` escapes each substituted
+  value EXACTLY once — so the `Markup(...)` anchors built below pass through as markup while any
+  plain string would still be escaped. `| safe` then stops the surrounding `{{ }}` escaping the
+  assembled result a second time. Do not "simplify" this to a bare `interpolate` (the anchors
+  would render as visible `<a href=...>` text) or drop the `| e` (the sentence's own characters
+  would go unescaped).
+
+  The app name is deliberately the same msgid as the `<title>` and the header — one string, one
+  translation, so the three cannot drift.
+
+  **The dialog is page-level**, for the reason the other dialogs on these screens already
+  document: a `<dialog>` inside a subtree daisyUI gives `content-visibility: hidden` still enters
+  the top layer on `showModal()` — blocking every click on the page — but is never painted. Being
+  inside `<footer>` is safe today, but the dialog lives as a sibling of it rather than inside the
+  text it belongs to, matching `#slot-info-dialog` and `#pending-dialog`.
+
+  The dialog states what AGPL §15 and §16 actually disclaim, in prose, and links to the full
+  LICENSE rather than claiming to replace it. It also names the risk specific to THIS program,
+  which the generic clause does not: the figures are retrospective estimates computed from the
+  user's own data under an assumed future tariff regime, not advice to buy anything.
+#}
+
+{# The four substituted pieces. Each is wrapped in `Markup` so `interpolate` passes it through as
+   markup instead of escaping it; the visible label inside each is itself translatable. #}
+{%- set author_link %}<a class="link link-hover font-medium" href="https://raphaelposs.com" target="_blank" rel="noopener noreferrer">{{ _('Raphael Poss') }}</a>{% endset -%}
+{%- set warranty_button %}<button type="button" class="link link-hover font-semibold uppercase" data-open-warranty>{{ _('NO WARRANTY') }}</button>{% endset -%}
+{%- set license_link %}<a class="link link-hover" href="https://github.com/knz/battery-sim/blob/master/LICENSE" target="_blank" rel="noopener noreferrer">{{ _('GNU AGPL v3') }}</a>{% endset -%}
+{%- set source_link %}<a class="link link-hover" href="https://github.com/knz/battery-sim" target="_blank" rel="noopener noreferrer">{{ _('Source code available') }}</a>{% endset -%}
+
+<footer class="mx-auto max-w-4xl px-4 pb-8 pt-4 text-center text-xs text-base-content/60 lg:px-8">
+  <p>{{ _('This application does not collect your data and does not send it remotely.') }}</p>
+  <p class="mt-1">
+    {{ _('%(app)s is a digital creation of %(author)s. %(warranty)s. Licensed as %(license)s. %(source)s.')
+       | e
+       | interpolate(app=_('Home Battery Simulator'),
+                     author=author_link,
+                     warranty=warranty_button,
+                     license=license_link,
+                     source=source_link)
+       | safe }}
+  </p>
+</footer>
+
+{# ── The warranty dialog, opened by the NO WARRANTY button above. ───────────────────── #}
+<dialog id="warranty-dialog" class="modal">
+  <div class="modal-box">
+    <h3 class="text-lg font-bold">{{ _('What "no warranty" means') }}</h3>
+    <p class="py-2 text-sm">
+      {{ _('This program is provided as is, without warranty of any kind, express or implied — including any implied warranty that it is fit to sell or fit for your particular purpose. The entire risk as to its quality and performance is yours. If it turns out to be defective, you bear the cost of any servicing, repair or correction.') }}
+    </p>
+    <p class="pb-2 text-sm">
+      {{ _('To the extent the law allows, the author is not liable for any damages arising from its use — including lost data, lost money, or losses you suffer by acting on what it tells you.') }}
+    </p>
+    <p class="pb-2 text-sm">
+      {{ _('That matters here in one specific way. This simulator is a retrospective calculator: it estimates what a battery would have done over a past period, using your own measurements and an assumed future tariff regime. It does not predict what a battery will save you, and it is not financial advice. Check its assumptions against your own contract before spending money on the strength of a number it shows you.') }}
+    </p>
+    <p class="pb-2 text-xs text-base-content/70">
+      {{ _('The binding text is sections 15 and 16 of the licence, which this summary does not replace.') }}
+      <a class="link" href="https://github.com/knz/battery-sim/blob/master/LICENSE" target="_blank" rel="noopener noreferrer">{{ _('Read the full licence') }}</a>
+    </p>
+    <div class="modal-action">
+      <form method="dialog"><button class="btn btn-ghost btn-sm">{{ _('close') }}</button></form>
+    </div>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>{{ _('close') }}</button></form>
+</dialog>
+
+<script>
+  // Opens the warranty dialog. Delegated on document, so this works no matter where the footer
+  // sits in the page and needs no re-binding if a screen ever re-renders around it.
+  //
+  // Guarded against double-binding: three of the four screens already run their own inline
+  // scripts, and this partial is included once per page — but a page that included it twice
+  // would otherwise register two listeners and call showModal() on an already-open dialog.
+  (function () {
+    if (window.__warrantyFooterBound) return;
+    window.__warrantyFooterBound = true;
+    document.addEventListener('click', function (ev) {
+      if (!ev.target.closest('[data-open-warranty]')) return;
+      const dialog = document.getElementById('warranty-dialog');
+      if (dialog && !dialog.open) dialog.showModal();
+    });
+  })();
+</script>

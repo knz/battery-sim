@@ -236,6 +236,11 @@
     </div>
   </main>
 
+  {# The site footer — privacy statement, attribution, licence, and the warranty dialog it opens.
+     Shared by all four screens; see `_footer.html` on why it is an include in four places rather
+     than a base template (there is no base template here). #}
+  {% include "_footer.html" %}
+
   {# ── The staged-but-unfetched dialog (§2′.8) ────────────────────────────────
        NOT the edit screen's "Discard your changes?" copy. §2′.8 gives this screen its own wording
        because what is at stake is different: the drawer already committed the source choice and

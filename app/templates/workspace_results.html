@@ -136,6 +136,11 @@
     {% include "_panel_results.html" %}
   </main>
 
+  {# The site footer — privacy statement, attribution, licence, and the warranty dialog it opens.
+     Shared by all four screens; see `_footer.html` on why it is an include in four places rather
+     than a base template (there is no base template here). #}
+  {% include "_footer.html" %}
+
   {# ── Slot info dialog — the shared ⓘ modal (specs §4.1, §2.3a). ──────────────────
        One modal for every ⓘ .slot-info-btn on THIS screen. The roster's role blurbs went to
        `workspace_data.html` with panel ①, but three users of the affordance remain here: the

@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-05 19:04+0200\n"
+"POT-Creation-Date: 2026-08-05 20:20+0200\n"
 "PO-Revision-Date: 2026-07-23 20:30+0200\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: nl\n"
@@ -25,6 +25,14 @@ msgid ""
 msgstr ""
 "\"%(title)s\" en alles wat erin zit — de instellingen, de geladen "
 "gegevens en de resultaten — wordt verwijderd."
+
+#, python-format
+msgid ""
+"%(app)s is a digital creation of %(author)s. %(warranty)s. Licensed as "
+"%(license)s. %(source)s."
+msgstr ""
+"%(app)s is gemaakt door %(author)s. %(warranty)s. Uitgebracht onder "
+"%(license)s. %(source)s."
 
 #, python-format
 msgid "%(baseline)s without a battery → %(battery)s with one"
@@ -640,6 +648,9 @@ msgstr ""
 msgid "From"
 msgstr "Van"
 
+msgid "GNU AGPL v3"
+msgstr "GNU AGPL v3"
+
 msgid "GRID IMPORT SAVED"
 msgstr "BESPAARDE NETAFNAME"
 
@@ -857,6 +868,9 @@ msgstr ""
 "transparantieplatform van ENTSO-E op de oorspronkelijke resolutie: eerst "
 "per uur, daarna per kwartier."
 
+msgid "NO WARRANTY"
+msgstr "GEEN GARANTIE"
+
 msgid "Name"
 msgstr "Naam"
 
@@ -1003,6 +1017,12 @@ msgstr "Opgewekt"
 msgid "RESULTS"
 msgstr "RESULTATEN"
 
+msgid "Raphael Poss"
+msgstr "Raphael Poss"
+
+msgid "Read the full licence"
+msgstr "Lees de volledige licentie"
+
 #, python-format
 msgid ""
 "Reconstructed household load was negative in a large share of intervals "
@@ -1145,6 +1165,9 @@ msgstr ""
 msgid "Source"
 msgstr "Bron"
 
+msgid "Source code available"
+msgstr "Broncode beschikbaar"
+
 msgid "Spot price"
 msgstr "Spotprijs"
 
@@ -1205,6 +1228,21 @@ msgstr "Verbinding testen"
 msgid "Thanks. We have recorded that you want this."
 msgstr "Bedankt. We hebben genoteerd dat je dit wilt."
 
+msgid ""
+"That matters here in one specific way. This simulator is a retrospective "
+"calculator: it estimates what a battery would have done over a past "
+"period, using your own measurements and an assumed future tariff regime. "
+"It does not predict what a battery will save you, and it is not financial"
+" advice. Check its assumptions against your own contract before spending "
+"money on the strength of a number it shows you."
+msgstr ""
+"Dat is hier op één punt van belang. Deze simulator rekent achteraf: hij "
+"schat wat een batterij in een voorbije periode gedaan zou hebben, op "
+"basis van je eigen metingen en een aangenomen toekomstig tariefregime. "
+"Hij voorspelt niet wat een batterij je gaat besparen, en hij is geen "
+"financieel advies. Toets de aannames aan je eigen contract voordat je "
+"geld uitgeeft op grond van een getal dat hier op het scherm staat."
+
 #, python-format
 msgid ""
 "The battery ended the period %(drift)s less charged than it started. That"
@@ -1258,6 +1296,13 @@ msgstr ""
 "benchmark moet de batterij terugbrengen naar de laadtoestand waarmee hij "
 "begon, en jouw strategie deed dat niet. Er is voor deze periode geen "
 "benuttingspercentage te melden."
+
+msgid ""
+"The binding text is sections 15 and 16 of the licence, which this summary"
+" does not replace."
+msgstr ""
+"Wat bindend is, zijn de artikelen 15 en 16 van de licentie; deze "
+"samenvatting komt daar niet voor in de plaats."
 
 msgid ""
 "The charge band and the discharge band overlap; charge and discharge "
@@ -1437,6 +1482,9 @@ msgstr ""
 msgid "This answer decides whether the app reports euros as well as kWh."
 msgstr "Dit antwoord bepaalt of de app naast kWh ook euro's rapporteert."
 
+msgid "This application does not collect your data and does not send it remotely."
+msgstr "Deze app verzamelt je gegevens niet en stuurt ze nergens naartoe."
+
 #, python-format
 msgid ""
 "This battery imported %(extra)s MORE from the grid than the same "
@@ -1519,6 +1567,20 @@ msgstr ""
 "valt” al doet. Antwoord “Ja” op “Heb je zonnepanelen?” boven in het "
 "datapaneel om hem te gebruiken."
 
+msgid ""
+"This program is provided as is, without warranty of any kind, express or "
+"implied — including any implied warranty that it is fit to sell or fit "
+"for your particular purpose. The entire risk as to its quality and "
+"performance is yours. If it turns out to be defective, you bear the cost "
+"of any servicing, repair or correction."
+msgstr ""
+"Dit programma wordt geleverd zoals het is, zonder enige garantie, "
+"uitdrukkelijk of stilzwijgend — daaronder begrepen elke stilzwijgende "
+"garantie van verkoopbaarheid of geschiktheid voor een bepaald doel. Het "
+"volledige risico voor de kwaliteit en de werking ligt bij jou. Blijkt "
+"het gebrekkig te zijn, dan draag je zelf de kosten van elk onderhoud, "
+"herstel of correctie."
+
 msgid "Title"
 msgstr "Titel"
 
@@ -1531,6 +1593,16 @@ msgid ""
 msgstr ""
 "Om je besparing in euro’s uit te drukken, moet de app weten wat je voor "
 "stroom betaalt — je contractvorm en de bijbehorende tarieven."
+
+msgid ""
+"To the extent the law allows, the author is not liable for any damages "
+"arising from its use — including lost data, lost money, or losses you "
+"suffer by acting on what it tells you."
+msgstr ""
+"Voor zover de wet dat toestaat, is de auteur niet aansprakelijk voor "
+"schade die voortvloeit uit het gebruik ervan — waaronder verlies van "
+"gegevens of geld, of schade die je lijdt doordat je handelt naar wat "
+"het programma je vertelt."
 
 msgid "Token"
 msgstr "Token"
@@ -1576,6 +1648,9 @@ msgstr "Variabel"
 
 msgid "Want to know what this is worth in euros?"
 msgstr "Wil je weten wat dit in euro's waard is?"
+
+msgid "What \"no warranty\" means"
+msgstr "Wat “geen garantie” betekent"
 
 msgid "Where the energy comes from"
 msgstr "Waar de energie vandaan komt"
