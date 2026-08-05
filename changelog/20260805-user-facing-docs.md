@@ -258,6 +258,49 @@ by describing the sponsor page as "what code signing would cost, and what it wou
 promise the rewritten page no longer keeps. Both now read "including what would remove these
 warnings".
 
+## Issue templates
+
+User prompt, verbatim:
+
+> i'd also like to point the users to the "issues" screen on github. add templates for the
+> three cases mentioned in the sponsors page and link the items in the sponsors page to the
+> issue creation page with the right template selected.
+
+**Markdown templates rather than YAML issue forms**, on the user's choice when asked. Forms
+would enforce required fields; Markdown is easier to fill in from a phone and does not fight a
+reporter who wants to write prose. The trade-off is that fields can be left as placeholder text.
+
+**Four templates, not three** — also the user's choice. The three named on the sponsor page,
+plus a catch-all so the chooser is not silent about questions and suggestions.
+
+- `.github/ISSUE_TEMPLATE/broken.md` — platform, app version, what happened, what was expected,
+  terminal output. Labelled `bug`.
+- `.github/ISSUE_TEMPLATE/docs.md` — which page, what it says, what the reporter actually saw.
+  Its comment repeats that the macOS and Windows steps come from vendor documentation rather
+  than observation, so a differing screen outranks the page. Labelled `documentation`.
+- `.github/ISSUE_TEMPLATE/dutch.md` — **written in Dutch**, since its reporters are Dutch
+  speakers and the page that links to it is the Dutch one. Labelled `i18n`.
+- `.github/ISSUE_TEMPLATE/other.md` — questions and ideas. Its comment states the product is a
+  counterfactual simulator, so forecaster and controller suggestions are likely to be declined,
+  and routes commercial enquiries to the contact form instead of an issue.
+
+**Link format `?template=<filename>.md`**, the documented form for Markdown templates. The
+extension is required; `?template=broken` does not match. Both sponsor files' header comments
+now record this, and warn that renaming a template breaks the link silently — nothing validates
+these URLs.
+
+**One label had to be created.** The repository carried only GitHub's nine defaults. `bug` and
+`documentation` existed; `i18n` did not, and GitHub drops unknown labels without complaint, so
+the Dutch template would have applied none. Created as `i18n` — "Dutch or English wording in the
+interface or docs" — with the user's approval, since it changes repository settings rather than
+files in this branch.
+
+**Not verifiable before merge.** The URLs return 404 today because `.github/ISSUE_TEMPLATE/`
+does not exist on `master` — confirmed through the API, so the 404 is the templates being
+unmerged rather than a malformed URL. Unauthenticated `curl` cannot tell the two apart, since
+GitHub 404s every issue-creation URL for logged-out visitors. **Worth clicking one link once
+this merges**, which is the only real check available.
+
 ## Files modified
 
 **Created**

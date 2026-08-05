@@ -25,6 +25,10 @@ geldt voor macOS en op Windows maar geleidelijk.
 Zakelijke aanvragen gaan naar het contactformulier op https://raphaelposs.com/contact/, met
 opzet NIET via GitHub Sponsors, want daar passen geen voorwaarden bij. Gewone sponsoring loopt
 via GitHub Sponsors: https://github.com/sponsors/knz.
+
+De drie kosteloze punten verwijzen naar .github/ISSUE_TEMPLATE/{broken,docs,dutch}.md via
+?template=<bestandsnaam>.md — de extensie hoort bij de parameter. Hernoem je een template, dan
+breekt de link hier ongemerkt, want niets controleert deze URL's.
 Engelse tegenhanger: ../en/sponsor.md.
 -->
 
@@ -65,16 +69,24 @@ sponsorpagina.
 Je kunt het project steunen via [GitHub Sponsors](https://github.com/sponsors/knz); dat
 verzorgt zowel maandelijkse bijdragen als eenmalige donaties.
 
-Wil je liever bijdragen op een manier die niets kost:
+Wil je liever bijdragen op een manier die niets kost, dan gaat dat allemaal via
+[de issue-tracker](https://github.com/knz/battery-sim/issues):
 
-- **Meld wat er stukgaat.** De builds zijn op een beperkt aantal machines gecontroleerd. Een
-  melding dat er een niet start op jouw distributie, jouw Mac of jouw Windows-versie, is veel
-  waard.
-- **Meld een fout in de documentatie.** De stappen voor macOS en Windows in deze documentatie
-  zijn geschreven op basis van documentatie van Apple en Microsoft, niet doordat iemand het daar
-  heeft gedraaid. Ziet jouw scherm er anders uit, dan is dat een correctie die we graag hebben.
-- **Kijk het Nederlands na.** Zowel de interface als deze pagina's zijn in het Nederlands
-  geschreven, niet vertaald. Een houterige zin is een bug.
+- **[Meld wat er
+  stukgaat](https://github.com/knz/battery-sim/issues/new?template=broken.md).** De builds zijn
+  op een beperkt aantal machines gecontroleerd. Een melding dat er een niet start op jouw
+  distributie, jouw Mac of jouw Windows-versie, is veel waard.
+- **[Meld een fout in de
+  documentatie](https://github.com/knz/battery-sim/issues/new?template=docs.md).** De stappen
+  voor macOS en Windows in deze documentatie zijn geschreven op basis van documentatie van Apple
+  en Microsoft, niet doordat iemand het daar heeft gedraaid. Ziet jouw scherm er anders uit, dan
+  is dat een correctie die we graag hebben.
+- **[Kijk het Nederlands na](https://github.com/knz/battery-sim/issues/new?template=dutch.md).**
+  Zowel de interface als deze pagina's zijn in het Nederlands geschreven, niet vertaald. Een
+  houterige zin is een bug.
+
+Heb je iets anders — een vraag of een idee — dan is dat
+[ook welkom](https://github.com/knz/battery-sim/issues/new?template=other.md).
 
 ## Wat sponsoring níét koopt
 

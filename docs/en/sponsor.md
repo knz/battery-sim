@@ -22,6 +22,10 @@ Windows, because "removes the warnings" is true of macOS and only gradually true
 Commercial enquiries go to the contact form at https://raphaelposs.com/contact/, deliberately
 NOT to GitHub Sponsors, which cannot carry terms. General sponsorship is GitHub Sponsors at
 https://github.com/sponsors/knz.
+
+The three no-cost items link to .github/ISSUE_TEMPLATE/{broken,docs,dutch}.md via
+?template=<filename>.md — the extension is part of the parameter. Renaming a template file
+breaks the link here silently, since nothing validates these URLs.
 Dutch counterpart: ../nl/sponsor.md.
 -->
 
@@ -61,15 +65,21 @@ carry them.
 You can support the project through [GitHub Sponsors](https://github.com/sponsors/knz), which
 handles both recurring monthly contributions and one-time donations.
 
-If you would rather contribute in a way that costs nothing:
+If you would rather contribute in a way that costs nothing, all of these go through
+[the issue tracker](https://github.com/knz/battery-sim/issues):
 
-- **Report what breaks.** The builds are verified on a narrow set of machines. A report that one
-  fails to start on your distribution, your Mac or your Windows version is worth a great deal.
-- **Report a documentation error.** The macOS and Windows steps in these docs are written from
-  Apple's and Microsoft's documentation, not from running those systems. If your screen says
-  something different, that is a correction worth having.
-- **Check the Dutch.** The interface and these pages are written in Dutch as well as English.
-  Awkward phrasing is a bug.
+- **[Report what breaks](https://github.com/knz/battery-sim/issues/new?template=broken.md).** The
+  builds are verified on a narrow set of machines. A report that one fails to start on your
+  distribution, your Mac or your Windows version is worth a great deal.
+- **[Report a documentation
+  error](https://github.com/knz/battery-sim/issues/new?template=docs.md).** The macOS and Windows
+  steps in these docs are written from Apple's and Microsoft's documentation, not from running
+  those systems. If your screen says something different, that is a correction worth having.
+- **[Check the Dutch](https://github.com/knz/battery-sim/issues/new?template=dutch.md).** The
+  interface and these pages are written in Dutch as well as English. Awkward phrasing is a bug.
+
+Anything else — a question, an idea — is
+[welcome too](https://github.com/knz/battery-sim/issues/new?template=other.md).
 
 ## What sponsorship does not buy
 
