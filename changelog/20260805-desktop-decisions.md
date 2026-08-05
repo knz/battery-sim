@@ -136,6 +136,31 @@ across users, so a second concurrent user on the same machine falls back to the 
 instead of being pointed at the first user's mount. Acceptable for a single-user desktop
 app; would need revisiting for a multi-seat machine.
 
+## U9 — The GStreamer `appsink` warning stays
+
+Left as-is. It is one line of stderr on startup, from WebKit's media pipeline probing for
+plugins that are not there; nothing in the app is degraded by it.
+
+The investigation behind the decision is worth keeping, because it rules out the obvious fixes:
+
+- **Disabling the media backend does not work.** The warning is emitted by WebKitWebProcess at
+  0.001s, before any `WebKitSettings` property or runtime-feature setting reaches it over IPC.
+  `enable-media`, the feature registry, and environment variables were each implemented,
+  rebuilt and re-run; the warning survived all three. The changes were reverted, so no
+  application source was touched.
+- **The cause is our own bundling.** The AppImage ships GStreamer's shared libraries, which
+  `libwebkit2gtk` links against, but not its plugins, which are `dlopen`ed and therefore
+  invisible to the closure checker. Shipping the libraries is precisely what redirects
+  GStreamer's plugin search away from the host's working copies. Bundling
+  `gstreamer1.0-plugins-base` would address the cause, at the cost of size — available if the
+  warning ever becomes worth removing.
+- **Rejected:** pointing `GST_PLUGIN_SYSTEM_PATH` at the host's plugins. Clean on this machine,
+  but it hardcodes Debian paths and reproduces the warning on any host without the plugins
+  installed — a fix that looks like one without being one.
+
+Related and still open: the closure checker is structurally blind to every `dlopen`ed
+subsystem, not only GStreamer. Nothing else was investigated.
+
 ---
 
 ## R1 — CLOSED, 2026-08-05: the premise holds
