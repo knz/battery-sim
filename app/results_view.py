@@ -171,11 +171,27 @@ Main items:
                               window (BOUNDS only — interior holes are not detected).
     results_from(dataset, window) -> dict | None   the panel-③ view-model, or None.
     _cost_block / _cost_benchmark_block / _monthly_saved_eur   the §2.4 COST SAVINGS section.
+    _energy_flows(runs, rec, frame, cfg) -> dict   the §2.4 *Energy flows* tab: monthly load-sourcing
+                              and PV-allocation stacks plus a 24-hour average day (bucketed by
+                              Europe/Amsterdam local hour; flows averaged per DAY so the profile is
+                              resolution-invariant, SoC per interval because it is a stock), all kWh.
+                              Carries `any_partial`, `any_standby` and `any_pv`, three
+                              template-only gates for the notes and lines on those charts.
+    _soc_heatmap / _earnings_heatmap / _saved_heatmap   the §2.4 *SoC + price* tab's three grids,
+                              all on `_heatmap_axes`' shared local day × time-of-day axes: run C's
+                              SoC (quantised bytes), the euros attributable to the battery's flows,
+                              and the counterfactual saving `bill(A) − bill(C)` (both float32).
+                              The last two are absent when `cfg.simulate_cost` is off.
+    _per_interval_bill(flows, p_import, p_export_net)   §6.10's pre-top-up bill per interval, the
+                              one series behind both `_saved_heatmap` and `_monthly_saved_eur`.
+    FLOWS_PARTIAL_MONTH_FRAC  above this share of missing intervals a month's bar is marked
+                              incomplete.
     WATERFALL_DISPLAY_EPS_EUR  below this a waterfall line is dropped from the DISPLAY only.
 """
 
 from __future__ import annotations
 
+import base64
 import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -206,7 +222,7 @@ from app.domain.simframe import simulation_frame
 from app.domain.simulate import run_all
 from app.domain.series_vocab import SERIES_SLOTS, SLOT_BY_NAME
 from app.data_view import ROLE_LABEL, _fmt_res, _res_msg
-from app.i18n import format_num, msg as _msg, msg_n as _msg_n, num
+from app.i18n import DISPLAY_TZ, format_num, msg as _msg, msg_n as _msg_n, num
 from app.sample_data import _N
 from app.summary_view import data_summary_from
 
@@ -930,6 +946,853 @@ def _monthly_import(rec: ReconciledGrid) -> dict:
     return {"months": labels, "values": [round(v) for v in values]}
 
 
+# The share of a month's intervals that may be missing before its bar is marked incomplete.
+# Any-missing was rejected as the threshold: real datasets have scattered single-interval holes in
+# nearly every month, so a flag that fires on one missing interval fires everywhere and stops
+# carrying information. 5% is the point at which a bar is short enough that a reader comparing it
+# against its neighbours would be misled by it.
+FLOWS_PARTIAL_MONTH_FRAC = 0.05
+
+
+def _energy_flows(runs, rec: ReconciledGrid, frame, cfg: SimulationConfig) -> dict:
+    """The §2.4 *Energy flows* tab's three kWh charts, from run C's per-interval flows.
+
+    All three answer a different question about the same window and share no axis:
+
+        load_sourcing   where the household's energy came from — dis_home + imp_home + pv_to_home,
+                        which sums to `household_load + standby`, both of which ride alongside
+                        (see "the standby term" below).
+        pv_allocation   where the PV generation went — chg_pv + pv_to_home + exp_from_pv +
+                        curtailed, which sums to `pv`.
+        average_day     the same flow terms as a 24-point hour-of-day profile over the whole
+                        window — kWh moved in an average day's hour — plus a mean SoC trace, which
+                        the template draws in a FRAME OF ITS OWN beneath the flows rather than on a
+                        secondary axis. See "the average day's denominator" below: the flows are a
+                        mean per DAY, the SoC a mean per interval, and they are different because
+                        one is a flow and the other a stock — the same distinction that is the
+                        reason they no longer share a plot area.
+
+    **The average day is DIVERGING, and the axis is what carries the meaning.** Unlike the two
+    monthly charts it is not a decomposition of one total — it splits the balance by DIRECTION:
+
+        above zero   energy entering the house   dis_home, imp_home, pv_to_home, chg_grid
+        below zero   energy leaving it or being stored   exp_from_pv, dis_grid, chg_pv, curtailed
+
+    Note what this deliberately gives up. The positive stack is NOT the load-sourcing
+    decomposition the monthly chart 1 draws: `chg_grid` is grid energy going INTO the battery, a
+    sink, sitting among three sources. Stacking it there would be wrong under chart 1's question
+    ("where did household load come from") and is right under this one ("what crossed the
+    house boundary, and which way"). The consequence is that `household_load` no longer bounds
+    this stack — it sits below the top by standby PLUS grid charging, where on chart 1 the gap is
+    standby alone. The note under the chart says so; do not copy chart 1's note here.
+
+    An earlier revision drew three positive bars only, with a `pv_total` reference line standing
+    in for the PV that charged the battery, exported or was curtailed. The line is GONE: all
+    three of those terms are now bars in their own right, so a total-production line would
+    duplicate the sum of four segments already on screen. Total PV remains recoverable as
+    `pv_to_home + chg_pv + exp_from_pv + curtailed`.
+
+    `net_grid` rides alongside as a line — see "the net-grid line" below.
+
+    Total PV is NOT added to `pv_allocation`. That stack sums to PV generation by construction, so
+    a total there would draw a line along the top of its own bars and say nothing.
+
+    **The net-grid line, and why it is unambiguous only because of the fourth positive bar.** It is
+
+        net_grid = (imp_home + chg_grid) − (exp_from_pv + dis_grid)
+
+    positive for a net import, matching the sign convention of every import figure on the page.
+    Both grid imports and both grid exports are drawn as bars, so this is simultaneously the
+    utility meter's reading AND the exact algebraic sum of the grid-coloured segments above and
+    below the axis. Those two readings are the same number only because `chg_grid` is on the
+    chart; drop that bar and the line either contradicts the bars or stops matching the meter.
+    It is a flow like the bars, so it takes `_hourly_flow` and shares the PRIMARY axis.
+
+    **Run C, not A or B.** C is battery + standby — the headline run, the one every KPI tile above
+    reports. Charting A would describe a household that does not have the battery the page is about,
+    and B differs from C only by standby, which is not a distinction this view makes.
+
+    **The identity closes by construction, it is not enforced here.** §6.8 step 5 computes the grid
+    flows as the residual of the household balance:
+
+        net_flow = load + chg_pv + chg_grid − pv − dis_ac ;  imp = max(0, net), exp = max(0, −net)
+
+    which rearranges to
+
+        load + chg_pv + chg_grid + exp + curtailed  =  pv + dis_home + dis_grid + imp
+
+    so nothing below needs a fudge term to make the stacks add up. `curtailed` being tracked
+    explicitly, rather than folded into a residual, is what makes that true.
+
+    **Two of the raw arrays are MIXED and must be split, or the battery is counted twice.** `exp`
+    carries both PV that left the house and battery arbitrage export; `imp` carries both household
+    draw and grid charging. Hence:
+
+        exp_from_pv = max(0, exp − dis_grid)
+        imp_home    = max(0, imp − chg_grid)
+        pv_to_home  = pv − chg_pv − exp_from_pv − curtailed
+
+    The `max(0, ·)` on the first two is defensive against float noise only: step 6's export clamp
+    sheds `dis_grid` before it curtails PV, so `exp < dis_grid` cannot arise from the model itself.
+
+    **The standby term — the load stack sums to load PLUS standby, not to `frame.load`.** The
+    `load` in step 5's balance is NOT `frame.load`: §6.9 hands the step `frame.load +
+    standby_kw × dt` (`simulate._View`, which REBINDS rather than mutating, so the band and the
+    tiles keep seeing the household's own load). Checking the three source segments against
+    `frame.load` therefore leaves a residual of exactly the window's standby draw — measured at
+    108.0 kWh against 2,801.6 kWh over 3,600 intervals at the appendix-A default 30 W, a 3.9%
+    overshoot with no visible cause. The identity that actually holds is
+
+        dis_home + imp_home + pv_to_home  =  household_load + standby
+
+    so `standby` and `household_load` are published BESIDE the three segments rather than stacked
+    with them. Standby is a sink, not a source: making it a fourth bar segment would put the
+    battery's own consumption on the "where the energy came from" side of the balance. Carrying
+    both terms lets a consumer state the difference, or net it out, without re-deriving either.
+
+    The standby figure here is the PARAMETER-derived draw (`standby_w × dt` per evaluated
+    interval), not `RunSet.standby_kwh`. `metrics.energy_metrics` draws the same distinction for
+    the same reason: `standby_kwh` is the exact `C.imp − B.imp` run difference — standby AS THE
+    METER SAW IT, smaller whenever PV or the battery covered it — whereas the quantity that closes
+    this balance is the load run C actually had to serve. The metered figure would leave it short
+    by exactly the standby that PV covered.
+
+    That gap is visible on two of the three charts — the stack top sits above the household-load
+    line — with no on-screen explanation of what the difference is, so the template writes a short
+    note under each. `any_standby` is published for the same reason `any_partial` is: 0 W is a
+    legitimate configuration (`simconfig` rejects only NEGATIVE draws), and at 0 W the stack sits
+    exactly on the line, where a note explaining a gap would be explaining nothing. It is derived
+    from the CONFIGURED draw rather than from the published `standby` series, because
+    `load_sourcing` is rounded to whole kWh: a small draw over a short window can round to 0.0 in
+    every month while the drawn gap — computed from the unrounded figures — is still there.
+
+    **Gap intervals are NaN, not 0** (`simulate.Flows`' docstring), deliberately — a 0 in `imp`
+    asserts "nothing was imported", which is exactly what the simulation declined to claim for an
+    interval with missing inputs. Every sum here is therefore `np.nansum`, and the average day
+    excludes gap intervals from both its numerator and its day count. That alone would render a
+    half-covered month as a short bar reading "low usage"
+    rather than "unknown", so each month also carries a `partial` flag (`FLOWS_PARTIAL_MONTH_FRAC`)
+    which the template marks the bar with. The flag is computed here rather than in the template
+    because it needs the interval counts, which do not otherwise travel.
+
+    **Bucketing mirrors `_monthly_import` exactly** — window start + i × grid_s, (year, month) key
+    in first-seen chronological order, month NUMBERS 1–12 for the locale-bound `monthname` filter —
+    so a month's bar here sits under the same label as its bar on the sibling monthly-import tab.
+    `rec` supplies that bucketing; `frame` is accepted for the interval count and grid spacing it
+    shares with `rec`, and to make the run/frame pairing explicit at the call site.
+
+    **The average day's denominator is DAYS, not intervals — and only for the flows.** Each of the
+    24 buckets holds one interval per day at an hourly grid but four at a 15-minute grid, so a mean
+    over the intervals in a bucket is kWh-per-interval, not kWh-per-hour: it draws the same physical
+    day a quarter as tall the moment the input is 15-minute data (the standard Dutch P1 export, and
+    a common Home Assistant statistics resolution). Measured before the fix on one physical dataset
+    resampled two ways: the source segments summed over the 24 buckets gave 10.32 kWh at 3600 s and
+    2.58 kWh at 900 s, while the monthly bars and every KPI tile on the same page were identical.
+    The flows are therefore Σ over the bucket ÷ the number of DISTINCT LOCAL DAYS contributing a
+    non-gap interval to it, which is resolution-invariant by construction — four quarter-hours sum
+    to the hour they make up — and which lets a day that is entirely a gap at that hour, or a
+    partial first/last day that does not reach it, drop out of the denominator instead of diluting
+    it.
+
+    **`soc` is exempt, because it is a STOCK.** It is kWh stored at an instant, not kWh moved during
+    an interval; its per-interval mean is already the average charge held during that hour and is
+    already resolution-invariant, and summing it over a day is not a quantity. `_hourly_flow` and
+    `_hourly_stock` are kept as two functions for exactly this reason — the flow rule applied to SoC
+    would multiply the trace by the number of intervals per day.
+
+    **Hour-of-day is Europe/Amsterdam, converted here.** §4.4 holds the whole pipeline in UTC and
+    `SimulationFrame.index` is UTC-naive by construction, so there is no local-time axis to read —
+    the interval start times below are UTC instants and each one is converted before it is bucketed.
+    The average day is the one figure in this module that is a WALL-CLOCK profile rather than a
+    total: its whole use is to be compared against what the reader sees on their own inverter app or
+    Home Assistant dashboard, both of which plot Dutch local time. Bucketed by UTC hour it put the
+    PV peak near 11:00 instead of 13:00, which does not read as a different convention — it reads as
+    a wrong chart. This is `i18n.DISPLAY_TZ`, the app's display-time convention, applied at the
+    point the display axis is constructed; nothing upstream of here stops being UTC.
+
+    **The conversion is PER INTERVAL, and has to be.** Europe/Amsterdam is UTC+1 in winter and
+    UTC+2 in summer, so a window of more than a few months has no single offset. Shifting the
+    finished 24-point array by a constant would be wrong for roughly half of any year-long window
+    and would misplace both DST transition days outright. Each interval's local hour is therefore
+    derived from its own timestamp, before any bucket is accumulated. The cost is a Python-level
+    loop over intervals in place of a vectorised modulo — `zoneinfo` has no numpy equivalent — which
+    is the same order of work as the (year, month) bucketing loop already above it.
+
+    On the two DST days the profile is very slightly uneven by construction: the spring-forward day
+    contributes no interval to local hour 02:00, so it is absent from that bucket's day count
+    entirely; the autumn day contributes two hours' worth of intervals but counts as ONE day, so
+    the 02:00 bucket reads as a double-length hour on that one day out of the window. Over a window
+    of any length this is a sub-percent weighting effect on one bucket, and the alternative —
+    dropping or reweighting those days — would distort the profile more than it corrects.
+
+    Rounding: whole kWh for the monthly stacks, as `_monthly_import` does — a month's total is
+    hundreds of kWh and the decimal is noise. The average-day series are ~1 kWh per hour, where
+    whole-number rounding would flatten most of the shape, so those keep 2 decimals.
+    """
+    f = runs.c
+    n = len(f.imp)
+
+    pv = np.asarray(frame.pv, dtype=np.float64)
+    load = np.asarray(frame.load, dtype=np.float64)
+    imp = np.asarray(f.imp, dtype=np.float64)
+    exp = np.asarray(f.exp, dtype=np.float64)
+    chg_pv = np.asarray(f.chg_pv, dtype=np.float64)
+    chg_grid = np.asarray(f.chg_grid, dtype=np.float64)
+    dis_home = np.asarray(f.dis_home, dtype=np.float64)
+    dis_grid = np.asarray(f.dis_grid, dtype=np.float64)
+    curtailed = np.asarray(f.curtailed, dtype=np.float64)
+    soc = np.asarray(f.soc, dtype=np.float64)
+    gap = np.asarray(f.gap, dtype=bool)
+
+    # The two mixed terms, split as the docstring derives. NaN propagates through both, so gap
+    # intervals stay NaN rather than becoming 0 via the maximum.
+    exp_from_pv = np.maximum(exp - dis_grid, 0.0)
+    imp_home = np.maximum(imp - chg_grid, 0.0)
+    pv_to_home = pv - chg_pv - exp_from_pv - curtailed
+    # `frame.pv`/`frame.load` are NaN on the same intervals the flow arrays are (§6.9 marks a gap
+    # precisely when one of them is NaN), so the subtraction above cannot mix a real PV figure with
+    # a NaN flow. Masked explicitly all the same, so a future gap rule that widened beyond
+    # load/pv NaN could not leak a bar-sized number into a month.
+    pv_to_home = np.where(gap, np.nan, pv_to_home)
+
+    # The standby segment: a constant per EVALUATED interval, NaN on gaps so it buckets and
+    # averages exactly like the flow arrays beside it. `cfg.battery.standby_w` is the same field
+    # §6.9 builds the run's `standby_kwh` from, so this is the run's own term rather than a
+    # re-estimate of it.
+    standby_per_interval = cfg.standby_kw * frame.dt_hours
+    standby = np.where(gap, np.nan, np.full(n, standby_per_interval, dtype=np.float64))
+
+    # ── Monthly buckets: `_monthly_import`'s loop, over several series at once ────────────────
+    win_start = np.datetime64(rec.window[0].replace(tzinfo=None), "s")
+    bucket_start = win_start + (np.arange(n) * rec.grid_s).astype("timedelta64[s]")
+    years = bucket_start.astype("datetime64[Y]").astype(int) + 1970
+    months = bucket_start.astype("datetime64[M]").astype(int) % 12 + 1
+    labels: list[int] = []
+    bucket_of = np.zeros(n, dtype=np.int64)
+    seen: dict[tuple[int, int], int] = {}
+    for i in range(n):
+        key = (int(years[i]), int(months[i]))
+        if key not in seen:
+            seen[key] = len(labels)
+            labels.append(key[1])
+        bucket_of[i] = seen[key]
+    n_buckets = len(labels)
+
+    def _monthly(arr: np.ndarray) -> list[float]:
+        """Σ per calendar-month bucket, gaps excluded, rounded to whole kWh."""
+        sums = np.zeros(n_buckets, dtype=np.float64)
+        clean = np.where(np.isnan(arr), 0.0, arr)
+        np.add.at(sums, bucket_of, clean)
+        return [float(round(v)) for v in sums]
+
+    # Missing fraction per month, from the gap mask rather than from NaN in any one series: the
+    # mask is the simulation's own statement about which intervals it declined to model.
+    counts = np.zeros(n_buckets, dtype=np.float64)
+    np.add.at(counts, bucket_of, 1.0)
+    missing = np.zeros(n_buckets, dtype=np.float64)
+    np.add.at(missing, bucket_of, gap.astype(np.float64))
+    partial = [bool(m / c > FLOWS_PARTIAL_MONTH_FRAC) for m, c in zip(missing, counts)]
+
+    # ── Average day: LOCAL hour-of-day means over the whole window ────────────────────────────
+    # A single averaged day, not per-season or per-month panels (a decision recorded in the
+    # changelog). The known trade-off is accepted: this blends summer and winter into a profile
+    # that matches neither, and the PV hump is correspondingly lower and wider than any real day's.
+    #
+    # The hour is Europe/Amsterdam, derived PER INTERVAL from that interval's own instant — see the
+    # docstring. `% 24` on the UTC value would be one vectorised line, but Amsterdam is UTC+1/+2
+    # across DST and a constant shift is therefore wrong for part of any multi-month window. There
+    # is no numpy-level tz conversion, so this is an explicit loop; it is O(n) alongside the
+    # (year, month) loop above and does the same per-interval work.
+    # The local DATE is carried alongside the local hour because the flow aggregation below
+    # divides by a count of days, not of intervals — see `_hourly_flow`. Dates are interned to
+    # small integers so the per-bucket day counting is a numpy `unique`, not a set of date objects.
+    win_start_utc = _as_utc(rec.window[0])
+    hours = np.empty(n, dtype=np.int64)
+    days = np.empty(n, dtype=np.int64)
+    day_ids: dict[tuple[int, int, int], int] = {}
+    for i in range(n):
+        local = (win_start_utc + timedelta(seconds=i * rec.grid_s)).astimezone(DISPLAY_TZ)
+        hours[i] = local.hour
+        key = (local.year, local.month, local.day)
+        d = day_ids.get(key)
+        if d is None:
+            d = day_ids[key] = len(day_ids)
+        days[i] = d
+
+    def _hourly_flow(arr: np.ndarray) -> list[float]:
+        """Mean kWh MOVED per local hour-of-day: Σ over the bucket ÷ number of days in it, 2 dp.
+
+        **This is a per-DAY mean, not a per-interval mean, and the distinction is the whole point.**
+        Every series passed here is a FLOW — kWh transferred during one interval — so at an hourly
+        grid a bucket holds one interval per day and the two means coincide, but at a 15-minute grid
+        it holds four, and a per-interval mean (`nanmean`) would report kWh-per-15-minutes on an axis
+        labelled kWh. That is the same physical day drawn a quarter as tall: measured at 2.58 kWh
+        summed over the 24 buckets where the hourly run of the same data gave 10.32 kWh, against
+        monthly bars and KPI tiles on the same page that did not move. 15-minute data is the standard
+        Dutch P1 export and a common Home Assistant statistics resolution, so this is not an edge
+        case. Summing first and dividing by days makes the result resolution-invariant by
+        construction: the sum of four quarter-hours is the hour they make up.
+
+        **`soc` must NOT come through here** — it is a STOCK (kWh stored at an instant), not a flow.
+        Summing stored charge across a day answers no question, and a stock's per-interval mean is
+        already resolution-invariant. It goes through `_hourly_stock` below.
+
+        The denominator counts DISTINCT LOCAL DAYS that contribute a NON-GAP interval to that
+        bucket, so a day whose 03:00 was entirely a gap does not dilute the 03:00 bucket — counting
+        it would understate that hour in proportion to the gap, which is the failure the NaN
+        convention (`simulate.Flows`: gaps are NaN, never 0) exists to prevent. A partial first or
+        last day counts for the hours it actually covers and not for the others, which is what makes
+        an eight-day window starting at noon come out as a day-shaped profile rather than one with a
+        step in it at 12:00.
+
+        DST is handled by the same rule rather than by special-casing. The spring-forward day
+        contributes no interval to local 02:00 and is therefore absent from that bucket's day count;
+        the autumn day contributes two hours' worth of intervals to local 02:00 but is ONE day, so
+        that bucket reads as a double-length hour on one day out of the window. Sub-percent over any
+        real window, and it is a division by a count that can only be 0 when no data lands there.
+
+        A bucket with no contributing day at all — no interval, or every interval a gap — yields
+        0.0. `nan` is not JSON-serialisable and would break the data node, and 0.0 is the only
+        defensible stand-in for "no observation" in a series a chart must draw as a continuous
+        profile.
+        """
+        out: list[float] = []
+        for h in range(24):
+            sel = hours == h
+            observed = sel & ~np.isnan(arr)
+            n_days = len(np.unique(days[observed])) if observed.any() else 0
+            if n_days == 0:
+                out.append(0.0)
+                continue
+            out.append(round(float(np.nansum(arr[sel])) / n_days, 2))
+        return out
+
+    def _hourly_stock(arr: np.ndarray) -> list[float]:
+        """Mean per local hour-of-day of a STOCK series (SoC), over intervals, 2 dp.
+
+        A per-INTERVAL mean, deliberately, and the counterpart to `_hourly_flow`'s per-day sum.
+        SoC is kWh *stored at an instant*, so the average SoC during an hour is the mean of the SoC
+        values observed in it — already independent of how many samples the grid takes within the
+        hour. Applying the flow rule here would sum stored charge across a day, which is not a
+        quantity. Do not merge the two functions.
+
+        NaN-empty buckets become 0.0 for the same JSON reason as above; in practice SoC is carried
+        forward through gap intervals (`simulate.Flows`), so this only fires on an hour no interval
+        reaches at all.
+        """
+        out: list[float] = []
+        for h in range(24):
+            sel = arr[hours == h]
+            v = np.nanmean(sel) if sel.size and not np.all(np.isnan(sel)) else np.nan
+            out.append(0.0 if np.isnan(v) else round(float(v), 2))
+        return out
+
+    # SoC is populated on gap intervals too (carried forward, per `Flows`), so `_hourly_stock`'s
+    # mean is over every interval and needs no gap handling — that is what keeps the trace a
+    # continuous line. The flow series are NaN on gaps and `_hourly_flow` drops those intervals
+    # from both its sum and its day count.
+    return {
+        "months": labels,
+        "partial": partial,
+        # Three SOURCE segments. `standby` rides alongside them as a reference series, NOT as a
+        # fourth bar segment — it is a sink, not a source, and stacking it would put the battery's
+        # own consumption on the "where the energy came from" side of the balance. See the
+        # docstring: the three segments sum to `household_load + standby`, and `standby` is
+        # published so a consumer can state that, or subtract it, without re-deriving the term.
+        "load_sourcing": {
+            "dis_home": _monthly(dis_home),
+            "imp_home": _monthly(imp_home),
+            "pv_to_home": _monthly(pv_to_home),
+            "standby": _monthly(standby),
+            "household_load": _monthly(np.where(gap, np.nan, load)),
+        },
+        "pv_allocation": {
+            "chg_pv": _monthly(chg_pv),
+            "pv_to_home": _monthly(pv_to_home),
+            "exp_from_pv": _monthly(exp_from_pv),
+            "curtailed": _monthly(curtailed),
+        },
+        "average_day": {
+            # Europe/Amsterdam wall-clock hours, not UTC — the axis a reader compares against their
+            # own inverter or HA dashboard. See the docstring for why the conversion is per-interval.
+            "hours": list(range(24)),
+            # Flows — kWh moved during the hour, so a per-DAY mean (`_hourly_flow`). Adding a
+            # series here means deciding first whether it is a flow or a stock; only `soc` is a
+            # stock, and it is the line below.
+            "dis_home": _hourly_flow(dis_home),
+            "imp_home": _hourly_flow(imp_home),
+            "pv_to_home": _hourly_flow(pv_to_home),
+            "chg_pv": _hourly_flow(chg_pv),
+            "chg_grid": _hourly_flow(chg_grid),
+            "exp_from_pv": _hourly_flow(exp_from_pv),
+            # Battery arbitrage export — the second BELOW-axis grid term, split out of the mixed
+            # `exp` array by the derivation above. Published since the chart became diverging;
+            # before that it appeared nowhere, folded into the gap under the old `pv_total` line.
+            "dis_grid": _hourly_flow(dis_grid),
+            "curtailed": _hourly_flow(curtailed),
+            "standby": _hourly_flow(standby),
+            "household_load": _hourly_flow(np.where(gap, np.nan, load)),
+            # Net position at the meter, positive for a net import. Computed BEFORE bucketing, on
+            # the per-interval arrays, so an hour that imports and exports in different intervals
+            # nets within the hour rather than being averaged as two gross figures — the same
+            # reason the bars are bucketed from raw arrays rather than combined afterwards. NaN
+            # propagates from any term, so gap intervals stay gaps. See the docstring for why this
+            # is both the meter reading and the sum of the grid-coloured bars.
+            "net_grid": _hourly_flow((imp_home + chg_grid) - (exp_from_pv + dis_grid)),
+            # STOCK — kWh stored at an instant, so a per-interval mean. See `_hourly_stock`.
+            "soc": _hourly_stock(soc),
+        },
+        # True when any month's bar is drawn from materially incomplete data, so the template can
+        # decide whether to render the footnote without scanning the array itself.
+        "any_partial": any(partial),
+        # True when the battery draws standby power at all, so the template can decide whether to
+        # render the note explaining why the source stack sits above the household-load line.
+        # Gated on the CONFIGURED draw, not on the published series: `load_sourcing` is rounded to
+        # whole kWh, so a small standby over a short window can round to 0.0 in every month while
+        # the gap is still drawn — the line and the stack top are computed from the unrounded
+        # figures. `standby_w` is 0 for a legitimate configuration (only negative values are
+        # rejected, `simconfig.py:1340`), and at 0 the stack sits exactly on the line, so the note
+        # would explain a gap that is not on screen. Same reasoning as `any_partial` above.
+        "any_standby": standby_per_interval > 0.0,
+        # True when the window generated any PV at all. `simulation_frame` ZERO-FILLS an absent PV
+        # series, so a household without panels is a reachable, non-error case that reaches here as
+        # an all-zero `pv` array. On it every PV-side segment of the average day (`pv_to_home`,
+        # `chg_pv`, `exp_from_pv`, `curtailed`) is identically zero, so drawing them adds four
+        # legend entries and no marks for a household that has no panels — the same shape of
+        # decision as `any_standby`. It gated the old total-PV line for the same reason; the flag
+        # outlived that line because the case it describes did not change. Gated on the summed
+        # SERIES rather than on a config flag because there is no "has PV" setting to read: PV
+        # presence is a property of the DATA.
+        "any_pv": bool(np.nansum(pv) > 0.0),
+    }
+
+
+# The quantisation ceiling for the SoC heatmap: 254 is full charge, 0 is the floor of the operating
+# window. See `_soc_heatmap` for why the payload is bytes rather than floats.
+#
+# 254 and not 255 because a byte has to carry the ABSENT sentinel as well as the ramp, and the two
+# must not collide — a cell with no data and a cell at the bottom of the window are different
+# statements that both draw as blank. Giving up one of 256 levels costs 0.4% of colour resolution
+# on a ramp the eye reads to maybe 30 steps; giving up the distinction would mean a data gap
+# rendered as a flat empty battery.
+SOC_HEATMAP_LEVELS = 254
+
+# The sentinel byte for a cell with no simulated SoC — a gap interval, or a local time-of-day slot
+# that does not exist on the spring-forward DST day.
+SOC_HEATMAP_ABSENT = 255
+
+
+def _heatmap_axes(rec: ReconciledGrid, n: int) -> tuple[int, np.ndarray, np.ndarray, list[str]]:
+    """The day × time-of-day axes both §2.4 heatmaps are drawn on.
+
+    Returns `(rows, row_of, col_of, day_labels)`: the number of time-of-day rows, the row and
+    column each of the `n` intervals lands in, and the label of each column.
+
+    **Shared rather than duplicated because the two charts sit on the same tab and are read
+    against each other.** A reader compares a full-battery cell in one against a euro figure in
+    the cell at the same position in the other; that comparison is only meaningful if the two
+    grids are the same grid. Two copies of this loop could drift — a DST fix applied to one, a
+    different rounding of the slot — and the failure would be silent, because each chart would
+    still look internally consistent.
+
+    **Columns are LOCAL calendar days and rows are LOCAL time-of-day** (`i18n.DISPLAY_TZ`), the
+    same convention and for the same reason as `_energy_flows`' average day: the whole use of a
+    time-of-day axis is comparison against what the reader sees on their own inverter app or Home
+    Assistant dashboard, both of which plot Dutch local time. §4.4 holds the pipeline in UTC, so
+    each interval's own instant is converted here, per interval — Amsterdam is UTC+1 in winter and
+    UTC+2 in summer, and a constant shift would be wrong for half of any year-long window.
+
+    **A DST day is 23 or 25 hours long**, so on the spring-forward day one row of that column is
+    never assigned an interval, and on the autumn day two intervals fall in the same local slot —
+    the grid has one cell for them and the later write wins, the alternative being to widen every
+    column for one day a year. Neither case is signalled here; each caller decides what an
+    unassigned cell looks like in its own encoding (`SOC_HEATMAP_ABSENT`, or NaN).
+    """
+    # Rows per column. `grid_s` divides the day for every grid the reconciler chooses (§6.2's
+    # ladder is 300/900/3600 s), so this is exact; `max(1, ...)` guards a hypothetical grid coarser
+    # than a day rather than describing a reachable case.
+    rows = max(1, 86400 // rec.grid_s)
+
+    # Per-interval local date and slot-within-day. The same explicit loop as `_energy_flows`' —
+    # `zoneinfo` has no numpy equivalent — and O(n) alongside it.
+    win_start_utc = _as_utc(rec.window[0])
+    col_of = np.empty(n, dtype=np.int64)
+    row_of = np.empty(n, dtype=np.int64)
+    day_ids: dict[tuple[int, int, int], int] = {}
+    day_labels: list[str] = []
+    for i in range(n):
+        local = (win_start_utc + timedelta(seconds=i * rec.grid_s)).astimezone(DISPLAY_TZ)
+        key = (local.year, local.month, local.day)
+        d = day_ids.get(key)
+        if d is None:
+            d = day_ids[key] = len(day_ids)
+            day_labels.append(f"{local.year:04d}-{local.month:02d}-{local.day:02d}")
+        col_of[i] = d
+        # Seconds since local midnight, floored onto the grid. Derived from the wall clock rather
+        # than from `i % rows` so that a DST transition shifts the rows of that one day instead of
+        # skewing every day after it.
+        row_of[i] = ((local.hour * 3600 + local.minute * 60 + local.second) // rec.grid_s) % rows
+
+    return rows, row_of, col_of, day_labels
+
+
+def _soc_heatmap(runs, rec: ReconciledGrid, frame, cfg: SimulationConfig) -> dict | None:
+    """The §2.4 *SoC + price* tab's first chart: run C's state of charge as a day × time-of-day grid.
+
+    One cell per SIMULATION INTERVAL, at the data's own resolution — 96 rows on a 15-minute grid,
+    24 on an hourly one. Deliberately NOT bucketed to the hour. Every other aggregation in this
+    module has to decide between a per-day and a per-interval mean (`_hourly_flow` vs
+    `_hourly_stock`, and the resolution-invariance argument in `_energy_flows`' docstring); this
+    one does not, because a cell IS an interval and no averaging happens. What the data has, the
+    chart shows.
+
+    **A departure from the specification, made deliberately.** §2.4 and followup C2 describe this
+    tab as SoC against bare `spot_eur_kwh` on a secondary axis — a dispatch diagnostic reading
+    left to right in time. This is a heatmap of the same series against a two-dimensional calendar
+    axis, which answers a different question: daily and seasonal RHYTHM rather than instantaneous
+    dispatch. It also settles C2's open "whole range or zoomable window" question, since a year of
+    15-minute intervals is ~35k points as a line and 365 columns as a grid. The spec text is
+    updated to match rather than left describing a chart that is not there.
+
+    **The payload is BYTES, base64'd, not floats.** A year of 15-minute cells is ~35k values; as
+    JSON numbers that is ~200 KB on every recompute, whether or not the tab is ever opened. The
+    cell's only job is to pick a colour off a ramp, so it only ever needs a display value: SoC is
+    quantised to one byte, which is ~47 KB of base64 for the same window.
+    The alternative considered and rejected was a lazy endpoint like the benchmark box's
+    (`app/main.py`'s `results_benchmark`): that route buys back SECONDS of §6.12 DP, whereas
+    nothing here is expensive — the SoC array is already in hand — so a lazy route would re-run
+    `run_all` on every tab open, with no cache to amortise it, to save the transfer. Quantising
+    saves most of the transfer and costs neither a route nor a second simulation.
+
+    The accepted cost is that the payload carries DISPLAY values rather than kWh. A hover in kWh
+    reconstructs from the published `soc_min_kwh`/`soc_max_kwh`, to within half a level — ~0.02 kWh
+    over a 10 kWh window, finer than a cell can be drawn or a reader can distinguish.
+
+    **Normalised against the OPERATING window, not nameplate capacity.** `cfg.soc_max_kwh` and
+    `cfg.soc_min_kwh` are the bounds `battery_step` actually asserts against, so the ramp spans
+    exactly the range the SoC can occupy and full charge is genuinely opaque. Dividing by
+    `usable_capacity_kwh` instead would make a battery with a 10% reserve floor and a 90% ceiling
+    top out at 90% opacity and never reach either end of its own colour ramp. Config check 11
+    guarantees `soc_min < soc_max`, so the denominator cannot be zero on a valid config.
+
+    **Columns are LOCAL calendar days and rows are LOCAL time-of-day**, built by `_heatmap_axes`
+    and shared with `_earnings_heatmap` beside it; see that helper for the reasoning.
+
+    **Two kinds of cell have no value, and both are `SOC_HEATMAP_ABSENT`.** A local slot the axes
+    never assign an interval to — the spring-forward DST hole, or a window edge that opens
+    mid-day. And a GAP interval, which carries SoC forward (`simulate.Flows`) so that the
+    average-day trace stays continuous: right for a line but wrong for a cell, since a filled cell
+    during a data gap asserts a charge level the simulation explicitly declined to claim. Both
+    render as blank, which is also what an empty cell looks like at the bottom of the ramp — so
+    the SENTINEL is what separates "no data" from "empty battery", and it must not be 0.
+
+    Returns None when the operating window is degenerate, which a valid config cannot produce; the
+    guard is here so a future config path that widened the validation cannot divide by zero.
+    """
+    soc = np.asarray(runs.c.soc, dtype=np.float64)
+    gap = np.asarray(runs.c.gap, dtype=bool)
+    n = len(soc)
+
+    lo = float(cfg.soc_min_kwh)
+    hi = float(cfg.soc_max_kwh)
+    if not (hi > lo):
+        return None
+
+    # Quantise once, over the whole array — `np.clip` handles the SOC_COMPARE_EPS_KWH slack that
+    # `battery_step` allows on both bounds, which can put a value a hair outside [lo, hi].
+    frac = (soc - lo) / (hi - lo)
+    q = np.rint(np.clip(frac, 0.0, 1.0) * SOC_HEATMAP_LEVELS).astype(np.int64)
+    # Gaps first, so a carried-forward SoC cannot survive as a real-looking cell.
+    q = np.where(gap | np.isnan(soc), SOC_HEATMAP_ABSENT, q)
+
+    rows, row_of, col_of, day_labels = _heatmap_axes(rec, n)
+    n_cols = len(day_labels)
+    # Row-major by ROW (time-of-day), so the browser's decode reshapes straight into Plotly's
+    # `z[row][col]` without a transpose: z[r] is one time-of-day across every day.
+    cells = np.full(rows * n_cols, SOC_HEATMAP_ABSENT, dtype=np.uint8)
+    cells[row_of * n_cols + col_of] = q.astype(np.uint8)
+
+    return {
+        "rows": rows,
+        "cols": n_cols,
+        "days": day_labels,
+        # Seconds per row, so the browser can label the time axis without re-deriving the grid.
+        "grid_s": int(rec.grid_s),
+        "absent": SOC_HEATMAP_ABSENT,
+        "levels": SOC_HEATMAP_LEVELS,
+        # The two ends of the ramp in kWh, for the hover readout and the legend.
+        "soc_min_kwh": round(lo, 2),
+        "soc_max_kwh": round(hi, 2),
+        "cells": base64.b64encode(cells.tobytes()).decode("ascii"),
+    }
+
+
+# The percentile of ABSOLUTE cell value the earnings heatmap's symmetric colour range is cut at.
+# See `_earnings_heatmap` for why the range is symmetric and why this is a percentile rather than
+# the maximum.
+EARNINGS_HEATMAP_CLIP_PCT = 99.0
+
+
+def _earnings_heatmap(runs, rec: ReconciledGrid, curves, cfg: SimulationConfig) -> dict | None:
+    """The §2.4 *SoC + price* tab's second chart: euros attributable to the battery, per interval.
+
+    The sibling of `_soc_heatmap` above and drawn on the same axes (`_heatmap_axes`), so the two
+    read against each other: the SoC grid shows WHEN the battery was full, this one shows what
+    that was worth. Same one-cell-per-interval rule, for the same reason — a cell IS an interval,
+    so nothing is averaged and the chart shows what the data has.
+
+    **The cell value.** Per interval, from run C's own flows:
+
+        dis_home · p_import  +  dis_grid · p_export_net  −  chg_grid · p_import
+
+    Each term is priced at the price that term actually settles against, and the three prices are
+    NOT interchangeable. §6.5: import carries energy tax and VAT, private-consumer feed-in carries
+    neither and is further reduced by terugleverkosten. On appendix A's defaults (α = 0.50, 4
+    ct/kWh terugleverkosten) `p_export_net` is negative at any bare price under 8 ct/kWh, so a kWh
+    the battery sends into the house is worth several times the same kWh exported, and an exported
+    kWh is frequently worth a negative amount. Pricing all three at bare `spot` would flatten that
+    asymmetry away and — the concrete failure — would colour a loss-making export green. Swapping
+    `p_import` onto the export term would do the same thing more quietly. §6.5's `PriceCurves`
+    exists precisely because these arrays are impossible to tell apart by inspection.
+
+    `chg_grid` is SUBTRACTED because it is a purchase: grid charging is money spent now, against
+    a discharge later that appears in whichever interval it happens in. So a cell is negative
+    exactly when the battery was buying, and the chart's zero point is a real boundary rather than
+    a convention.
+
+    **GROSS, not net of the no-battery counterfactual.** The figure answers "what did the battery
+    move in this interval, and what was it worth at that interval's prices" — a quantity that
+    exists in run C alone. A net-of-baseline figure would need run A's per-interval bill
+    differenced against run C's; that is `_monthly_saved_eur`'s series, it is the right basis for
+    a SAVINGS figure, and it does not decompose to this chart's question. Note what follows:
+    summing every cell does NOT give the headline saving, because a self-consumed PV kWh that
+    never touched the battery is worth the same under both runs and appears in neither.
+
+    That counterfactual figure is now drawn as the tab's THIRD chart, `_saved_heatmap` below, and
+    the two are deliberately not the same picture: this one attributes value to battery FLOWS and
+    its cells sum to nothing on the panel; that one is the whole-bill DIFFERENCE and its cells do
+    sum to the headline saving. The two carry independent colour ranges for the same reason — see
+    `_saved_heatmap` for the full comparison.
+
+    **float32, base64'd inline — NOT quantised to a byte like the SoC grid.** Quantisation works
+    there only because SoC is bounded by the operating window, which gives a fixed range to map
+    onto 0..254 and a spare code for the ABSENT sentinel. Euros are signed and unbounded: there is
+    no fixed range, and any sentinel value picked out of the reals is a value a cell could
+    legitimately hold. float32 is 4 bytes a cell against JSON's ~6-8 characters per number and it
+    carries NaN natively, so absence needs no sentinel at all. A year of 15-minute cells is ~35k
+    values — ~190 KB base64, against ~47 KB for the SoC grid and ~200 KB for the same array as
+    JSON numbers. float32's ~7 significant digits are far more than a cent on a cell that is at
+    most a few euros.
+
+    **NaN is absence, in three ways, and all of them arrive on their own.** A gap interval is NaN
+    in every flow array (`simulate.Flows`); an interval whose spot price was missing is NaN in
+    every price array (§6.5's `PriceCurves`); and a local slot the axes never assign — the
+    spring-forward DST hole, a window edge mid-day — is left at the NaN the grid was initialised
+    to. The first two propagate through the arithmetic without a special case, which is the point
+    of §4.4's insistence that absence is NaN and never 0: a zero here would be the positive claim
+    that the battery earned nothing, which is not what a missing sensor reading says.
+
+    **The colour range is symmetric: ±`clip` around zero.** The chart is diverging — money made on
+    one side, money spent on the other — so zero has to land on the neutral colour, and an
+    asymmetric range would put it somewhere else. The magnitudes are genuinely asymmetric in
+    ordinary use (a discharge into the house at the evening peak is worth much more than the
+    off-peak charge that filled the battery), and that asymmetry is the thing to SHOW, which a
+    range fitted separately to each side would erase.
+
+    `clip` is the 99th percentile of absolute value rather than the maximum, because a single
+    extreme interval — a price spike, an unusually deep discharge — otherwise sets the range for
+    the whole year and leaves every ordinary cell in the middle of the ramp. The client clamps to
+    ±`clip` for COLOUR only; the values in the payload are unclipped, so a hover reads the real
+    euro figure.
+
+    Returns None when the chart would have nothing to say: cost simulation off (§4.5 — the key is
+    absent rather than present and empty, as `cost` and `benchmark` are), no priced non-gap cell
+    at all, or a clip of zero. The last is the degenerate window in which every cell is exactly
+    zero — a battery that never moved a kWh — where ±0 is not a colour range and every cell would
+    draw as the neutral midpoint regardless.
+    """
+    if not cfg.simulate_cost:
+        return None
+
+    p_import = np.asarray(curves.p_import, dtype=np.float64)
+    p_export_net = np.asarray(curves.p_export_net, dtype=np.float64)
+    dis_home = np.asarray(runs.c.dis_home, dtype=np.float64)
+    dis_grid = np.asarray(runs.c.dis_grid, dtype=np.float64)
+    chg_grid = np.asarray(runs.c.chg_grid, dtype=np.float64)
+    n = len(dis_home)
+
+    value = dis_home * p_import + dis_grid * p_export_net - chg_grid * p_import
+
+    rows, row_of, col_of, day_labels = _heatmap_axes(rec, n)
+    n_cols = len(day_labels)
+    # NaN-initialised, so a cell no interval lands in stays absent without a sentinel. Row-major by
+    # ROW (time-of-day), the same layout as the SoC grid: the browser reshapes straight into
+    # Plotly's `z[row][col]` without a transpose.
+    # `<f4` — LITTLE-endian float32, stated rather than left to `np.float32`'s native order. The
+    # SoC grid's uint8 payload has no byte order to get wrong; this one does, and the browser's
+    # `Float32Array` reads the platform's order, which is little-endian everywhere this runs. A
+    # big-endian server would otherwise ship a payload that decodes to nonsense in the client.
+    cells = np.full(rows * n_cols, np.nan, dtype="<f4")
+    cells[row_of * n_cols + col_of] = value.astype("<f4")
+
+    finite = cells[~np.isnan(cells)]
+    if finite.size == 0:
+        return None
+    clip = float(np.percentile(np.abs(finite), EARNINGS_HEATMAP_CLIP_PCT))
+    if not (clip > 0.0):
+        return None
+
+    return {
+        "rows": rows,
+        "cols": n_cols,
+        "days": day_labels,
+        # Seconds per row, so the browser can label the time axis without re-deriving the grid.
+        "grid_s": int(rec.grid_s),
+        # The half-width of the diverging colour range, in EUR. The client uses [-clip, +clip].
+        "clip": clip,
+        "cells": base64.b64encode(cells.tobytes()).decode("ascii"),
+    }
+
+
+# The percentile of ABSOLUTE cell value the saved heatmap's symmetric colour range is cut at. The
+# same number as `EARNINGS_HEATMAP_CLIP_PCT` and deliberately a SEPARATE constant: the two charts
+# quantify different things, so the two ranges are computed independently and one being retuned
+# must not silently retune the other. See `_saved_heatmap` for why they are not shared.
+SAVED_HEATMAP_CLIP_PCT = 99.0
+
+
+def _per_interval_bill(flows, p_import: np.ndarray, p_export_net: np.ndarray) -> np.ndarray:
+    """§6.10's PRE-TOP-UP bill, per interval, for one run's flows.
+
+        imp · p_import  −  exp · p_export_net
+
+    The meter's two directions at §6.5's two prices: what was bought costs money, what was fed in
+    is credited. `p_export_net` is already net of terugleverkosten and can be negative, in which
+    case an exported kWh ADDS to the bill — the minus sign here is the direction of the flow, not
+    an assumption about the sign of the price.
+
+    **Module-level rather than a closure, because two callers must not drift.** This is the series
+    `_monthly_saved_eur` buckets into the euro bars AND the series `_saved_heatmap` draws cell by
+    cell. They are one quantity at two aggregations, and a reader who sums a month of cells and
+    compares it against that month's bar is entitled to get the same number. Were each call site to
+    compute the bill itself, a change to one — a price array swapped, a sign flipped — would leave
+    the other correct and the disagreement would show up only as two charts that quietly failed to
+    add up.
+
+    PRE-TOP-UP: the §6.5 statutory feed-in floor is assessed over a whole billing period and has no
+    per-interval decomposition at all, so it is not in this figure. See `_monthly_saved_eur` for
+    what that costs and why it is not smeared across intervals instead.
+
+    NaN propagates untouched, which is what carries absence: a gap interval is NaN in every flow
+    array and an unpriced interval is NaN in every price array (§4.4, §6.5).
+    """
+    return (np.asarray(flows.imp, dtype=np.float64) * p_import
+            - np.asarray(flows.exp, dtype=np.float64) * p_export_net)
+
+
+def _saved_heatmap(runs, rec: ReconciledGrid, curves, cfg: SimulationConfig) -> dict | None:
+    """The §2.4 *SoC + price* tab's third chart: the counterfactual saving, per interval.
+
+    Drawn on the same axes as the two charts above (`_heatmap_axes`) and encoded exactly like
+    `_earnings_heatmap`, so all three are read cell-against-cell across one tab.
+
+    **The cell value.** Per interval, the whole-bill difference between the two runs:
+
+        bill(flows) = imp · p_import  −  exp · p_export_net        (`_per_interval_bill`)
+        value       = bill(run A)  −  bill(run C)
+
+    Run A is §6.9's baseline — the household as it would have been with its PV and no battery
+    (`domain/simulate.py`'s `simulate_baseline`). Run C is PV plus the battery under the
+    configured policy. So a cell says: over this one interval, the bill was `value` euros lower
+    because the battery was there.
+
+    **A − C, and NOT C − A, which is the sign this function is most likely to be got wrong.** The
+    arithmetically natural way to write "with battery, minus without" is `C − A`, and it is
+    negative whenever the battery helps, because what went down is a COST. This chart publishes
+    the inversion of that on purpose: positive means money saved. The reason is the tab, not the
+    arithmetic — `_earnings_heatmap` beside it is already green-is-earning, and two euro charts
+    sharing an axis while disagreeing about which direction of the ramp is good would be worse
+    than either convention on its own. A reader comparing the two would have to remember which is
+    which, and would have no cue on the page telling them. The consequence to keep in mind when
+    reading the code below: `runs.a` comes FIRST in the subtraction, and that ordering is the whole
+    convention.
+
+    **How this differs from `_earnings_heatmap`, which it otherwise resembles closely.** That
+    chart attributes value to the battery's own FLOWS — discharge into the house, discharge to the
+    grid, grid charging — priced at each flow's own settlement price. It answers "what did the
+    battery move here, and what was that worth", and its cells sum to nothing that appears on the
+    panel: a self-consumed PV kWh that never touched the battery is worth the same under both runs
+    and is in neither run's cell. THIS chart is the counterfactual: it re-bills the entire meter
+    under both scenarios and differences them, so its cells DO sum to the headline saving. The two
+    disagree cell by cell in ordinary use, and neither is the other's error — a battery discharge
+    that merely displaces an export earns on chart 2 and saves almost nothing here.
+
+    **The colour ranges of the two charts are computed independently, not shared.** Sharing one
+    range would make the cells directly comparable by colour, which is exactly the claim that
+    should not be made: they are different quantities. Each chart's `clip` is therefore the 99th
+    percentile of its OWN absolute values.
+
+    **The known caveat, inherited from `_monthly_saved_eur` and not new here.** `_per_interval_bill`
+    is the PRE-TOP-UP bill. §6.5's statutory feed-in floor top-up is assessed over a whole billing
+    period and has no per-interval allocation (`domain/costs.py`: pushing it into a per-interval
+    line "would require choosing an allocation across intervals"), so it is excluded rather than
+    smeared. Where the floor binds — rare, and disclosed by the section's own caveat — these cells
+    sum to slightly LESS than the headline `saved_eur`. Where it does not bind, which is the
+    ordinary case, they sum to it exactly.
+
+    **Encoding, colour range and absence: identical to `_earnings_heatmap`**, which documents the
+    reasoning at length. In brief: float32 little-endian (`<f4`) base64 rather than the SoC grid's
+    quantised bytes, because euros are signed and unbounded and NaN carries absence natively; NaN
+    for a gap interval, an unpriced interval, or a local slot the axes never assign; the values in
+    the payload are UNCLIPPED so a hover reads the real figure, and `clip` bounds the COLOUR only.
+
+    Returns None on the same three conditions as `_earnings_heatmap`: cost simulation off (§4.5 —
+    the key is absent rather than present and empty), no priced non-gap cell at all, or a clip of
+    zero. The last is the window in which the battery changed no bill anywhere, where ±0 is not a
+    colour range.
+    """
+    if not cfg.simulate_cost:
+        return None
+
+    p_import = np.asarray(curves.p_import, dtype=np.float64)
+    p_export_net = np.asarray(curves.p_export_net, dtype=np.float64)
+
+    # A − C. See the docstring: positive is money SAVED, which is the inversion of the literal
+    # "with battery minus without" and is what keeps this chart's ramp pointing the same way as
+    # the earnings chart's on the same tab.
+    value = (_per_interval_bill(runs.a, p_import, p_export_net)
+             - _per_interval_bill(runs.c, p_import, p_export_net))
+    n = len(value)
+
+    rows, row_of, col_of, day_labels = _heatmap_axes(rec, n)
+    n_cols = len(day_labels)
+    # NaN-initialised and row-major by ROW (time-of-day), the same layout and for the same reasons
+    # as the earnings grid: a cell no interval lands in stays absent without a sentinel, and the
+    # browser reshapes straight into Plotly's `z[row][col]`. `<f4` states little-endian explicitly
+    # rather than trusting the platform's native order.
+    cells = np.full(rows * n_cols, np.nan, dtype="<f4")
+    cells[row_of * n_cols + col_of] = value.astype("<f4")
+
+    finite = cells[~np.isnan(cells)]
+    if finite.size == 0:
+        return None
+    # This chart's OWN percentile, over this chart's own values — never `_earnings_heatmap`'s.
+    clip = float(np.percentile(np.abs(finite), SAVED_HEATMAP_CLIP_PCT))
+    if not (clip > 0.0):
+        return None
+
+    return {
+        "rows": rows,
+        "cols": n_cols,
+        "days": day_labels,
+        # Seconds per row, so the browser can label the time axis without re-deriving the grid.
+        "grid_s": int(rec.grid_s),
+        # The half-width of the diverging colour range, in EUR. The client uses [-clip, +clip].
+        "clip": clip,
+        "cells": base64.b64encode(cells.tobytes()).decode("ascii"),
+    }
+
+
 # ── §2.4's COST SAVINGS section ──────────────────────────────────────────────────────────────
 #
 # Everything below runs only under `cfg.simulate_cost`. §4.5 is explicit that `cost` is null
@@ -1555,7 +2418,9 @@ def _monthly_saved_eur(
     two series' bars line up under the two chart options — a euro bar and a kWh bar for one month
     describe one window.
 
-    `per_interval_saved_eur` is `(A − C)` per interval on the PRE-TOP-UP bill, which is the only
+    `per_interval_saved_eur` is `(A − C)` per interval on the PRE-TOP-UP bill (built by the shared
+    `_per_interval_bill`, which `_saved_heatmap` draws cell by cell from the same series so the two
+    aggregations of one quantity cannot drift), which is the only
     part of §6.10's bill that HAS a per-interval decomposition. The feed-in floor top-up is a
     period-level scalar with no per-interval allocation at all (`app/domain/costs.py`'s module
     comment: pushing it into a per-interval line "would require choosing an allocation across
@@ -1690,11 +2555,23 @@ def results_from(
     cost_bench: CostBenchmark | None = None
     monthly_saved_eur: list[float] | None = None
     price_bracket: PriceBracket | None = None
+    energy_flows: dict | None = None
+    soc_heatmap: dict | None = None
+    earnings_heatmap: dict | None = None
+    saved_heatmap: dict | None = None
     if frame is not None and frame.intervals > 0:
         # `rec` and `frame` come from the same reconcile_grid over the same window, so `pv_mask`
         # (built against `rec`) indexes `frame`'s arrays too — same length, same interval starts.
         runs = run_all(frame, cfg)
         metrics = energy_metrics(runs, frame, cfg, pv_mask=pv_mask)
+        # §2.4's *Energy flows* tab. Bucketing over flows that are already in hand — no extra
+        # simulation, and nothing here feeds back into the runs, so fixture 18's energy/cost
+        # equivalence is untouched. Absent (not an empty object) when there is no frame to run,
+        # matching how `cost` and `benchmark` are handled: the template branches on the one key.
+        energy_flows = _energy_flows(runs, rec, frame, cfg)
+        # §2.4's *SoC + price* tab, first chart. Reads the SoC array `run_all` already produced —
+        # no extra simulation, same as the flows above.
+        soc_heatmap = _soc_heatmap(runs, rec, frame, cfg)
         # ── §6.5 + §6.10: the euro side, ONLY under `cfg.simulate_cost` (§4.5, §6.12's table) ──
         #
         # Everything here runs AFTER `run_all` and feeds nothing back into it, which is what makes
@@ -1707,6 +2584,16 @@ def results_from(
         # every request rather than behind `with_benchmark`. Only run E below is expensive.
         if cfg.simulate_cost:
             curves = price_curves(cfg.pricing, frame.spot)
+            # §2.4's *SoC + price* tab, second chart — the euro sibling of `soc_heatmap` above, on
+            # the same axes. Reuses the curves just built rather than re-deriving them, so the
+            # cells are priced against exactly the arrays the bill and the waterfall below use.
+            # Inside the `simulate_cost` block because a euro chart has no meaning outside it.
+            earnings_heatmap = _earnings_heatmap(runs, rec, curves, cfg)
+            # §2.4's *SoC + price* tab, third chart — the counterfactual saving per interval,
+            # `bill(A) − bill(C)`, on the same axes as the two above. Same reuse of `curves` and
+            # same reason for sitting inside the `simulate_cost` block. It is the per-interval
+            # form of `monthly_saved_eur` below, built from the same `_per_interval_bill`.
+            saved_heatmap = _saved_heatmap(runs, rec, curves, cfg)
             cost_a = compute_costs(
                 runs.a, curves.p_import, curves.p_export_net, curves.compensation,
                 frame.index, cfg.pricing,
@@ -1732,13 +2619,15 @@ def results_from(
             cost = _cost_block(cost_a, cost_c, lines, cfg)
             # §4.5's `monthly[].saved_eur`, on the PRE-TOP-UP per-interval bill — the only part of
             # the bill that decomposes per interval. See `_monthly_saved_eur`.
+            # The SAME `_per_interval_bill` `_saved_heatmap` above uses — module-level rather than
+            # a closure here precisely so the euro bars and the euro grid are two aggregations of
+            # one series and cannot drift apart. See that helper.
             p_imp = np.asarray(curves.p_import, dtype=np.float64)
             p_exp = np.asarray(curves.p_export_net, dtype=np.float64)
-            def _per_interval_bill(flows):
-                return (np.asarray(flows.imp, dtype=np.float64) * p_imp
-                        - np.asarray(flows.exp, dtype=np.float64) * p_exp)
             monthly_saved_eur = _monthly_saved_eur(
-                rec, _per_interval_bill(runs.a) - _per_interval_bill(runs.c)
+                rec,
+                _per_interval_bill(runs.a, p_imp, p_exp)
+                - _per_interval_bill(runs.c, p_imp, p_exp),
             )
             # §6.16's pricing-uncertainty width: the same dispatch, billed at the hour's
             # cheapest and dearest native price points. Passed the CENTRAL saving that
@@ -2329,6 +3218,29 @@ def results_from(
         "energy_breakdown": energy_breakdown,
         "secondary": secondary,
         "chart": _monthly_import(rec),
+        # §2.4's *Energy flows* tab — three kWh charts over run C's per-interval flows. Emitted
+        # inline rather than behind a lazy endpoint like the benchmark box: the flows are already
+        # computed for the tiles above, so a separate route would re-run `run_all` (nothing is
+        # cached) to save a few KB of JSON. None when there was no frame to simulate.
+        "energy_flows": energy_flows,
+        # §2.4's *SoC + price* tab — run C's SoC as a day × time-of-day grid. Inline like the flows
+        # beside it and for the same reason (the array is already in hand, so a lazy route would
+        # re-run `run_all` to save transfer), but QUANTISED to a byte per cell: this one is
+        # per-interval rather than per-month, so the float payload would be ~200 KB on a year of
+        # 15-minute data against ~47 KB base64. See `_soc_heatmap`.
+        "soc_heatmap": soc_heatmap,
+        # §2.4's *SoC + price* tab, second chart — per-interval euros attributable to the battery,
+        # on the same day × time-of-day axes as the SoC grid beside it. float32 rather than the
+        # SoC grid's quantised bytes: euros are signed and unbounded, so there is no fixed range
+        # to quantise against and no spare code for a sentinel — NaN carries absence instead. None
+        # when `simulate_cost` is off, matching how `cost` is handled. See `_earnings_heatmap`.
+        "earnings_heatmap": earnings_heatmap,
+        # §2.4's *SoC + price* tab, third chart — the per-interval counterfactual saving,
+        # `bill(A) − bill(C)`, so a POSITIVE cell is money saved. Same axes and same float32
+        # encoding as the earnings grid above; a separate colour range, because the two quantify
+        # different things and a shared one would imply they are comparable. None when
+        # `simulate_cost` is off. See `_saved_heatmap` for how the two euro charts differ.
+        "saved_heatmap": saved_heatmap,
         "caveats": caveats,
         # The window request the lazy benchmark fetch should re-send, as a JSON string the template
         # drops straight into a data-* attribute. It is the EFFECTIVE window (what was actually

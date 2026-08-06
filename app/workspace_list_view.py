@@ -56,20 +56,17 @@ Main items:
 from __future__ import annotations
 
 from datetime import datetime
-from zoneinfo import ZoneInfo
 
 from app.data_view import _res_msg
-from app.i18n import msg as _msg, msg_n as _msg_n, num
+from app.i18n import DISPLAY_TZ, msg as _msg, msg_n as _msg_n, num
 from app.sample_data import _N
 from app.workspaces import WorkspaceSummary
 
-DISPLAY_TZ = ZoneInfo("Europe/Amsterdam")
-"""The timezone every timestamp on this screen is written in (§2′.2, docs/specs/README.md).
-
-Storage and computation are UTC throughout; display is Europe/Amsterdam. The list is one of the
-few screens that shows a stored instant directly rather than a derived figure, so the conversion
-has to happen somewhere, and here is the boundary.
-"""
+# DISPLAY_TZ (Europe/Amsterdam) is the app-wide display convention and is re-exported here because
+# this module's name has been the reference for it (§2′.2, docs/specs/README.md). It moved to
+# `app.i18n` when `results_view` needed the same zone for the average-day profile: the two views do
+# not import each other, and `i18n` is the leaf both already depend on for display conventions.
+__all__ = ["DISPLAY_TZ", "CONNECTION_BADGE", "card", "cards"]
 
 CONNECTION_BADGE = _N("%(phases)s×%(fuse)s A")
 """The connection badge (§2′.2): `1×25 A`, `3×63 A`.

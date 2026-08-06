@@ -170,17 +170,80 @@ nowhere in `docs/specs/`.
 
 ## C. Simulation, benchmark and metrics
 
-**C1. A real per-month savings series remains unbuilt.** §2.4's wireframe asks for a
-monthly-savings chart. What ships is `results_view._monthly_import()` — measured grid import per
-calendar month — now honestly relabelled "Monthly grid import". Building the real series means
-running the A/B/C simulation and bucketing `saved_kwh` per month.
+**C1. A real per-month savings series in kWh remains unbuilt.** §2.4's wireframe asks for a
+monthly-savings chart. What shipped instead was `results_view._monthly_import()` — measured grid
+import per calendar month — honestly relabelled "Monthly grid import". Building the real series
+means running the A/B/C simulation and bucketing `saved_kwh` per month.
+
+**Narrowed by `20260806-chart-tab-restructure.md`.** Two things changed under it. A per-month
+EURO saving does now ship (`_monthly_saved_eur`, its own tab), so the gap is only the kWh series.
+And the stand-in is no longer plotted at all: "Monthly grid import" was removed from the strip as
+superseded by "Energy flows", which answers the same question in more detail. So the risk this
+followup originally carried — a reader taking measured import for a saving — is gone, and what
+remains is a plain unbuilt feature rather than a misleading one.
+
+`_monthly_import()` itself stays: the static sample builds its key, and its calendar-month
+bucketing is the reference `_energy_flows` and `_monthly_saved_eur` mirror. It is now emitted
+but unplotted — see C1a.
 *Origin:* `20260724-panel3-battery-simulation.md` (Phase 7).
 
-**C2. Two chart tabs are pending affordances, not implementations.** "SoC + price" and "Energy
-flows" now carry the §2.1 pending affordance with keys `chart_soc_price` and `chart_energy_flows`
-in `app/features.py`. Named as newly pending in `docs/specs/implementation-progress.md`.
+**C1a. `results["chart"]` is computed and serialised on every render but nothing plots it.**
+Since `20260806-chart-tab-restructure.md` removed the tab that drew it. It is not dead code —
+`sample_data.py` builds the key and a test uses its length as a reference — so it was left in
+place rather than removed as part of a UI change. The cost is a per-render computation and a
+JSON payload no reader sees. Resolving it means either building C1's kWh saving series on top of
+it, or moving it behind the consumers that actually need it.
+*Origin:* `20260806-chart-tab-restructure.md`.
+
+**C2. The "SoC + price" chart tab is a pending affordance, not an implementation.** — **DONE**
+for the tab; its SECOND chart is carried as C2a below. "Energy flows" shipped in
+`20260806-energy-flows-chart-tab.md` as three kWh charts; "SoC + price" shipped in
+`20260806-soc-price-chart-tab.md`, so both keys are now in `RETIRED_KEYS` and no chart tab
+carries a pending affordance.
+
+The tab did NOT ship in the form this followup described. Instead of SoC against bare
+`spot_eur_kwh` on a secondary axis, its first chart is a day × time-of-day heatmap of run C's
+SoC, one cell per simulation interval. That answers rhythm rather than instantaneous dispatch,
+and it resolves the first of the two questions recorded here — whole range or zoomable window —
+by being a grid: a year is 365 columns, not ~35k points. See §2.4 for the specification as built.
+
+The second question is untouched and still open: the SoC heatmap draws **run C alone**, and whether
+an overlay against the perfect-foresight benchmark would be worth having is undecided. On a
+heatmap that would mean a second grid or a difference grid rather than a second line. Note that the
+tab has since gained two further grids and been renamed "Battery rhythm" (C2a), so a fourth would
+now need to earn its place against a screen that already stacks three.
+
+**C2a. The "SoC + price" tab's price chart is not built.** — **DONE**, and not as a price chart.
+The placeholder is gone; the tab is renamed **"Battery rhythm"** and ships THREE heatmaps sharing
+one day × time-of-day axis (`results_view._heatmap_axes`).
+
+This entry's hypothesis — the spot series over the same calendar axis, so the two grids read as a
+pair — was **not** what got built, and was never adopted. A price grid would have shown what the
+market did, which is a fact about the Netherlands rather than about this household's battery. What
+shipped instead answers what the battery did in MONEY:
+
+- **Chart 2, "Gross battery earnings"**: per interval,
+  `dis_home·p_import + dis_grid·p_export_net − chg_grid·p_import`. Attributes value to battery
+  FLOWS. Its cells sum to nothing on the panel — a self-consumed PV kWh that never touched the
+  battery is worth the same under both runs and appears in neither.
+- **Chart 3, "Saved against no battery"**: per interval, `bill(A) − bill(C)` where
+  `bill = imp·p_import − exp·p_export_net`. The COUNTERFACTUAL whole-bill difference, which DOES
+  reconcile with the MONEY SAVED tile, and which includes effects with no battery flow at all
+  (e.g. PV the battery stored that would otherwise have been curtailed).
+
+Both are gated on `cfg.simulate_cost` and are absent — not empty — without it, so chart 1 can ship
+alone. Each carries its own symmetric 99th-percentile colour range: they are different quantities,
+and a shared range would imply a cell-for-cell comparability that does not hold.
+
+**The pricing asymmetry is the reason chart 2 is not plotted at bare spot**, which was the original
+request. §6.5 gives import energy tax and VAT and gives feed-in neither, and `pricing.py:194-198`
+notes the export net goes negative below roughly 8 ct/kWh bare — so a spot-priced grid would have
+coloured loss-making exports green. Charts 2 and 3 will visibly disagree; that is expected, and
+their captions carry the distinction rather than leaving a reader to reconcile two green/red grids.
+
 *Origin:* `20260724-panel3-battery-simulation.md` (Phase 7),
-`20260725-spec-corrections-from-implementation.md`.
+`20260725-spec-corrections-from-implementation.md`, `20260806-energy-flows-chart-tab.md`,
+`20260806-soc-price-chart-tab.md`, `20260806-battery-money-heatmap.md`.
 
 **C3. Run E / the cost DP, and any euro figure, are not built.** — **DONE** (cost-simulation
 increment, Phases 2–4). §6.5's price curves, §6.10's cost accounting and waterfall, and run E with
@@ -229,6 +292,27 @@ are correct; wants year disambiguation if multi-year ranges become common.
 full / empty" is in §2.4's wireframe but not in `results_from`; both sides document the divergence
 rather than hiding it. Recorded as a deliberate choice to revisit, not a defect.
 *Origin:* `20260724-panel3-battery-simulation.md` (Phase 7).
+
+**C11. `Flows.gap` can never be set from a dataset, so every gap-aware display is dead code.**
+§6.9 builds the mask from `isnan(frame.load) | isnan(frame.pv)` (`simulate.py:708`), but nothing
+upstream can deliver a NaN: `reconcile._resample_sum` applies `np.nan_to_num(..., nan=0.0)`
+(`reconcile.py:93`), uncovered intervals contribute 0 under the own-coverage policy,
+`rec.load = np.maximum(raw_load, 0.0)` (`reconcile.py:216`), and `simulation_frame` zero-fills an
+absent `pv`. Measured on a 90-day hourly dataset with a **30-day contiguous hole**, tried both as
+NaN values and with the rows dropped outright: `isnan(frame.load).sum() == 0` either way, and
+`results_from` returns `partial == [False, False, False]` with `household_load ==
+[1116, 324, 720]` kWh.
+
+The consequence is a presentation defect that exists today: the month with the hole draws as a
+bar a third of its neighbour's height and **nothing marks it as incomplete**, so a missing month
+reads as a quiet one. §7.3's "gaps are EXCLUDED from sums" and `Flows`' deliberate NaN-not-0
+convention are both written on the assumption that a hole survives reconciliation; it does not.
+
+Deliberately not fixed alongside the energy-flows tab: whether zero-filling is the right
+reconcile behaviour is a question about ingest, and changing it would move figures on every
+panel rather than one chart. The energy-flows tab's `partial` flag and hatching are built and
+verified against a patched frame, so they start working the moment a hole can reach the frame.
+*Origin:* `20260806-energy-flows-chart-tab.md`.
 
 ## D. Data ingest, frames and sources
 
@@ -352,6 +436,44 @@ gain. This is why `test_a_parameter_change_moves_panel_3s_figures` asserts movem
 guessed. Neither number was in the repo, so nothing needed correcting; recorded so they do not
 resurface.
 *Origin:* `20260725-phase6-review-defects.md`, `20260724-slot-first-data-sources.md`.
+
+**G5. Sabotage testing cannot catch prose that describes the world wrongly.** Two escapes of the
+same shape, both found by a reader rather than by a test:
+
+- A footnote said the MONEY SAVED tile was "above" the chart; the layout puts it below
+  (`20260806-battery-money-heatmap.md`).
+- The empty-Charts-box line said "…and cost simulation is off". The empty state is reachable with
+  cost simulation ON — every tab needs a simulation frame, so no frame means no tabs whatever the
+  cost setting — and it would have told such a reader something false about their own
+  configuration (`20260806-chart-tab-restructure.md`).
+
+Both were English sentences asserting a fact about layout or state that no test reads, in files
+whose CODE was covered and whose sabotages were all caught. The technique is sound and is not the
+problem: it establishes that code does what the code says, which is a different claim from the
+prose beside it being true.
+
+What did work, in the second case: tracing the template's condition back through the guards in
+`results_from()` and asking what the state actually implies. Worth doing for any user-visible
+sentence that asserts a fact about layout, configuration, or which other element exists — those
+are the sentences with no test behind them.
+*Origin:* `20260806-chart-tab-restructure.md`.
+
+**G6. A plural catalog entry's `string` is a TUPLE, so an emptiness check written for scalars
+passes it over.** Repairing the catalogs after a rebase, a script decided which entries needed
+filling with `if msg.string`. For a plural entry that value is `('', '')` when nothing is
+translated — truthy — so every untranslated plural looked already-filled and was skipped in
+silence. Two Dutch plurals shipped empty.
+
+The i18n suites did not catch it; `test_panel_cumulative_row_renders_through_the_real_template_in_both_locales`
+(`tests/test_data_summary.py`) did, on the whole-suite run afterwards. That test renders the macro
+in Dutch and asserts the English sentence does not appear, which is a different and stronger claim
+than "the `.po` has an entry".
+
+Any code deciding whether a catalog entry is translated must treat plural and singular alike —
+empty means every form is empty. Worth remembering the next time a rebase resolves the five
+generated locale files by taking one side: two of them are binary `.mo` files, so that resolution
+is effectively forced, and the repair pass afterwards is where this bites.
+*Origin:* `20260806-chart-tab-restructure.md`.
 
 ## H. Deferred by the cost-simulation increment (2026-07-25)
 

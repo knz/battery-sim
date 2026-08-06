@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-06 15:40+0200\n"
+"POT-Creation-Date: 2026-08-06 19:22+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -320,6 +320,9 @@ msgid ""
 "and the battery you are considering."
 msgstr ""
 
+msgid "And how full is the battery?"
+msgstr ""
+
 msgid ""
 "Answer yes only to supply your existing battery's charge and discharge "
 "series. They are used solely to work out what your house actually "
@@ -350,6 +353,11 @@ msgstr ""
 msgid "Band C"
 msgstr ""
 
+msgid ""
+"Bars above the line show energy entering the house; below, energy leaving"
+" it or charging the battery."
+msgstr ""
+
 msgid "Base URL"
 msgstr ""
 
@@ -360,6 +368,15 @@ msgid "Battery charge"
 msgstr ""
 
 msgid "Battery discharge"
+msgstr ""
+
+msgid "Battery rhythm"
+msgstr ""
+
+msgid "Battery → grid"
+msgstr ""
+
+msgid "Battery → house"
 msgstr ""
 
 msgid "Benchmark: grid import avoided"
@@ -472,6 +489,9 @@ msgid ""
 "certificate (open %(url)s once to accept it)."
 msgstr ""
 
+msgid "Consumed directly"
+msgstr ""
+
 msgid "Consumption"
 msgstr ""
 
@@ -517,6 +537,9 @@ msgstr ""
 msgid "Coverage"
 msgstr ""
 
+msgid "Curtailed"
+msgstr ""
+
 msgid "D"
 msgstr ""
 
@@ -532,6 +555,9 @@ msgid ""
 msgstr ""
 
 msgid "Data quality"
+msgstr ""
+
+msgid "Day"
 msgstr ""
 
 msgid "Day/night window"
@@ -550,6 +576,9 @@ msgid "Delete the loaded data?"
 msgstr ""
 
 msgid "Delete this analysis?"
+msgstr ""
+
+msgid "Directly from solar"
 msgstr ""
 
 msgid "Discard changes"
@@ -590,6 +619,11 @@ msgstr ""
 msgid "EQUIVALENT FULL CYCLES"
 msgstr ""
 
+msgid ""
+"Each cell is one simulated interval, in Dutch local time. Blank cells are"
+" intervals with no data."
+msgstr ""
+
 msgid "Economic guard: never discharge at a loss"
 msgstr ""
 
@@ -603,9 +637,6 @@ msgid "Enable cost simulation"
 msgstr ""
 
 msgid "Energy flows"
-msgstr ""
-
-msgid "Energy flows chart"
 msgstr ""
 
 msgid "Energy savings"
@@ -645,6 +676,9 @@ msgid "Export CSV"
 msgstr ""
 
 msgid "Exported"
+msgstr ""
+
+msgid "Exported to the grid"
 msgstr ""
 
 msgid "Extra grid import"
@@ -688,6 +722,12 @@ msgid ""
 msgstr ""
 
 msgid "From"
+msgstr ""
+
+msgid "From the battery"
+msgstr ""
+
+msgid "From the grid"
 msgstr ""
 
 msgid "GNU AGPL v3"
@@ -753,7 +793,16 @@ msgstr ""
 msgid "Grid production"
 msgstr ""
 
+msgid "Grid → battery"
+msgstr ""
+
+msgid "Grid → house"
+msgstr ""
+
 msgid "Grid-coupled battery"
+msgstr ""
+
+msgid "Gross battery earnings"
 msgstr ""
 
 msgid "HA error"
@@ -777,6 +826,9 @@ msgstr[1] ""
 msgid "Home Battery Simulator"
 msgstr ""
 
+msgid "Hour of day"
+msgstr ""
+
 msgid "Hourly average"
 msgstr ""
 
@@ -784,6 +836,9 @@ msgid "House load"
 msgstr ""
 
 msgid "Household"
+msgstr ""
+
+msgid "Household load"
 msgstr ""
 
 msgid "How is your PV connected to the battery?"
@@ -815,6 +870,9 @@ msgid "Installation"
 msgstr ""
 
 msgid "Intervals battery was full / empty"
+msgstr ""
+
+msgid "Into the battery"
 msgstr ""
 
 msgid "Keep editing"
@@ -869,10 +927,12 @@ msgstr ""
 msgid "Minimum state of charge must be below the maximum."
 msgstr ""
 
-msgid "Monthly grid import"
+msgid "Monthly savings (€)"
 msgstr ""
 
-msgid "Monthly savings (€)"
+msgid ""
+"Months drawn with a hatched pattern are missing more than 5 percent of "
+"their measurements, so their bars understate the real totals."
 msgstr ""
 
 msgid "More settings"
@@ -904,6 +964,9 @@ msgstr ""
 msgid "Name"
 msgstr ""
 
+msgid "Net grid (import − export)"
+msgstr ""
+
 msgid "Net saving"
 msgstr ""
 
@@ -914,6 +977,9 @@ msgid "No"
 msgstr ""
 
 msgid "No battery"
+msgstr ""
+
+msgid "No charts for this window: there is no simulated data to draw."
 msgstr ""
 
 msgid "No data loaded yet."
@@ -1078,6 +1144,9 @@ msgstr ""
 msgid "Save"
 msgstr ""
 
+msgid "Saved against no battery"
+msgstr ""
+
 msgid "Secondary metrics"
 msgstr ""
 
@@ -1136,19 +1205,25 @@ msgstr ""
 msgid "Simulation grid"
 msgstr ""
 
-msgid "SoC + price"
-msgstr ""
-
-msgid "SoC + price chart"
-msgstr ""
-
 msgid "Solar"
+msgstr ""
+
+msgid "Solar curtailed"
 msgstr ""
 
 msgid "Solar production"
 msgstr ""
 
 msgid "Solar surplus only (net zero at the grid)"
+msgstr ""
+
+msgid "Solar → battery"
+msgstr ""
+
+msgid "Solar → grid"
+msgstr ""
+
+msgid "Solar → house"
 msgstr ""
 
 msgid ""
@@ -1190,6 +1265,12 @@ msgid "Standby draw"
 msgstr ""
 
 msgid "Standby draw cannot be negative."
+msgstr ""
+
+msgid "State of charge"
+msgstr ""
+
+msgid "State of charge (kWh)"
 msgstr ""
 
 msgid ""
@@ -1241,6 +1322,9 @@ msgid "That timezone is not one this app knows."
 msgstr ""
 
 msgid "That unit is not one this app knows."
+msgstr ""
+
+msgid "The bars can be higher than house load because of battery standby power."
 msgstr ""
 
 #, python-format
@@ -1456,6 +1540,22 @@ msgid "This cannot be undone."
 msgstr ""
 
 msgid ""
+"This chart compares whole bills. Each cell is your grid bill for that "
+"interval with the battery and your solar, against what the same interval "
+"would have cost with your solar alone. Green means the battery left you "
+"better off. It differs from the chart above because it also counts what "
+"the battery changed without moving money itself — solar it stored that "
+"would otherwise have been curtailed, for one."
+msgstr ""
+
+msgid ""
+"This chart follows the battery’s own flows. Each cell is the euro value "
+"of what the battery moved in that interval: energy it supplied to the "
+"house or the grid, less energy it took from the grid. Green is money in, "
+"red is money out."
+msgstr ""
+
+msgid ""
 "This column never decreases, so it may be a meter reading (a running "
 "total) rather than the amount used in each interval. If it is, the "
 "results will be wrong. You can continue anyway — a column that only rises"
@@ -1480,6 +1580,12 @@ msgid ""
 msgstr ""
 
 msgid ""
+"This is the battery’s gross money flow, before its purchase price and "
+"wear. It is not your saving: the net figure — this window’s bill with a "
+"battery against the bill without one — is the MONEY SAVED tile below."
+msgstr ""
+
+msgid ""
 "This option needs solar panels: it charges the battery only from solar "
 "surplus, so without PV it would never charge at all. Answer \"Yes\" to "
 "\"Do you have solar PV?\" at the top of the Data panel to use it."
@@ -1499,6 +1605,9 @@ msgid ""
 "for your particular purpose. The entire risk as to its quality and "
 "performance is yours. If it turns out to be defective, you bear the cost "
 "of any servicing, repair or correction."
+msgstr ""
+
+msgid "Time of day"
 msgstr ""
 
 msgid "Timestamps are"
@@ -1534,6 +1643,14 @@ msgid "UTC"
 msgstr ""
 
 msgid "Unit"
+msgstr ""
+
+msgid ""
+"Unlike the chart above, these cells are your saving, and they add up to "
+"the MONEY SAVED total below. Where the statutory feed-in floor pays out "
+"it is left out here, because it is assessed over a whole billing period "
+"rather than interval by interval, so the cells then add up to slightly "
+"less than the headline figure."
 msgstr ""
 
 msgid "Update your data →"
@@ -1590,6 +1707,18 @@ msgid "Wh"
 msgstr ""
 
 msgid "What \"no warranty\" means"
+msgstr ""
+
+msgid "What does an average day look like?"
+msgstr ""
+
+msgid "When is the battery full?"
+msgstr ""
+
+msgid "Where did the household's energy come from?"
+msgstr ""
+
+msgid "Where did the solar generation go?"
 msgstr ""
 
 msgid "Where the energy comes from"
@@ -2058,6 +2187,12 @@ msgid "…if export allowed"
 msgstr ""
 
 msgid "€"
+msgstr ""
+
+msgid "€ per interval"
+msgstr ""
+
+msgid "€ saved per interval"
 msgstr ""
 
 msgid "← Previous"

@@ -1570,6 +1570,8 @@ from app.i18n import num  # noqa: E402
 from app.results_view import (  # noqa: E402
     WATERFALL_DISPLAY_EPS_EUR,
     _cost_benchmark_block,
+    _earnings_heatmap,
+    _saved_heatmap,
 )
 from tests.test_data_summary import _price  # noqa: E402
 
@@ -3341,3 +3343,1052 @@ def test_the_caveat_is_scoped_to_the_saving_and_not_to_every_euro_on_the_page():
     # The superseded, over-broad claim must not come back: it named the euro figures on the page,
     # of which the two bills are the largest, and understated their movement.
     assert "the euro figures on this page" not in text
+
+
+# ── The *Energy flows* average day: resolution invariance ────────────────────────────────────
+
+
+def _flows_dataset(days: int, grid_s: int):
+    """The SAME physical load/PV over `days` days, expressed at `grid_s` resolution.
+
+    One hourly-basis profile, expanded to the target grid by SPLITTING each hour's kWh evenly
+    across its sub-intervals — so the two datasets describe one physical household, not two, and
+    any difference in a kWh figure derived from them is an artifact of the derivation.
+    """
+    from app.dataset import LoadedDataset
+    from app.domain.frames import QUALITY_DTYPE, SeriesFrame
+
+    per_hour = 3600 // grid_s
+    n = days * 24 * per_hour
+    h = np.arange(days * 24) % 24
+    load_h = 0.4 + 0.5 * np.exp(-((h - 19) ** 2) / 8.0) + 0.3 * np.exp(-((h - 8) ** 2) / 6.0)
+    pv_h = 2.5 * np.maximum(0.0, np.cos((h - 13) * np.pi / 10.0)) ** 2
+    load = np.repeat(load_h, per_hour) / per_hour
+    pv = np.repeat(pv_h, per_hour) / per_hour
+    net = load - pv
+    idx = (np.arange(n).astype("timedelta64[s]") * grid_s
+           + np.datetime64("2026-01-01T00:00:00")).astype("datetime64[s]")
+    q = np.zeros(n, dtype=QUALITY_DTYPE)
+
+    def sf(name, vals):
+        return SeriesFrame(name, "energy", grid_s, idx, np.asarray(vals, float), q)
+
+    frames = [sf("grid_import_t1", np.maximum(net, 0.0)),
+              sf("grid_export_t1", np.maximum(-net, 0.0)),
+              sf("solar_production", pv)]
+    return LoadedDataset(
+        id=1, source_type="test",
+        window=(_COV_START, _COV_START + timedelta(days=days)),
+        fetched_at=_COV_START, frames=frames, warnings=[],
+        series_sources={f.name: "test" for f in frames},
+    )
+
+
+def test_the_average_day_is_the_same_profile_at_hourly_and_15_minute_resolution():
+    """The average-day flows must be kWh PER HOUR whichever grid the data arrives on.
+
+    Each hour-of-day bucket holds one interval per day at 3600 s and four at 900 s, so a mean over
+    the INTERVALS in a bucket is kWh-per-interval — it drew the same physical day a quarter as tall
+    the moment the input was 15-minute data, against monthly bars and KPI tiles on the same page
+    that did not move. 15-minute is the standard Dutch P1 smart-meter export and a common Home
+    Assistant statistics resolution, so this is the common case, not an edge one. Measured before
+    the fix on this same 60-day fixture: the source segments summed over the 24 buckets gave
+    14.08 kWh at 3600 s and 3.50 kWh at 900 s.
+
+    The fixture feeds ONE physical profile to both runs, so the assertion is not a tolerance
+    result — the flow totals out of the simulation are equal to float noise (checked below), and
+    the only thing that can move the average day is how it is aggregated.
+
+    `soc` is deliberately NOT asserted equal per bucket. It is a STOCK, so a finer grid samples the
+    same trajectory at more points WITHIN the hour and the bucket means legitimately differ (~0.7
+    kWh here, on a ~9 kWh battery); its window mean is what should agree, and does. Applying the
+    flows' per-day rule to it would instead multiply the trace by four, which is why the view keeps
+    two aggregation functions rather than one.
+    """
+    days = 60
+    win = (_COV_START, _COV_START + timedelta(days=days))
+    flows = {}
+    for grid_s in (3600, 900):
+        r = results_from(_flows_dataset(days, grid_s), win)
+        assert r is not None and r["energy_flows"] is not None
+        flows[grid_s] = r["energy_flows"]
+
+    hourly, quarterly = flows[3600]["average_day"], flows[900]["average_day"]
+
+    # Every FLOW series, bucket by bucket. Equality to the payload's own 2 dp rounding, not an
+    # epsilon: the aggregation is a sum divided by a day count, and the sum of four quarter-hours
+    # is exactly the hour they make up.
+    for key in ("dis_home", "imp_home", "pv_to_home", "chg_pv", "chg_grid",
+                "exp_from_pv", "curtailed", "standby", "household_load"):
+        assert hourly[key] == quarterly[key], f"{key} moved with grid resolution"
+
+    # …and the level is right, not merely equal: the average day's three source segments must be
+    # the monthly stack's own total spread over the window's days. A per-interval mean would fail
+    # this at 900 s while still passing an hourly-only version of it.
+    for grid_s, ad in flows.items():
+        segments = sum(sum(ad["average_day"][k]) for k in ("dis_home", "imp_home", "pv_to_home"))
+        monthly = ad["load_sourcing"]
+        per_day = (sum(monthly["household_load"]) + sum(monthly["standby"])) / days
+        assert segments == pytest.approx(per_day, abs=0.05), (
+            f"grid {grid_s}s: average day sums to {segments} kWh against {per_day} kWh/day "
+            "on the monthly stack"
+        )
+
+    # SoC: a stock, so the WINDOW mean is the invariant, not the per-bucket value.
+    assert np.mean(hourly["soc"]) == pytest.approx(np.mean(quarterly["soc"]), abs=0.01)
+
+
+# ── The SoC heatmap (§2.4's *SoC + price* tab, first chart) ────────────────────────────────────
+
+
+def _decode_heatmap(h):
+    """The browser's decode, in numpy: base64 -> bytes -> z[row][col]."""
+    import base64
+
+    cells = np.frombuffer(base64.b64decode(h["cells"]), dtype=np.uint8)
+    assert len(cells) == h["rows"] * h["cols"], "the payload does not fill the declared grid"
+    return cells.reshape(h["rows"], h["cols"])
+
+
+def test_the_soc_heatmap_keeps_the_data_s_own_resolution_rather_than_bucketing():
+    """One cell per SIMULATION INTERVAL, so a finer grid gives more ROWS, not finer averages.
+
+    This is the property that distinguishes this chart from every other aggregation in the module.
+    `_energy_flows` has to choose between a per-day and a per-interval mean and defend the choice
+    (`_hourly_flow` vs `_hourly_stock`); here there is no choice to make, because nothing is
+    averaged — the cell IS an interval. So the same physical window drawn at 3600 s and at 900 s
+    must differ ONLY in row count, and the underlying trajectory must be the same.
+
+    The column count is asserted equal across the two: days are days whatever the sampling rate,
+    and a column count that moved with resolution would mean the local-day bucketing was reading
+    interval indices rather than wall-clock dates.
+    """
+    days = 60
+    win = (_COV_START, _COV_START + timedelta(days=days))
+    got = {}
+    for grid_s in (3600, 900):
+        r = results_from(_flows_dataset(days, grid_s), win)
+        assert r is not None and r["soc_heatmap"] is not None
+        got[grid_s] = r["soc_heatmap"]
+
+    assert got[3600]["rows"] == 24
+    assert got[900]["rows"] == 96
+    assert got[3600]["grid_s"] == 3600 and got[900]["grid_s"] == 900
+    # Same window, same days: the calendar axis does not move with the sampling rate.
+    assert got[3600]["cols"] == got[900]["cols"]
+    assert got[3600]["days"] == got[900]["days"]
+    # Same battery, so the same operating window is what the colour ramp spans in both.
+    assert got[3600]["soc_min_kwh"] == got[900]["soc_min_kwh"]
+    assert got[3600]["soc_max_kwh"] == got[900]["soc_max_kwh"]
+
+    # The same physical trajectory: the 15-minute run samples it four times per hour rather than
+    # once, so cell-for-cell equality is not the claim — the MEAN over real cells is, to within
+    # quantisation. (Both are levels on one shared ramp, so they are directly comparable.)
+    z_h, z_q = _decode_heatmap(got[3600]), _decode_heatmap(got[900])
+    absent = got[3600]["absent"]
+    mean_h = z_h[z_h != absent].mean()
+    mean_q = z_q[z_q != absent].mean()
+    assert abs(float(mean_h) - float(mean_q)) < 2.0, (mean_h, mean_q)
+
+
+def test_the_soc_heatmap_spans_the_operating_window_not_nameplate_capacity():
+    """0 is the floor of the battery's operating window and `levels` is its ceiling.
+
+    The ramp has to span exactly the range the SoC can occupy, or the chart never reaches one of
+    its own ends. A battery with a 10% reserve floor and a 90% ceiling normalised against
+    `usable_capacity_kwh` would top out at 90% opacity and bottom out at 10% — so "full" would not
+    look full, and the reader would have no way to know the top of the ramp was unreachable.
+
+    Asserted against a config with a DELIBERATELY asymmetric window (20%..80%), so a normalisation
+    against nameplate would be visible as a range that stops well short of both ends.
+    """
+    days = 20
+    win = (_COV_START, _COV_START + timedelta(days=days))
+    from app.domain.simconfig import SimulationConfig
+
+    cfg = SimulationConfig()
+    cfg.battery.usable_capacity_kwh = 10.0
+    cfg.battery.min_soc_pct = 20.0
+    cfg.battery.max_soc_pct = 80.0
+
+    r = results_from(_flows_dataset(days, 3600), win, cfg=cfg)
+    h = r["soc_heatmap"]
+    # The published ends are the operating window in kWh, which is what the colourbar labels.
+    assert h["soc_min_kwh"] == 2.0
+    assert h["soc_max_kwh"] == 8.0
+
+    z = _decode_heatmap(h)
+    real = z[z != h["absent"]]
+    assert real.min() >= 0
+    assert real.max() <= h["levels"]
+    # This fixture cycles the battery hard enough to reach both ends of its window. That is what
+    # makes the assertion meaningful: it shows the ramp is REACHABLE at both extremes, which is
+    # exactly what nameplate normalisation would break.
+    assert real.min() == 0, "the empty end of the ramp is never reached"
+    assert real.max() == h["levels"], "the full end of the ramp is never reached"
+
+
+def test_the_soc_heatmap_marks_absent_cells_distinctly_from_an_empty_battery():
+    """A cell with no data must not be drawable as a cell at the bottom of the ramp.
+
+    `soc` is carried forward through gap intervals (`simulate.Flows`) so the average-day TRACE
+    stays continuous — right for a line, wrong for a cell: a filled cell during a data gap asserts
+    a charge level the simulation explicitly declined to claim. So gaps become the sentinel, and
+    the sentinel cannot be 0 because 0 is a real reading meaning "at the floor of the window".
+
+    The window here starts at 00:00 UTC, which is 01:00 Amsterdam, so local hour 0 of the first
+    day falls outside it — an absent cell that arises from the local-time axis itself, with no gap
+    in the data at all. That is the cheapest reachable case; it is the same sentinel either way.
+    """
+    days = 10
+    win = (_COV_START, _COV_START + timedelta(days=days))
+    r = results_from(_flows_dataset(days, 3600), win)
+    h = r["soc_heatmap"]
+
+    assert h["absent"] != 0, "the sentinel collides with a real reading at the floor"
+    assert h["absent"] > h["levels"], "the sentinel is inside the ramp"
+
+    z = _decode_heatmap(h)
+    # First local day, hour 00:00 — before the window opens.
+    assert z[0][0] == h["absent"]
+    # And the rest of that first column is real data, so this is a hole rather than a missing day.
+    assert (z[1:, 0] != h["absent"]).all()
+
+
+def test_the_soc_heatmap_columns_are_local_days_including_across_dst():
+    """Columns are Europe/Amsterdam calendar days, which is why one column a year is 23 hours.
+
+    The axis exists to be compared against what the reader sees on their own inverter app or Home
+    Assistant dashboard, both of which plot Dutch local time (the same argument `_energy_flows`
+    makes for its average day). §4.4 holds the pipeline in UTC, so the conversion happens per
+    interval — and on the spring-forward day local 02:00 never occurs.
+
+    29 March 2026 is that day. Exactly one cell of its column has no interval, and it is the 02:00
+    row; every other cell of that column is real. A constant UTC offset would put the hole on the
+    wrong row or lose it entirely, and bucketing by `i % rows` would smear every day after it.
+    """
+    days = 120  # 1 Jan + 120 days spans 29 March
+    win = (_COV_START, _COV_START + timedelta(days=days))
+    r = results_from(_flows_dataset(days, 3600), win)
+    h = r["soc_heatmap"]
+
+    assert "2026-03-29" in h["days"], "the fixture does not reach the DST transition"
+    col = h["days"].index("2026-03-29")
+    z = _decode_heatmap(h)
+    holes = [row for row in range(h["rows"]) if z[row][col] == h["absent"]]
+    assert holes == [2], f"expected one hole at local 02:00, got rows {holes}"
+
+
+
+def test_the_soc_heatmap_blanks_a_data_gap_rather_than_carrying_charge_into_it(monkeypatch):
+    """The rule the sentinel exists FOR: a gap cell is blank, not a plateau of carried charge.
+
+    `simulate` carries the SoC forward across a gap deliberately — the battery physically still
+    held its charge through a sensor outage, and the average-day TRACE would otherwise break into
+    segments. But a heatmap cell is a claim about one interval, and drawing carried-forward charge
+    in it asserts a reading the simulation explicitly declined to make (`run_all` marks the
+    interval `gap` and puts NaN in every flow). A reader cannot tell a plateau of real charge from
+    a plateau of no-data, and when the battery is full is this chart's entire subject.
+
+    **The frame is patched, because this path cannot be reached from a dataset** — followup C11.
+    `_soc_heatmap` reads `Flows.gap`, which §6.9 sets from `isnan(frame.load) | isnan(frame.pv)`,
+    but `reconcile._resample_sum` fills every hole with 0.0 (`nan_to_num`, `reconcile.py:93`), so
+    `simulation_frame` cannot emit a NaN load. Verified while writing this test: NaN written into
+    the source frames arrives as `isnan(frame.load).sum() == 0` and `gap.sum() == 0`. Patching is
+    the only way to exercise the rule, and it is the same approach
+    `test_the_partial_month_footnote_appears_only_when_a_month_is_flagged` takes for the same
+    reason. If a coverage mask ever propagates NaN instead of zero-filling, this test keeps working
+    unchanged and the patch simply becomes redundant.
+
+    The sibling test above reaches the sentinel through a window EDGE, which exercises the encoding
+    but not this rule — its SoC array is gap-free, so removing the gap mask leaves it passing.
+    This is the test that fails if the mask goes.
+    """
+    days = 10
+    win = (_COV_START, _COV_START + timedelta(days=days))
+
+    from app.domain import simframe
+
+    original = simframe.simulation_frame
+    hole = slice(4 * 24 + 6, 4 * 24 + 12)  # six hours inside day index 4
+
+    def holed(dataset, window):
+        frame = original(dataset, window)
+        if frame is not None and frame.intervals > hole.stop:
+            load = np.array(frame.load, dtype=np.float64)
+            load[hole] = np.nan
+            frame.load = load
+        return frame
+
+    monkeypatch.setattr("app.results_view.simulation_frame", holed)
+
+    r = results_from(_flows_dataset(days, 3600), win)
+    h = r["soc_heatmap"]
+    z = _decode_heatmap(h)
+
+    # January is UTC+1, so UTC hours 6..11 of day index 4 are local hours 7..12 of 5 January.
+    col = h["days"].index("2026-01-05")
+    rows = [rr for rr in range(h["rows"]) if z[rr][col] == h["absent"]]
+    assert rows == list(range(7, 13)), f"expected local hours 7..12 blank, got {rows}"
+
+    # And ONLY there: a mask that blanked more than the gap would be as wrong as one that blanked
+    # less. Every other cell of that column is a real reading, including the hours either side.
+    assert z[6][col] != h["absent"] and z[13][col] != h["absent"]
+    # The neighbouring days are untouched — the gap is not smeared across the calendar axis.
+    for other in ("2026-01-04", "2026-01-06"):
+        oc = h["days"].index(other)
+        assert (z[:, oc] != h["absent"]).all(), f"{other} lost cells to a gap on another day"
+
+
+# ── The earnings heatmap (§2.4's *SoC + price* tab, second chart) ──────────────────────────────
+
+
+def _decode_earnings(h):
+    """The browser's decode, in numpy: base64 -> float32 -> z[row][col]."""
+    import base64
+
+    cells = np.frombuffer(base64.b64decode(h["cells"]), dtype=np.float32)
+    assert len(cells) == h["rows"] * h["cols"], "the payload does not fill the declared grid"
+    return cells.reshape(h["rows"], h["cols"])
+
+
+def _priced_flows_dataset(days: int, grid_s: int = 3600, prices=None):
+    """`_flows_dataset` plus a spot price, so the cost block runs at all.
+
+    The SoC tests' fixture carries no `price_spot` slot, which leaves `frame.spot` all NaN and
+    every price curve with it — the earnings grid would correctly return None on it, which is not
+    the case any of these tests is about.
+
+    The default profile is `_PRICES`' shape: an evening/morning peak against a cheap trough, which
+    is what makes the battery both discharge into the house at a high import price and (under P3)
+    grid-charge at a low one, so all three terms of the cell value are non-zero somewhere.
+    """
+    from app.domain.frames import QUALITY_DTYPE, SeriesFrame
+
+    per_hour = 3600 // grid_s
+    n = days * 24 * per_hour
+    ds = _flows_dataset(days, grid_s)
+    h = (np.arange(n) // per_hour) % 24
+    vals = (np.where(np.isin(h, (7, 8, 17, 18, 19, 20)), 0.30, 0.04)
+            if prices is None else np.asarray(prices, dtype=float))
+    idx = (np.arange(n).astype("timedelta64[s]") * grid_s
+           + np.datetime64("2026-01-01T00:00:00")).astype("datetime64[s]")
+    ds.frames.append(
+        SeriesFrame("price_spot", "price", grid_s, idx, vals, np.zeros(n, dtype=QUALITY_DTYPE))
+    )
+    ds.series_sources["price_spot"] = "test"
+    return ds
+
+
+def _grid_charging_config():
+    """P3/D3 with grid export allowed, so all three terms of the cell value can be exercised.
+
+    The shipped default is P1 (solar surplus only), under which `chg_grid` is identically zero and
+    the term this chart subtracts never appears. P3 charges from the grid inside the cheap band as
+    well, D3 discharges in-band as well as into a household deficit, and `allow_grid_export` lets
+    the discharge reach the meter — between them every term has an input that can move it.
+    """
+    from app.domain.simconfig import DischargePolicy, SimulationConfig
+
+    cfg = SimulationConfig()
+    cfg.policy.charge_policy = ChargePolicy.P3
+    cfg.policy.discharge_policy = DischargePolicy.D3
+    cfg.policy.allow_grid_export = True
+    return cfg
+
+
+class _FakeRuns:
+    """Just enough of `run_all`'s result for `_earnings_heatmap`: run C's flow arrays."""
+
+    def __init__(self, c):
+        self.c = c
+
+
+def _synthetic_earnings(dis_home, dis_grid, chg_grid, spot, grid_s=3600, cfg=None):
+    """`_earnings_heatmap` over hand-written flows and one hand-written spot series.
+
+    The integration fixtures cannot isolate a single term — a real dispatch moves several at once,
+    at prices that vary hour to hour — so the price-attribution tests drive the function directly.
+    Everything else about the payload (the axes, the encoding, the clip) is the production code
+    path; only the inputs are synthetic.
+    """
+    from app.domain.pricing import price_curves
+    from app.domain.simconfig import SimulationConfig
+    from app.domain.simulate import Flows
+
+    cfg = cfg or SimulationConfig()
+    n = len(spot)
+    flows = Flows.empty(n)
+    flows.dis_home = np.asarray(dis_home, dtype=np.float64)
+    flows.dis_grid = np.asarray(dis_grid, dtype=np.float64)
+    flows.chg_grid = np.asarray(chg_grid, dtype=np.float64)
+    rec = _fake_rec(n, grid_s)
+    curves = price_curves(cfg.pricing, np.asarray(spot, dtype=np.float64))
+    runs = _FakeRuns(flows)
+    return runs, curves, rec, cfg, _earnings_heatmap(runs, rec, curves, cfg)
+
+
+def _fake_rec(n, grid_s):
+    """A `ReconciledGrid` carrying only what `_heatmap_axes` reads: the window start and grid_s."""
+    from app.domain.reconcile import ReconciledGrid
+    import dataclasses
+
+    # Every other field is filled with a zero of its declared kind rather than enumerated, so a
+    # field added to `ReconciledGrid` for some unrelated reason does not break these tests. The
+    # two that matter are named explicitly, because `_heatmap_axes` reads exactly those two.
+    kwargs = {}
+    for f in dataclasses.fields(ReconciledGrid):
+        if f.type in ("np.ndarray", "numpy.ndarray"):
+            kwargs[f.name] = np.zeros(n, dtype=np.float64)
+        elif f.type == "bool":
+            kwargs[f.name] = False
+        elif f.type == "int":
+            kwargs[f.name] = 0
+        else:
+            kwargs[f.name] = 0.0
+    kwargs["grid_s"] = grid_s
+    kwargs["window"] = (_COV_START, _COV_START + timedelta(seconds=n * grid_s))
+    return ReconciledGrid(**kwargs)
+
+
+def test_the_earnings_heatmap_prices_each_flow_at_the_price_that_flow_actually_settles_against():
+    """The three terms carry three DIFFERENT prices, and none of them is bare spot.
+
+    §6.5 is the whole reason this chart is not `flow x spot`: import carries energy tax and VAT,
+    private-consumer feed-in carries neither and is further reduced by terugleverkosten. On
+    appendix A's defaults that gap is large — a kWh into the house is worth several times the same
+    kWh exported — and it is the asymmetry the tool exists to show.
+
+    Each term is isolated into its own interval, so a cell reads exactly one product. The
+    assertions are against `import_price` / `export_price_net` recomputed from the same
+    `PricingConfig`, i.e. against §6.5's definitions rather than against a number copied out of a
+    previous run.
+
+    Two failure modes this must catch, both of which produce a chart that looks entirely
+    plausible: pricing every term at bare spot, and putting `p_import` on the export term. The
+    assertions below state the ORDERING those two collapse — `p_import > spot > p_export_net` at
+    this price — so either substitution moves a cell by a visible factor.
+    """
+    from app.domain.pricing import bare_supply_price, export_price_net, import_price
+    from app.domain.simconfig import SimulationConfig
+
+    cfg = SimulationConfig()
+    spot = np.full(24, 0.20)
+    # Interval 0 discharges to the house, 1 exports, 2 grid-charges; nothing else moves.
+    dis_home = np.zeros(24); dis_home[0] = 2.0
+    dis_grid = np.zeros(24); dis_grid[1] = 3.0
+    chg_grid = np.zeros(24); chg_grid[2] = 4.0
+    *_, h = _synthetic_earnings(dis_home, dis_grid, chg_grid, spot, cfg=cfg)
+    assert h is not None
+    z = _decode_earnings(h)
+
+    # §6.5's own definitions, applied to the BARE supply price the curves are built from — spot
+    # plus the supplier markup, not spot itself. Recomputed here rather than read off `curves` so
+    # that the assertion states the formula, not whatever the code happened to produce.
+    bare = bare_supply_price(cfg.pricing, np.array([0.20]))
+    p_imp = float(import_price(cfg.pricing, bare)[0])
+    p_exp = float(export_price_net(cfg.pricing, bare)[0])
+
+    # The window opens at 00:00 UTC = 01:00 Amsterdam, so UTC interval i is local hour i+1 of
+    # 1 January — the axis is the shared one and is exercised by the SoC tests; here it only has
+    # to locate the three cells.
+    col = h["days"].index("2026-01-01")
+    assert z[1][col] == pytest.approx(2.0 * p_imp, rel=1e-5)
+    assert z[2][col] == pytest.approx(3.0 * p_exp, rel=1e-5)
+    assert z[3][col] == pytest.approx(-4.0 * p_imp, rel=1e-5)
+
+    # The three prices are genuinely distinct at this spot, which is what makes the assertions
+    # above discriminating rather than coincidentally satisfied. If a future default made
+    # p_import == spot == p_export_net, the test above would stop testing anything.
+    assert p_imp > 0.20 > p_exp, (p_imp, p_exp)
+    # And specifically: the export term must not be readable as the import term. On appendix A's
+    # α = 0.50 and 4 ct/kWh terugleverkosten this is not a near miss.
+    assert abs(z[2][col] - 3.0 * p_imp) > 0.1 * abs(3.0 * p_imp)
+
+
+def test_the_earnings_heatmap_makes_a_grid_charging_interval_negative():
+    """Grid charging is money SPENT, so its cell sits on the other side of zero.
+
+    The sign is the chart's main affordance: a diverging ramp around a real zero, not a
+    convention. Dropping the minus on the `chg_grid` term would make a battery buying at the
+    evening peak look like a battery earning at it, which is the single most misleading thing this
+    chart could do.
+
+    Asserted twice over: once on an interval that ONLY charges (unambiguously negative), and once
+    on an interval that discharges into the house by the same amount at the same time (where the
+    two terms must cancel exactly, which they only do if they carry opposite signs).
+    """
+    spot = np.full(24, 0.20)
+    dis_home = np.zeros(24); dis_home[3] = 1.0
+    dis_grid = np.zeros(24)
+    chg_grid = np.zeros(24); chg_grid[2] = 5.0; chg_grid[3] = 1.0
+    *_, h = _synthetic_earnings(dis_home, dis_grid, chg_grid, spot)
+    z = _decode_earnings(h)
+    col = h["days"].index("2026-01-01")
+
+    assert z[3][col] < 0.0, "a pure grid-charge interval did not read as a cost"
+    assert z[4][col] == pytest.approx(0.0, abs=1e-6)
+
+
+def test_the_earnings_heatmap_is_absent_when_cost_simulation_is_off():
+    """§4.5's rule for the euro side: the key is null WHOLESALE, not an empty object.
+
+    A euro chart has no meaning without a price model, and the same reasoning that keeps `cost`
+    null rather than an object of null fields applies here — an empty grid would invite the
+    template to render an axis and a colourbar for a chart with nothing in it.
+    """
+    days = 10
+    win = (_COV_START, _COV_START + timedelta(days=days))
+    ds = _priced_flows_dataset(days)
+
+    cfg = _grid_charging_config()
+    assert results_from(ds, win, cfg=cfg)["earnings_heatmap"] is not None
+
+    cfg_off = _grid_charging_config()
+    cfg_off.simulate_cost = False
+    r = results_from(ds, win, cfg=cfg_off)
+    assert r["earnings_heatmap"] is None
+    # The SoC grid beside it is an ENERGY chart and must survive the toggle — the two are on one
+    # tab, and only one of them is a cost figure.
+    assert r["soc_heatmap"] is not None
+
+    # And the function refuses on its own, not only because `results_from` happens to call it
+    # inside the `simulate_cost` block. Both guards are wanted: the call site's placement is what
+    # makes the price curves available at all, and the function's own check is what keeps the rule
+    # true for any future caller. Only the second is testable in isolation, so it is tested here.
+    from app.domain.simconfig import SimulationConfig
+
+    off = SimulationConfig()
+    off.simulate_cost = False
+    *_, direct = _synthetic_earnings(
+        np.full(24, 1.0), np.zeros(24), np.zeros(24), np.full(24, 0.20), cfg=off
+    )
+    assert direct is None
+
+
+def test_the_earnings_heatmap_blanks_a_data_gap_rather_than_reading_it_as_a_zero_earning(
+    monkeypatch,
+):
+    """A gap must be NaN, not 0.0 — §4.4's rule, and here the difference is a colour.
+
+    0.0 on this chart is a real, meaningful reading: an interval in which the battery was idle and
+    earned nothing. It draws as the neutral midpoint of the diverging ramp. An interval whose
+    sensor data is missing is a DIFFERENT statement, and it must not borrow that cell's colour —
+    it renders as a hole. `simulate.Flows` puts NaN in every flow array on a gap interval for
+    exactly this reason, and the arithmetic here propagates it without a special case; this test
+    is what fails if a `nan_to_num` is ever introduced on the way in.
+
+    **The frame is patched, because this path cannot be reached from a dataset** — followup C11.
+    `reconcile._resample_sum` fills every hole with 0.0 (`nan_to_num`, `reconcile.py:93`), so
+    `simulation_frame` cannot emit a NaN load and §6.9 never sets `gap`. Patching post-
+    reconciliation is the same workaround
+    `test_the_soc_heatmap_blanks_a_data_gap_rather_than_carrying_charge_into_it` uses, for the
+    same reason and with the same expiry: if a coverage mask ever propagates NaN, this test keeps
+    working and the patch becomes redundant.
+    """
+    days = 10
+    win = (_COV_START, _COV_START + timedelta(days=days))
+
+    from app.domain import simframe
+
+    original = simframe.simulation_frame
+    hole = slice(4 * 24 + 6, 4 * 24 + 12)  # six hours inside day index 4
+
+    def holed(dataset, window):
+        frame = original(dataset, window)
+        if frame is not None and frame.intervals > hole.stop:
+            load = np.array(frame.load, dtype=np.float64)
+            load[hole] = np.nan
+            frame.load = load
+        return frame
+
+    monkeypatch.setattr("app.results_view.simulation_frame", holed)
+
+    r = results_from(_priced_flows_dataset(days), win, cfg=_grid_charging_config())
+    h = r["earnings_heatmap"]
+    z = _decode_earnings(h)
+
+    # January is UTC+1, so UTC hours 6..11 of day index 4 are local hours 7..12 of 5 January.
+    col = h["days"].index("2026-01-05")
+    blank = [rr for rr in range(h["rows"]) if np.isnan(z[rr][col])]
+    assert blank == list(range(7, 13)), f"expected local hours 7..12 blank, got {blank}"
+
+    # And ONLY there: the hours either side are real readings, including — importantly — cells
+    # that may legitimately BE 0.0. A blanking rule that also swallowed idle intervals would erase
+    # the chart's own zero point.
+    assert not np.isnan(z[6][col]) and not np.isnan(z[13][col])
+    for other in ("2026-01-04", "2026-01-06"):
+        oc = h["days"].index(other)
+        assert not np.isnan(z[:, oc]).any(), f"{other} lost cells to a gap on another day"
+
+
+def test_the_earnings_heatmap_clip_is_symmetric_and_leaves_the_cell_values_untouched():
+    """`clip` bounds the COLOUR range, not the data — and it is one number, used both ways.
+
+    Two separate claims, and both matter. Symmetry: the chart is diverging, so zero has to land on
+    the neutral colour, which it only does if the range is ±c. Sending a min and a max fitted to
+    each side would put zero somewhere arbitrary and would erase the real magnitude asymmetry
+    between a peak-hour discharge and the off-peak charge that paid for it — which is the thing
+    worth seeing. So the payload carries a single scalar and the client mirrors it.
+
+    Non-destructiveness: the values in the payload are UNCLIPPED, so a hover reads the actual euro
+    figure rather than a saturated one. The fixture makes this checkable by planting one interval
+    far outside the bulk — with 99th-percentile clipping the outlier is above `clip`, and it must
+    still be present at full size in the cells.
+    """
+    spot = np.full(200, 0.20)
+    dis_home = np.full(200, 0.5)
+    dis_home[7] = 40.0  # one interval far outside the bulk
+    *_, h = _synthetic_earnings(dis_home, np.zeros(200), np.zeros(200), spot)
+    z = _decode_earnings(h)
+
+    assert h["clip"] > 0.0
+    # A single scalar, not a pair — the client cannot be handed an asymmetric range by accident.
+    assert "clip" in h and "vmin" not in h and "vmax" not in h
+
+    peak = float(np.nanmax(np.abs(z)))
+    assert peak > h["clip"], (
+        "the outlier did not survive above the clip: either the values were clipped, or `clip` "
+        "was taken as the maximum rather than a percentile"
+    )
+    # The outlier is the cell it was planted in, at full unclipped size.
+    from app.domain.pricing import bare_supply_price, import_price
+    from app.domain.simconfig import SimulationConfig
+
+    pcfg = SimulationConfig().pricing
+    p_imp = float(import_price(pcfg, bare_supply_price(pcfg, np.array([0.20])))[0])
+    assert peak == pytest.approx(40.0 * p_imp, rel=1e-5)
+    # And `clip` sits with the bulk rather than with the outlier, which is the point of using a
+    # percentile: one extreme interval must not set the range for the whole window.
+    assert h["clip"] == pytest.approx(0.5 * p_imp, rel=1e-3)
+
+
+def test_the_earnings_heatmap_is_absent_when_no_cell_carries_a_value():
+    """No priced non-gap cell, or a clip of zero, means there is no chart to draw.
+
+    Two degenerate windows, both reachable. A window with no spot price at all leaves every price
+    curve NaN (§6.5), so every product is NaN and there is nothing to colour. And a battery that
+    never moved a kWh makes every cell exactly 0.0, where ±0 is not a colour range — every cell
+    would draw as the neutral midpoint whatever the client did with it.
+
+    Returning None in both cases keeps the guard where the SoC grid's is, at the view: the client
+    branches on the key rather than on the shape of the data inside it.
+    """
+    n = 48
+    # Every price NaN — a window whose `price_spot` slot has no coverage.
+    *_, h = _synthetic_earnings(
+        np.full(n, 1.0), np.zeros(n), np.zeros(n), np.full(n, np.nan)
+    )
+    assert h is None
+
+    # Every flow zero — a battery that never moved.
+    *_, h = _synthetic_earnings(
+        np.zeros(n), np.zeros(n), np.zeros(n), np.full(n, 0.20)
+    )
+    assert h is None
+
+
+def test_the_earnings_heatmap_shares_its_axes_with_the_soc_heatmap():
+    """One grid, drawn twice. The two charts are read cell-against-cell on the same tab.
+
+    A reader looks at a full-battery cell in the SoC grid and at the euro figure in the cell at the
+    same position; that comparison is only meaningful if the two grids ARE the same grid. The axes
+    are therefore built once (`_heatmap_axes`) and shared, and this test is what fails if a future
+    change reintroduces a second copy of that loop and lets the two drift.
+
+    The window spans the spring-forward DST day, so the shared axis is exercised on the one case
+    where a naive `i % rows` and a wall-clock derivation disagree — the hole must fall on the same
+    row of the same column in both charts.
+    """
+    days = 120  # 1 Jan + 120 days spans 29 March
+    win = (_COV_START, _COV_START + timedelta(days=days))
+    r = results_from(_priced_flows_dataset(days), win, cfg=_grid_charging_config())
+    soc, earn = r["soc_heatmap"], r["earnings_heatmap"]
+    assert earn is not None
+
+    assert (earn["rows"], earn["cols"]) == (soc["rows"], soc["cols"])
+    assert earn["days"] == soc["days"]
+    assert earn["grid_s"] == soc["grid_s"]
+
+    col = soc["days"].index("2026-03-29")
+    zs, ze = _decode_heatmap(soc), _decode_earnings(earn)
+    soc_holes = [rr for rr in range(soc["rows"]) if zs[rr][col] == soc["absent"]]
+    earn_holes = [rr for rr in range(earn["rows"]) if np.isnan(ze[rr][col])]
+    assert soc_holes == [2], f"the SoC grid's DST hole moved: {soc_holes}"
+    assert earn_holes == soc_holes, "the two grids disagree about the spring-forward hole"
+
+
+# ── The saved heatmap (§2.4's *SoC + price* tab, third chart) ──────────────────────────────────
+
+
+class _FakeRunsAC:
+    """Just enough of `run_all`'s result for `_saved_heatmap`: runs A and C's meter flows.
+
+    Only `imp` and `exp` are read — `_per_interval_bill` bills the METER, not the battery's
+    internal flows — so the fixtures below set exactly those two per run.
+    """
+
+    def __init__(self, a, c):
+        self.a = a
+        self.c = c
+
+
+def _synthetic_saved(imp_a, exp_a, imp_c, exp_c, spot, grid_s=3600, cfg=None):
+    """`_saved_heatmap` over two hand-written meter series and one hand-written spot series.
+
+    The integration fixtures cannot isolate the sign or a single price: a real dispatch moves both
+    directions of the meter in both runs at prices that vary hour to hour, so a cell is a sum of
+    four products and no single substitution shows up cleanly. These drive the function directly.
+    Everything but the inputs — the axes, the encoding, the clip — is the production path.
+
+    Mirrors `_synthetic_earnings` above, and deliberately so: the two charts are structural twins
+    and their tests should be readable against each other.
+    """
+    from app.domain.pricing import price_curves
+    from app.domain.simconfig import SimulationConfig
+    from app.domain.simulate import Flows
+
+    cfg = cfg or SimulationConfig()
+    n = len(spot)
+
+    def flows(imp, exp):
+        f = Flows.empty(n)
+        f.imp = np.asarray(imp, dtype=np.float64)
+        f.exp = np.asarray(exp, dtype=np.float64)
+        return f
+
+    rec = _fake_rec(n, grid_s)
+    curves = price_curves(cfg.pricing, np.asarray(spot, dtype=np.float64))
+    runs = _FakeRunsAC(flows(imp_a, exp_a), flows(imp_c, exp_c))
+    return runs, curves, rec, cfg, _saved_heatmap(runs, rec, curves, cfg)
+
+
+def test_the_saved_heatmap_reads_positive_where_the_battery_lowers_the_bill():
+    """The sign convention, which is the single most confusable thing about this chart.
+
+    The arithmetically natural way to write "with battery minus without" is `C − A`, and it is
+    NEGATIVE whenever the battery helps, because what went down is a cost. This chart publishes
+    `A − C` instead, on purpose: positive is money saved, so the ramp points the same way as
+    `_earnings_heatmap`'s on the same tab, where green already means earning. Two euro charts
+    sharing an axis and disagreeing about which end of the ramp is good would be worse than either
+    convention alone.
+
+    The fixture is unambiguous: run A imports 5 kWh and run C imports nothing (the battery covered
+    the whole interval), with no export on either side. There is exactly one term in play, at one
+    price, and its sign cannot be argued about — the cell must be `+5 · p_import`.
+
+    A `C − A` implementation passes every structural test in this file (the grid still fills, the
+    encoding is still valid, the clip is still symmetric) and fails only here.
+    """
+    from app.domain.pricing import bare_supply_price, import_price
+    from app.domain.simconfig import SimulationConfig
+
+    cfg = SimulationConfig()
+    spot = np.full(24, 0.20)
+    imp_a = np.zeros(24); imp_a[0] = 5.0   # without the battery, 5 kWh had to be bought
+    imp_c = np.zeros(24)                    # with it, none was
+    *_, h = _synthetic_saved(imp_a, np.zeros(24), imp_c, np.zeros(24), spot, cfg=cfg)
+    assert h is not None
+    z = _decode_earnings(h)  # same float32 encoding as the earnings grid
+
+    p_imp = float(import_price(cfg.pricing, bare_supply_price(cfg.pricing, np.array([0.20])))[0])
+    # The window opens at 00:00 UTC = 01:00 Amsterdam, so UTC interval 0 is local hour 1.
+    col = h["days"].index("2026-01-01")
+    assert z[1][col] > 0.0, "the battery lowered the bill but the cell reads as a loss (C − A?)"
+    assert z[1][col] == pytest.approx(5.0 * p_imp, rel=1e-5)
+
+    # And the converse, so the test states a direction rather than a single sign: an interval where
+    # the battery made the bill WORSE — it bought 5 kWh the baseline did not need — must be
+    # negative. A chart that reported every interval as a saving would pass the assertion above.
+    imp_c2 = np.zeros(24); imp_c2[2] = 5.0
+    *_, h2 = _synthetic_saved(np.zeros(24), np.zeros(24), imp_c2, np.zeros(24), spot, cfg=cfg)
+    z2 = _decode_earnings(h2)
+    assert z2[3][col] == pytest.approx(-5.0 * p_imp, rel=1e-5)
+
+
+def test_the_saved_heatmap_prices_the_two_meter_directions_at_their_own_prices():
+    """Import and export settle at DIFFERENT prices, and the export term is a credit.
+
+    §6.5: import carries energy tax and VAT; private-consumer feed-in carries neither and is
+    further reduced by terugleverkosten. Three failures this catches, all of which leave a chart
+    that looks entirely plausible — swapping `p_import` and `p_export_net`, pricing both
+    directions at one of them, and adding the export term instead of subtracting it.
+
+    Each direction is isolated into its own interval so a cell reads exactly one product, and the
+    assertion is against `import_price` / `export_price_net` recomputed from the same
+    `PricingConfig` — §6.5's definitions, not a number copied out of a previous run.
+    """
+    from app.domain.pricing import bare_supply_price, export_price_net, import_price
+    from app.domain.simconfig import SimulationConfig
+
+    cfg = SimulationConfig()
+    spot = np.full(24, 0.20)
+    # Interval 0: A imports 2 kWh that C does not. C's bill is 2 · p_import lower, so the cell is
+    #             `A − C` = +2 · p_import — a saving.
+    # Interval 1: A exports 3 kWh that C does not (the battery kept them). Feeding in is a CREDIT,
+    #             so A's bill is 3 · p_export_net LOWER than C's, and the cell is −3 · p_export_net
+    #             — the battery cost the household that credit. The sign of this cell is the whole
+    #             reason the export term is subtracted in the bill rather than added.
+    imp_a = np.zeros(24); imp_a[0] = 2.0
+    exp_a = np.zeros(24); exp_a[1] = 3.0
+    *_, h = _synthetic_saved(imp_a, exp_a, np.zeros(24), np.zeros(24), spot, cfg=cfg)
+    z = _decode_earnings(h)
+    col = h["days"].index("2026-01-01")
+
+    bare = bare_supply_price(cfg.pricing, np.array([0.20]))
+    p_imp = float(import_price(cfg.pricing, bare)[0])
+    p_exp = float(export_price_net(cfg.pricing, bare)[0])
+
+    assert z[1][col] == pytest.approx(2.0 * p_imp, rel=1e-5)
+    assert z[2][col] == pytest.approx(-3.0 * p_exp, rel=1e-5)
+
+    # The two prices are genuinely distinct at this spot, which is what makes the assertions above
+    # discriminating rather than coincidentally satisfied. If a future default made
+    # p_import == p_export_net, the two assertions would stop telling them apart.
+    assert p_imp > 0.20 > p_exp > 0.0, (p_imp, p_exp)
+    # And specifically: the export cell must not be readable at the import price. On appendix A's
+    # α = 0.50 and 4 ct/kWh terugleverkosten this is not a near miss — the two differ 5×.
+    assert abs(z[2][col] - -3.0 * p_imp) > 0.5 * abs(3.0 * p_imp)
+
+    # A `+ exp · p_export_net` bill would flip this cell's sign: a lost export credit would read as
+    # a saving. Stated as its own claim because the magnitude assertion above survives it.
+    assert z[2][col] < 0.0, "the export term appears to be added rather than subtracted"
+
+
+def test_the_saved_heatmap_cells_sum_to_the_headline_saving():
+    """The property that distinguishes this chart from the earnings grid beside it.
+
+    `_earnings_heatmap` attributes value to the battery's own FLOWS, and its cells sum to nothing
+    on the panel — a self-consumed PV kWh that never touched the battery is worth the same under
+    both runs and is in neither cell. This chart is the COUNTERFACTUAL: it re-bills the whole meter
+    under both scenarios and differences them, so its cells DO add up to the headline `saved_eur`.
+
+    Asserted on a window where the feed-in floor does NOT bind, which is the exact-equality case.
+    Where it binds, the cells sum to slightly less — the top-up is a period-level scalar with no
+    per-interval allocation (`domain/costs.py`), an exclusion inherited from `_monthly_saved_eur`
+    and documented in both.
+
+    Also asserted against `monthly_saved_eur`: the bars and the grid are two aggregations of one
+    series (`_per_interval_bill`) and must agree. This is what fails if the module-level helper is
+    ever re-inlined at one call site and changed there.
+    """
+    r = results_from(_cost_dataset(), (_WIN_START, _WIN_END), cfg=_cost_cfg())
+    h = r["saved_heatmap"]
+    assert h is not None
+    z = _decode_earnings(h)
+
+    total = float(np.nansum(z.astype(np.float64)))
+    assert total == pytest.approx(r["cost"]["saved_eur"], rel=1e-5)
+    assert total == pytest.approx(sum(r["monthly_saved_eur"]), rel=1e-5)
+
+    # And on the other fixture, whose battery LOSES money over the window — the sum must track the
+    # headline there too, negative and all. A chart that took an absolute value somewhere, or that
+    # clipped the payload, would pass the test above and fail this one.
+    days = 10
+    r2 = results_from(
+        _priced_flows_dataset(days),
+        (_COV_START, _COV_START + timedelta(days=days)),
+        cfg=_grid_charging_config(),
+    )
+    z2 = _decode_earnings(r2["saved_heatmap"])
+    assert r2["cost"]["saved_eur"] < 0.0, "the fixture stopped being a money-losing window"
+    assert float(np.nansum(z2.astype(np.float64))) == pytest.approx(
+        r2["cost"]["saved_eur"], rel=1e-5
+    )
+    # The bars-versus-grid cross-check is repeated HERE and not only on the fixture above, because
+    # the fixture above has the same export in both runs — the export term cancels out of its
+    # difference, so it cannot see a change to that term at one of the two call sites. This one
+    # exports differently under the two runs and does see it. Without this line, re-inlining
+    # `_per_interval_bill` at the `_monthly_saved_eur` call site and changing it there passes.
+    assert sum(r2["monthly_saved_eur"]) == pytest.approx(r2["cost"]["saved_eur"], rel=1e-5)
+
+
+def test_the_saved_heatmap_is_absent_when_cost_simulation_is_off():
+    """§4.5's rule for the euro side: the key is null WHOLESALE, not an empty object.
+
+    Checked BOTH ways, because only one of them can fail on its own. Through `results_from` the
+    call site already sits inside `if cfg.simulate_cost:`, so the function's own guard is never
+    reached and could be deleted without a test noticing — the same trap the earnings grid's tests
+    cover. Both guards are wanted: the call site's placement is what makes the price curves exist
+    at all, and the in-function check is what keeps the rule true for any future caller.
+    """
+    days = 10
+    win = (_COV_START, _COV_START + timedelta(days=days))
+    ds = _priced_flows_dataset(days)
+
+    cfg = _grid_charging_config()
+    assert results_from(ds, win, cfg=cfg)["saved_heatmap"] is not None
+
+    cfg_off = _grid_charging_config()
+    cfg_off.simulate_cost = False
+    r = results_from(ds, win, cfg=cfg_off)
+    assert r["saved_heatmap"] is None
+    # The SoC grid beside it is an ENERGY chart and must survive the toggle — three charts on one
+    # tab, and only two of them are cost figures.
+    assert r["soc_heatmap"] is not None
+    assert r["earnings_heatmap"] is None
+
+    # The in-function guard, exercised directly.
+    from app.domain.simconfig import SimulationConfig
+
+    off = SimulationConfig()
+    off.simulate_cost = False
+    *_, direct = _synthetic_saved(
+        np.full(24, 1.0), np.zeros(24), np.zeros(24), np.zeros(24), np.full(24, 0.20), cfg=off
+    )
+    assert direct is None
+
+
+def test_the_saved_heatmap_blanks_a_data_gap_rather_than_reading_it_as_no_saving(monkeypatch):
+    """A gap must be NaN, not 0.0 — §4.4's rule, and here the difference is a colour.
+
+    0.0 on this chart is a real reading: an interval in which the battery changed nothing about the
+    bill, which draws as the neutral midpoint of the diverging ramp. An interval whose sensor data
+    is missing is a DIFFERENT statement and must render as a hole. `simulate.Flows` puts NaN in
+    every flow array on a gap interval, and `_per_interval_bill` propagates it without a special
+    case; this test is what fails if a `nan_to_num` is ever introduced on the way in.
+
+    **The frame is patched, because this path cannot be reached from a dataset** — followup C11.
+    `reconcile._resample_sum` fills every hole with 0.0 (`reconcile.py:93`), so `simulation_frame`
+    cannot emit a NaN load and §6.9 never sets `gap`. The same workaround the SoC and earnings
+    tests use, for the same reason and with the same expiry.
+    """
+    days = 10
+    win = (_COV_START, _COV_START + timedelta(days=days))
+
+    from app.domain import simframe
+
+    original = simframe.simulation_frame
+    hole = slice(4 * 24 + 6, 4 * 24 + 12)  # six hours inside day index 4
+
+    def holed(dataset, window):
+        frame = original(dataset, window)
+        if frame is not None and frame.intervals > hole.stop:
+            load = np.array(frame.load, dtype=np.float64)
+            load[hole] = np.nan
+            frame.load = load
+        return frame
+
+    monkeypatch.setattr("app.results_view.simulation_frame", holed)
+
+    r = results_from(_priced_flows_dataset(days), win, cfg=_grid_charging_config())
+    h = r["saved_heatmap"]
+    z = _decode_earnings(h)
+
+    # January is UTC+1, so UTC hours 6..11 of day index 4 are local hours 7..12 of 5 January.
+    col = h["days"].index("2026-01-05")
+    blank = [rr for rr in range(h["rows"]) if np.isnan(z[rr][col])]
+    assert blank == list(range(7, 13)), f"expected local hours 7..12 blank, got {blank}"
+
+    # And ONLY there. The hours either side are real readings, including cells that may legitimately
+    # BE 0.0 — a blanking rule that also swallowed no-change intervals would erase the chart's zero.
+    assert not np.isnan(z[6][col]) and not np.isnan(z[13][col])
+    for other in ("2026-01-04", "2026-01-06"):
+        oc = h["days"].index(other)
+        assert not np.isnan(z[:, oc]).any(), f"{other} lost cells to a gap on another day"
+
+
+def test_the_saved_heatmap_clip_is_its_own_and_not_the_earnings_grid_s():
+    """Two euro charts on one tab, two INDEPENDENT colour ranges. A user decision, not an accident.
+
+    Sharing one range would let a reader compare the two charts' cells by colour, which is exactly
+    the claim that must not be made: chart 2 is a gross attribution to battery flows, chart 3 is a
+    counterfactual whole-bill difference, and they are different quantities. The ranges are
+    therefore each the 99th percentile of that chart's OWN absolute values.
+
+    The fixture forces the two apart by an order of magnitude, so the assertion is discriminating
+    rather than relying on two numbers that happen to differ in the last digit.
+
+    Also asserts the two other clip properties, both inherited from the earnings grid: `clip` is a
+    single symmetric scalar (a diverging ramp needs zero on the neutral colour), and the payload is
+    UNCLIPPED so a hover reads the real euro figure rather than a saturated one.
+    """
+    days = 10
+    win = (_COV_START, _COV_START + timedelta(days=days))
+    r = results_from(_priced_flows_dataset(days), win, cfg=_grid_charging_config())
+    saved, earn = r["saved_heatmap"], r["earnings_heatmap"]
+    assert saved is not None and earn is not None
+    # On a real dispatch the two are close but not equal — they are different sums over different
+    # terms. Equality would mean one clip was computed from the other's array.
+    assert saved["clip"] != earn["clip"]
+
+    # A synthetic window that forces them far apart, so the claim does not rest on a small gap.
+    spot = np.full(200, 0.20)
+    imp_a = np.full(200, 4.0)     # the baseline buys steadily; the battery run buys nothing
+    *_, h = _synthetic_saved(imp_a, np.zeros(200), np.zeros(200), np.zeros(200), spot)
+    # The earnings grid over battery flows two orders of magnitude smaller.
+    *_, e = _synthetic_earnings(np.full(200, 0.02), np.zeros(200), np.zeros(200), spot)
+    assert h["clip"] > 10 * e["clip"], (h["clip"], e["clip"])
+
+    # A single scalar, not a pair — the client cannot be handed an asymmetric range by accident.
+    assert "clip" in h and "vmin" not in h and "vmax" not in h
+
+    # Unclipped payload: one interval far outside the bulk must survive above `clip` at full size.
+    imp_out = np.full(200, 0.5)
+    imp_out[7] = 40.0
+    *_, h2 = _synthetic_saved(imp_out, np.zeros(200), np.zeros(200), np.zeros(200), spot)
+    z2 = _decode_earnings(h2)
+    peak = float(np.nanmax(np.abs(z2)))
+    assert peak > h2["clip"], (
+        "the outlier did not survive above the clip: either the values were clipped, or `clip` "
+        "was taken as the maximum rather than a percentile"
+    )
+    from app.domain.pricing import bare_supply_price, import_price
+    from app.domain.simconfig import SimulationConfig
+
+    pcfg = SimulationConfig().pricing
+    p_imp = float(import_price(pcfg, bare_supply_price(pcfg, np.array([0.20])))[0])
+    assert peak == pytest.approx(40.0 * p_imp, rel=1e-5)
+    assert h2["clip"] == pytest.approx(0.5 * p_imp, rel=1e-3)
+
+
+def test_the_saved_heatmap_shares_its_axes_with_the_other_two_grids():
+    """One grid, drawn three times — the tab is read cell-against-cell across all of them.
+
+    A reader looks at a full-battery cell in the SoC grid, the euro figure beside it in the
+    earnings grid, and what the bill did in this one. That comparison is only meaningful if the
+    three ARE the same grid, which is why the axes are built once (`_heatmap_axes`) and shared.
+
+    The window spans the spring-forward DST day, the one case where a naive `i % rows` and a
+    wall-clock derivation disagree: the hole must fall on the same row of the same column in all
+    three.
+    """
+    days = 120  # 1 Jan + 120 days spans 29 March
+    win = (_COV_START, _COV_START + timedelta(days=days))
+    r = results_from(_priced_flows_dataset(days), win, cfg=_grid_charging_config())
+    soc, earn, saved = r["soc_heatmap"], r["earnings_heatmap"], r["saved_heatmap"]
+    assert saved is not None
+
+    assert (saved["rows"], saved["cols"]) == (soc["rows"], soc["cols"])
+    assert saved["days"] == soc["days"] == earn["days"]
+    assert saved["grid_s"] == soc["grid_s"]
+
+    col = soc["days"].index("2026-03-29")
+    zs, zv = _decode_heatmap(soc), _decode_earnings(saved)
+    soc_holes = [rr for rr in range(soc["rows"]) if zs[rr][col] == soc["absent"]]
+    saved_holes = [rr for rr in range(saved["rows"]) if np.isnan(zv[rr][col])]
+    assert soc_holes == [2], f"the SoC grid's DST hole moved: {soc_holes}"
+    assert saved_holes == soc_holes, "the two grids disagree about the spring-forward hole"
+
+
+def test_the_saved_heatmap_is_absent_when_no_cell_carries_a_value():
+    """No priced non-gap cell, or a clip of zero, means there is no chart to draw.
+
+    Two degenerate windows, both reachable, and both handled the same way the earnings grid handles
+    them. A window with no spot price at all leaves every price curve NaN (§6.5), so every product
+    is NaN. And a battery that changed no bill anywhere makes every cell exactly 0.0, where ±0 is
+    not a colour range — every cell would draw as the neutral midpoint whatever the client did.
+
+    The second case is not hypothetical here in the way it is for the earnings chart: two runs with
+    identical meter flows is exactly what a battery that never moved a kWh produces.
+    """
+    n = 48
+    *_, h = _synthetic_saved(
+        np.full(n, 1.0), np.zeros(n), np.zeros(n), np.zeros(n), np.full(n, np.nan)
+    )
+    assert h is None
+
+    # A and C bill identically — the battery changed nothing.
+    same = np.full(n, 1.0)
+    *_, h = _synthetic_saved(same, np.zeros(n), same, np.zeros(n), np.full(n, 0.20))
+    assert h is None

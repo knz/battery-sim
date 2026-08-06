@@ -640,9 +640,16 @@ def test_new_pending_controls_marked(page, data_page_en):
     assert page.locator("#cost-blocked-info").count() == 1
     assert page.locator("#setup-simulate-cost [data-pending-name]").count() == 0
 
-    # The two unbuilt chart tabs are still pending, and are on the page unconditionally.
-    assert page.locator("[data-feature-key=chart_soc_price]").count() >= 1
-    assert page.locator("[data-feature-key=chart_energy_flows]").count() >= 1
+    # Both chart tabs that were once pending are built now — "Energy flows" (changelog
+    # 20260806-energy-flows-chart-tab.md) and "Battery rhythm", which shipped as "SoC + price" in
+    # 20260806-soc-price-chart-tab.md — so both keys are retired in app/features.py and NEITHER
+    # renders a pending affordance. Every tab in the Charts strip is a real control.
+    #
+    # Both of the Battery rhythm tab's charts are built since 20260806-battery-money-heatmap.md,
+    # which replaced the placeholder its second half used to carry. `chart_soc_price` stays retired
+    # either way: a placeholder inside a working tab was never a pending CONTROL.
+    assert page.locator("[data-feature-key=chart_soc_price]").count() == 0
+    assert page.locator("[data-feature-key=chart_energy_flows]").count() == 0
 
 
 def test_thumbsup_links_to_a_prefilled_github_issue(page):
@@ -675,9 +682,34 @@ def test_thumbsup_links_to_a_prefilled_github_issue(page):
     page.keyboard.press("Escape")
 
 
-def test_chart_rendered(page):
-    # Plotly draws an <svg> into the chart container.
-    assert page.locator("#monthly-chart svg").count() >= 1
+def test_the_charts_box_states_its_absence_when_no_tab_renders(page):
+    """The empty strip, which became reachable under `20260806-chart-tab-restructure.md`.
+
+    Every tab in the Charts box is conditional now. The first one was not: *Monthly grid import*
+    plotted `results.chart`, which is emitted on every render, so the strip always had a button and
+    the box always had a chart. With that tab deleted, a workspace with no dataset (no
+    `energy_flows`, no `soc_heatmap`) and no cost simulation (no `monthly_saved_eur`) renders a
+    Charts box with nothing in it — which as a bare bordered card reads as a rendering failure.
+
+    This module's workspace is exactly that: created through the real route, never given data. So
+    what is asserted is that the box SAYS SO, in the same idiom the rest of the app uses for an
+    emptied box, and that no tab claims to be selected — a highlight with no container behind it is
+    the specific incoherence the server-side default exists to prevent.
+
+    That precondition is an IMPLICIT COUPLING to a workspace this module shares, so it is asserted
+    rather than assumed: if a future test seeds data into it, this test must fail and say why,
+    instead of quietly becoming a test that a populated box has no tabs — which would be a genuine
+    defect passing as a green run. The Charts box itself must still be present; "no charts" is a
+    statement this panel makes, not a section it omits.
+    """
+    assert page.locator("#panel-results").count() == 1, (
+        "panel ③ did not render at all — this test's subject is missing, not empty"
+    )
+    assert page.locator("[data-chart-tab]").count() == 0, "a tab rendered with no payload for it"
+    assert page.get_by_text("No charts for this window").count() == 1
+    # No empty plot frames left behind either.
+    for container in ("#flows-charts", "#socprice-charts", "#saved-eur-chart"):
+        assert page.locator(container).count() == 0, f"{container} rendered with no data"
 
 
 # ── Bilingual ────────────────────────────────────────────────────────────────
@@ -3341,4 +3373,474 @@ def test_deleting_a_referenced_upload_leaves_the_other_files_bindings_intact(bro
     # the source rather than the id would clear slot B here even if it spared it above.
     pg.reload(wait_until="networkidle")
     expect(b_label).to_have_text(f"Upload CSV · {upload2['filename']} · Zon", timeout=5000)
+    context.close()
+
+
+def test_the_default_chart_tab_is_drawn_on_first_load(browser, base_url):
+    """The tab the server marked active arrives DRAWN, not as an empty frame.
+
+    The gap this closes, found by deliberately breaking `initPanelResults()`: which tab is the
+    default became a server decision under `20260806-chart-tab-restructure.md`, so the page's
+    initial draw has to read the choice back off the markup rather than call one hardcoded draw.
+    Every other browser test here either clicks a tab (which draws it) or asserts after a swap
+    (where the fetch handler redraws everything), so none of them saw the first-load path at all.
+
+    Asserted on the marks rather than on visibility: an un-drawn container is `flex` and full-width
+    and passes `is_visible()`, so visibility alone cannot tell a drawn chart from an empty box.
+    Bounding-box width is checked too, because Plotly measures 0 inside `hidden` and a draw that
+    happened before the class flip produces a plot no wider than its margins.
+
+    Its own workspace, since it needs a dataset for any tab to exist at all.
+    """
+    url = _workspace_url(base_url)
+    workspace_id = url.rstrip("/").split("/")[-2]
+    _seed_reconstructable_dataset(workspace_id)
+
+    context = browser.new_context()
+    context.add_cookies([{"name": "lang", "value": "en", "url": base_url}])
+    pg = context.new_page()
+    errors = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{base_url}/w/{workspace_id}/results", wait_until="networkidle")
+    pg.wait_for_timeout(800)
+
+    active = pg.locator("[data-chart-tab].btn-active")
+    assert active.count() == 1, f"expected exactly one active tab, got {active.count()}"
+    assert active.first.get_attribute("data-chart-tab") == "flows"
+    assert pg.locator("#flows-charts").is_visible()
+    # All four of the tab's plots, not just one: the eager draw and the default-tab draw are
+    # different code paths and either could have drawn a subset.
+    for plot in ("#flows-load", "#flows-pv", "#flows-avgday", "#flows-soc"):
+        assert pg.locator(f"{plot} svg").count() > 0, f"{plot} was never drawn"
+    box = pg.locator("#flows-avgday").bounding_box()
+    assert box is not None and box["width"] > 200, f"drawn at a collapsed size: {box}"
+    assert errors == [], f"the first-load draw raised: {errors}"
+    context.close()
+
+
+def test_the_selected_chart_tab_survives_a_recompute(browser, base_url):
+    """The reader stays on the chart they were reading when the panel is recomputed.
+
+    Same class of defect as `test_the_advanced_pane_survives_a_parameter_swap` above, and the same
+    cause: `POST /w/{id}/results` answers with a fresh render of the panel, whose tab strip carries
+    the SERVER'S default. Swapping that in verbatim put the reader back on the first tab every time
+    they changed a parameter — so reading one chart and adjusting the battery, which is the obvious
+    way to use the screen, meant re-picking the tab after every adjustment.
+
+    **The tab under test is *Monthly savings (€)*, not *Energy flows*.** It was *Energy flows*
+    until `20260806-chart-tab-restructure.md` made that one the default; asserting the default
+    survives a swap that re-renders the default is a tautology, so the test has to select a tab the
+    server would not have chosen.
+
+    A browser test because every part of it is browser state: which container is visible is a class
+    the server never sees, and the reset only happens under the delegated fetch handler. The
+    server-side tests in `test_workspace_results.py` are green either way, since the MARKUP is
+    correct in both — it is the default, and it is supposed to be.
+
+    Its own workspace, since it seeds a dataset and persists a parameter.
+    """
+    url = _workspace_url(base_url)
+    workspace_id = url.rstrip("/").split("/")[-2]
+    # With no dataset there is no `energy_flows` in the view-model and hence no tab to select, so
+    # the test would pass vacuously. has_pv=False matches the stored answers this helper writes.
+    _seed_reconstructable_dataset(workspace_id)
+
+    context = browser.new_context()
+    context.add_cookies([{"name": "lang", "value": "en", "url": base_url}])
+    pg = context.new_page()
+    pg.goto(f"{base_url}/w/{workspace_id}/results", wait_until="networkidle")
+
+    eur_tab = pg.locator('[data-chart-tab="saved_eur"]')
+    assert eur_tab.count() == 1, "the tab under test is not on the screen to begin with"
+    # The precondition: the panel opens on the FIRST tab, *Energy flows*, chosen server-side. That
+    # is what makes the assertion after the swap meaningful rather than a tautology.
+    assert pg.locator("#flows-charts").is_visible(), "the panel did not open on its default tab"
+    assert not pg.locator("#saved-eur-chart").is_visible()
+
+    eur_tab.click()
+    pg.wait_for_timeout(300)
+    assert pg.locator("#saved-eur-chart").is_visible(), "clicking the tab did not show the chart"
+
+    # Recompute the way a user does — change a battery parameter and press Calculate.
+    pg.locator('input[name="battery.usable_capacity_kwh"]').fill("12")
+    pg.get_by_role("button", name="Calculate").click()
+    pg.wait_for_timeout(1500)
+
+    assert pg.locator("#saved-eur-chart").is_visible(), (
+        "the recompute dropped the reader back on the default tab"
+    )
+    assert "btn-active" in (eur_tab.get_attribute("class") or ""), (
+        "the chart is shown but the strip highlights a different tab"
+    )
+    assert not pg.locator("#flows-charts").is_visible(), "both containers are visible at once"
+    # Restored means REDRAWN, not merely un-hidden: a container shown without a draw against its
+    # real width is empty or the wrong size. Plotly writes an <svg> per plot.
+    assert pg.locator("#saved-eur-chart svg").count() > 0, "the restored tab was not drawn"
+
+    # A results-only swap (a period change) must restore it too — that path swaps the same panel.
+    pg.locator("[data-period='last_1_week']").click()
+    pg.wait_for_timeout(1200)
+    assert pg.locator("#saved-eur-chart").is_visible(), "a period change dropped the tab"
+    context.close()
+
+
+def test_a_swap_that_removes_the_selected_tab_falls_back_to_the_default(browser, base_url):
+    """The hazard the old reset-everything behaviour was protecting against, tested directly.
+
+    `Monthly savings (€)` is rendered only when the window HAS a euro series, so a swap can
+    legitimately return a strip in which the selected button no longer exists. Restoring a
+    remembered selection blindly would leave the strip with nothing active and the reader looking
+    at a chart no button claims — which is why restoreChartTab() looks the button up and does
+    nothing when it finds none.
+
+    Forced server-side rather than through the cost toggle, which is not on this screen: flipping
+    the stored `simulate_cost` and then triggering a swap is what produces the condition where the
+    fresh markup lacks the selected button, and that condition is the whole point of the test.
+    """
+    import os
+
+    url = _workspace_url(base_url)
+    workspace_id = url.rstrip("/").split("/")[-2]
+    _seed_reconstructable_dataset(workspace_id)
+
+    context = browser.new_context()
+    context.add_cookies([{"name": "lang", "value": "en", "url": base_url}])
+    pg = context.new_page()
+    errors = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{base_url}/w/{workspace_id}/results", wait_until="networkidle")
+
+    eur = pg.locator('[data-chart-tab="saved_eur"]')
+    assert eur.count() == 1, "the euro tab must exist for this test to remove it"
+    eur.click()
+    pg.wait_for_timeout(300)
+    assert pg.locator("#saved-eur-chart").is_visible()
+
+    os.environ["BATTERY_SIM_DATA_DIR"] = _SERVER_DATA_DIR
+    from app import simconfig_store
+
+    cfg = simconfig_store.load(workspace_id)
+    cfg.simulate_cost = False
+    simconfig_store.save(simconfig_store.clone(cfg), workspace_id)
+
+    pg.locator("[data-period='last_1_week']").click()
+    pg.wait_for_timeout(1500)
+
+    assert pg.locator('[data-chart-tab="saved_eur"]').count() == 0, (
+        "the precondition failed: the euro tab is still rendered"
+    )
+    # Exactly one tab active, and it is the server's default — not zero (a strip claiming nothing)
+    # and not two (a stale highlight left beside the new one).
+    active = pg.locator("[data-chart-tab].btn-active")
+    assert active.count() == 1, f"expected one active tab, got {active.count()}"
+    assert active.first.get_attribute("data-chart-tab") == "flows"
+    assert pg.locator("#flows-charts").is_visible()
+    assert pg.locator("#flows-avgday svg").count() > 0, "the fallback tab was not drawn"
+    assert errors == [], f"restoring an absent tab raised: {errors}"
+    context.close()
+
+
+
+def test_the_soc_heatmap_tab_draws_and_survives_a_recompute(browser, base_url):
+    """The *Battery rhythm* tab is a real tab now: it opens, it draws, and it stays selected.
+
+    A browser test because none of that is visible server-side. The panel's markup is the same
+    whichever tab is showing — `hidden` on the containers is a class the server always renders the
+    same way — so which chart the reader is looking at, and whether Plotly actually put marks on
+    the screen, exist only in the browser.
+
+    The heatmap in particular cannot be asserted from the markup at all: its cells arrive as one
+    base64 string and become an `<image>` element only after `atob` + reshape + a Plotly draw. A
+    server-side test can prove the payload decodes; only this can prove it renders.
+    """
+    url = _workspace_url(base_url)
+    workspace_id = url.rstrip("/").split("/")[-2]
+    # Without a dataset there is no `soc_heatmap` in the view-model and hence no tab, so the test
+    # would pass vacuously.
+    _seed_reconstructable_dataset(workspace_id)
+
+    context = browser.new_context()
+    context.add_cookies([{"name": "lang", "value": "en", "url": base_url}])
+    pg = context.new_page()
+    errors = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{base_url}/w/{workspace_id}/results", wait_until="networkidle")
+
+    tab = pg.locator('[data-chart-tab="socprice"]')
+    assert tab.count() == 1, "the tab under test is not on the screen"
+    # It is a REAL tab, not the pending affordance it replaced: no dialog trigger, no [?].
+    assert pg.locator("[data-feature-key=chart_soc_price]").count() == 0
+    assert tab.get_attribute("data-pending-name") is None
+    # The precondition: the panel opens on *Energy flows*, the server-chosen default, so the
+    # assertion below is not a tautology.
+    assert not pg.locator("#socprice-charts").is_visible()
+    assert pg.locator("#flows-charts").is_visible()
+
+    tab.click()
+    pg.wait_for_timeout(1200)
+
+    assert pg.locator("#socprice-charts").is_visible()
+    assert not pg.locator("#flows-charts").is_visible(), "two chart containers are showing at once"
+    # Plotly draws a heatmap as an <image> inside the svg. Asserting on it rather than on the svg
+    # alone is what separates "the frame was created" from "the cells were rendered".
+    assert pg.locator("#socprice-heatmap svg").count() > 0, "the heatmap frame was never drawn"
+    assert pg.locator("#socprice-heatmap image").count() > 0, "the frame is empty — no cells drawn"
+    # Drawn at the container's real width, which is the failure mode a draw inside `hidden` has:
+    # Plotly measures 0 and produces a plot no wider than its margins.
+    box = pg.locator("#socprice-heatmap").bounding_box()
+    assert box is not None and box["width"] > 200, f"drawn at a collapsed size: {box}"
+
+    # The placeholder that used to sit under this chart is gone: it is a real chart now, and
+    # `test_the_earnings_heatmap_draws_beside_the_soc_heatmap` below is what covers it.
+    assert pg.locator("#socprice-charts").get_by_text("This chart is not built yet.").count() == 0
+
+    # And it survives a recompute, by the same mechanism the other tabs use.
+    pg.locator("[data-period='last_1_week']").click()
+    pg.wait_for_timeout(1800)
+    assert pg.locator("#socprice-charts").is_visible(), "the recompute dropped the reader off the tab"
+    assert pg.locator("#socprice-heatmap image").count() > 0, "redrawn frame has no cells"
+    active = pg.locator("[data-chart-tab].btn-active")
+    assert active.count() == 1
+    assert active.first.get_attribute("data-chart-tab") == "socprice"
+
+    assert errors == [], f"drawing the heatmap raised: {errors}"
+    context.close()
+
+
+def test_the_earnings_heatmap_draws_beside_the_soc_heatmap(browser, base_url):
+    """The *Battery rhythm* tab's second chart: both heatmaps draw, and both survive a recompute.
+
+    A browser test for the same reason the SoC one is: the cells arrive as a base64 float32 blob
+    and only become marks on the screen after `atob` → Uint8Array → Float32Array → reshape →
+    Plotly. A server-side test can prove the payload decodes; nothing but a browser can prove the
+    decode in `drawEarningsHeatmap` reads the same bytes back.
+
+    It asserts BOTH charts rather than only the new one. The tab's draw entry runs two functions,
+    and a regression that dropped either call would leave the other still drawing — so a test that
+    watched one chart could pass with the tab half broken.
+
+    It seeds its OWN dataset rather than reusing `_seed_reconstructable_dataset`, because that
+    helper writes energy meters and nothing else. With no `price_spot` slot every interval's price
+    is NaN, so every earnings cell is NaN and the server correctly returns no payload at all —
+    a chart with nothing to say is absent rather than blank. The prices below therefore carry a
+    real day/night spread, which is also what makes the two colours appear: at a flat price the
+    battery has no arbitrage to do and the grid collapses towards zero everywhere.
+    """
+    import numpy as np
+    from datetime import datetime, timezone
+
+    url = _workspace_url(base_url)
+    workspace_id = url.rstrip("/").split("/")[-2]
+
+    os.environ["BATTERY_SIM_DATA_DIR"] = _SERVER_DATA_DIR
+    from app import dataset, simconfig_store
+    from app.domain.frames import QUALITY_DTYPE, SeriesFrame
+
+    cfg = simconfig_store.load(workspace_id)
+    cfg.has_pv = False
+    cfg.has_battery = False
+    # Explicit rather than relying on appendix A's default: this test is ABOUT the cost-on branch,
+    # so the flag it depends on is set here where a reader can see it.
+    cfg.simulate_cost = True
+    simconfig_store.save(simconfig_store.clone(cfg), workspace_id)
+
+    n = 96  # four days of hourly data — enough columns for the day axis to be a real axis
+    idx = (
+        np.arange(n).astype("timedelta64[s]") * 3600 + np.datetime64("2026-01-01T00:00:00")
+    ).astype("datetime64[s]")
+
+    def _energy(name, value):
+        return SeriesFrame(
+            name, "energy", 3600, idx, np.full(n, value), np.zeros(n, dtype=QUALITY_DTYPE)
+        )
+
+    # Expensive in the evening peak, cheap otherwise — the shape a battery is bought for, and the
+    # shape that produces cells on both sides of zero.
+    prices = np.array(
+        [0.30 if (h % 24) in (17, 18, 19, 20) else 0.04 for h in range(n)], dtype=float
+    )
+    dataset.save_dataset(
+        [
+            _energy("grid_import_t1", 2.0),
+            _energy("grid_export_t1", 0.5),
+            SeriesFrame("price_spot", "price", 3600, idx, prices,
+                        np.zeros(n, dtype=QUALITY_DTYPE)),
+        ],
+        (datetime(2026, 1, 1, tzinfo=timezone.utc),
+         datetime(2026, 1, 5, tzinfo=timezone.utc)),
+        "test", [], None, workspace_id=workspace_id,
+    )
+
+    context = browser.new_context()
+    context.add_cookies([{"name": "lang", "value": "en", "url": base_url}])
+    pg = context.new_page()
+    errors = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{base_url}/w/{workspace_id}/results", wait_until="networkidle")
+
+    # The precondition: cost simulation is on for this workspace, so the server produced the
+    # earnings payload and the markup carries its frame. Without this the assertions below could
+    # pass vacuously on a tab that simply has one chart.
+    assert pg.locator("#socprice-earnings").count() == 1, (
+        "no earnings chart in the markup — cost simulation is off for this workspace"
+    )
+
+    pg.locator('[data-chart-tab="socprice"]').click()
+    pg.wait_for_timeout(1200)
+
+    assert pg.locator("#socprice-charts").is_visible()
+    # Plotly draws a heatmap's cells as an <image>; the svg alone only proves a frame was made.
+    assert pg.locator("#socprice-heatmap image").count() > 0, "the SoC chart has no cells"
+    assert pg.locator("#socprice-earnings image").count() > 0, "the earnings chart has no cells"
+    # Drawn at the container's real width — the failure mode of drawing inside `hidden`.
+    box = pg.locator("#socprice-earnings").bounding_box()
+    assert box is not None and box["width"] > 200, f"drawn at a collapsed size: {box}"
+    # The footnote is load-bearing: without it "earnings" reads as the saving. Matched on the
+    # phrase that names the tile, which is the part that has to survive an edit to the sentence.
+    assert pg.locator("#socprice-charts").get_by_text("MONEY SAVED tile").count() == 1
+
+    # Both charts survive a recompute, which is where the "the script did not re-run" hazard lives:
+    # the swapped-in <script> does not execute, so the redraw has to be driven from the page.
+    pg.locator("[data-period='last_1_week']").click()
+    pg.wait_for_timeout(1800)
+    assert pg.locator("#socprice-charts").is_visible(), "the recompute dropped the reader off the tab"
+    assert pg.locator("#socprice-heatmap image").count() > 0, "SoC chart empty after recompute"
+    assert pg.locator("#socprice-earnings image").count() > 0, "earnings chart empty after recompute"
+
+    assert errors == [], f"drawing the earnings heatmap raised: {errors}"
+    context.close()
+
+
+def test_the_saved_heatmap_draws_beside_the_other_two(browser, base_url):
+    """The *Battery rhythm* tab's third chart: all three heatmaps draw, and all three survive a
+    recompute.
+
+    A browser test for the same reasons the earnings one is, plus one specific to this chart. The
+    two euro charts share a drawing routine parameterised on a pair of element ids
+    (`drawEuroHeatmap` in workspace_results.html), so a wrapper left pointing at the other chart's
+    data node produces a chart that looks entirely plausible and is wrong. Nothing on the server
+    can see that; the colour-range assertion below reads it back off the plot Plotly actually made.
+
+    It asserts ALL THREE rather than only the new one, for the reason the earnings test gives: the
+    tab's draw entry runs three functions, and a regression dropping any one call would leave the
+    others still drawing, so a test watching one chart could pass with the tab part broken.
+
+    It seeds its own dataset with a real day/night price spread, again following the earnings
+    test: `_seed_reconstructable_dataset` writes energy meters only, so every price is NaN, every
+    cell is NaN, and the server correctly emits no euro payload at all.
+
+    What it does NOT isolate, and the earnings test does not either: the explicit
+    `drawSavedHeatmap()` in recompute()'s success path. Once a tab has been clicked,
+    `restoreChartTab()` runs after those calls and redraws the whole tab, so removing the explicit
+    call still leaves the chart on screen. The explicit call matters on the path where no tab was
+    ever selected, which this test does not exercise — the recompute assertions here cover the
+    swap surviving, not which of the two mechanisms redrew it.
+    """
+    import numpy as np
+    from datetime import datetime, timezone
+
+    url = _workspace_url(base_url)
+    workspace_id = url.rstrip("/").split("/")[-2]
+
+    os.environ["BATTERY_SIM_DATA_DIR"] = _SERVER_DATA_DIR
+    from app import dataset, simconfig_store
+    from app.domain.frames import QUALITY_DTYPE, SeriesFrame
+
+    cfg = simconfig_store.load(workspace_id)
+    cfg.has_pv = False
+    cfg.has_battery = False
+    cfg.simulate_cost = True
+    simconfig_store.save(simconfig_store.clone(cfg), workspace_id)
+
+    n = 96
+    idx = (
+        np.arange(n).astype("timedelta64[s]") * 3600 + np.datetime64("2026-01-01T00:00:00")
+    ).astype("datetime64[s]")
+
+    def _energy(name, value):
+        return SeriesFrame(
+            name, "energy", 3600, idx, np.full(n, value), np.zeros(n, dtype=QUALITY_DTYPE)
+        )
+
+    prices = np.array(
+        [0.30 if (h % 24) in (17, 18, 19, 20) else 0.04 for h in range(n)], dtype=float
+    )
+    dataset.save_dataset(
+        [
+            _energy("grid_import_t1", 2.0),
+            _energy("grid_export_t1", 0.5),
+            SeriesFrame("price_spot", "price", 3600, idx, prices,
+                        np.zeros(n, dtype=QUALITY_DTYPE)),
+        ],
+        (datetime(2026, 1, 1, tzinfo=timezone.utc),
+         datetime(2026, 1, 5, tzinfo=timezone.utc)),
+        "test", [], None, workspace_id=workspace_id,
+    )
+
+    context = browser.new_context()
+    context.add_cookies([{"name": "lang", "value": "en", "url": base_url}])
+    pg = context.new_page()
+    errors = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{base_url}/w/{workspace_id}/results", wait_until="networkidle")
+
+    # Preconditions, so the assertions below cannot pass vacuously on a tab that simply has fewer
+    # charts than expected.
+    assert pg.locator("#socprice-earnings").count() == 1, (
+        "no earnings chart in the markup — cost simulation is off for this workspace"
+    )
+    assert pg.locator("#socprice-saved").count() == 1, (
+        "no saved chart in the markup — the server produced no saved_heatmap payload"
+    )
+    # The two payloads carry DIFFERENT clips, which is the precondition that makes the colour-range
+    # check after the draw meaningful: were the server to send the same clip twice, that check
+    # could not tell a correctly-wired chart from a mis-wired one.
+    import json as _json
+    earn = _json.loads(pg.locator("#socprice-earnings-data").inner_text())
+    saved = _json.loads(pg.locator("#socprice-saved-data").inner_text())
+    assert earn["clip"] != saved["clip"], (
+        "the two payloads carry the same clip — this test cannot distinguish the charts"
+    )
+
+    pg.locator('[data-chart-tab="socprice"]').click()
+    pg.wait_for_timeout(1200)
+
+    assert pg.locator("#socprice-charts").is_visible()
+    # Plotly draws a heatmap's cells as an <image>; the svg alone only proves a frame was made.
+    assert pg.locator("#socprice-heatmap image").count() > 0, "the SoC chart has no cells"
+    assert pg.locator("#socprice-earnings image").count() > 0, "the earnings chart has no cells"
+    assert pg.locator("#socprice-saved image").count() > 0, "the saved chart has no cells"
+    # Drawn at the container's real width — the failure mode of drawing inside `hidden`.
+    box = pg.locator("#socprice-saved").bounding_box()
+    assert box is not None and box["width"] > 200, f"drawn at a collapsed size: {box}"
+
+    # Each euro chart is drawn on its OWN colour range, which is a recorded decision: the two
+    # measure different quantities, so a shared range would invite a comparison by colour that
+    # does not hold. Read back off the plot Plotly made, not off the JSON in the DOM — the DOM
+    # only proves the server sent two ranges and says nothing about which node the draw consumed.
+    # `zmax` IS `clip` (the trace sets zmin/zmax to ∓clip), so it names which payload landed here.
+    def _zmax(el_id):
+        return pg.evaluate(f"document.getElementById('{el_id}').data[0].zmax")
+
+    assert _zmax("socprice-saved") == pytest.approx(saved["clip"]), (
+        "the saved chart is not drawn on its own colour range — it is reading another payload"
+    )
+    assert _zmax("socprice-earnings") == pytest.approx(earn["clip"])
+
+    # The footnote runs the opposite way to chart 2's: it is what tells the reader these cells DO
+    # reconcile with the tile. Matched on the phrase that has to survive an edit around it.
+    assert pg.locator("#socprice-saved").locator("xpath=..").get_by_text(
+        "these cells are your saving"
+    ).count() == 1
+
+    # All three survive a recompute, which is where the "the swapped-in script did not re-run"
+    # hazard lives: the redraw has to be driven from the never-swapped page.
+    pg.locator("[data-period='last_1_week']").click()
+    pg.wait_for_timeout(1800)
+    assert pg.locator("#socprice-charts").is_visible(), "the recompute dropped the reader off the tab"
+    assert pg.locator("#socprice-heatmap image").count() > 0, "SoC chart empty after recompute"
+    assert pg.locator("#socprice-earnings image").count() > 0, "earnings chart empty after recompute"
+    assert pg.locator("#socprice-saved image").count() > 0, "saved chart empty after recompute"
+
+    assert errors == [], f"drawing the saved heatmap raised: {errors}"
     context.close()

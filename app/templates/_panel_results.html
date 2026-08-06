@@ -40,10 +40,39 @@
       re-inserts but does NOT re-execute, the picker's click/apply handlers are DELEGATED from
       `document` in workspace_results.html (bound once, on a part of the page that is never swapped). They key
       off `data-period` / #results-apply-range, so the fresh buttons work with no re-binding.
-    * The Plotly chart is drawn by a NAMED window.drawMonthlyChart() (defined in workspace_results.html) that
-      reads the fresh data from the swapped-in #monthly-data <script> node. workspace_results.html calls it on
-      initial load; the delegated fetch-handler calls it again after each swap. The inline draw is
-      therefore gone from this template — only the data node and the chart container remain.
+    * Every Plotly chart is drawn by a NAMED window.draw*() function (defined in
+      workspace_results.html) that reads the fresh data from a swapped-in <script> JSON node.
+      workspace_results.html calls them on initial load; the delegated fetch-handler calls them
+      again after each swap. No inline draw is left in this template — only the data nodes and the
+      chart containers.
+    * The Charts box holds THREE containers, one per tab, each with its own JSON node:
+      `#flows-charts`/`#flows-data`, `#socprice-charts`/`#socprice-data` (plus the two euro
+      heatmap nodes), and `#saved-eur-chart`/`#saved-eur-data`. ONE attribute selects between
+      them — `data-chart-tab` on the strip's buttons (`flows` | `socprice` | `saved_eur`) — because
+      one container now draws exactly one series. (It used to be two attributes: `#monthly-chart`
+      held both a kWh grid-import series and the euro series, picked apart by a second
+      `data-chart-view`. The kWh view was deleted; `results.chart` is still emitted by
+      app/results_view.py for other consumers but nothing plots it.)
+      `data-chart-tab` is also how the reader's tab choice SURVIVES a swap: restoreChartTab() over
+      there re-selects the remembered button by matching on it — finding nothing, and so leaving
+      the server's default alone, exactly when the selected tab was rendered away by one of the
+      conditions below.
+    * **All three tabs are conditional, so the strip can be EMPTY.** There is no unconditional
+      first tab any more, which means the default cannot be hardcoded: `{% set default_chart_tab %}`
+      below picks the first tab that actually renders, and BOTH the `btn-active` class and the
+      containers' `hidden`/`flex` classes are derived from that one value. They must agree — a
+      strip highlighting one tab while a different container is visible is the failure this
+      derivation exists to make impossible — and the `flex` half must match CHART_TABS' per-tab
+      `flex` flag over in workspace_results.html.
+
+      That last agreement is enforced by REVIEW ONLY, deliberately: a container whose flag
+      disagrees still lays out correctly (a `flex` box with one full-width child looks the same
+      as a block one), so there is no symptom a test could assert on. Verified by sabotage —
+      flipping saved_eur's flag to `true` broke no test, and none was added for it, since a test
+      reading the class back would check the template against itself rather than against a
+      behaviour. Keep the two sides in step by hand when adding a tab.
+
+      With no tab at all the box states the absence instead of rendering an empty bordered card.
 
   UI chrome is wrapped in _() for translation; coverage strings and ISO dates stay literal.
   Labels/titles/caveats come pre-marked from the view-model and are translated here via _().
@@ -236,39 +265,327 @@
     {% endif %}
 
     {# ── Charts ────────────────────────────────────────────────────────── #}
+    {# **The default tab is computed here, ONCE, and every class below is derived from it.**
+       Every tab is conditional, so there is no button that is always present to hardcode
+       `btn-active` on — and the highlight and the visible container have to be the SAME choice or
+       the strip claims one thing while the box shows another. Doing it server-side rather than
+       letting the JS pick on load also means no flash: the panel arrives already on the right tab.
+
+       The order of this chain IS the tab order in the strip below, and both are the order the
+       reader sees: *Energy flows* first (the physical picture — where the household's energy came
+       from, which is the question the rest of the panel's figures decompose), then *Battery
+       rhythm* (when, over the window), then *Monthly savings (€)* (the money, which only exists
+       under cost simulation). Change one and change the other; a default that is not the first
+       rendered button is a strip whose highlight jumps.
+
+       Empty string when nothing renders at all — see the absence line at the foot of the box. #}
+    {%- if results.energy_flows -%}{%- set default_chart_tab = 'flows' -%}
+    {%- elif results.soc_heatmap -%}{%- set default_chart_tab = 'socprice' -%}
+    {%- elif results.monthly_saved_eur -%}{%- set default_chart_tab = 'saved_eur' -%}
+    {%- else -%}{%- set default_chart_tab = '' -%}{%- endif -%}
     <div class="card bg-base-200 border border-base-300">
       <div class="card-body gap-3 p-4">
         <div class="flex flex-wrap items-center justify-between gap-2">
-          {# The first tab is the only chart that exists. It plots `results.chart`, which is
-             _monthly_import() — the MEASURED monthly grid import over the window, not a saving,
-             so it is labelled for what it draws. §2.4's wireframe asks for a monthly-savings
-             chart; that series is not built (see changelog/20260724-panel3-battery-simulation.md),
-             and labelling this one "Monthly savings" made the bars read as ~11× the actual
-             saving (3,923 kWh of import beside a 341 kWh saving on the 1-year window).
-             The two sibling tabs draw nothing at all, so they carry the §2.1 pending affordance
-             (disabled + [?] + a feature key) rather than looking like working buttons beside a
-             working one. #}
-          {# The pending tabs carry their [?] INLINE and stay enabled, matching the "⤓ export CSV
-             [?]" button beside them: a `disabled` button swallows its own clicks, so the dialog
-             opener has to remain clickable. `btn-disabled` alone is the DaisyUI look-disabled
-             class without the attribute, which is exactly the pending idiom — the control does
-             nothing but says why when asked. #}
-          {# §2.4: "The Charts box gains options rather than swapping them." The kWh view is
-             always offered and shown by default; the euro view appears BESIDE it only when there
-             is a euro series, and the two are separate views rather than a dual axis (see the
-             draw function in workspace_results.html). The switching is delegated from `document` there, like
-             every other control in this swappable fragment. #}
+          {# Every tab in this strip draws something and none carries the §2.1 pending affordance:
+             *Energy flows* is real since changelog/20260806-energy-flows-chart-tab.md, *Battery
+             rhythm* since changelog/20260806-soc-price-chart-tab.md (its second chart since
+             20260806-battery-money-heatmap.md, which is also where the tab lost its earlier name
+             "SoC + price"), and *Monthly savings (€)* is a tab of its own since
+             changelog/20260806-chart-tab-restructure.md. The "⤓ export CSV [?]" button beside the
+             strip is the one pending control left here.
+             The rule if a pending tab is ever added back: it carries `data-pending-name` (the
+             dialog handler in _pending_dialog.html keys off it) plus `opacity-60`, and NOT
+             `data-chart-tab`; a tab that works must carry the opposite. It stays enabled and shows
+             its [?] inline, because a `disabled` button swallows its own clicks and the dialog
+             opener has to remain clickable. #}
+          {# ONE attribute now: `data-chart-tab` names the container to show, and each container
+             draws exactly one thing. The strip used to carry a second `data-chart-view` because
+             #monthly-chart held two alternative series (kWh grid import, and euros) in one
+             container; the kWh series was dropped and the euro series moved into its own
+             container, which left the second attribute with no job.
+
+             `Monthly savings (€)` is euros and so exists only under cost simulation — it is the
+             one tab here whose absence is a CONFIGURATION rather than a missing dataset. The
+             switching is delegated from `document` in workspace_results.html, like every other
+             control in this swappable fragment. #}
           <div class="join">
-            <button type="button" class="btn btn-xs join-item btn-active" data-chart-view="kwh">{{ _('Monthly grid import') }}</button>
-            {% if results.monthly_saved_eur %}
-            <button type="button" class="btn btn-xs join-item" data-chart-view="eur">{{ _('Monthly savings (€)') }}</button>
+            {% if results.energy_flows %}
+            <button type="button" class="btn btn-xs join-item {% if default_chart_tab == 'flows' %}btn-active{% endif %}" data-chart-tab="flows">{{ _('Energy flows') }}</button>
             {% endif %}
-            <button type="button" class="btn btn-xs join-item opacity-60" data-pending-name="{{ _('SoC + price chart') }}" data-feature-key="chart_soc_price">{{ _('SoC + price') }} [?]</button>
-            <button type="button" class="btn btn-xs join-item opacity-60" data-pending-name="{{ _('Energy flows chart') }}" data-feature-key="chart_energy_flows">{{ _('Energy flows') }} [?]</button>
+            {% if results.soc_heatmap %}
+            <button type="button" class="btn btn-xs join-item {% if default_chart_tab == 'socprice' %}btn-active{% endif %}" data-chart-tab="socprice">{{ _('Battery rhythm') }}</button>
+            {% endif %}
+            {% if results.monthly_saved_eur %}
+            <button type="button" class="btn btn-xs join-item {% if default_chart_tab == 'saved_eur' %}btn-active{% endif %}" data-chart-tab="saved_eur">{{ _('Monthly savings (€)') }}</button>
+            {% endif %}
           </div>
           <button class="btn btn-ghost btn-xs" data-pending-name="{{ _('Export CSV') }}" data-feature-key="export_csv">⤓ {{ _('export CSV') }} [?]</button>
         </div>
-        <div id="monthly-chart" class="h-64 w-full"></div>
+        {# ── No tab renders at all ────────────────────────────────────────────────────────
+           Previously impossible: the kWh tab was unconditional, so the strip always had one
+           button and the box always had one chart. With all three conditional there is a real
+           state — no simulation frame and no cost — in which this box has nothing in it, and an
+           empty bordered card reads as a rendering failure. Stated instead, in the same idiom the
+           rest of the app uses for an emptied box (`_panel_params.html`'s "Nothing to configure
+           here…", `_workspace_card.html`'s "No data loaded yet."): one short line naming the
+           reason, at `text-sm text-base-content/60`.
+
+           **It names ONE reason, and only the one that is actually implied.** All three tabs sit
+           behind `frame is not None and frame.intervals > 0` in results_from(), and
+           `monthly_saved_eur` behind the cost guard INSIDE that — so an empty strip means there
+           is no frame, and says nothing whatever about `simulate_cost`. An earlier wording added
+           "and cost simulation is off": reachable with cost simulation ON, where it would have
+           told the reader something false about their own configuration. Do not name the cost
+           setting here; the state cannot distinguish it. #}
+        {% if not default_chart_tab %}
+        <p class="text-sm text-base-content/60">
+          {{ _('No charts for this window: there is no simulated data to draw.') }}
+        </p>
+        {% endif %}
+        {# ── The *Energy flows* tab: three kWh charts stacked, hidden until its tab is picked ──
+           Three charts in one scrolling tab rather than nested sub-tabs: they share a unit (kWh)
+           and answer adjacent questions, so scrolling beats clicking and allows cross-chart
+           comparison.
+
+           **The headings are load-bearing, not decoration.** Charts 1 and 2 have genuinely
+           different totals — one sums to the household's load, the other to PV generation — and
+           they share a term (`pv_to_home`). Without a line stating the QUESTION each answers, a
+           reader scrolling from the first to the second has no way to know why the bars changed
+           height. The y-axes are independent per chart for the same reason (a shared axis would
+           squash the smaller of the two). #}
+        {# `hidden`/`flex` derived from `default_chart_tab`, never hardcoded — see the {% set %} at
+           the top of this box. This container stacks its four plots, so it is `flex flex-col` when
+           shown; that pairing must match CHART_TABS.flows.flex in workspace_results.html, which is
+           what the tab handler toggles on every later click. #}
+        {% if results.energy_flows %}
+        <div id="flows-charts" class="{% if default_chart_tab == 'flows' %}flex{% else %}hidden{% endif %} flex-col gap-4">
+          <div>
+            <h4 class="text-sm font-semibold">{{ _('Where did the household\'s energy come from?') }}</h4>
+            <div id="flows-load" class="h-64 w-full"></div>
+            {# ── Why the stack is taller than the line ────────────────────────────────────
+               THIS chart draws three stacked SOURCE segments under a `household_load` reference
+               LINE, and the stack is systematically the taller of the two. That is not an error:
+               §6.9 hands the simulation a rebound load (`frame.load + standby`), so the identity
+               that closes is
+
+                   dis_home + imp_home + pv_to_home  =  household_load + standby
+
+               and the visible gap IS the battery's own draw. Nothing else on the screen says so.
+
+               Scoped to chart 1 alone. Chart 3 once drew the same three segments under the same
+               line and carried a copy of this note; it is now DIVERGING and stacks `chg_grid`
+               above the axis as a fourth bar, so its gap is standby PLUS grid charging and this
+               sentence would be wrong under it. It has its own note. Do not re-share the msgid.
+
+               Gated on `any_standby`, exactly as the partial-month footnote below is gated on
+               `any_partial` and for the same reason: `standby_w` may legitimately be 0 (only
+               negative values are rejected), and at 0 the stack sits exactly on the line, where
+               this note would be explaining a gap that is not there. The flag is computed
+               server-side from the CONFIGURED draw rather than from the rounded `standby`
+               series, which can be 0.0 in every month while the drawn gap is still visible.
+
+               The sentence is ONE short line by explicit instruction. A longer version naming the
+               mechanism was written first and cut; do not restore it. The partial-month footnote
+               is the upper bound on length for anything in this box. #}
+            {% if results.energy_flows.any_standby %}
+            <p class="text-xs text-base-content/70">
+              {{ _('The bars can be higher than house load because of battery standby power.') }}
+            </p>
+            {% endif %}
+          </div>
+          <div>
+            <h4 class="text-sm font-semibold">{{ _('Where did the solar generation go?') }}</h4>
+            <div id="flows-pv" class="h-64 w-full"></div>
+          </div>
+          {# The footnote belongs under the two BAR charts and above the average day, which is a
+             mean over intervals and carries no per-month bar to mark. Rendered only when some
+             month is actually flagged, so it never explains a mark that is not on the screen. #}
+          {% if results.energy_flows.any_partial %}
+          <p class="text-xs text-base-content/70">
+            {# Written "5 percent", not "5%": a bare `%` in a msgid makes `pybabel extract` mark
+               the entry `#, python-format`, after which a translator's stray `%` is a runtime
+               format error in a string that takes no arguments at all. #}
+            {{ _('Months drawn with a hatched pattern are missing more than 5 percent of their measurements, so their bars understate the real totals.') }}
+          </p>
+          {% endif %}
+          <div>
+            <h4 class="text-sm font-semibold">{{ _('What does an average day look like?') }}</h4>
+            <div id="flows-avgday" class="h-64 w-full"></div>
+            {# ── What the axis means ─────────────────────────────────────────────────────
+               This chart is the only diverging one, and the split is by DIRECTION rather than by
+               category, so it needs one line saying which way is which. Ungated: the axis is the
+               chart's structure, true for every household including one with no panels and no
+               export, so there is no case where this sentence explains something absent.
+
+               Note what this does NOT repeat: chart 1's standby note. That note explains the gap
+               between the household-load line and the stack top as standby draw, which is true
+               there and WRONG here — this stack also carries `chg_grid`, so its gap is standby
+               plus grid charging. Reusing the msgid would have put a confidently incorrect
+               sentence under the chart. The sentence below covers the same reader question by
+               naming what the positive bars actually are. #}
+            <p class="text-xs text-base-content/70">
+              {{ _('Bars above the line show energy entering the house; below, energy leaving it or charging the battery.') }}
+            </p>
+          </div>
+          {# ── Chart 4: state of charge, in its own frame ───────────────────────────────
+             SoC was a secondary axis on chart 3 until the user split it out. It is a STOCK — kWh
+             held at an instant — and every bar above it is a FLOW, kWh moved during an hour, so
+             sharing a plot area invited a comparison by height that is not valid between the two.
+             (Matching the two ranges was tried first: one-hour buckets do make kWh-per-hour equal
+             to mean kW, but it let a 10 kWh store set the scale for 3 kWh/h flows and flattened
+             the bars.)
+
+             Deliberately NOT a heading of its own kind: it carries the same `h4` as the three
+             above so it reads as a fourth panel of one answer, and its own short question rather
+             than a bare "State of charge", which would name the axis twice.
+
+             The two charts are a PAIR read down the column — same hours, same order — so nothing
+             may be inserted between them, and chart 3's x-axis title is suppressed in the draw
+             code because this one carries it for both. #}
+          <div>
+            <h4 class="text-sm font-semibold">{{ _('And how full is the battery?') }}</h4>
+            {# `h-64` like the three charts above, NOT a shorter `h-48`. app/static/app.css is a
+               COMMITTED pre-built Tailwind bundle (see package.json — the app needs no Node at
+               runtime), so it contains only the utility classes the templates already used. `h-48`
+               appears nowhere else in this project, so it is absent from that bundle: the div got
+               no height rule at all and Plotly fell back to its own 450px default, making this
+               chart taller than the ones it sits under instead of shorter. Verified in a browser.
+               A shorter frame here would mean rebuilding and re-committing the CSS. #}
+            <div id="flows-soc" class="h-64 w-full"></div>
+          </div>
+        </div>
+        {% endif %}
+        {# ── The *Battery rhythm* tab ─────────────────────────────────────────────────────────
+           Three heatmaps on the same day × time-of-day grid, so a reader can read one against the
+           others: the same cell is the same interval in all three.
+
+           Chart 1 is the SoC heatmap: one cell per SIMULATION INTERVAL, days across and local
+           time-of-day down, coloured from transparent (the floor of the operating window) to
+           opaque (the top). It answers a question no other tab does — WHEN the battery is full,
+           daily and seasonally — where the flows tab's average day collapses every day into one
+           and hides how much days differ from each other.
+
+           Chart 2 is the gross-earnings heatmap: the same grid coloured by the euros the battery
+           moved in that interval, green above zero and red below. It is gated on its own payload,
+           which the server produces only with cost simulation on — so the tab keeps working with
+           cost off, carrying chart 1 alone.
+
+           Chart 3 is the saved-against-no-battery heatmap: the same grid coloured by the
+           difference between this household's whole grid bill and the bill the SAME household
+           would have had with its PV but no battery. Same gate as chart 2.
+
+           Charts 2 and 3 look alike and DO NOT MATCH, which is the trap this block is written
+           around. Chart 2 attributes value to battery FLOWS; chart 3 is a counterfactual on the
+           whole bill and therefore also counts effects with no battery flow at all — PV the
+           battery stored that would otherwise have been curtailed is the clearest one. Two green
+           and red grids stacked read as "these should agree", so the two captions are written as a
+           PAIR that says how they differ, not as two independent blurbs. Edit one and re-read the
+           other.
+
+           The element ids still say `socprice`, which the tab is no longer called. They are left
+           alone deliberately: they are the keys the tab-restore machinery in
+           workspace_results.html matches on, and renaming them buys nothing a reader can see. #}
+        {# Same derivation and the same `flex` pairing as #flows-charts above (CHART_TABS.socprice
+           also stacks). #}
+        {% if results.soc_heatmap %}
+        <div id="socprice-charts" class="{% if default_chart_tab == 'socprice' %}flex{% else %}hidden{% endif %} flex-col gap-4">
+          <div>
+            <h4 class="text-sm font-semibold">{{ _('When is the battery full?') }}</h4>
+            <div id="socprice-heatmap" class="h-64 w-full"></div>
+            <p class="text-xs text-base-content/70">
+              {{ _('Each cell is one simulated interval, in Dutch local time. Blank cells are intervals with no data.') }}
+            </p>
+          </div>
+          {% if results.earnings_heatmap %}
+          <div>
+            <h4 class="text-sm font-semibold">{{ _('Gross battery earnings') }}</h4>
+            <div id="socprice-earnings" class="h-64 w-full"></div>
+            <p class="text-xs text-base-content/70">
+              {{ _('This chart follows the battery’s own flows. Each cell is the euro value of what the battery moved in that interval: energy it supplied to the house or the grid, less energy it took from the grid. Green is money in, red is money out.') }}
+            </p>
+            {# The footnote is not decoration. "Earnings" invites the reading "this is what I
+               saved", and it is not: this chart is a GROSS flow, with no battery cost, no
+               degradation, and no comparison against the no-battery bill. The net figure is a
+               different quantity computed elsewhere in this panel, so the footnote names the tile
+               that carries it rather than leaving the reader to reconcile two numbers that were
+               never meant to match. The tile's own label is "MONEY SAVED" (results_view.py's cost
+               KPI); the footnote quotes it so the pointer is findable by eye.
+
+               "BELOW" is a claim about layout and has to stay true: the tile lives in the COST
+               SAVINGS section, which renders after this Charts box (see the `{% if results.cost %}`
+               further down). The direction is safe to state because this chart and that tile
+               appear under the same condition — `earnings_heatmap` is None unless
+               `cfg.simulate_cost`, which is also what emits `results.cost`. If the panel's section
+               order ever changes, this word changes with it. #}
+            <p class="text-xs text-base-content/60 mt-1">
+              {{ _('This is the battery’s gross money flow, before its purchase price and wear. It is not your saving: the net figure — this window’s bill with a battery against the bill without one — is the MONEY SAVED tile below.') }}
+            </p>
+          </div>
+          {% endif %}
+          {# Chart 3. Gated on its own payload, exactly as chart 2 is: the server returns None with
+             cost simulation off, and the two gates are the same condition in practice
+             (`cfg.simulate_cost`) but are written separately so neither chart depends on the
+             other's payload being produced.
+
+             The caption's job is CONTRAST with chart 2 above, not a standalone definition — see
+             the block comment at the top of this tab. It names the comparison (this household
+             against the same household with PV but no battery) and names an effect chart 2 cannot
+             show, so a reader who notices the two grids disagree has the reason in front of them
+             rather than concluding one of them is wrong.
+
+             The footnote runs the OPPOSITE WAY to chart 2's. Chart 2's warns that its cells do not
+             sum to the MONEY SAVED tile; this chart's cells DO — it is the same quantity the tile
+             totals, cut up by interval. Saying so is the point of having it: it is the chart that
+             reconciles, and without the statement a reader who has just been told "chart 2 is not
+             your saving" would apply that warning to this one too.
+
+             "BELOW" is the same layout claim chart 2's footnote makes and stays true for the same
+             reason: the COST SAVINGS section renders after this Charts box, and this chart appears
+             under the same condition that emits `results.cost`. If the panel's section order
+             changes, both footnotes change together.
+
+             It names the tile as "the MONEY SAVED total below" rather than repeating chart 2's
+             exact "MONEY SAVED tile below". Not style: `test_the_earnings_heatmap_draws_beside_
+             the_soc_heatmap` matches chart 2's footnote by that phrase within `#socprice-charts`
+             and asserts exactly one hit, so reusing the wording verbatim would make that test
+             fail on a page where nothing is wrong.
+
+             The feed-in-floor sentence is the caveat the monthly savings chart already carries,
+             reusing its wording ("add up to slightly less than the headline figure") rather than a
+             fresh phrasing of the same fact: the statutory floor is assessed over a whole billing
+             period, so there is no per-interval share of it to put in a cell. #}
+          {% if results.saved_heatmap %}
+          <div>
+            <h4 class="text-sm font-semibold">{{ _('Saved against no battery') }}</h4>
+            <div id="socprice-saved" class="h-64 w-full"></div>
+            <p class="text-xs text-base-content/70">
+              {{ _('This chart compares whole bills. Each cell is your grid bill for that interval with the battery and your solar, against what the same interval would have cost with your solar alone. Green means the battery left you better off. It differs from the chart above because it also counts what the battery changed without moving money itself — solar it stored that would otherwise have been curtailed, for one.') }}
+            </p>
+            <p class="text-xs text-base-content/60 mt-1">
+              {{ _('Unlike the chart above, these cells are your saving, and they add up to the MONEY SAVED total below. Where the statutory feed-in floor pays out it is left out here, because it is assessed over a whole billing period rather than interval by interval, so the cells then add up to slightly less than the headline figure.') }}
+            </p>
+          </div>
+          {% endif %}
+        </div>
+        {% endif %}
+        {# ── The *Monthly savings (€)* tab ───────────────────────────────────────────────────
+           One bar per month, the euros this window's battery saved against the same household
+           with its PV and no battery (`_monthly_saved_eur`). It had no container of its own until
+           changelog/20260806-chart-tab-restructure.md: it was a second VIEW of `#monthly-chart`,
+           which otherwise drew the measured monthly grid IMPORT in kWh, and the two were told
+           apart by a `data-chart-view` attribute on the strip. The kWh view is gone (it was a
+           measurement, not a saving, and §2.4's wireframe never asked for it), so this series owns
+           the container and the second attribute is retired.
+
+           A single plot, so NO `flex` here — CHART_TABS.saved_eur says `flex: false` for the same
+           reason, and the two must agree.
+
+           `results.chart` is still emitted by app/results_view.py and nothing on this page plots
+           it: the static sample view-model and a test still read it. Do not take its presence in
+           the payload as a chart that went missing. #}
+        {% if results.monthly_saved_eur %}
+        <div id="saved-eur-chart" class="{% if default_chart_tab != 'saved_eur' %}hidden {% endif %}h-64 w-full"></div>
+        {% endif %}
       </div>
     </div>
 
@@ -433,25 +750,227 @@
     </div>
   </div>
 
-  {# The monthly grid-import data, embedded fresh on every (re)render so the swapped-in fragment carries
-     the new window's series. window.drawMonthlyChart() (workspace_results.html) reads THIS node and draws into
-     #monthly-chart above. The axis title is translated server-side. This node lives INSIDE
-     #panel-results so it is replaced together with the panel on a swap.
+  {# The *Monthly savings (€)* tab's series, embedded fresh on every (re)render so the swapped-in
+     fragment carries the new window's numbers. window.drawSavedEurChart() (workspace_results.html)
+     reads THIS node and draws into #saved-eur-chart above. The axis title is translated
+     server-side. This node lives INSIDE #panel-results so it is replaced together with the panel
+     on a swap.
+
+     Gated on the same `results.monthly_saved_eur` as the button and the container, so the three
+     appear and disappear together and the draw function's "no node, no-op" guard is the only
+     absent case it has to handle. It was called `#monthly-data` and was UNCONDITIONAL until
+     changelog/20260806-chart-tab-restructure.md, because it also carried the kWh grid-import
+     series (`values`/`ytitle`) that `#monthly-chart` drew by default. That series is no longer
+     plotted anywhere, so the node carries only what this one chart needs and the `| default(none,
+     true)` guard that let the static sample omit the euro key is no longer needed either — the
+     `{% if %}` is the guard now.
+
+     The x-axis month labels still come from `results.chart.months`: `_monthly_saved_eur` is a bare
+     list of euros with no month numbers of its own, and the two are built over the same buckets in
+     the same order (app/results_view.py). `results.chart` is otherwise unused by this page now.
 
      The view-models emit MONTH NUMBERS and the axis labels are made here, by the locale-bound
      `monthname` filter (app/i18n.month_abbr): the chart is drawn client-side from this node, so
      these strings are the last point at which the server can put the reader's language on the
      x-axis. Doing it in the view-model was the old behaviour and it hardcoded English. #}
+  {% if results.monthly_saved_eur %}
   {%- set month_labels = results.chart.months | map('monthname') | list -%}
-  {# `| default(none, true)` on the euro series, explicitly: a view-model that predates it (the
-     static sample) leaves the key ABSENT, and Jinja's Undefined is not JSON-serialisable, so
-     `tojson` would raise rather than emit null. `none` is what the draw function tests for when
-     it decides whether the euro view exists at all. #}
-  <script id="monthly-data" type="application/json">
+  <script id="saved-eur-data" type="application/json">
     {{ {"months": month_labels,
-        "values": results.chart["values"],
-        "ytitle": _('kWh'),
-        "eur_values": results.monthly_saved_eur | default(none, true),
-        "eur_ytitle": _('€')} | tojson }}
+        "values": results.monthly_saved_eur,
+        "ytitle": _('€')} | tojson }}
   </script>
+  {% endif %}
+
+  {# The *Energy flows* tab's three series, on the same terms and for the same reasons as
+     #monthly-data above: embedded fresh on every (re)render, INSIDE #panel-results so a swap
+     replaces it, and read by window.drawEnergyFlows() (workspace_results.html) — which must live
+     on the never-swapped page because a swapped-in <script> re-inserts but does not re-execute.
+
+     `_energy_flows` emits MONTH NUMBERS, so the x-axis labels are made here by the locale-bound
+     `monthname` filter, exactly as the monthly node does: the charts are drawn client-side, so
+     this is the last point at which the server can put the reader's language on the axis. Every
+     other user-visible string in the three charts — series names, axis titles — is likewise
+     translated here and travels in the payload rather than being hardcoded in JS.
+
+     Absent entirely when there is no `energy_flows` (no frame to simulate), which is the same
+     condition that drops the tab button and the containers above.
+
+     **`labels` is the shared map; `labels_pv_allocation` OVERRIDES it for chart 2 only.** Do not
+     merge the two — one series deliberately carries two different names. `pv_to_home` is a segment
+     of both bar charts, and the charts ask opposite questions: chart 1 asks where the household's
+     energy CAME FROM, where "Directly from solar" names a source correctly; chart 2 asks where the
+     solar generation WENT, where every sibling label names a destination (into the battery /
+     exported / curtailed) and a source name would be the odd one out. Hence "Consumed directly"
+     there. `stackedMonths()` in workspace_results.html applies the override.
+
+     **A THIRD override map, and it renames EVERY bar on the average day.** Same mechanism as
+     chart 2's, but a wider job. Charts 1 and 2 each decompose one total, so their labels can name
+     one endpoint and let the heading supply the other: "From the grid" is unambiguous under "where
+     did the household's energy come from". The average day is DIVERGING — eight segments moving
+     between four places (grid, solar, battery, house) — and under it no single-endpoint name
+     works. The old set had four grammars at once: sources ("From the grid"), destinations ("Into
+     the battery"), events ("Solar exported") and a bare state ("Curtailed"), so the legend read as
+     four kinds of thing rather than eight instances of one.
+
+     Hence `A → B` throughout, naming both endpoints. The arrow also makes the up/down split
+     legible in the legend itself, where "→ house" is exactly the above-axis group. `Solar
+     curtailed` is the one entry without an arrow, correctly: curtailed energy has no destination,
+     which is the whole point of it, and inventing one ("Solar → nowhere") would be cute at the
+     cost of being wrong.
+
+     The arrow is U+2192, not `->`. It is a legend label rendered in the page font, not code.
+
+     "Net grid (import − export)" spells out the arithmetic rather than saying "Net grid": the
+     sign convention is the one thing a reader cannot infer from a line that crosses zero, and
+     getting it backwards inverts the reading of every hour on the chart. The minus is U+2212.
+
+     `household_load` and `soc` are NOT overridden — they are lines, not segments in the transfer
+     grammar, and "Household load" names a quantity rather than a movement.
+
+     **`any_pv` rides in the DATA node, unlike `any_partial` and `any_standby`.** Those two gate
+     markup this template writes itself, so they are read straight off `results.energy_flows`. The
+     average day's PV-side segments are drawn client-side instead, and all four (`pv_to_home`,
+     `chg_pv`, `exp_from_pv`, `curtailed`) have to be suppressed together on a household without
+     panels — `simulation_frame` zero-fills an absent PV series, so that case reaches the chart as
+     four legend entries with no marks. The note under that chart is gated on the same flag.
+
+     Note for editors: these rationale comments live OUTSIDE the expression below on purpose. A
+     Jinja comment placed INSIDE that expression is a syntax error, and the way it fails is quiet
+     — `pybabel extract` simply returns zero strings for this whole file, and the next `update`
+     then marks every msgid in it obsolete, with no error printed by either command. (Nor can the
+     comment delimiters be written out in prose here, for the same reason a quote cannot be
+     written unescaped inside a quoted string: the closing pair ends this comment where it
+     appears, and everything after it renders as page text.)
+
+     Only keys some chart actually draws are emitted. `standby` still has no series anywhere — it
+     is a sink, shown as the GAP between the household-load line and the stack top, never a
+     segment — so translating a name for it would be a dead msgid. `chg_grid` WAS in that category
+     and no longer is: the average day draws it above the axis, which is what lets the net-grid
+     line be both the meter reading and the sum of the grid-coloured bars. #}
+  {% if results.energy_flows %}
+  {%- set flows_month_labels = results.energy_flows.months | map('monthname') | list -%}
+  <script id="flows-data" type="application/json">
+    {{ {"months": flows_month_labels,
+        "partial": results.energy_flows.partial,
+        "any_pv": results.energy_flows.any_pv,
+        "load_sourcing": results.energy_flows.load_sourcing,
+        "pv_allocation": results.energy_flows.pv_allocation,
+        "average_day": results.energy_flows.average_day,
+        "ytitle": _('kWh'),
+        "soc_title": _('State of charge (kWh)'),
+        "hour_title": _('Hour of day'),
+        "labels": {
+          "dis_home": _('From the battery'),
+          "imp_home": _('From the grid'),
+          "pv_to_home": _('Directly from solar'),
+          "household_load": _('Household load'),
+          "chg_pv": _('Into the battery'),
+          "exp_from_pv": _('Exported to the grid'),
+          "curtailed": _('Curtailed'),
+          "soc": _('State of charge')
+        },
+        "labels_pv_allocation": {
+          "pv_to_home": _('Consumed directly')
+        },
+        "labels_average_day": {
+          "dis_home": _('Battery → house'),
+          "imp_home": _('Grid → house'),
+          "pv_to_home": _('Solar → house'),
+          "chg_grid": _('Grid → battery'),
+          "exp_from_pv": _('Solar → grid'),
+          "dis_grid": _('Battery → grid'),
+          "chg_pv": _('Solar → battery'),
+          "curtailed": _('Solar curtailed'),
+          "net_grid": _('Net grid (import − export)')
+        }} | tojson }}
+  </script>
+  {% endif %}
+
+  {# The *Battery rhythm* tab's data, on the same contract as #flows-data above: a JSON node inside
+     the swappable fragment, read fresh by the draw function after every swap, and every
+     user-visible string translated HERE rather than in JavaScript.
+
+     `cells` is a base64 string of ONE BYTE PER CELL, not an array of numbers — see `_soc_heatmap`
+     in results_view.py. A year of 15-minute intervals is ~35k cells; as JSON floats that is
+     ~200 KB riding on every recompute whether or not this tab is opened, against ~47 KB here. The
+     de-quantisation constants travel with it (`levels`, `soc_min_kwh`, `soc_max_kwh`) so the
+     browser can put kWh back on the hover, and `absent` is the sentinel for a cell with no
+     simulated value.
+
+     The same editor's note as above applies: no Jinja comment may go INSIDE the expression. #}
+  {% if results.soc_heatmap %}
+  <script id="socprice-data" type="application/json">
+    {{ {"rows": results.soc_heatmap.rows,
+        "cols": results.soc_heatmap.cols,
+        "days": results.soc_heatmap.days,
+        "grid_s": results.soc_heatmap.grid_s,
+        "absent": results.soc_heatmap.absent,
+        "levels": results.soc_heatmap.levels,
+        "soc_min_kwh": results.soc_heatmap.soc_min_kwh,
+        "soc_max_kwh": results.soc_heatmap.soc_max_kwh,
+        "cells": results.soc_heatmap.cells,
+        "unit": _('kWh'),
+        "legend_title": _('State of charge'),
+        "day_title": _('Day'),
+        "time_title": _('Time of day')} | tojson }}
+  </script>
+  {% endif %}
+
+  {# The second *Battery rhythm* chart's data. A SEPARATE node from #socprice-data, not extra keys
+     on it, because the two payloads are gated differently: the SoC grid exists whenever there is a
+     simulation, the earnings grid only with cost simulation on. One node carrying both would have
+     to encode "half of me is missing", and the draw functions would each have to check.
+
+     `cells` here is base64 FLOAT32, not the SoC grid's one-byte levels: euros are signed and have
+     no fixed ceiling, so there is no 0..254 ramp to quantise onto. Four bytes per cell against
+     one, which on a year of 15-minute data is ~190 KB base64 rather than ~47 KB — still well under
+     the ~280 KB the same grid would cost as JSON numbers. NaN marks a cell with no value, for
+     either reason: a gap interval, or an interval with no spot price. See `_earnings_heatmap` in
+     results_view.py.
+
+     `clip` is the 99th percentile of absolute euros; the colour scale runs −clip..+clip so a few
+     extreme intervals saturate instead of flattening every other cell to nothing.
+
+     The same editor's note as above applies: no Jinja comment may go INSIDE the expression. #}
+  {% if results.earnings_heatmap %}
+  <script id="socprice-earnings-data" type="application/json">
+    {{ {"rows": results.earnings_heatmap.rows,
+        "cols": results.earnings_heatmap.cols,
+        "days": results.earnings_heatmap.days,
+        "grid_s": results.earnings_heatmap.grid_s,
+        "clip": results.earnings_heatmap.clip,
+        "cells": results.earnings_heatmap.cells,
+        "legend_title": _('€ per interval'),
+        "day_title": _('Day'),
+        "time_title": _('Time of day')} | tojson }}
+  </script>
+  {% endif %}
+
+  {# The third *Battery rhythm* chart's data. A separate node again, for the same reason
+     #socprice-earnings-data is separate from #socprice-data: one node per independently-gated
+     payload, so no draw function has to reason about half of its input being missing.
+
+     Same wire format as the earnings node — base64 float32, NaN for a cell with no value — which
+     is why one drawing routine in workspace_results.html serves both charts.
+
+     `clip` is this chart's OWN 99th percentile of absolute euros, deliberately not the earnings
+     chart's. The two grids measure different quantities; sharing a scale would make one of them
+     saturate or wash out for a reason nothing on screen explains. See `_saved_heatmap` in
+     results_view.py.
+
+     The same editor's note as above applies: no Jinja comment may go INSIDE the expression. #}
+  {% if results.saved_heatmap %}
+  <script id="socprice-saved-data" type="application/json">
+    {{ {"rows": results.saved_heatmap.rows,
+        "cols": results.saved_heatmap.cols,
+        "days": results.saved_heatmap.days,
+        "grid_s": results.saved_heatmap.grid_s,
+        "clip": results.saved_heatmap.clip,
+        "cells": results.saved_heatmap.cells,
+        "legend_title": _('€ saved per interval'),
+        "day_title": _('Day'),
+        "time_title": _('Time of day')} | tojson }}
+  </script>
+  {% endif %}
 </section>

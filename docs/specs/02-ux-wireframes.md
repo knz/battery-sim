@@ -1199,9 +1199,9 @@ tariffs.
 │  └────────────────────────────────────────────────────────────────────────┘  │
 │                                                                              │
 │  ┌─ Charts ───────────────────────────────────────────── [ ⤓ export CSV ] ┐  │
-│  │  ( • ) Monthly savings   (   ) SoC + price   (   ) Energy flows        │  │
+│  │  ( • ) Energy flows   (   ) Battery rhythm   (   ) Monthly savings (€) │  │
 │  │                                                                        │  │
-│  │   kWh                                                                  │  │
+│  │   kWh   Where did the household's energy come from?                    │  │
 │  │ 200│                        ▄▄  ▄▄  ▄▄                                 │  │
 │  │ 150│              ▄▄  ▄▄  ██  ██  ██  ▄▄                               │  │
 │  │ 100│      ▄▄  ▄▄  ██  ██  ██  ██  ██  ██  ▄▄  ▄▄                       │  │
@@ -1288,13 +1288,93 @@ Notes on the two sections:
   The **rows** stay honest throughout — this rule governs the ratio and its gloss, not the
   bars. And it corrects only the comparison: §6.11's drift metric is still reported unnetted,
   and `saved_kwh` is unchanged.
-- **The Charts box gains options rather than swapping them.** *Monthly savings* always
-  offers kWh and shows it by default; with cost simulation on it gains a *Monthly savings
-  (€)* option beside it. The two are separate views, not a dual axis — a euro series moves
-  with tariff structure as well as with kWh, and overlaying them invites exactly the
-  reading this panel's two-section split exists to prevent. *SoC + price* keeps the bare
-  spot price on its secondary axis in both modes, since the spot series is present either
-  way. *Energy flows* is unaffected.
+- **Every button in the strip selects a chart, and each chart owns its own container.** Until
+  `changelog/20260806-chart-tab-restructure.md` that was not so: a *Monthly grid import* series
+  (measured kWh, `_monthly_import()`) and *Monthly savings (€)* were two VIEWS of a single
+  container, chosen by a second attribute alongside the tab attribute. The kWh series is no
+  longer plotted, and with one series per container the second attribute has no job and is gone.
+
+  *Energy flows* is what replaces it, though not by plotting the same number: its `imp_home` bars
+  are grid import serving household load under the SIMULATED run, where `_monthly_import()` was
+  MEASURED total import including whatever charged a battery the household did not have. What it
+  supersedes is the question — where the household's energy came from, month by month — which it
+  answers by source rather than as one undifferentiated total.
+
+  The rule it encoded still holds and now holds structurally: kWh and euro series are separate
+  charts, not a dual axis. A euro series moves with tariff structure as well as with kWh, and
+  overlaying them invites exactly the reading this panel's two-section split exists to prevent.
+
+  `_monthly_import()` and the `chart` key it fills are still emitted — the static sample builds
+  them, and its calendar-month bucketing is the reference `_energy_flows` and
+  `_monthly_saved_eur` deliberately mirror. Only the plotting stopped.
+- **Cost simulation determines which tabs exist.** *Monthly savings (€)* is absent without it,
+  and *Battery rhythm* is the one tab the toggle changes rather than removes: its SoC grid is
+  pure kWh and shows in both modes, while its two euro grids are absent without cost simulation
+  (see below). *Energy flows* is unaffected and is the default tab.
+
+  All three tabs being conditional is new — the strip previously always had the unconditional
+  kWh tab to fall back on. So the default is whichever tab actually renders, decided server-side
+  so the highlighted button and the visible container cannot disagree, and a strip with nothing
+  to show states that rather than rendering an empty box.
+- **The *Battery rhythm* tab (named *SoC + price* until
+  `changelog/20260806-battery-money-heatmap.md`) leads with a day × time-of-day HEATMAP of state
+  of charge**, not the
+  time-series against a spot-price secondary axis this section described until
+  `changelog/20260806-soc-price-chart-tab.md`. Columns are Europe/Amsterdam calendar days,
+  rows are local time-of-day at the simulation grid's own resolution (96 rows on 15-minute
+  data, 24 on hourly), and each cell is ONE INTERVAL's SoC — nothing is averaged. Colour runs
+  from transparent at the floor of the battery's operating window to opaque at its ceiling,
+  normalised against `soc_min_kwh`/`soc_max_kwh` rather than nameplate capacity so that a
+  battery with a reserve floor still reaches both ends of its own ramp.
+
+  The change of chart type is a change of QUESTION: a line against price reads dispatch at an
+  instant, while the grid reads daily and seasonal rhythm — when the battery is full, and how
+  that moves across the year. It also settles what the old form left open (whether the chart
+  covered the whole range or a zoomable window): a year is 365 columns rather than ~35k
+  points, so the whole range fits.
+
+  The tab carries **two further heatmaps, both in euros**, on the SAME day × time-of-day axis as
+  the SoC grid — one construction (`results_view._heatmap_axes`) shared by all three, so the
+  grids on one tab cannot drift apart under later edits. Both are gated on `simulate_cost` and
+  are ABSENT rather than empty without it, so the SoC chart ships alone in an energy-only run.
+
+  - **"Gross battery earnings"** — per interval,
+    `dis_home·p_import + dis_grid·p_export_net − chg_grid·p_import`. What the battery's own
+    movements were worth: energy it supplied to the house or the grid, less energy it took from
+    the grid. **Not priced at bare spot**, which is the tempting simplification and is wrong
+    here: §6.5 gives import energy tax and VAT and gives feed-in neither, and the export net goes
+    negative below roughly 8 ct/kWh bare, so a spot-priced grid would colour loss-making exports
+    green. Its cells sum to nothing on the panel — a self-consumed PV kWh that never touched the
+    battery is worth the same with or without a battery and appears in neither run's difference.
+  - **"Saved against no battery"** — per interval, `bill(A) − bill(C)` where
+    `bill = imp·p_import − exp·p_export_net`. The counterfactual: what the household's whole grid
+    bill did, run A being the same household with PV and no battery
+    ([§6.9](11-policies-and-battery.md)). This is the grid that RECONCILES — its cells sum to the
+    MONEY SAVED tile, up to the feed-in floor top-up, which is a period-level scalar with no
+    per-interval allocation and is excluded rather than smeared (the same caveat the monthly euro
+    bars carry). It also catches effects with no battery flow at all, such as PV the battery
+    stored that would otherwise have been curtailed.
+
+  The two are **deliberately different questions**, and will visibly disagree: one attributes
+  value to battery flows, the other differences two whole bills. Their captions carry that
+  distinction, because two stacked green/red grids otherwise invite the reading that they should
+  match. Each computes its **own** symmetric colour range (the 99th percentile of absolute value,
+  so one extreme interval cannot flatten a year); a shared range would imply a cell-for-cell
+  comparability that does not hold.
+
+  Sign convention on both: **green is money in the household's pocket.** For the counterfactual
+  that means `A − C` rather than the more literal `C − A`, since a cost that went down is a
+  saving, and rendering a saving as red would invert the one thing the colour is for.
+
+  Payload note, because it constrains the data shape: all three grids travel inline, base64'd,
+  with the rest of the panel. The SoC cells are one byte each — ~47 KB for a year of 15-minute
+  data against ~200 KB as JSON floats — which works only because SoC is bounded by the operating
+  window, giving a fixed range to quantise onto and a spare code for the absent sentinel. The two
+  euro grids are signed and unbounded, so they ship as little-endian float32 (`<f4`) with NaN
+  carrying absence natively; their values are NOT clipped in the payload, so a hover reads the
+  real euro figure while the colour saturates. A lazy endpoint like §6.12's benchmark box was
+  considered and rejected for all three — the arrays are already computed, so a route would
+  re-run the whole simulation on each tab open to save transfer.
 - **Caveats are shown in both modes**, with the kWh ones identical across the toggle. The
   caveats that qualify a euro figure — price bracketing, the feed-in floor, tiered
   terugleverkosten — appear only with cost simulation on, because there is no euro figure to

@@ -49,7 +49,8 @@
   exist to configure data and now live only on `workspace_data.html`.
 
   Kept unchanged: the pending-affordance dialog and its IIFE, and the whole panel-②/③ script block
-  below — the chart draw, the lazy benchmark fetch, `recompute()`, the `params-form` submit
+  below — the chart draws (one per Charts-box tab: `drawEnergyFlows`, the three heatmap draws
+  behind *Battery rhythm*, and `drawSavedEurChart`), the lazy benchmark fetch, `recompute()`, the `params-form` submit
   interception, the `setup.`-prefixed change handler and the feed-in preset. Those were always this
   half's; 4.1 established as much and moved none of them.
 
@@ -267,56 +268,622 @@
         return '/w/' + encodeURIComponent(WORKSPACE_ID) + suffix;
       }
 
-      // Draw the monthly-import bar chart from the #monthly-data node currently in the DOM (the
-      // one the last render/swap injected). Called on initial load and after each swap so the
-      // chart always reflects the window just computed. Guarded so a missing bundle or node is a
-      // no-op rather than an error.
-      // The chart has TWO views once cost simulation is on (§2.4): the kWh series it always had,
-      // and a *Monthly savings (€)* series beside it. They are separate views, NOT a dual axis —
-      // §2.4 is explicit that overlaying them "invites exactly the reading this panel's
-      // two-section split exists to prevent", since a euro series moves with tariff structure as
-      // well as with kWh. So this draws ONE series at a time and the tabs switch which.
+      // Draw the *Monthly savings (€)* bar chart from the #saved-eur-data node currently in the
+      // DOM (the one the last render/swap injected). Called on initial load and after each swap so
+      // the chart always reflects the window just computed. Guarded so a missing bundle or node is
+      // a no-op rather than an error — the node, the container and the tab button are all gated on
+      // the same `results.monthly_saved_eur`, so "absent" means cost simulation is off and there is
+      // simply no tab to draw into.
       //
-      // The selected view is held on the chart container rather than in a variable, so a fragment
-      // swap (which replaces the container) resets to the default — which is what should happen:
-      // a swap means a new window, and the euro series may not exist for it.
-      function drawMonthlyChart() {
+      // This was `drawMonthlyChart` over `#monthly-chart` until
+      // changelog/20260806-chart-tab-restructure.md, and it took a `view` off the container because
+      // that container held two alternative series: the measured monthly grid IMPORT in kWh, and
+      // this one. The kWh view was deleted — it was a measurement rather than a saving, and
+      // labelling it as a saving overstated the figure by ~11× — so there is one series per
+      // container now and no view to read. `results.chart` is still in the payload for other
+      // consumers; nothing here plots it.
+      function drawSavedEurChart() {
         if (typeof Plotly === 'undefined') return;
-        var node = document.getElementById('monthly-data');
-        var chart = document.getElementById('monthly-chart');
+        var node = document.getElementById('saved-eur-data');
+        var chart = document.getElementById('saved-eur-chart');
         if (!node || !chart) return;
         var d = JSON.parse(node.textContent);
-        var view = chart.getAttribute('data-chart-view') || 'kwh';
-        // `eur` is null without cost simulation; fall back rather than drawing an empty axis.
-        var series = (view === 'eur' && d.eur_values) ? d.eur_values : d.values;
-        var title = (view === 'eur' && d.eur_values) ? d.eur_ytitle : d.ytitle;
-        Plotly.newPlot('monthly-chart', [{
-          type: 'bar', x: d.months, y: series,
+        Plotly.newPlot('saved-eur-chart', [{
+          type: 'bar', x: d.months, y: d.values,
           marker: { color: '#570df8' }
         }], {
           margin: { t: 10, r: 10, b: 30, l: 40 },
-          yaxis: { title: title },
+          yaxis: { title: d.ytitle },
           paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
           font: { size: 11 }
         }, { displayModeBar: false, responsive: true });
       }
       // Exposed so the fetch handler (and any future caller) can redraw after a swap.
-      window.drawMonthlyChart = drawMonthlyChart;
+      window.drawSavedEurChart = drawSavedEurChart;
+
+      // ── The *Energy flows* tab's three charts ───────────────────────────────────────────────
+      //
+      // Same contract as drawSavedEurChart above, and here for the same reason: it reads the
+      // #flows-data node the last render/swap injected, so a fragment swap needs only a re-call
+      // and never a re-bind. The node is absent when the view-model carried no `energy_flows`
+      // (no frame to simulate), in which case the tab button is absent too and this is a no-op.
+      //
+      // EVERY user-visible string comes off the payload (`d.labels`, `d.ytitle`, …), translated
+      // server-side — the same rule the euro chart's `d.ytitle` established. Nothing below
+      // writes English into a chart.
+      //
+      // The three y-axes are INDEPENDENT (a recorded decision): load sourcing and PV allocation
+      // have genuinely different totals, and sharing an axis would squash the smaller of them.
+
+      // One categorical set, used consistently across the three charts so a term keeps its colour
+      // wherever it appears — `pv_to_home` in particular is a segment of BOTH stacks, and the
+      // charts are only comparable if it looks the same in each. '#570df8' is the monthly chart's
+      // existing series colour, kept here for the battery so the box reads as one family.
+      var FLOW_COLORS = {
+        dis_home: '#570df8',    // battery → home (violet, the panel's existing series colour)
+        imp_home: '#6b7280',    // grid → home (neutral grey: bought energy, not generated)
+        pv_to_home: '#f5a524',  // sun → home directly (amber)
+        chg_pv: '#0ea5e9',      // sun → battery (blue)
+        chg_grid: '#94a3b8',    // grid → battery
+        exp_from_pv: '#22c55e', // sun → grid (green)
+        curtailed: '#dc2626',   // sun thrown away (red: the only segment that is a loss)
+        household_load: '#1f2937',
+        // Net meter position, the average day's second reference line. A DEEPER slate than the two
+        // grey grid segments it sums (`imp_home` #6b7280, `chg_grid` #94a3b8), so it reads as the
+        // same family — it IS the grid terms, netted.
+        //
+        // Measured, because the numbers here are worse than they look and the next person to
+        // "improve" this colour should know what they are trading:
+        //     vs chg_grid  4.04:1     vs imp_home  2.14:1     vs household_load  1.42:1
+        // Only the first clears the 3:1 WCAG floor for non-text graphics. The conflict is real
+        // rather than an oversight: darkening to separate from the greys collapses onto the
+        // near-black load line (#1e293b measures 1.00:1 against it — the same colour), and
+        // lightening does the reverse. No slate satisfies both constraints simultaneously.
+        //
+        // So SHAPE carries this trace, not colour: dashed at width 3 against the load line's solid
+        // width 2. That is a deliberate second cue for the pair that overlaps most, not a fallback.
+        net_grid: '#334155',
+        soc: '#570df8'
+      };
+
+      // A month flagged `partial` is missing >5% of its intervals, so its bar is drawn from
+      // incomplete data and is SHORT for a reason that has nothing to do with usage. Hatching it
+      // (rather than only shortening it) is what stops it reading as "a quiet month"; the footnote
+      // under the bars says what the hatching means. Plotly takes the pattern per POINT, so this
+      // builds one array per trace rather than splitting the series into two traces.
+      function partialPattern(partial) {
+        return {
+          shape: partial.map(function (p) { return p ? '/' : ''; }),
+          solidity: 0.35,
+          size: 6
+        };
+      }
+
+      // One stacked-bar chart over the months, from a {key: series} object and an ordered key
+      // list. `extra` traces (the household-load reference line) are appended after the bars so
+      // they draw on top of them.
+      //
+      // `overrides` is a per-chart label map layered over the shared `d.labels`. It exists for
+      // ONE series on purpose: `pv_to_home` is a segment of both bar charts, and the two charts
+      // ask opposite questions — sources in chart 1 ("Directly from solar"), destinations in
+      // chart 2 ("Consumed directly"). Do not fold the two names back together; the mismatch a
+      // merge would reintroduce is a source name sitting in a list of sinks.
+      function stackedMonths(divId, d, source, keys, extra, overrides) {
+        var pattern = partialPattern(d.partial || []);
+        var names = overrides || {};
+        var traces = keys.map(function (k) {
+          return {
+            type: 'bar', name: names[k] || d.labels[k], x: d.months, y: source[k],
+            marker: { color: FLOW_COLORS[k], pattern: pattern }
+          };
+        });
+        if (extra) traces = traces.concat(extra);
+        Plotly.newPlot(divId, traces, {
+          barmode: 'stack',
+          margin: { t: 10, r: 10, b: 30, l: 40 },
+          yaxis: { title: d.ytitle },
+          legend: { orientation: 'h', y: -0.18 },
+          paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+          font: { size: 11 }
+        }, { displayModeBar: false, responsive: true });
+      }
+
+      function drawEnergyFlows() {
+        if (typeof Plotly === 'undefined') return;
+        var node = document.getElementById('flows-data');
+        if (!node) return;
+        if (!document.getElementById('flows-load')) return;
+        var d = JSON.parse(node.textContent);
+
+        // 1. Load sourcing. The three SOURCE segments only. `household_load` is a reference LINE
+        //    over the bars, never a stack segment: the segments sum to household load PLUS the
+        //    battery's standby draw, and standby is a SINK — stacking it would put the battery's
+        //    own consumption on the "where the energy came from" side of the balance. Drawn this
+        //    way, the gap between the line and the top of the stack IS the standby draw, which is
+        //    the one presentation that shows the term without misfiling it.
+        stackedMonths('flows-load', d, d.load_sourcing,
+          ['dis_home', 'imp_home', 'pv_to_home'],
+          [{
+            type: 'scatter', mode: 'lines+markers',
+            name: d.labels.household_load,
+            x: d.months, y: d.load_sourcing.household_load,
+            line: { color: FLOW_COLORS.household_load, width: 2 },
+            marker: { color: FLOW_COLORS.household_load, size: 5 }
+          }]);
+
+        // 2. PV allocation. Sums to PV generation — a different total from chart 1, which is why
+        //    each chart carries a heading stating its question. It also takes the label OVERRIDE
+        //    map: this chart's segments are DESTINATIONS, so `pv_to_home` reads "Consumed
+        //    directly" here and "Directly from solar" in chart 1. See the note on stackedMonths.
+        stackedMonths('flows-pv', d, d.pv_allocation,
+          ['chg_pv', 'pv_to_home', 'exp_from_pv', 'curtailed'],
+          null, d.labels_pv_allocation);
+
+        // 3. The average day: hour-of-day means, with SoC on a SECONDARY axis (kWh of stored
+        //    energy is not the same quantity as kWh moved per hour, so it cannot share the left
+        //    axis).
+        //
+        //    DIVERGING, and unlike charts 1 and 2 it is not a decomposition of a single total.
+        //    The axis splits the balance by DIRECTION:
+        //
+        //      above 0   entering the house    dis_home, imp_home, pv_to_home, chg_grid
+        //      below 0   leaving it or stored  exp_from_pv, dis_grid, chg_pv, curtailed
+        //
+        //    This is NOT chart 1's stack over hours, and the difference is deliberate. `chg_grid`
+        //    is grid energy going INTO the battery — a sink standing among three sources, which
+        //    would be wrong under chart 1's question and is right under this one. Its consequence
+        //    is that `household_load` no longer bounds the stack: it sits below the top by standby
+        //    PLUS grid charging, where on chart 1 that gap is standby alone. The note under this
+        //    chart says so, and is NOT the same msgid as chart 1's for exactly that reason.
+        //
+        //    Plotly stacks negative y values downward within `barmode: 'stack'` on its own, so the
+        //    below-axis group needs no separate axis or offset — only negated data, which is done
+        //    here at draw time rather than in the payload. The payload keeps every flow POSITIVE
+        //    because that is what the quantity is: `curtailed` is not negative energy, it is
+        //    energy shed, and a view model that signed it would push a presentation choice into
+        //    the arithmetic every other consumer shares.
+        var a = d.average_day;
+        var UP = ['dis_home', 'imp_home', 'pv_to_home', 'chg_grid'];
+        var DOWN = ['exp_from_pv', 'dis_grid', 'chg_pv', 'curtailed'];
+        // The PV-side segments, suppressed together when the window generated nothing. All four
+        // are identically zero for a household with no panels (an absent PV series is zero-filled
+        // upstream), so drawing them would add legend entries and no marks. `imp_home`, `chg_grid`
+        // and `dis_grid` are NOT gated: those are grid and battery terms, real without panels.
+        var pvKeys = { pv_to_home: 1, chg_pv: 1, exp_from_pv: 1, curtailed: 1 };
+        function keep(k) { return d.any_pv || !pvKeys[k]; }
+        // Third label map, layered like chart 2's but covering EVERY bar. The shared labels name
+        // one endpoint ("From the grid") and let a heading supply the other, which works on a
+        // single-total decomposition and not here: this chart moves energy between four places, so
+        // each segment is named "A → B". See the note beside the map in _panel_results.html.
+        var dayNames = d.labels_average_day || {};
+        function dayName(k) { return dayNames[k] || d.labels[k]; }
+        var dayBars = UP.filter(keep).map(function (k) {
+          return {
+            type: 'bar', name: dayName(k), x: a.hours, y: a[k],
+            marker: { color: FLOW_COLORS[k] }
+          };
+        });
+        dayBars = dayBars.concat(DOWN.filter(keep).map(function (k) {
+          return {
+            type: 'bar', name: dayName(k), x: a.hours,
+            y: a[k].map(function (v) { return v === null ? null : -v; }),
+            marker: { color: FLOW_COLORS[k] },
+            // Hover would otherwise read "−1.4 kWh exported", which states a direction the axis
+            // already carries and invites reading the minus as a loss. Show the magnitude.
+            customdata: a[k],
+            hovertemplate: '%{customdata} <extra>%{fullData.name}</extra>'
+          };
+        }));
+        dayBars.push({
+          type: 'scatter', mode: 'lines', name: d.labels.household_load,
+          x: a.hours, y: a.household_load,
+          line: { color: FLOW_COLORS.household_load, width: 2 }
+        });
+        // NET position at the meter, positive for a net import — the one trace that crosses the
+        // axis, which is what makes the diverging layout say something a pair of stacks could not:
+        // where it cuts zero is the hour the house flips from buying to selling. On the PRIMARY
+        // axis, because it is kWh moved per hour exactly like the bars. It is simultaneously the
+        // meter reading and the algebraic sum of the four grid-coloured segments; those agree only
+        // because `chg_grid` is drawn. Dashed and wider, because it overlaps `imp_home`'s grey
+        // wherever the house is a net importer and needs a cue other than colour there.
+        dayBars.push({
+          type: 'scatter', mode: 'lines', name: dayName('net_grid'),
+          x: a.hours, y: a.net_grid,
+          line: { color: FLOW_COLORS.net_grid, width: 3, dash: 'dash' }
+        });
+        Plotly.newPlot('flows-avgday', dayBars, {
+          barmode: 'relative',
+          // Bottom margin trimmed and the x-axis title dropped: chart 4 sits directly beneath with
+          // the same hours on its axis, and labelling both would say "Hour of day" twice down one
+          // column. The tick LABELS stay — they are what let a reader carry an hour between the
+          // two frames.
+          margin: { t: 10, r: 10, b: 24, l: 40 },
+          xaxis: { dtick: 3 },
+          // `zeroline` is load-bearing here, not styling: it is the boundary the whole chart is
+          // built around, and Plotly's default hairline is too faint to read as one.
+          yaxis: { title: d.ytitle, zeroline: true, zerolinewidth: 2, zerolinecolor: '#374151' },
+          legend: { orientation: 'h', y: -0.25 },
+          paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+          font: { size: 11 }
+        }, { displayModeBar: false, responsive: true });
+
+        // 4. State of charge across the same average day, in its OWN FRAME rather than on a
+        //    secondary axis of chart 3.
+        //
+        //    SoC is a STOCK — kWh held at an instant — and every bar above it is a FLOW, kWh moved
+        //    during an hour. Overlaying them shared one plot area between two quantities that
+        //    cannot be compared by height, so a SoC line crossing a bar top read as meaningful and
+        //    was not. (Matching the two ranges was tried first, on the argument that one-hour
+        //    buckets make kWh-per-hour numerically equal to mean kW: true, but it made a 10 kWh
+        //    store dictate the scale of 3 kWh/h flows and flattened the bars the chart is about.)
+        //
+        //    Separate frames drop the comparison-by-height entirely and keep the only comparison
+        //    that was ever valid: SHAPE against shape, hour by hour, read down the column. The
+        //    x-axes are identical by construction — both take `a.hours` — so a time is at the same
+        //    horizontal position in both, which is what makes "the battery fills while solar goes
+        //    to the grid" legible across the pair.
+        //
+        //    `rangemode: 'tozero'` because a stock has a meaningful zero: an empty battery. Left to
+        //    autoscale, a day whose SoC never drops below 4 kWh would draw a floor at 4 and imply
+        //    the battery emptied.
+        Plotly.newPlot('flows-soc', [{
+          type: 'scatter', mode: 'lines', name: d.labels.soc,
+          x: a.hours, y: a.soc,
+          // Solid and filled, unlike its old dotted-overlay form: nothing shares this frame, so
+          // the dash that separated it from the bars is no longer earning anything, and the fill
+          // reads as a level in a store.
+          line: { color: FLOW_COLORS.soc, width: 2 },
+          fill: 'tozeroy', fillcolor: 'rgba(87, 13, 248, 0.12)'
+        }], {
+          margin: { t: 10, r: 10, b: 40, l: 40 },
+          xaxis: { title: d.hour_title, dtick: 3 },
+          yaxis: { title: d.soc_title, rangemode: 'tozero' },
+          showlegend: false,
+          paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+          font: { size: 11 }
+        }, { displayModeBar: false, responsive: true });
+      }
+      window.drawEnergyFlows = drawEnergyFlows;
+
+      // ── The *Battery rhythm* tab's first chart: state of charge as a day × time-of-day grid ──
+      //
+      // Same contract as the two draw functions above — reads the node the last render injected,
+      // so a swap needs a re-call and never a re-bind, and is a no-op when the node is absent.
+      //
+      // The payload is BYTES, not numbers: one per cell, base64'd. A year of 15-minute intervals
+      // is ~35k cells, which as JSON floats would be ~200 KB on every recompute against ~47 KB
+      // here. See `_soc_heatmap` in results_view.py for why this is quantised inline rather than
+      // fetched lazily like the benchmark box. `d.absent` marks a cell with no simulated value —
+      // a gap interval, or local 02:00 on the spring-forward day — and becomes `null`, which
+      // Plotly draws as a hole rather than as a zero.
+      function drawSocHeatmap() {
+        if (typeof Plotly === 'undefined') return;
+        var node = document.getElementById('socprice-data');
+        if (!node) return;
+        if (!document.getElementById('socprice-heatmap')) return;
+        var d = JSON.parse(node.textContent);
+
+        // base64 → bytes. `atob` yields a binary string; charCodeAt is the standard way across it.
+        var bin = atob(d.cells);
+        var n = bin.length;
+        var span = d.soc_max_kwh - d.soc_min_kwh;
+
+        // Reshape into Plotly's z[row][col]. The server wrote row-major by ROW (time-of-day), so
+        // this is a straight slice per row with no transpose — z[r] is one time-of-day across
+        // every day in the window.
+        //
+        // `kwh` carries the SAME grid de-quantised, for the hover readout: the cell value itself
+        // is a colour level, and a reader hovering wants kWh. Reconstructed to within half a
+        // level (~0.02 kWh over a 10 kWh window), which is finer than the chart can draw.
+        var z = [];
+        var kwh = [];
+        for (var r = 0; r < d.rows; r++) {
+          var zrow = new Array(d.cols);
+          var krow = new Array(d.cols);
+          for (var c = 0; c < d.cols; c++) {
+            var i = r * d.cols + c;
+            var v = i < n ? bin.charCodeAt(i) : d.absent;
+            if (v === d.absent) {
+              zrow[c] = null;
+              krow[c] = null;
+            } else {
+              zrow[c] = v;
+              krow[c] = (d.soc_min_kwh + (v / d.levels) * span).toFixed(2);
+            }
+          }
+          z.push(zrow);
+          kwh.push(krow);
+        }
+
+        // Row labels as local wall-clock times, built from the grid spacing the payload carries.
+        // Every 15-minute row labelled would be 96 unreadable ticks, so the labels are the full
+        // set (Plotly needs one per row) and `dtick` below thins which are DRAWN — thinning the
+        // labels themselves would mislabel the rows.
+        var ylab = [];
+        for (var rr = 0; rr < d.rows; rr++) {
+          var mins = (rr * d.grid_s / 60) | 0;
+          var hh = (mins / 60) | 0;
+          var mm = mins % 60;
+          ylab.push((hh < 10 ? '0' : '') + hh + ':' + (mm < 10 ? '0' : '') + mm);
+        }
+        // One tick every 3 hours whatever the resolution, so the axis reads the same on 15-minute
+        // and hourly data.
+        var ytick = Math.max(1, (3 * 3600 / d.grid_s) | 0);
+
+        Plotly.newPlot('socprice-heatmap', [{
+          type: 'heatmap',
+          z: z, x: d.days, y: ylab,
+          customdata: kwh,
+          zmin: 0, zmax: d.levels,
+          // Transparent at the floor of the operating window to opaque at the top, in the panel's
+          // existing battery violet. A ramp from blank rather than from a second colour: the
+          // quantity is "how full", which has a natural empty end, and a two-colour scale would
+          // invent a midpoint the data does not have.
+          colorscale: [[0, 'rgba(87, 13, 248, 0)'], [1, 'rgba(87, 13, 248, 1)']],
+          showscale: true,
+          colorbar: {
+            title: { text: d.legend_title, side: 'right' },
+            // The bar is labelled in kWh, so its ticks map the quantised levels back onto the
+            // operating window the ramp actually spans.
+            tickmode: 'array',
+            tickvals: [0, d.levels / 2, d.levels],
+            ticktext: [d.soc_min_kwh.toFixed(1), (d.soc_min_kwh + span / 2).toFixed(1),
+                       d.soc_max_kwh.toFixed(1)],
+            thickness: 12
+          },
+          // `hoverongaps: false` keeps the tooltip off cells with no data — without it Plotly
+          // reports a hole as if it were a reading.
+          hoverongaps: false,
+          hovertemplate: '%{x} %{y}<br>%{customdata} ' + d.unit + '<extra></extra>'
+        }], {
+          margin: { t: 10, r: 10, b: 40, l: 52 },
+          xaxis: { title: d.day_title, type: 'category', nticks: 12 },
+          // Reversed so 00:00 sits at the top and the day reads downward, like a calendar column.
+          yaxis: { title: d.time_title, type: 'category', dtick: ytick, autorange: 'reversed' },
+          paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+          font: { size: 11 }
+        }, { displayModeBar: false, responsive: true });
+      }
+      window.drawSocHeatmap = drawSocHeatmap;
+
+      // ── The *Battery rhythm* tab's euro heatmaps: one drawing routine, two charts ────────────
+      //
+      // The tab carries TWO euro grids below the SoC chart — gross battery earnings, and the
+      // whole-bill saving against the same household without a battery. They are different
+      // quantities but the same PICTURE: same day × time-of-day grid, same base64 float32 payload
+      // shape, same diverging scale, same axes. So the drawing lives here once and each chart is a
+      // few lines naming its own nodes; two copies of ~90 lines could be edited apart, and a scale
+      // or an axis that differed between them would silently make the two grids incomparable at a
+      // glance — which is exactly how a reader uses them.
+      //
+      // Parameterised on the two ids only. Everything the two charts differ in beyond that (legend
+      // title, axis titles) already travels in the payload, translated server-side, so no label
+      // needs passing in here.
+      //
+      // `clip` comes from each chart's OWN payload. That is deliberate and is the one thing that
+      // must not be shared: the two charts measure different things, and putting the saving on the
+      // earnings chart's scale would flatten or saturate it for no reason a reader could see.
+      //
+      // Gated on its OWN nodes: the server omits both payloads when cost simulation is off, so a
+      // call returns early while the SoC chart on the same tab still draws.
+      //
+      // The payload is base64 FLOAT32, not the SoC chart's quantised bytes — euros are signed and
+      // unbounded, so there is no ramp to quantise onto (see `_earnings_heatmap`). NaN is how the
+      // server says "no value here": a gap interval, or an interval whose spot price was missing.
+      // Both become `null` below, which Plotly draws as a hole; a NaN left in the array would be
+      // serialised as `null` anyway, but going through the check keeps the intent explicit and
+      // keeps this reading like drawSocHeatmap's `absent` branch.
+      function drawEuroHeatmap(dataId, plotId) {
+        if (typeof Plotly === 'undefined') return;
+        var node = document.getElementById(dataId);
+        if (!node) return;
+        if (!document.getElementById(plotId)) return;
+        var d = JSON.parse(node.textContent);
+
+        // base64 → bytes → float32. `atob` yields a binary string, so the bytes are copied into a
+        // Uint8Array and the SAME buffer is reinterpreted; a Float32Array cannot be built from the
+        // string directly. Little-endian, which is what `numpy.float32.tobytes()` writes on every
+        // platform this runs on and what Float32Array reads.
+        var bin = atob(d.cells);
+        var bytes = new Uint8Array(bin.length);
+        for (var b = 0; b < bin.length; b++) bytes[b] = bin.charCodeAt(b);
+        var vals = new Float32Array(bytes.buffer);
+
+        // Reshape into Plotly's z[row][col], row-major by ROW (time-of-day) exactly as the SoC
+        // grid is written, so cell (r, c) is the same interval in every chart on this tab.
+        var z = [];
+        for (var r = 0; r < d.rows; r++) {
+          var zrow = new Array(d.cols);
+          for (var c = 0; c < d.cols; c++) {
+            var i = r * d.cols + c;
+            var v = i < vals.length ? vals[i] : NaN;
+            zrow[c] = isNaN(v) ? null : v;
+          }
+          z.push(zrow);
+        }
+
+        // Row labels and tick thinning: identical to the SoC heatmap, and identical on purpose —
+        // the charts on this tab are read against each other, so a different y axis on one of
+        // them would make the comparison wrong rather than merely inconsistent.
+        var ylab = [];
+        for (var rr = 0; rr < d.rows; rr++) {
+          var mins = (rr * d.grid_s / 60) | 0;
+          var hh = (mins / 60) | 0;
+          var mm = mins % 60;
+          ylab.push((hh < 10 ? '0' : '') + hh + ':' + (mm < 10 ? '0' : '') + mm);
+        }
+        var ytick = Math.max(1, (3 * 3600 / d.grid_s) | 0);
+
+        Plotly.newPlot(plotId, [{
+          type: 'heatmap',
+          z: z, x: d.days, y: ylab,
+          // Symmetric about zero, so a green cell and a red cell of equal intensity are equal
+          // euros. `zmid` is set as well as the two ends: without it Plotly would place the
+          // scale's midpoint at the data's own middle, which on a window that earned more than it
+          // spent would colour a small LOSS as neutral.
+          zmin: -d.clip, zmax: d.clip, zmid: 0,
+          // Red below zero, transparent at zero, green above. Transparent rather than white in the
+          // middle because the panel renders on both light and dark themes, and a white midpoint
+          // would read as a bright band on the dark one. It also makes "the battery did nothing
+          // here" and "there is no data here" look alike, which is honest: neither moved money.
+          // Two coincident stops at the midpoint rather than one shared stop: Plotly interpolates
+          // RGB and alpha independently, so a single mid stop would carry each half's colour part
+          // of the way towards the other's before the alpha reached zero, tinting small losses
+          // green-ish and small gains red-ish. A pair keeps each half's ramp to its own hue.
+          colorscale: [
+            [0.0, 'rgba(220, 38, 38, 1)'],
+            [0.5, 'rgba(220, 38, 38, 0)'],
+            [0.5, 'rgba(22, 163, 74, 0)'],
+            [1.0, 'rgba(22, 163, 74, 1)']
+          ],
+          showscale: true,
+          colorbar: { title: { text: d.legend_title, side: 'right' }, thickness: 12 },
+          // As on the SoC chart: without this the tooltip reports a hole as if it were a reading.
+          hoverongaps: false,
+          hovertemplate: '%{x} %{y}<br>€ %{z:.3f}<extra></extra>'
+        }], {
+          margin: { t: 10, r: 10, b: 40, l: 52 },
+          xaxis: { title: d.day_title, type: 'category', nticks: 12 },
+          // Reversed for the same reason as the chart above: the day reads downward.
+          yaxis: { title: d.time_title, type: 'category', dtick: ytick, autorange: 'reversed' },
+          paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+          font: { size: 11 }
+        }, { displayModeBar: false, responsive: true });
+      }
+
+      // The two euro charts, as named functions rather than inline calls to the helper: these are
+      // the names the tab map and recompute()'s redraw path call, and they are what a stack trace
+      // or a console poke shows. Each one owns nothing but its pair of ids.
+      //
+      // Chart 2 — gross battery earnings: the euros the battery's own flows moved in the interval.
+      function drawEarningsHeatmap() {
+        drawEuroHeatmap('socprice-earnings-data', 'socprice-earnings');
+      }
+      window.drawEarningsHeatmap = drawEarningsHeatmap;
+
+      // Chart 3 — saved against no battery: the difference between this household's whole grid
+      // bill and the same household's bill with PV but no battery, per interval. A different
+      // quantity from chart 2 and not a rescaling of it: it counts effects with no battery flow at
+      // all, such as PV the battery stored that would otherwise have been curtailed.
+      function drawSavedHeatmap() {
+        drawEuroHeatmap('socprice-saved-data', 'socprice-saved');
+      }
+      window.drawSavedHeatmap = drawSavedHeatmap;
 
       // The view tabs. DELEGATED from `document` for the same reason every other panel-③ control
       // is: the buttons live inside the swapped fragment, so a handler bound to them directly
       // would stop working after the first range change.
-      document.addEventListener('click', function (ev) {
-        var btn = ev.target.closest ? ev.target.closest('[data-chart-view]') : null;
-        if (!btn || btn.tagName !== 'BUTTON') return;
-        var chart = document.getElementById('monthly-chart');
-        if (!chart) return;
-        chart.setAttribute('data-chart-view', btn.getAttribute('data-chart-view'));
+      //
+      // ONE attribute: `data-chart-tab` names which CONTAINER is shown (`flows` | `socprice` |
+      // `saved_eur`), and every real tab button carries it. There was a second, `data-chart-view`,
+      // until changelog/20260806-chart-tab-restructure.md: `#monthly-chart` held two alternative
+      // series (kWh grid import and euros) and needed a second attribute to say which. The kWh
+      // series was deleted and the euro series was given its own container, which left one series
+      // per container and the second attribute with nothing to select.
+      //
+      // The selection SURVIVES a fragment swap (see restoreChartTab below). It did not used to:
+      // the state was held on the swapped-away nodes, so every Calculate dropped the reader back
+      // on the first tab. The reason recorded for that was the €-series hazard — every tab here is
+      // rendered conditionally, so a swap really can return markup in which the selected tab is
+      // gone. That hazard is real but is handled by CHECKING after the swap, not by discarding
+      // every selection including the valid ones.
+      //
+      // Selecting a tab is three coupled steps (highlight, toggle every container, draw), and the
+      // restore path needs the same three — so they live in one function that both callers use
+      // rather than in two copies that can drift apart.
+      // The tabs, as DATA rather than as a chain of ifs: one entry per container, giving the id to
+      // show and the draw to run once it is visible. Adding a tab is adding a row here plus its
+      // markup — the toggle loop below does not grow, so the `hidden`/`flex` pairing stays in one
+      // place however many tabs the box ends up with.
+      //
+      // `flex` rides alongside `hidden` because the multi-chart containers stack their plots with
+      // `flex-col gap-4`; #saved-eur-chart is a single plot and needs no flex, so its entry says so
+      // rather than the toggle special-casing it. **These flags must agree with what
+      // _panel_results.html renders for the default tab** — the server picks the default and writes
+      // the matching `flex`/`hidden` itself, and a disagreement shows up as a container that is
+      // visible but laid out wrongly until the reader's first click.
+      //
+      // The KEYS are also the vocabulary of `data-chart-tab` in that template and of the ids the
+      // restore matches on. `socprice` is the tab now called *Battery rhythm*; the name is kept
+      // because renaming the ids buys nothing a reader can see.
+      var CHART_TABS = {
+        flows:     { id: 'flows-charts',    flex: true,  draw: function () { drawEnergyFlows(); } },
+        // Three draws, because this tab holds three charts. The two euro charts are each gated
+        // inside their own draw (their data nodes are absent with cost simulation off), so this
+        // entry stays unconditional and the tab keeps working with the SoC chart alone.
+        socprice:  { id: 'socprice-charts', flex: true,
+                     draw: function () {
+                       drawSocHeatmap(); drawEarningsHeatmap(); drawSavedHeatmap();
+                     } },
+        saved_eur: { id: 'saved-eur-chart', flex: false, draw: function () { drawSavedEurChart(); } }
+      };
+
+      function selectChartTab(btn) {
+        var tab = btn.getAttribute('data-chart-tab');
+        if (!CHART_TABS[tab]) return;
+
+        // Highlight exactly one button in the strip. Scoped to the clicked button's own group and
+        // matching every tab button in it, so a pending [?] tab beside them is left alone.
         var group = btn.parentNode;
-        Array.prototype.forEach.call(group.querySelectorAll('[data-chart-view]'), function (b) {
+        Array.prototype.forEach.call(group.querySelectorAll('[data-chart-tab]'), function (b) {
           b.classList.toggle('btn-active', b === btn);
         });
-        drawMonthlyChart();
+
+        // Every container is toggled, not just the two involved in this click, so no path can
+        // leave a previously-shown container visible underneath the new one.
+        Object.keys(CHART_TABS).forEach(function (k) {
+          var spec = CHART_TABS[k];
+          var el = document.getElementById(spec.id);
+          if (!el) return;   // conditionally rendered: absent when its data was not produced
+          el.classList.toggle('hidden', k !== tab);
+          if (spec.flex) el.classList.toggle('flex', k === tab);
+        });
+
+        // Plotly sizes a plot from its container, and a container inside `hidden` measures 0 — so
+        // the draw runs AFTER the class flip above, never before.
+        CHART_TABS[tab].draw();
+      }
+
+      // What the user last picked, as the plain `data-chart-tab` key. It used to be a {tab, view}
+      // PAIR, because a button could carry a second attribute and tracking the two separately
+      // would allow a combination the strip never offered; with one series per container there is
+      // no second attribute and the pair collapses to the key. Null until the first click, which
+      // is why an untouched page still renders exactly as the server sent it.
+      //
+      // In-page only, by choice: it lives as long as the page does. A reload starts on the
+      // server's default tab again. Nothing is written to sessionStorage or localStorage, so there
+      // is no key to migrate, nothing to clear, and no way for one workspace's selection to
+      // surface in another's.
+      var selectedChartTab = null;
+
+      function rememberChartTab(btn) {
+        selectedChartTab = btn.getAttribute('data-chart-tab');
+      }
+
+      // Re-apply the remembered selection to the FRESH markup a swap just brought in.
+      //
+      // Deliberately a no-op in two cases, both of which leave the SERVER'S default in place —
+      // whichever tab _panel_results.html rendered `btn-active`, with its container already
+      // un-hidden to match: nothing has been selected yet, and the selected button did not come
+      // back. Every tab is conditional now, so that second case covers all three: `Monthly savings
+      // (€)` is absent when the new window has no euro series, `Energy flows` and `Battery rhythm`
+      // when there is no frame to simulate. It is the hazard the old reset-everything behaviour was
+      // protecting against, handled here by asking whether the button exists.
+      //
+      // `button` leads the selector for the same reason the click handler checks tagName: only a
+      // button is a tab, and a future non-button carrying the attribute should be ignored here
+      // rather than selected.
+      function restoreChartTab() {
+        if (!selectedChartTab) return;
+        var btn = document.querySelector('button[data-chart-tab="' + selectedChartTab + '"]');
+        if (btn) selectChartTab(btn);
+      }
+
+      document.addEventListener('click', function (ev) {
+        var btn = ev.target.closest ? ev.target.closest('[data-chart-tab]') : null;
+        if (!btn || btn.tagName !== 'BUTTON') return;
+        rememberChartTab(btn);
+        selectChartTab(btn);
       });
 
       // ── The §6.12 perfect-foresight benchmark box, fetched LAZILY ───────────────────────────
@@ -461,9 +1028,19 @@
               panel.outerHTML = html;
             }
             // Both roots keep their ids in the fresh markup, so the next swap targets them again.
-            // The swapped-in <script id="monthly-data"> did not run, but its DATA is in the DOM;
-            // redraw from it. Delegated listeners need no re-binding.
-            drawMonthlyChart();
+            // The swapped-in <script> data nodes did not run, but their DATA is in the DOM; redraw
+            // from them. Delegated listeners need no re-binding. Each draw re-reads its own fresh
+            // node, so the plots show the new window rather than the old one's.
+            drawEnergyFlows();
+            drawSocHeatmap();
+            drawEarningsHeatmap();
+            drawSavedHeatmap();
+            drawSavedEurChart();
+            // The swap brought the panel back on the SERVER'S default tab. Put the reader back on
+            // the one they were looking at — after the draws above, since restoring a hidden tab
+            // re-draws it at the size it has once visible (Plotly cannot size a plot inside
+            // `hidden`).
+            restoreChartTab();
             // The fresh period card brings an empty hint span (the server cannot fill it in).
             applyDateFormatHint();
             // The benchmark box is INSIDE #panel-results, so the swap replaced it with a fresh
@@ -707,7 +1284,31 @@
       window.applyDateFormatHint = applyDateFormatHint;
 
       // Initial draw once the page (and Plotly) are ready, plus the first benchmark fetch.
-      function initPanelResults() { drawMonthlyChart(); loadBenchmark(); applyDateFormatHint(); }
+      //
+      // **The default tab must be drawn, and which tab that is is the SERVER'S choice now.** It
+      // used to be `monthly`, unconditionally, so this function could simply call that one draw
+      // eagerly. Every tab is conditional today and _panel_results.html picks the first that
+      // renders, so this reads back the tab the server marked `btn-active` and runs ITS draw —
+      // rather than hardcoding a guess that would leave the visible container empty whenever the
+      // guess was wrong. Nothing is re-selected here: the markup arrives correct, and re-running
+      // selectChartTab() would only re-assert classes that already hold.
+      function initPanelResults() {
+        var active = document.querySelector('button[data-chart-tab].btn-active');
+        var tab = active && active.getAttribute('data-chart-tab');
+        if (tab && CHART_TABS[tab]) CHART_TABS[tab].draw();
+        // #flows-charts is drawn eagerly even when it is NOT the visible tab, so it is populated
+        // the instant it is picked rather than one frame later. Plotly cannot size a plot inside a
+        // `hidden` container, so the tab handler draws again on show — this call is the eager half.
+        // Skipped when it is already the visible tab, since the line above just drew it properly.
+        if (tab !== 'flows') drawEnergyFlows();
+        // The SoC heatmap is deliberately NOT drawn eagerly beside the flows. It is the one plot
+        // here whose cost scales with the WINDOW rather than with a fixed bucket count — up to
+        // ~35k cells on a year of 15-minute data — and it would be paid on every page load for a
+        // tab most readers never open. The tab handler draws it on show, which is the frame the
+        // eager call above exists to save and is not worth buying at this size.
+        loadBenchmark();
+        applyDateFormatHint();
+      }
       if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', initPanelResults);
       } else {
