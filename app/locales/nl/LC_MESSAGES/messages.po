@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-06 18:03+0200\n"
+"POT-Creation-Date: 2026-08-06 19:08+0200\n"
 "PO-Revision-Date: 2026-07-23 20:30+0200\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: nl\n"
@@ -877,9 +877,6 @@ msgstr "Min. laadtoestand"
 msgid "Minimum state of charge must be below the maximum."
 msgstr "De minimale laadtoestand moet onder de maximale liggen."
 
-msgid "Monthly grid import"
-msgstr "Netafname per maand"
-
 msgid "Monthly savings (€)"
 msgstr "Besparing per maand (€)"
 
@@ -938,6 +935,11 @@ msgstr "Nee"
 
 msgid "No battery"
 msgstr "Zonder batterij"
+
+msgid "No charts for this window: there is no simulated data to draw."
+msgstr ""
+"Geen grafieken voor deze periode: er zijn geen gesimuleerde gegevens om te "
+"tekenen."
 
 msgid "No data loaded yet."
 msgstr "Nog geen gegevens geladen."
@@ -3088,4 +3090,16 @@ msgstr "👍 Ik wil dit"
 #~ " plaats van per interval — de "
 #~ "cellen tellen dan op tot iets "
 #~ "minder dan het hoofdcijfer."
+
+#~ msgid "Monthly grid import"
+#~ msgstr "Netafname per maand"
+
+#~ msgid ""
+#~ "No charts for this window: there "
+#~ "is no simulated data to draw, and"
+#~ " cost simulation is off."
+#~ msgstr ""
+#~ "Geen grafieken voor deze periode: er "
+#~ "zijn geen gesimuleerde gegevens om te"
+#~ " tekenen, en kostensimulatie staat uit."
 

@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-06 18:03+0200\n"
+"POT-Creation-Date: 2026-08-06 19:08+0200\n"
 "PO-Revision-Date: 2026-07-23 20:40+0200\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: en\n"
@@ -861,9 +861,6 @@ msgstr "Min state of charge"
 msgid "Minimum state of charge must be below the maximum."
 msgstr "Minimum state of charge must be below the maximum."
 
-msgid "Monthly grid import"
-msgstr "Monthly grid import"
-
 msgid "Monthly savings (€)"
 msgstr ""
 
@@ -922,6 +919,9 @@ msgstr "No"
 
 msgid "No battery"
 msgstr "No battery"
+
+msgid "No charts for this window: there is no simulated data to draw."
+msgstr "No charts for this window: there is no simulated data to draw."
 
 msgid "No data loaded yet."
 msgstr "No data loaded yet."
@@ -2908,4 +2908,16 @@ msgstr "👍 I want this"
 #~ "then add up to slightly less than"
 #~ " the headline figure."
 #~ msgstr ""
+
+#~ msgid "Monthly grid import"
+#~ msgstr "Monthly grid import"
+
+#~ msgid ""
+#~ "No charts for this window: there "
+#~ "is no simulated data to draw, and"
+#~ " cost simulation is off."
+#~ msgstr ""
+#~ "No charts for this window: there "
+#~ "is no simulated data to draw, and"
+#~ " cost simulation is off."
 

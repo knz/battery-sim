@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-06 18:03+0200\n"
+"POT-Creation-Date: 2026-08-06 19:08+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -805,9 +805,6 @@ msgstr ""
 msgid "Minimum state of charge must be below the maximum."
 msgstr ""
 
-msgid "Monthly grid import"
-msgstr ""
-
 msgid "Monthly savings (€)"
 msgstr ""
 
@@ -858,6 +855,9 @@ msgid "No"
 msgstr ""
 
 msgid "No battery"
+msgstr ""
+
+msgid "No charts for this window: there is no simulated data to draw."
 msgstr ""
 
 msgid "No data loaded yet."

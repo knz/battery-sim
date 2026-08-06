@@ -49,8 +49,8 @@
   exist to configure data and now live only on `workspace_data.html`.
 
   Kept unchanged: the pending-affordance dialog and its IIFE, and the whole panel-②/③ script block
-  below — the chart draws (`drawMonthlyChart`, and `drawEnergyFlows` for the three-chart *Energy
-  flows* tab added later), the lazy benchmark fetch, `recompute()`, the `params-form` submit
+  below — the chart draws (one per Charts-box tab: `drawEnergyFlows`, the three heatmap draws
+  behind *Battery rhythm*, and `drawSavedEurChart`), the lazy benchmark fetch, `recompute()`, the `params-form` submit
   interception, the `setup.`-prefixed change handler and the feed-in preset. Those were always this
   half's; 4.1 established as much and moved none of them.
 
@@ -268,52 +268,48 @@
         return '/w/' + encodeURIComponent(WORKSPACE_ID) + suffix;
       }
 
-      // Draw the monthly-import bar chart from the #monthly-data node currently in the DOM (the
-      // one the last render/swap injected). Called on initial load and after each swap so the
-      // chart always reflects the window just computed. Guarded so a missing bundle or node is a
-      // no-op rather than an error.
-      // The chart has TWO views once cost simulation is on (§2.4): the kWh series it always had,
-      // and a *Monthly savings (€)* series beside it. They are separate views, NOT a dual axis —
-      // §2.4 is explicit that overlaying them "invites exactly the reading this panel's
-      // two-section split exists to prevent", since a euro series moves with tariff structure as
-      // well as with kWh. So this draws ONE series at a time and the tabs switch which.
+      // Draw the *Monthly savings (€)* bar chart from the #saved-eur-data node currently in the
+      // DOM (the one the last render/swap injected). Called on initial load and after each swap so
+      // the chart always reflects the window just computed. Guarded so a missing bundle or node is
+      // a no-op rather than an error — the node, the container and the tab button are all gated on
+      // the same `results.monthly_saved_eur`, so "absent" means cost simulation is off and there is
+      // simply no tab to draw into.
       //
-      // The selected view is read off the chart container, which a fragment swap replaces — so
-      // this function always draws the FRESH panel's default. Carrying the user's choice across a
-      // swap is restoreChartTab()'s job, and it runs after this; the split is deliberate, since
-      // the euro series may not exist for the new window and only the restore can check.
-      function drawMonthlyChart() {
+      // This was `drawMonthlyChart` over `#monthly-chart` until
+      // changelog/20260806-chart-tab-restructure.md, and it took a `view` off the container because
+      // that container held two alternative series: the measured monthly grid IMPORT in kWh, and
+      // this one. The kWh view was deleted — it was a measurement rather than a saving, and
+      // labelling it as a saving overstated the figure by ~11× — so there is one series per
+      // container now and no view to read. `results.chart` is still in the payload for other
+      // consumers; nothing here plots it.
+      function drawSavedEurChart() {
         if (typeof Plotly === 'undefined') return;
-        var node = document.getElementById('monthly-data');
-        var chart = document.getElementById('monthly-chart');
+        var node = document.getElementById('saved-eur-data');
+        var chart = document.getElementById('saved-eur-chart');
         if (!node || !chart) return;
         var d = JSON.parse(node.textContent);
-        var view = chart.getAttribute('data-chart-view') || 'kwh';
-        // `eur` is null without cost simulation; fall back rather than drawing an empty axis.
-        var series = (view === 'eur' && d.eur_values) ? d.eur_values : d.values;
-        var title = (view === 'eur' && d.eur_values) ? d.eur_ytitle : d.ytitle;
-        Plotly.newPlot('monthly-chart', [{
-          type: 'bar', x: d.months, y: series,
+        Plotly.newPlot('saved-eur-chart', [{
+          type: 'bar', x: d.months, y: d.values,
           marker: { color: '#570df8' }
         }], {
           margin: { t: 10, r: 10, b: 30, l: 40 },
-          yaxis: { title: title },
+          yaxis: { title: d.ytitle },
           paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
           font: { size: 11 }
         }, { displayModeBar: false, responsive: true });
       }
       // Exposed so the fetch handler (and any future caller) can redraw after a swap.
-      window.drawMonthlyChart = drawMonthlyChart;
+      window.drawSavedEurChart = drawSavedEurChart;
 
       // ── The *Energy flows* tab's three charts ───────────────────────────────────────────────
       //
-      // Same contract as drawMonthlyChart above, and here for the same reason: it reads the
+      // Same contract as drawSavedEurChart above, and here for the same reason: it reads the
       // #flows-data node the last render/swap injected, so a fragment swap needs only a re-call
       // and never a re-bind. The node is absent when the view-model carried no `energy_flows`
       // (no frame to simulate), in which case the tab button is absent too and this is a no-op.
       //
       // EVERY user-visible string comes off the payload (`d.labels`, `d.ytitle`, …), translated
-      // server-side — the same rule the monthly chart's `d.ytitle` established. Nothing below
+      // server-side — the same rule the euro chart's `d.ytitle` established. Nothing below
       // writes English into a chart.
       //
       // The three y-axes are INDEPENDENT (a recorded decision): load sourcing and PV allocation
@@ -778,42 +774,48 @@
       // is: the buttons live inside the swapped fragment, so a handler bound to them directly
       // would stop working after the first range change.
       //
-      // TWO attributes, because the Charts box holds several CONTAINERS:
-      //   `data-chart-tab`  — which container is shown (`monthly` | `flows` | `socprice`). Every
-      //                       real tab button carries it.
-      //   `data-chart-view` — which series #monthly-chart draws (`kwh` | `eur`). Only the two
-      //                       monthly buttons carry it, and they carry `data-chart-tab="monthly"`
-      //                       as well, so picking € from the flows tab both switches back and
-      //                       selects the series in one click.
+      // ONE attribute: `data-chart-tab` names which CONTAINER is shown (`flows` | `socprice` |
+      // `saved_eur`), and every real tab button carries it. There was a second, `data-chart-view`,
+      // until changelog/20260806-chart-tab-restructure.md: `#monthly-chart` held two alternative
+      // series (kWh grid import and euros) and needed a second attribute to say which. The kWh
+      // series was deleted and the euro series was given its own container, which left one series
+      // per container and the second attribute with nothing to select.
       //
       // The selection SURVIVES a fragment swap (see restoreChartTab below). It did not used to:
       // the state was held on the swapped-away nodes, so every Calculate dropped the reader back
-      // on the first tab. The reason recorded for that was the €-series hazard — `Monthly savings
-      // (€)` and `Energy flows` are each rendered conditionally, so a swap really can return
-      // markup in which the selected tab is gone. That hazard is real but is handled by CHECKING
-      // after the swap, not by discarding every selection including the valid ones.
+      // on the first tab. The reason recorded for that was the €-series hazard — every tab here is
+      // rendered conditionally, so a swap really can return markup in which the selected tab is
+      // gone. That hazard is real but is handled by CHECKING after the swap, not by discarding
+      // every selection including the valid ones.
       //
-      // Selecting a tab is four coupled steps (highlight, toggle both containers, set the view,
-      // draw), and the restore path needs the same four — so they live in one function that both
-      // callers use rather than in two copies that can drift apart.
+      // Selecting a tab is three coupled steps (highlight, toggle every container, draw), and the
+      // restore path needs the same three — so they live in one function that both callers use
+      // rather than in two copies that can drift apart.
       // The tabs, as DATA rather than as a chain of ifs: one entry per container, giving the id to
       // show and the draw to run once it is visible. Adding a tab is adding a row here plus its
       // markup — the toggle loop below does not grow, so the `hidden`/`flex` pairing stays in one
       // place however many tabs the box ends up with.
       //
       // `flex` rides alongside `hidden` because the multi-chart containers stack their plots with
-      // `flex-col gap-4`; #monthly-chart is a single plot and needs no flex, so its entry says so
-      // rather than the toggle special-casing it.
+      // `flex-col gap-4`; #saved-eur-chart is a single plot and needs no flex, so its entry says so
+      // rather than the toggle special-casing it. **These flags must agree with what
+      // _panel_results.html renders for the default tab** — the server picks the default and writes
+      // the matching `flex`/`hidden` itself, and a disagreement shows up as a container that is
+      // visible but laid out wrongly until the reader's first click.
+      //
+      // The KEYS are also the vocabulary of `data-chart-tab` in that template and of the ids the
+      // restore matches on. `socprice` is the tab now called *Battery rhythm*; the name is kept
+      // because renaming the ids buys nothing a reader can see.
       var CHART_TABS = {
-        monthly:  { id: 'monthly-chart',   flex: false, draw: function () { drawMonthlyChart(); } },
-        flows:    { id: 'flows-charts',    flex: true,  draw: function () { drawEnergyFlows(); } },
+        flows:     { id: 'flows-charts',    flex: true,  draw: function () { drawEnergyFlows(); } },
         // Three draws, because this tab holds three charts. The two euro charts are each gated
         // inside their own draw (their data nodes are absent with cost simulation off), so this
         // entry stays unconditional and the tab keeps working with the SoC chart alone.
-        socprice: { id: 'socprice-charts', flex: true,
-                    draw: function () {
-                      drawSocHeatmap(); drawEarningsHeatmap(); drawSavedHeatmap();
-                    } }
+        socprice:  { id: 'socprice-charts', flex: true,
+                     draw: function () {
+                       drawSocHeatmap(); drawEarningsHeatmap(); drawSavedHeatmap();
+                     } },
+        saved_eur: { id: 'saved-eur-chart', flex: false, draw: function () { drawSavedEurChart(); } }
       };
 
       function selectChartTab(btn) {
@@ -837,56 +839,43 @@
           if (spec.flex) el.classList.toggle('flex', k === tab);
         });
 
-        // The view attribute is set BEFORE the draw, since drawMonthlyChart reads it off the
-        // container. Only the monthly buttons carry one.
-        var view = btn.getAttribute('data-chart-view');
-        if (view) {
-          var chart = document.getElementById(CHART_TABS.monthly.id);
-          if (chart) chart.setAttribute('data-chart-view', view);
-        }
-
         // Plotly sizes a plot from its container, and a container inside `hidden` measures 0 — so
         // the draw runs AFTER the class flip above, never before.
         CHART_TABS[tab].draw();
       }
 
-      // What the user last picked, as the PAIR of attributes rather than two independent values:
-      // one button can carry both, and tracking them separately would allow a combination the
-      // strip never offered. Null until the first click, which is why an untouched page still
-      // renders exactly as the server sent it.
+      // What the user last picked, as the plain `data-chart-tab` key. It used to be a {tab, view}
+      // PAIR, because a button could carry a second attribute and tracking the two separately
+      // would allow a combination the strip never offered; with one series per container there is
+      // no second attribute and the pair collapses to the key. Null until the first click, which
+      // is why an untouched page still renders exactly as the server sent it.
       //
       // In-page only, by choice: it lives as long as the page does. A reload starts on the
-      // default tab again. Nothing is written to sessionStorage or localStorage, so there is no
-      // key to migrate, nothing to clear, and no way for one workspace's selection to surface in
-      // another's.
+      // server's default tab again. Nothing is written to sessionStorage or localStorage, so there
+      // is no key to migrate, nothing to clear, and no way for one workspace's selection to
+      // surface in another's.
       var selectedChartTab = null;
 
       function rememberChartTab(btn) {
-        selectedChartTab = {
-          tab: btn.getAttribute('data-chart-tab'),
-          view: btn.getAttribute('data-chart-view')
-        };
+        selectedChartTab = btn.getAttribute('data-chart-tab');
       }
 
       // Re-apply the remembered selection to the FRESH markup a swap just brought in.
       //
-      // Deliberately a no-op in two cases, both of which leave the server's own default in place
-      // (`btn-active` on the first button, `#flows-charts` hidden): nothing has been selected
-      // yet, and the selected button did not come back — `Monthly savings (€)` is absent when the
-      // new window has no euro series, and `Energy flows` when it has no frame to simulate. That
-      // second case is the hazard the old reset-everything behaviour was protecting against; it
-      // is handled here by asking whether the button exists.
+      // Deliberately a no-op in two cases, both of which leave the SERVER'S default in place —
+      // whichever tab _panel_results.html rendered `btn-active`, with its container already
+      // un-hidden to match: nothing has been selected yet, and the selected button did not come
+      // back. Every tab is conditional now, so that second case covers all three: `Monthly savings
+      // (€)` is absent when the new window has no euro series, `Energy flows` and `Battery rhythm`
+      // when there is no frame to simulate. It is the hazard the old reset-everything behaviour was
+      // protecting against, handled here by asking whether the button exists.
       //
-      // Matching on both attributes finds the one button that IS the remembered selection. The
-      // view attribute is part of the selector rather than applied afterwards, so a remembered
-      // `eur` cannot be re-applied by way of the `kwh` button. `button` leads the selector for the
-      // same reason the click handler checks tagName: only a button is a tab, and a future
-      // non-button carrying the attribute should be ignored here rather than selected.
+      // `button` leads the selector for the same reason the click handler checks tagName: only a
+      // button is a tab, and a future non-button carrying the attribute should be ignored here
+      // rather than selected.
       function restoreChartTab() {
         if (!selectedChartTab) return;
-        var sel = 'button[data-chart-tab="' + selectedChartTab.tab + '"]';
-        if (selectedChartTab.view) sel += '[data-chart-view="' + selectedChartTab.view + '"]';
-        var btn = document.querySelector(sel);
+        var btn = document.querySelector('button[data-chart-tab="' + selectedChartTab + '"]');
         if (btn) selectChartTab(btn);
       }
 
@@ -1039,18 +1028,18 @@
               panel.outerHTML = html;
             }
             // Both roots keep their ids in the fresh markup, so the next swap targets them again.
-            // The swapped-in <script id="monthly-data"> did not run, but its DATA is in the DOM;
-            // redraw from it. Delegated listeners need no re-binding. Same for #flows-data: the
-            // swap brought a fresh (hidden) #flows-charts for the new window, so the three plots
-            // are re-drawn from the new node rather than left showing the old window's.
-            drawMonthlyChart();
+            // The swapped-in <script> data nodes did not run, but their DATA is in the DOM; redraw
+            // from them. Delegated listeners need no re-binding. Each draw re-reads its own fresh
+            // node, so the plots show the new window rather than the old one's.
             drawEnergyFlows();
             drawSocHeatmap();
             drawEarningsHeatmap();
             drawSavedHeatmap();
-            // The swap brought the panel back on its default tab. Put the reader back on the one
-            // they were looking at — after the draws above, since restoring a hidden tab re-draws
-            // it at the size it has once visible (Plotly cannot size a plot inside `hidden`).
+            drawSavedEurChart();
+            // The swap brought the panel back on the SERVER'S default tab. Put the reader back on
+            // the one they were looking at — after the draws above, since restoring a hidden tab
+            // re-draws it at the size it has once visible (Plotly cannot size a plot inside
+            // `hidden`).
             restoreChartTab();
             // The fresh period card brings an empty hint span (the server cannot fill it in).
             applyDateFormatHint();
@@ -1295,12 +1284,23 @@
       window.applyDateFormatHint = applyDateFormatHint;
 
       // Initial draw once the page (and Plotly) are ready, plus the first benchmark fetch.
+      //
+      // **The default tab must be drawn, and which tab that is is the SERVER'S choice now.** It
+      // used to be `monthly`, unconditionally, so this function could simply call that one draw
+      // eagerly. Every tab is conditional today and _panel_results.html picks the first that
+      // renders, so this reads back the tab the server marked `btn-active` and runs ITS draw —
+      // rather than hardcoding a guess that would leave the visible container empty whenever the
+      // guess was wrong. Nothing is re-selected here: the markup arrives correct, and re-running
+      // selectChartTab() would only re-assert classes that already hold.
       function initPanelResults() {
-        drawMonthlyChart();
-        // Drawn now even though #flows-charts is hidden, so the tab is populated the instant it
-        // is picked rather than one frame later. Plotly cannot size a plot inside a `hidden`
-        // container, so the tab handler draws again on show — this call is the eager half.
-        drawEnergyFlows();
+        var active = document.querySelector('button[data-chart-tab].btn-active');
+        var tab = active && active.getAttribute('data-chart-tab');
+        if (tab && CHART_TABS[tab]) CHART_TABS[tab].draw();
+        // #flows-charts is drawn eagerly even when it is NOT the visible tab, so it is populated
+        // the instant it is picked rather than one frame later. Plotly cannot size a plot inside a
+        // `hidden` container, so the tab handler draws again on show — this call is the eager half.
+        // Skipped when it is already the visible tab, since the line above just drew it properly.
+        if (tab !== 'flows') drawEnergyFlows();
         // The SoC heatmap is deliberately NOT drawn eagerly beside the flows. It is the one plot
         // here whose cost scales with the WINDOW rather than with a fixed bucket count — up to
         // ~35k cells on a year of 15-minute data — and it would be paid on every page load for a

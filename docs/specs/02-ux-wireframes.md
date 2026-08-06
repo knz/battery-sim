@@ -1199,9 +1199,9 @@ tariffs.
 │  └────────────────────────────────────────────────────────────────────────┘  │
 │                                                                              │
 │  ┌─ Charts ───────────────────────────────────────────── [ ⤓ export CSV ] ┐  │
-│  │  ( • ) Monthly savings   (   ) Battery rhythm   (   ) Energy flows     │  │
+│  │  ( • ) Energy flows   (   ) Battery rhythm   (   ) Monthly savings (€) │  │
 │  │                                                                        │  │
-│  │   kWh                                                                  │  │
+│  │   kWh   Where did the household's energy come from?                    │  │
 │  │ 200│                        ▄▄  ▄▄  ▄▄                                 │  │
 │  │ 150│              ▄▄  ▄▄  ██  ██  ██  ▄▄                               │  │
 │  │ 100│      ▄▄  ▄▄  ██  ██  ██  ██  ██  ██  ▄▄  ▄▄                       │  │
@@ -1288,13 +1288,34 @@ Notes on the two sections:
   The **rows** stay honest throughout — this rule governs the ratio and its gloss, not the
   bars. And it corrects only the comparison: §6.11's drift metric is still reported unnetted,
   and `saved_kwh` is unchanged.
-- **The Charts box gains options rather than swapping them.** *Monthly savings* always
-  offers kWh and shows it by default; with cost simulation on it gains a *Monthly savings
-  (€)* option beside it. The two are separate views, not a dual axis — a euro series moves
-  with tariff structure as well as with kWh, and overlaying them invites exactly the
-  reading this panel's two-section split exists to prevent. *Energy flows* is unaffected.
-  *Battery rhythm* is the one tab the toggle DOES change: its SoC grid is pure kWh and shows in
-  both modes, while its two euro grids are absent without cost simulation (see below).
+- **Every button in the strip selects a chart, and each chart owns its own container.** Until
+  `changelog/20260806-chart-tab-restructure.md` that was not so: a *Monthly grid import* series
+  (measured kWh, `_monthly_import()`) and *Monthly savings (€)* were two VIEWS of a single
+  container, chosen by a second attribute alongside the tab attribute. The kWh series is no
+  longer plotted, and with one series per container the second attribute has no job and is gone.
+
+  *Energy flows* is what replaces it, though not by plotting the same number: its `imp_home` bars
+  are grid import serving household load under the SIMULATED run, where `_monthly_import()` was
+  MEASURED total import including whatever charged a battery the household did not have. What it
+  supersedes is the question — where the household's energy came from, month by month — which it
+  answers by source rather than as one undifferentiated total.
+
+  The rule it encoded still holds and now holds structurally: kWh and euro series are separate
+  charts, not a dual axis. A euro series moves with tariff structure as well as with kWh, and
+  overlaying them invites exactly the reading this panel's two-section split exists to prevent.
+
+  `_monthly_import()` and the `chart` key it fills are still emitted — the static sample builds
+  them, and its calendar-month bucketing is the reference `_energy_flows` and
+  `_monthly_saved_eur` deliberately mirror. Only the plotting stopped.
+- **Cost simulation determines which tabs exist.** *Monthly savings (€)* is absent without it,
+  and *Battery rhythm* is the one tab the toggle changes rather than removes: its SoC grid is
+  pure kWh and shows in both modes, while its two euro grids are absent without cost simulation
+  (see below). *Energy flows* is unaffected and is the default tab.
+
+  All three tabs being conditional is new — the strip previously always had the unconditional
+  kWh tab to fall back on. So the default is whichever tab actually renders, decided server-side
+  so the highlighted button and the visible container cannot disagree, and a strip with nothing
+  to show states that rather than rendering an empty box.
 - **The *Battery rhythm* tab (named *SoC + price* until
   `changelog/20260806-battery-money-heatmap.md`) leads with a day × time-of-day HEATMAP of state
   of charge**, not the

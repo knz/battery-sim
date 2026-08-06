@@ -170,11 +170,30 @@ nowhere in `docs/specs/`.
 
 ## C. Simulation, benchmark and metrics
 
-**C1. A real per-month savings series remains unbuilt.** §2.4's wireframe asks for a
-monthly-savings chart. What ships is `results_view._monthly_import()` — measured grid import per
-calendar month — now honestly relabelled "Monthly grid import". Building the real series means
-running the A/B/C simulation and bucketing `saved_kwh` per month.
+**C1. A real per-month savings series in kWh remains unbuilt.** §2.4's wireframe asks for a
+monthly-savings chart. What shipped instead was `results_view._monthly_import()` — measured grid
+import per calendar month — honestly relabelled "Monthly grid import". Building the real series
+means running the A/B/C simulation and bucketing `saved_kwh` per month.
+
+**Narrowed by `20260806-chart-tab-restructure.md`.** Two things changed under it. A per-month
+EURO saving does now ship (`_monthly_saved_eur`, its own tab), so the gap is only the kWh series.
+And the stand-in is no longer plotted at all: "Monthly grid import" was removed from the strip as
+superseded by "Energy flows", which answers the same question in more detail. So the risk this
+followup originally carried — a reader taking measured import for a saving — is gone, and what
+remains is a plain unbuilt feature rather than a misleading one.
+
+`_monthly_import()` itself stays: the static sample builds its key, and its calendar-month
+bucketing is the reference `_energy_flows` and `_monthly_saved_eur` mirror. It is now emitted
+but unplotted — see C1a.
 *Origin:* `20260724-panel3-battery-simulation.md` (Phase 7).
+
+**C1a. `results["chart"]` is computed and serialised on every render but nothing plots it.**
+Since `20260806-chart-tab-restructure.md` removed the tab that drew it. It is not dead code —
+`sample_data.py` builds the key and a test uses its length as a reference — so it was left in
+place rather than removed as part of a UI change. The cost is a per-render computation and a
+JSON payload no reader sees. Resolving it means either building C1's kWh saving series on top of
+it, or moving it behind the consumers that actually need it.
+*Origin:* `20260806-chart-tab-restructure.md`.
 
 **C2. The "SoC + price" chart tab is a pending affordance, not an implementation.** — **DONE**
 for the tab; its SECOND chart is carried as C2a below. "Energy flows" shipped in
@@ -417,6 +436,27 @@ gain. This is why `test_a_parameter_change_moves_panel_3s_figures` asserts movem
 guessed. Neither number was in the repo, so nothing needed correcting; recorded so they do not
 resurface.
 *Origin:* `20260725-phase6-review-defects.md`, `20260724-slot-first-data-sources.md`.
+
+**G5. Sabotage testing cannot catch prose that describes the world wrongly.** Two escapes of the
+same shape, both found by a reader rather than by a test:
+
+- A footnote said the MONEY SAVED tile was "above" the chart; the layout puts it below
+  (`20260806-battery-money-heatmap.md`).
+- The empty-Charts-box line said "…and cost simulation is off". The empty state is reachable with
+  cost simulation ON — every tab needs a simulation frame, so no frame means no tabs whatever the
+  cost setting — and it would have told such a reader something false about their own
+  configuration (`20260806-chart-tab-restructure.md`).
+
+Both were English sentences asserting a fact about layout or state that no test reads, in files
+whose CODE was covered and whose sabotages were all caught. The technique is sound and is not the
+problem: it establishes that code does what the code says, which is a different claim from the
+prose beside it being true.
+
+What did work, in the second case: tracing the template's condition back through the guards in
+`results_from()` and asking what the state actually implies. Worth doing for any user-visible
+sentence that asserts a fact about layout, configuration, or which other element exists — those
+are the sentences with no test behind them.
+*Origin:* `20260806-chart-tab-restructure.md`.
 
 ## H. Deferred by the cost-simulation increment (2026-07-25)
 

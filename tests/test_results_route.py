@@ -762,42 +762,87 @@ def test_fixture_18_the_rendered_energy_half_is_unchanged_by_the_toggle(cost_cli
     assert _re.findall(r"[+−]?[\d.]+ ?%", head_on) == _re.findall(r"[+−]?[\d.]+ ?%", head_off)
 
 
-def test_the_monthly_chart_gains_a_euro_option_rather_than_swapping_the_kwh_one(cost_client):
-    """§2.4: "The Charts box gains options rather than swapping them" — *Monthly savings (€)*
-    BESIDE the kWh one, as separate views and not a dual axis.
+def test_the_euro_savings_chart_is_a_tab_of_its_own_gated_on_cost(cost_client):
+    """*Monthly savings (€)* is one tab with one container, appearing only with cost simulation on.
 
-    So with cost on there are two view buttons and two series in the data node; with cost off
-    there is one button and the euro series is null. A dual axis would put both series in one
-    trace, which is the reading §2.4 says the panel's two-section split exists to prevent.
+    Until `changelog/20260806-chart-tab-restructure.md` it was a second VIEW of `#monthly-chart`,
+    which otherwise drew the MEASURED monthly grid import in kWh; the two were told apart by a
+    `data-chart-view` attribute riding beside `data-chart-tab`. The kWh series is no longer
+    plotted, so with one series per container that second attribute has no job — and it must be
+    gone from the markup, not merely unused, or a reader of the strip has two vocabularies to
+    learn for one behaviour.
+
+    Three things move together under `results.monthly_saved_eur`: the button, the `#saved-eur-chart`
+    container, and the `#saved-eur-data` node. Asserting all three rather than only the button is
+    the point — a button whose container was rendered away is a tab that selects nothing, which is
+    exactly the state the conditional strip has to avoid.
     """
     client, store = cost_client
     import json as _json
     import re as _re
 
     on = client.post(w("/results"), json={"period": "last_1_week"}).text
-    assert 'data-chart-view="kwh"' in on
-    assert 'data-chart-view="eur"' in on
+    assert 'data-chart-view' not in on, "the retired second attribute is still in the markup"
+    assert 'data-chart-tab="saved_eur"' in on
     assert "Monthly savings (€)" in on
+    assert "Monthly grid import" not in on, "the deleted kWh tab is still offered"
+    assert 'id="saved-eur-chart"' in on
     node = _json.loads(_re.search(
-        r'<script id="monthly-data" type="application/json">(.*?)</script>', on, _re.S
+        r'<script id="saved-eur-data" type="application/json">(.*?)</script>', on, _re.S
     ).group(1))
-    assert node["eur_values"] is not None
-    # The two series describe the SAME buckets — one month, two bars, one window.
-    assert len(node["eur_values"]) == len(node["values"])
-    assert node["ytitle"] != node["eur_ytitle"]
+    # The node carries ONLY what this chart draws. `values`/`ytitle` were the kWh series' and are
+    # dropped; `values` is now the euro series under its own plain name.
+    assert sorted(node) == ["months", "values", "ytitle"]
+    assert node["values"] is not None
+    # One label per bar — the x labels come from `results.chart.months`, which is bucketed over the
+    # same calendar months as `_monthly_saved_eur`.
+    assert len(node["values"]) == len(node["months"])
+    assert node["ytitle"] == "€"
 
-    from app.domain.simconfig import SimulationConfig
     store.save(_energy_only_cfg(), WORKSPACE_ID)
     off = client.post(w("/results"), json={"period": "last_1_week"}).text
-    assert 'data-chart-view="eur"' not in off
+    assert 'data-chart-tab="saved_eur"' not in off
     assert "Monthly savings (€)" not in off
-    node_off = _json.loads(_re.search(
-        r'<script id="monthly-data" type="application/json">(.*?)</script>', off, _re.S
-    ).group(1))
-    # Fixture 19: null, never 0.0 and never an empty list a chart would draw as a flat line.
-    assert node_off["eur_values"] is None
-    # …and the kWh series is untouched (fixture 18).
-    assert node_off["values"] == node["values"]
+    # Fixture 19: the whole tab is absent — no orphan container and no node carrying null, which a
+    # chart would draw as a flat line at zero.
+    assert 'id="saved-eur-chart"' not in off
+    assert 'id="saved-eur-data"' not in off
+
+
+def test_the_chart_strip_default_is_the_first_tab_that_actually_renders(cost_client):
+    """Server-side default selection, and the containers agreeing with it.
+
+    Every tab in the strip is conditional now — there is no unconditional first button to hardcode
+    `btn-active` on, as there was while *Monthly grid import* existed. So the template picks the
+    first tab that renders and derives BOTH the highlight and the containers' `hidden`/`flex` from
+    that one choice. The failure this guards is a strip highlighting one tab while a different
+    container is visible, which no amount of client-side correction can hide without a flash.
+
+    Order is *Energy flows*, *Battery rhythm*, *Monthly savings (€)*, and the default is whichever
+    of those comes first — here the first, since this fixture has a frame to simulate.
+    """
+    import re as _re
+
+    client, store = cost_client
+    html = client.post(w("/results"), json={"period": "last_1_week"}).text
+
+    # Exactly one active button in the strip.
+    active = _re.findall(r'<button[^>]*data-chart-tab="([a-z_]+)"[^>]*>', html)
+    assert active == ["flows", "socprice", "saved_eur"], f"tab order changed: {active}"
+    actives = [
+        t for t in _re.findall(r'<button[^>]*?class="([^"]*)"[^>]*?data-chart-tab="([a-z_]+)"', html)
+        if "btn-active" in t[0]
+    ]
+    assert len(actives) == 1, f"expected exactly one active tab, got {actives}"
+    assert actives[0][1] == "flows"
+
+    # …and the container that goes with it is the visible one. #flows-charts stacks its plots, so
+    # it is `flex` rather than merely un-hidden — the same pairing CHART_TABS carries in the JS.
+    flows_cls = _re.search(r'id="flows-charts" class="([^"]*)"', html).group(1)
+    assert "hidden" not in flows_cls and "flex" in flows_cls, flows_cls
+    for other in ("socprice-charts", "saved-eur-chart"):
+        cls = _re.search(rf'id="{other}" class="([^"]*)"', html).group(1)
+        assert "hidden" in cls, f"{other} is visible beside the default tab: {cls}"
 
 
 def test_the_money_benchmark_box_renders_from_the_shared_partial(cost_client):

@@ -682,9 +682,34 @@ def test_thumbsup_links_to_a_prefilled_github_issue(page):
     page.keyboard.press("Escape")
 
 
-def test_chart_rendered(page):
-    # Plotly draws an <svg> into the chart container.
-    assert page.locator("#monthly-chart svg").count() >= 1
+def test_the_charts_box_states_its_absence_when_no_tab_renders(page):
+    """The empty strip, which became reachable under `20260806-chart-tab-restructure.md`.
+
+    Every tab in the Charts box is conditional now. The first one was not: *Monthly grid import*
+    plotted `results.chart`, which is emitted on every render, so the strip always had a button and
+    the box always had a chart. With that tab deleted, a workspace with no dataset (no
+    `energy_flows`, no `soc_heatmap`) and no cost simulation (no `monthly_saved_eur`) renders a
+    Charts box with nothing in it — which as a bare bordered card reads as a rendering failure.
+
+    This module's workspace is exactly that: created through the real route, never given data. So
+    what is asserted is that the box SAYS SO, in the same idiom the rest of the app uses for an
+    emptied box, and that no tab claims to be selected — a highlight with no container behind it is
+    the specific incoherence the server-side default exists to prevent.
+
+    That precondition is an IMPLICIT COUPLING to a workspace this module shares, so it is asserted
+    rather than assumed: if a future test seeds data into it, this test must fail and say why,
+    instead of quietly becoming a test that a populated box has no tabs — which would be a genuine
+    defect passing as a green run. The Charts box itself must still be present; "no charts" is a
+    statement this panel makes, not a section it omits.
+    """
+    assert page.locator("#panel-results").count() == 1, (
+        "panel ③ did not render at all — this test's subject is missing, not empty"
+    )
+    assert page.locator("[data-chart-tab]").count() == 0, "a tab rendered with no payload for it"
+    assert page.get_by_text("No charts for this window").count() == 1
+    # No empty plot frames left behind either.
+    for container in ("#flows-charts", "#socprice-charts", "#saved-eur-chart"):
+        assert page.locator(container).count() == 0, f"{container} rendered with no data"
 
 
 # ── Bilingual ────────────────────────────────────────────────────────────────
@@ -3351,15 +3376,61 @@ def test_deleting_a_referenced_upload_leaves_the_other_files_bindings_intact(bro
     context.close()
 
 
+def test_the_default_chart_tab_is_drawn_on_first_load(browser, base_url):
+    """The tab the server marked active arrives DRAWN, not as an empty frame.
+
+    The gap this closes, found by deliberately breaking `initPanelResults()`: which tab is the
+    default became a server decision under `20260806-chart-tab-restructure.md`, so the page's
+    initial draw has to read the choice back off the markup rather than call one hardcoded draw.
+    Every other browser test here either clicks a tab (which draws it) or asserts after a swap
+    (where the fetch handler redraws everything), so none of them saw the first-load path at all.
+
+    Asserted on the marks rather than on visibility: an un-drawn container is `flex` and full-width
+    and passes `is_visible()`, so visibility alone cannot tell a drawn chart from an empty box.
+    Bounding-box width is checked too, because Plotly measures 0 inside `hidden` and a draw that
+    happened before the class flip produces a plot no wider than its margins.
+
+    Its own workspace, since it needs a dataset for any tab to exist at all.
+    """
+    url = _workspace_url(base_url)
+    workspace_id = url.rstrip("/").split("/")[-2]
+    _seed_reconstructable_dataset(workspace_id)
+
+    context = browser.new_context()
+    context.add_cookies([{"name": "lang", "value": "en", "url": base_url}])
+    pg = context.new_page()
+    errors = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{base_url}/w/{workspace_id}/results", wait_until="networkidle")
+    pg.wait_for_timeout(800)
+
+    active = pg.locator("[data-chart-tab].btn-active")
+    assert active.count() == 1, f"expected exactly one active tab, got {active.count()}"
+    assert active.first.get_attribute("data-chart-tab") == "flows"
+    assert pg.locator("#flows-charts").is_visible()
+    # All four of the tab's plots, not just one: the eager draw and the default-tab draw are
+    # different code paths and either could have drawn a subset.
+    for plot in ("#flows-load", "#flows-pv", "#flows-avgday", "#flows-soc"):
+        assert pg.locator(f"{plot} svg").count() > 0, f"{plot} was never drawn"
+    box = pg.locator("#flows-avgday").bounding_box()
+    assert box is not None and box["width"] > 200, f"drawn at a collapsed size: {box}"
+    assert errors == [], f"the first-load draw raised: {errors}"
+    context.close()
+
+
 def test_the_selected_chart_tab_survives_a_recompute(browser, base_url):
     """The reader stays on the chart they were reading when the panel is recomputed.
 
     Same class of defect as `test_the_advanced_pane_survives_a_parameter_swap` above, and the same
     cause: `POST /w/{id}/results` answers with a fresh render of the panel, whose tab strip carries
-    the template's default (`btn-active` on the first button, `#flows-charts` hidden). Swapping that
-    in verbatim put the reader back on *Monthly grid import* every time they changed a parameter —
-    so looking at the energy flows and adjusting the battery, which is the obvious way to use the
-    screen, meant re-picking the tab after every adjustment.
+    the SERVER'S default. Swapping that in verbatim put the reader back on the first tab every time
+    they changed a parameter — so reading one chart and adjusting the battery, which is the obvious
+    way to use the screen, meant re-picking the tab after every adjustment.
+
+    **The tab under test is *Monthly savings (€)*, not *Energy flows*.** It was *Energy flows*
+    until `20260806-chart-tab-restructure.md` made that one the default; asserting the default
+    survives a swap that re-renders the default is a tautology, so the test has to select a tab the
+    server would not have chosen.
 
     A browser test because every part of it is browser state: which container is visible is a class
     the server never sees, and the reset only happens under the delegated fetch handler. The
@@ -3379,36 +3450,37 @@ def test_the_selected_chart_tab_survives_a_recompute(browser, base_url):
     pg = context.new_page()
     pg.goto(f"{base_url}/w/{workspace_id}/results", wait_until="networkidle")
 
-    flows_tab = pg.locator('[data-chart-tab="flows"]')
-    assert flows_tab.count() == 1, "the tab under test is not on the screen to begin with"
-    # The precondition: the panel opens on monthly, which is what makes the assertion after the
-    # swap meaningful rather than a tautology.
-    assert not pg.locator("#flows-charts").is_visible()
+    eur_tab = pg.locator('[data-chart-tab="saved_eur"]')
+    assert eur_tab.count() == 1, "the tab under test is not on the screen to begin with"
+    # The precondition: the panel opens on the FIRST tab, *Energy flows*, chosen server-side. That
+    # is what makes the assertion after the swap meaningful rather than a tautology.
+    assert pg.locator("#flows-charts").is_visible(), "the panel did not open on its default tab"
+    assert not pg.locator("#saved-eur-chart").is_visible()
 
-    flows_tab.click()
+    eur_tab.click()
     pg.wait_for_timeout(300)
-    assert pg.locator("#flows-charts").is_visible(), "clicking the tab did not show the charts"
+    assert pg.locator("#saved-eur-chart").is_visible(), "clicking the tab did not show the chart"
 
     # Recompute the way a user does — change a battery parameter and press Calculate.
     pg.locator('input[name="battery.usable_capacity_kwh"]').fill("12")
     pg.get_by_role("button", name="Calculate").click()
     pg.wait_for_timeout(1500)
 
-    assert pg.locator("#flows-charts").is_visible(), (
-        "the recompute dropped the reader back on the first tab"
+    assert pg.locator("#saved-eur-chart").is_visible(), (
+        "the recompute dropped the reader back on the default tab"
     )
-    assert "btn-active" in (flows_tab.get_attribute("class") or ""), (
-        "the charts are shown but the strip highlights a different tab"
+    assert "btn-active" in (eur_tab.get_attribute("class") or ""), (
+        "the chart is shown but the strip highlights a different tab"
     )
-    assert not pg.locator("#monthly-chart").is_visible(), "both containers are visible at once"
+    assert not pg.locator("#flows-charts").is_visible(), "both containers are visible at once"
     # Restored means REDRAWN, not merely un-hidden: a container shown without a draw against its
     # real width is empty or the wrong size. Plotly writes an <svg> per plot.
-    assert pg.locator("#flows-avgday svg").count() > 0, "the restored tab was not drawn"
+    assert pg.locator("#saved-eur-chart svg").count() > 0, "the restored tab was not drawn"
 
     # A results-only swap (a period change) must restore it too — that path swaps the same panel.
     pg.locator("[data-period='last_1_week']").click()
     pg.wait_for_timeout(1200)
-    assert pg.locator("#flows-charts").is_visible(), "a period change dropped the tab"
+    assert pg.locator("#saved-eur-chart").is_visible(), "a period change dropped the tab"
     context.close()
 
 
@@ -3418,8 +3490,8 @@ def test_a_swap_that_removes_the_selected_tab_falls_back_to_the_default(browser,
     `Monthly savings (€)` is rendered only when the window HAS a euro series, so a swap can
     legitimately return a strip in which the selected button no longer exists. Restoring a
     remembered selection blindly would leave the strip with nothing active and the reader looking
-    at a chart no button claims — which is why restoreChartTab() matches on the attribute pair and
-    does nothing when it finds no button.
+    at a chart no button claims — which is why restoreChartTab() looks the button up and does
+    nothing when it finds none.
 
     Forced server-side rather than through the cost toggle, which is not on this screen: flipping
     the stored `simulate_cost` and then triggering a swap is what produces the condition where the
@@ -3438,11 +3510,11 @@ def test_a_swap_that_removes_the_selected_tab_falls_back_to_the_default(browser,
     pg.on("pageerror", lambda e: errors.append(str(e)))
     pg.goto(f"{base_url}/w/{workspace_id}/results", wait_until="networkidle")
 
-    eur = pg.locator('[data-chart-view="eur"]')
+    eur = pg.locator('[data-chart-tab="saved_eur"]')
     assert eur.count() == 1, "the euro tab must exist for this test to remove it"
     eur.click()
     pg.wait_for_timeout(300)
-    assert pg.locator("#monthly-chart").get_attribute("data-chart-view") == "eur"
+    assert pg.locator("#saved-eur-chart").is_visible()
 
     os.environ["BATTERY_SIM_DATA_DIR"] = _SERVER_DATA_DIR
     from app import simconfig_store
@@ -3454,16 +3526,16 @@ def test_a_swap_that_removes_the_selected_tab_falls_back_to_the_default(browser,
     pg.locator("[data-period='last_1_week']").click()
     pg.wait_for_timeout(1500)
 
-    assert pg.locator('[data-chart-view="eur"]').count() == 0, (
+    assert pg.locator('[data-chart-tab="saved_eur"]').count() == 0, (
         "the precondition failed: the euro tab is still rendered"
     )
-    # Exactly one tab active, and it is the default — not zero (a strip claiming nothing) and not
-    # two (a stale highlight left beside the new one).
+    # Exactly one tab active, and it is the server's default — not zero (a strip claiming nothing)
+    # and not two (a stale highlight left beside the new one).
     active = pg.locator("[data-chart-tab].btn-active")
     assert active.count() == 1, f"expected one active tab, got {active.count()}"
-    assert active.first.get_attribute("data-chart-view") == "kwh"
-    assert pg.locator("#monthly-chart").is_visible()
-    assert pg.locator("#monthly-chart svg").count() > 0, "the fallback tab was not drawn"
+    assert active.first.get_attribute("data-chart-tab") == "flows"
+    assert pg.locator("#flows-charts").is_visible()
+    assert pg.locator("#flows-avgday svg").count() > 0, "the fallback tab was not drawn"
     assert errors == [], f"restoring an absent tab raised: {errors}"
     context.close()
 
@@ -3499,14 +3571,16 @@ def test_the_soc_heatmap_tab_draws_and_survives_a_recompute(browser, base_url):
     # It is a REAL tab, not the pending affordance it replaced: no dialog trigger, no [?].
     assert pg.locator("[data-feature-key=chart_soc_price]").count() == 0
     assert tab.get_attribute("data-pending-name") is None
-    # The precondition: the panel opens on monthly, so the assertion below is not a tautology.
+    # The precondition: the panel opens on *Energy flows*, the server-chosen default, so the
+    # assertion below is not a tautology.
     assert not pg.locator("#socprice-charts").is_visible()
+    assert pg.locator("#flows-charts").is_visible()
 
     tab.click()
     pg.wait_for_timeout(1200)
 
     assert pg.locator("#socprice-charts").is_visible()
-    assert not pg.locator("#monthly-chart").is_visible(), "two chart containers are showing at once"
+    assert not pg.locator("#flows-charts").is_visible(), "two chart containers are showing at once"
     # Plotly draws a heatmap as an <image> inside the svg. Asserting on it rather than on the svg
     # alone is what separates "the frame was created" from "the cells were rendered".
     assert pg.locator("#socprice-heatmap svg").count() > 0, "the heatmap frame was never drawn"
