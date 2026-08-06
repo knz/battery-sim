@@ -101,6 +101,8 @@ Main items:
     Upload                          one row: id, filename, tz, header, parse summary, and the
                                     per-column cumulative verdict.
     _ADDED_COLUMNS / _migrate       the forward migration for an older local table.
+    _COLUMNS                        the canonical column order; `_COLUMNS_SQL` and `_PLACEHOLDERS`
+                                    derive from it, so the INSERT's `?` count cannot drift.
     MAX_UPLOAD_BYTES                the size cap step 3's route enforces.
     connect()                       a connection with this schema (and app/db.py's) applied.
     create(workspace_id, filename, tz, content, columns, rows, ...) -> Upload   file + row.
@@ -179,7 +181,7 @@ is in the WHERE clause of every non-key read, which is the shape an index exists
 _ADDED_COLUMNS = (
     # The per-column cumulative verdict (see the `_SCHEMA` docstring). `CREATE TABLE IF NOT EXISTS`
     # never alters an existing table, so a database created before this column existed needs it
-    # added here or every SELECT built from `_COLUMNS` fails with "no such column". Each entry is
+    # added here or every SELECT built from `_COLUMNS_SQL` fails with "no such column". Each entry is
     # (column, type); adding one that is already there is skipped rather than swallowed as an error,
     # so the migration is idempotent by inspection rather than by exception handling.
     ("cumulative_columns_json", "TEXT"),
@@ -407,7 +409,11 @@ def _parse_ts(ts: str | None) -> datetime | None:
 
 
 def _row_to_upload(row) -> Upload:
-    """One SELECT row, in `_COLUMNS` order, as an `Upload`."""
+    """One SELECT row, in `_COLUMNS` order, as an `Upload`.
+
+    The indices below are the positions in `_COLUMNS` and are hand-kept in step with it — nothing
+    checks the correspondence, so a column inserted anywhere but the end has to be mirrored here.
+    """
     return Upload(
         id=row[0],
         workspace_id=row[1],
@@ -425,18 +431,48 @@ def _row_to_upload(row) -> Upload:
     )
 
 
-_COLUMNS = (
-    "id, workspace_id, filename, tz, columns_json, rows, resolution_s, "
-    "first_ts, last_ts, uploaded_at, cumulative_columns_json"
+_COLUMNS: tuple[str, ...] = (
+    "id",
+    "workspace_id",
+    "filename",
+    "tz",
+    "columns_json",
+    "rows",
+    "resolution_s",
+    "first_ts",
+    "last_ts",
+    "uploaded_at",
+    "cumulative_columns_json",
 )
-"""The SELECT list every read shares, so `_row_to_upload` can index positionally.
+"""The canonical column order this module reads and writes, in `_SCHEMA` order.
 
-Written once rather than repeated per query: the mapping from position to field is the one thing
-that silently breaks when a column is added to only some of the queries.
+A tuple rather than a SQL string because two derived things below must agree with it and with each
+other, and deriving both from one definition is the only way they cannot drift. `_COLUMNS_SQL` is
+the SELECT list every read shares and the INSERT's column list; `_PLACEHOLDERS` is the INSERT's
+`?` list, whose LENGTH is now a consequence of this tuple rather than a hand-counted literal.
 
-Also the INSERT's column list in `create`, whose placeholder count must match this string's length —
-so adding a column here means adding a `?` and a value there, in the same position.
+Written once rather than repeated per query for the original reason: the mapping from position to
+field is the one thing that silently breaks when a column is added to only some of the queries.
+
+**What is still hand-synced, and what is not.** Adding a column here means three further edits:
+
+  * a positional read in `_row_to_upload`, at the SAME index as the entry's position here — that
+    function indexes `row[0]` .. `row[n]` and nothing checks the correspondence;
+  * a value in `create`'s INSERT tuple, in the SAME position;
+  * (usually) an `Upload` field and an `_ADDED_COLUMNS` migration entry.
+
+The placeholder COUNT now takes care of itself, and that is the whole of what this shape buys.
+It is worth having because the count and the order failed differently: a miscount raised
+`sqlite3.ProgrammingError` immediately, while a misordered value tuple wrote one field's value into
+another field's column and said nothing. Removing the count from the hand-maintained set does not
+make the order safe — it narrows what a reader has to check to the two lists that still are.
 """
+
+_COLUMNS_SQL = ", ".join(_COLUMNS)
+"""`_COLUMNS` as a SQL column list, for the SELECTs and for the INSERT's column list."""
+
+_PLACEHOLDERS = ", ".join("?" * len(_COLUMNS))
+"""One `?` per entry of `_COLUMNS`, for the INSERT's VALUES clause."""
 
 
 def create(
@@ -506,7 +542,7 @@ def create(
 
     with _connect() as conn:
         conn.execute(
-            f"INSERT INTO uploads ({_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            f"INSERT INTO uploads ({_COLUMNS_SQL}) VALUES ({_PLACEHOLDERS})",
             (
                 upload_id,
                 workspace_id,
@@ -555,7 +591,7 @@ def get(workspace_id: str, upload_id: str) -> Upload | None:
     _check_upload_id(upload_id)
     with _connect() as conn:
         row = conn.execute(
-            f"SELECT {_COLUMNS} FROM uploads WHERE workspace_id = ? AND id = ?",
+            f"SELECT {_COLUMNS_SQL} FROM uploads WHERE workspace_id = ? AND id = ?",
             (workspace_id, upload_id),
         ).fetchone()
     return None if row is None else _row_to_upload(row)
@@ -572,7 +608,7 @@ def list_for(workspace_id: str) -> list[Upload]:
     _check_workspace_id(workspace_id)
     with _connect() as conn:
         rows = conn.execute(
-            f"""SELECT {_COLUMNS} FROM uploads WHERE workspace_id = ?
+            f"""SELECT {_COLUMNS_SQL} FROM uploads WHERE workspace_id = ?
                 ORDER BY uploaded_at DESC, id ASC""",
             (workspace_id,),
         ).fetchall()
