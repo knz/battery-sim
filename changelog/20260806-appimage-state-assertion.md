@@ -65,6 +65,10 @@ packaging change rebased on top.
 
 ## Current Status
 
-Test fixed and committed; history reordered so this precedes the packaging commit. The fix
-is verified only by a real AppImage run in CI — `tests/test_appimage.py` needs a built image
-and is skipped locally without one, so the CI re-run is the check that matters.
+Test fixed and committed; history reordered so this precedes the packaging commit.
+
+Verified by CI run 31093496577 (`workflow_dispatch` on `worktree-packaging`): the `linux`
+job reports `28 passed`, up from `27 passed, 1 failed`, and the log shows
+`test_the_appimage_serves_over_http PASSED` rather than a skip — confirming the assertion
+executed against a real built image rather than being skipped for want of one. The added
+bundle-stray check passed in the same run.

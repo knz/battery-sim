@@ -90,11 +90,22 @@ Verified:
   cold fetch, valid cache (no re-download), stale pre-pin cache (re-fetches), and a
   corrupted download (exits 1, leaves nothing cached). All behaved as intended.
 
-Not verified: a full end-to-end `build-appimage.sh` run, which needs the GTK3/WebKit2GTK
-stack on the build host. The pinned PyInstaller has also not been exercised against
-`battery-sim.spec` — 6.21.0 is newer than whatever floating version last built the bundle,
-so a spec incompatibility would only surface in a real build. That run is the outstanding
-check before this is considered done.
+Verified end-to-end by CI run 31093496577 (`workflow_dispatch` on `worktree-packaging`),
+which completed with conclusion `success`:
+
+- `Linux AppImage`: success. The log shows `==> fetching appimagetool 1.9.1`, so the pinned
+  tag was used rather than `continuous`, the checksum verification passed, and the resulting
+  image built and ran (`28 passed` in the verification step).
+- `macOS arm64`, `macOS x86_64`, `Windows`: all success. These invoke PyInstaller directly,
+  so 6.21.0 is confirmed to build `battery-sim.spec` on all four platforms — the spec
+  incompatibility this section previously flagged as an open risk did not materialise.
+- The Windows pass also exercises the `${{ env.PYINSTALLER_VERSION }}` expansion: a shell
+  variable would have produced a bare `pyinstaller==` and failed the install step.
+- `Draft the GitHub release`: skipped, as intended on a non-tag ref.
+
+An earlier dispatch (run 31085457462) failed in the `linux` job's verification step on a
+stale `config.toml` assertion unrelated to these pins; that is fixed in the preceding commit
+and traced in `changelog/20260806-appimage-state-assertion.md`.
 
 Open, not decided: whether to also pin the `uv venv --python 3.12` interpreter to a patch
 version, and whether the container-based build (noted as not-done in `build-appimage.sh`'s
