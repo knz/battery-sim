@@ -620,7 +620,7 @@ can be fetched for real in this harness. The guard is a single comparison agains
 `csv_upload` and does not branch per alternative source, so the `energy_charts`
 case exercises the same line — but the HA arm is not exercised.
 
-## Rebase onto master
+## Rebase onto master (first, onto `73bc3e7`)
 
 The branch was rebased from its original base (`4a4fa10`) onto `master` at
 `73bc3e7`, which had picked up the packaging, docs, desktop and UI-tweak work
@@ -693,3 +693,56 @@ compile` flagged it by line number; it was restored by hand.
   `test_a_stale_binding_is_not_carried_onto_a_slot_the_server_committed_elsewhere`.
   Restored from a `cp` backup afterwards, md5 `3a0e8d3a2c61cdc334f2340198c0a495`.
 - The pre-rebase tip is tagged `pre-rebase-csv-import-bdeee14`.
+
+## Rebase onto master (second, onto `5ecd6c7`)
+
+Master had moved two commits further while the PR was open: `192f65c` ("Stop the
+demo roster and wireframes marking T2 registers required") plus its merge
+`5ecd6c7`. Rebased the 15 commits from `73bc3e7` onto `5ecd6c7`.
+
+Master's commit touches four files, three of which this branch also edits
+(`app/sample_data.py`, `docs/specs/02-ux-wireframes.md`,
+`tests/test_data_summary.py`). None of the collisions is a disagreement: master
+single-sources the demo roster's `req` field from `SlotSpec` so the T2 registers
+stop rendering as required, while this branch adds the CSV source strings, the
+`dst` quality field and a block of new tests. Same files, different concerns.
+
+`app/sample_data.py` and `tests/test_data_summary.py` auto-merged. The locale
+catalogs and `app/static/ha_fetch.js` — the hard parts of the first rebase — did
+not conflict at all this time, since master's commit touches neither.
+
+### The one conflict, and why it was a false alarm
+
+`docs/specs/02-ux-wireframes.md` conflicted once, on a coincidence of shape
+rather than a real disagreement. Master changed two `●` markers to `○` inside the
+old per-series roster (`SERIES / REQ / FILE`, one file per series). This branch's
+first commit **deletes that entire block**, replacing the one-file-per-series
+design with the drawer radio, because a wide CSV fills many slots from one file.
+
+So master's edit landed on lines that no longer exist downstream. Kept the
+branch's replacement block. The resulting delta against the pre-rebase patch is
+two characters, both on deletion (`-`) lines: the commit now removes master's
+updated `○` markers instead of the old `●` ones. The block goes either way, so
+there is no behavioural difference.
+
+Master's other three edits to that file are outside the deleted region and
+survived: the two hollow T2 markers in the Home Assistant roster (lines 246,
+248) and the reworded `has_pv` bullet (line 443), all confirmed present.
+
+### Verification
+
+- 1721 backend tests pass, 25 skipped (up one: master's new roster test); 62
+  smoke tests pass; 208 i18n tests pass, so the catalogs are intact.
+- 14 of the 15 commits are byte-identical to their pre-rebase form once blob
+  hashes and hunk offsets are discounted. The one that differs is the commit
+  that conflicted, and its whole difference is the two characters above.
+- `git log HEAD..origin/master` is empty; the branch is a clean fast-forward.
+- `app/static/ha_fetch.js` is byte-identical to its pre-rebase state (md5 still
+  `3a0e8d3a2c61cdc334f2340198c0a495`), so the first rebase's mutation results for
+  `defaultSourceFor` and the carry guard carry over without re-testing.
+- Master's new behaviour was mutation-checked in the merged tree rather than
+  assumed from an auto-merge: making `_req_for` return `"required"`
+  unconditionally fails `test_sample_roster_requirement_matches_the_vocabulary`
+  on `grid_import_t2` — the exact drift the commit fixes. Restored from a `cp`
+  backup, md5 `fb9ddaaf2daacc08d362984482e934af`.
+- The pre-rebase tip is tagged `pre-rebase2-csv-import-faf572f`.
