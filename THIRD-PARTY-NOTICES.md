@@ -155,8 +155,8 @@ the exact code inside the binary. Three routes to it:
 
 1. On an Ubuntu 24.04 system, `apt-get source <source-package>=<version>`.
 2. From Ubuntu's published archive at https://archive.ubuntu.com/ubuntu/pool/ .
-3. By written request to the address in this repository's README, for as long as the
-   corresponding release is offered.
+3. By written request through https://raphaelposs.com/contact/, for as long as
+   the corresponding release is offered.
 
 The LGPL-2.1 §6(b) option — relying on a copy of the library already installed on your
 machine — is not applicable here, since an AppImage exists precisely to carry its own.

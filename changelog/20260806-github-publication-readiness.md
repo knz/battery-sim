@@ -352,11 +352,28 @@ the point of the change, since a silent omission is the failure mode here.
 
 The full suite was not re-run here; it carries benchmarks and is slow, and CI runs it on the PR.
 
+### README pointer, and a dangling reference closed
+
+Added a paragraph to the README's Licence section — the natural home, since that section already
+sets out the project's *own* terms and the third-party position is the complement to it. It names
+the three things the builds carry (browser libraries, Python packages, and the AppImage's LGPL
+GTK/WebKit stack), links `THIRD-PARTY-NOTICES.md` and `licenses/`, and notes that both ship
+inside the builds rather than living only in the repository.
+
+Writing it surfaced the loose end flagged earlier: the notice's route 3 offered source "by
+written request to the address in this repository's README", and the README carried no address —
+a notice sending a reader somewhere that does not exist. Fixed in the generator rather than the
+output, pointing at `https://raphaelposs.com/contact/`, the contact channel the project already
+publishes in `docs/*/sponsor.md`. An address invented for this file would be one nobody watches.
+
+Worth being clear about what that route is: routes 1 and 2 (`apt-get source` and Ubuntu's
+archive) are what actually discharge §6(d). Route 3 is the §6(c) written-offer fallback for a
+recipient who cannot use either, and costs one line to offer.
+
 ## Current Status
 
-The four doc/scrub items are committed (d6f5ded). The third-party notices work — generator,
-document, licence texts, host inventory, CI gate and both packaging paths — is complete and
-verified but **uncommitted**, pending review of the diff.
+The four doc/scrub items are committed (d6f5ded), as is the third-party notices work (f07f676).
+The README pointer and the contact-URL fix are complete and verified.
 
 Still open and unchanged: legal review of the 85 per-package licence readings before release;
 CSV import (separate work); no git tags or releases; missing `SECURITY.md` and `CONTRIBUTING.md`;

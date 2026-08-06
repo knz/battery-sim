@@ -475,6 +475,16 @@ LICENSE_SUMMARY: dict[str, str] = {
 # this URL is the durable form for a recipient who has no such machine.
 UBUNTU_SOURCE_POOL = "https://archive.ubuntu.com/ubuntu/pool/"
 
+# The written-offer route, LGPL-2.1 §6(c). The two archive routes above are what actually
+# discharges §6(d), and they stand on their own; this is the fallback for a recipient who cannot
+# use either, and it costs one line to offer.
+#
+# It names a URL and not a postal address because this is the contact channel the project already
+# publishes (docs/*/sponsor.md) — an address invented for this file would be one nobody watches.
+# An earlier draft pointed at "the address in this repository's README", which carried none: a
+# notice may not send a reader somewhere that does not exist.
+CONTACT_URL = "https://raphaelposs.com/contact/"
+
 # Libraries the AppImage modifies rather than copying verbatim, and what the modification is. LGPL
 # §6(a) asks for corresponding source "including whatever changes were used in the work", so a
 # pointer at Ubuntu's pristine source would be incomplete on its own — the change has to be named
@@ -811,8 +821,8 @@ def render() -> tuple[str, list[str]]:
     add("")
     add("1. On an Ubuntu 24.04 system, `apt-get source <source-package>=<version>`.")
     add(f"2. From Ubuntu's published archive at {UBUNTU_SOURCE_POOL} .")
-    add("3. By written request to the address in this repository's README, for as long as the")
-    add("   corresponding release is offered.")
+    add(f"3. By written request through {CONTACT_URL}, for as long as")
+    add("   the corresponding release is offered.")
     add("")
     add("The LGPL-2.1 §6(b) option — relying on a copy of the library already installed on your")
     add("machine — is not applicable here, since an AppImage exists precisely to carry its own.")
