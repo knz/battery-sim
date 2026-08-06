@@ -5,6 +5,13 @@ rows the browser forwards after fetching from Home Assistant, then asserts the d
 persisted and restores across a reload. Runs against a throwaway data dir so the SQLite DB and
 the series .npz files never touch the working tree — the same isolation the smoke test uses.
 
+At the end there is a unit-level block on the optional per-slot `binding` a `backend_load` message may
+carry (decision D-BIND of the CSV-import brief, step 5): the session records it verbatim for the route
+to translate, and rejects a malformed one naming the field. What it deliberately does NOT check —
+whether the unit is known, whether the upload exists — is pinned there too, since those belong to
+`csv_wide` and to the route respectively. The end-to-end CSV reify path is
+`tests/test_csv_binding_reify.py`.
+
     uv run pytest tests/test_ingest_ws.py
 """
 
@@ -490,3 +497,113 @@ def test_the_ingest_session_records_the_setup_answers():
     present = IngestSession()
     present.on_header({"type": "header", "window": win, "has_pv": False, "has_battery": True})
     assert present.setup_has_pv is False and present.setup_has_battery is True
+
+
+
+# --- the optional per-slot `binding` on a backend_load message (D-BIND, step 5) ----------------
+#
+# Unit-level, against `IngestSession` directly rather than through the socket, because what is under
+# test is the PURE layer's contract: the session records the binding verbatim for the route to
+# translate, and rejects a malformed one before any I/O could happen. The end-to-end behaviour —
+# loading, provenance, the security check on `upload_id` — is `tests/test_csv_binding_reify.py`.
+
+_BINDING_WIN = {"start": "2026-07-20T00:00:00+00:00", "end": "2026-07-20T02:00:00+00:00"}
+
+
+def _session_with_header():
+    from app.ingest_ws import IngestSession
+
+    session = IngestSession()
+    session.on_header({"type": "header", "window": _BINDING_WIN})
+    return session
+
+
+def test_backend_load_records_the_binding_verbatim():
+    """The session stores the raw dict, unconverted — the route owns the translation.
+
+    Asserted as identity-of-content rather than "it is a CsvBinding", because keeping it a plain dict
+    is the deliberate choice recorded on `BackendLoadRequest`: the protocol layer must not import an
+    adapter from `app/sources/`, and the field is generic so a second configurable source can reuse
+    it without this module learning what the configuration means.
+    """
+    session = _session_with_header()
+    binding = {"upload_id": "a" * 32, "column": "Verbruik_T1", "unit": "Wh"}
+    session.on_backend_load({
+        "type": "backend_load", "name": "grid_import_t1", "source": "csv_upload",
+        "window": _BINDING_WIN, "binding": binding,
+    })
+    req = session.backend_loads["grid_import_t1"]
+    assert req.binding == binding
+    assert req.source == "csv_upload"
+
+
+def test_backend_load_without_a_binding_records_none():
+    """Absent is the normal case for every source but CSV, and is not an error here.
+
+    A CSV slot that needs one and did not send it is the SOURCE's to reject (`CsvBindingError`), so
+    that this module never has to know which source keys require configuration.
+    """
+    session = _session_with_header()
+    session.on_backend_load({
+        "type": "backend_load", "name": "price_spot", "source": "energy_charts",
+        "window": _BINDING_WIN,
+    })
+    assert session.backend_loads["price_spot"].binding is None
+
+
+def test_backend_load_with_an_explicitly_null_binding_records_none():
+    """A client that sends `"binding": null` is treated as one that sent no binding at all."""
+    session = _session_with_header()
+    session.on_backend_load({
+        "type": "backend_load", "name": "price_spot", "source": "energy_charts",
+        "window": _BINDING_WIN, "binding": None,
+    })
+    assert session.backend_loads["price_spot"].binding is None
+
+
+@pytest.mark.parametrize(
+    "binding, expected",
+    [
+        ("nope", "must be an object"),
+        ([1, 2], "must be an object"),
+        ({}, "missing 'upload_id'"),
+        ({"upload_id": None, "column": "A"}, "missing 'upload_id'"),
+        ({"upload_id": 42, "column": "A"}, "missing 'upload_id'"),
+        ({"upload_id": "a" * 32}, "missing 'column'"),
+        ({"upload_id": "a" * 32, "column": None}, "missing 'column'"),
+        ({"upload_id": "a" * 32, "column": "A", "unit": []}, "non-string 'unit'"),
+    ],
+)
+def test_a_malformed_binding_is_rejected_and_records_nothing(binding, expected):
+    """Shape rejection names the field, and the slot is not recorded at all.
+
+    The second assertion is the one worth having: a validator that raised AFTER inserting into
+    `backend_loads` would leave a half-recorded slot behind, and the session is reused for the rest of
+    the stream.
+    """
+    from app.ingest_ws import IngestError
+
+    session = _session_with_header()
+    with pytest.raises(IngestError) as exc:
+        session.on_backend_load({
+            "type": "backend_load", "name": "grid_import_t1", "source": "csv_upload",
+            "window": _BINDING_WIN, "binding": binding,
+        })
+    assert expected in str(exc.value)
+    assert "grid_import_t1" not in session.backend_loads
+
+
+def test_a_binding_with_an_unknown_unit_is_NOT_rejected_by_the_session():
+    """Unit vocabulary belongs to `csv_wide.UNIT_FACTORS`, not to the protocol layer.
+
+    Pinned as a deliberate non-behaviour: a reader adding a unit should have exactly one place to
+    change it, and `CsvSource` already rejects an unknown one by name before reading the file
+    (`bad_unit`). A copy of the vocabulary here would be a second place to forget.
+    """
+    session = _session_with_header()
+    session.on_backend_load({
+        "type": "backend_load", "name": "grid_import_t1", "source": "csv_upload",
+        "window": _BINDING_WIN,
+        "binding": {"upload_id": "a" * 32, "column": "A", "unit": "MWh"},
+    })
+    assert session.backend_loads["grid_import_t1"].binding["unit"] == "MWh"

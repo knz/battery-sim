@@ -40,8 +40,9 @@
  *
  * Staged-then-confirm model (the crux). The drawer is TRANSACTIONAL: nothing commits on mere
  * selection or on closing. While the drawer is open, all in-drawer controls (source radios, entity
- * <select>) write ONLY to a drawer-local `draft = { slot, source, statId }`. The committed per-slot
- * state lives in `slotState[name] = { source, statId, kind }` and is the ONLY thing updateSlotButton
+ * <select>) write ONLY to a drawer-local `draft = { slot, source, statId, uploadId, column, unit }`
+ * (the last three are the CSV binding — see carrier 2 below). The committed per-slot
+ * state lives in `slotState[name] = { source, statId, uploadId, column, unit, kind }` and is the ONLY thing updateSlotButton
  * and mappedSlots read. openDrawer seeds `draft` from the committed slotState (so the current choice
  * shows pre-selected) without touching slotState; a slot with NO committed source gets a default
  * staged into the draft by renderSourceList (defaultSourceFor — the preset Energy-Charts source for
@@ -74,14 +75,35 @@
  *     number (specs §2.2). These are choices the user made but has NOT yet fetched: HA picked for a
  *     data-less slot, or a source override on a slot the server fills differently. The server holds
  *     a per-workspace `source_generation`, bumped ONLY when a fetch persists a new dataset — never
- *     by a backend_load Confirm — and rendered into #source-generation. Confirm on an HA slot saves
- *     { gen, slots: { <slot>: {source, statId} } } tagged with the current generation. On load:
- *       * local gen === server gen → USE LOCAL wholesale (source AND statId): the pre-fetch choice
- *         survives the reload.
+ *     by a backend_load Confirm — and rendered into #source-generation. Confirm saves
+ *     { gen, slots: { <slot>: {source, statId, uploadId, column, unit} } } tagged with the current
+ *     generation. On load:
+ *       * local gen === server gen → USE LOCAL wholesale (source, statId AND the CSV binding): the
+ *         pre-fetch choice survives the reload.
  *       * server gen  >  local gen → a fetch has happened since (here or on another client in the
  *         same workspace); the server is authoritative, the stale local slots are dropped.
  *     A fetch advances the generation, so a pre-fetch entry saved beforehand is superseded by the
  *     freshly-persisted server state (which now renders that slot itself, per 1).
+ *
+ *     The three CSV fields — uploadId, column, unit — are the per-slot BINDING for an uploaded wide
+ *     CSV (decision D-BIND of the CSV-import brief). They live here, and only here, for the reason
+ *     this list exists: a binding is a choice the user has made but has NOT yet fetched, which is
+ *     category 2 verbatim. An uploaded FILE is server state (app/uploads.py, one row and one file per
+ *     upload); which column of it feeds which slot is not, and there is no server table for it. So a
+ *     binding inherits this category's reconciliation unchanged, and inherits its limits too:
+ *       * it does not follow the user to another browser or device (same as the HA entity choice and
+ *         the URL/token — the uploaded file DOES follow them, only the mapping does not);
+ *       * a fetch supersedes it rather than preserving it, because the fetch writes real provenance
+ *         per 1 above;
+ *       * deleting an upload cannot clear it server-side, so a stale binding fails validation on the
+ *         next fetch (app/main.py `delete_upload` records why there is no cascade) and the drawer
+ *         drops entries whose upload is no longer listed.
+ *     The binding travels to the server on the ingest WS `backend_load` message and nowhere else,
+ *     which is what keeps Confirm a pure client action — see stagedBackendSlots() below.
+ *
+ *     Server-side, the `upload_id` in that message is therefore CLIENT-SUPPLIED and is validated
+ *     against `uploads.get(workspace_id, upload_id)` before anything is read. Nothing here should be
+ *     read as a trust boundary: this file is the convenience layer, not the check.
  *
  * localStorage is browser-local by design (same as the URL/token): a PRE-FETCH customization does
  * not follow you across browsers. A FETCHED slot does, because it lives server-side.
@@ -132,6 +154,20 @@
   var LS_URL = "ha.base_url";
   var LS_TOKEN = "ha.token";
 
+  // The uploaded-CSV source's descriptor key, and the unit its binding defaults to.
+  //
+  // The key is `CsvSource`'s (`app/sources/csv_source.py`) and is stable by contract — it is
+  // persisted with a slot's chosen source (specs §2.2), so it can be compared as a literal here. It
+  // is spelled once, as a name, because three places need it: the store gate, the staged-binding
+  // builder, and the PENDING_SOURCE_KEYS filter step 6 removes.
+  //
+  // `kWh` is the drawer's default radio and `CsvBinding`'s own default, so a stored entry without a
+  // unit means kWh rather than "incomplete". Kept in agreement with `csv_wide.UNIT_FACTORS`, whose
+  // only other member is `Wh`; the server rejects anything else by name, so a drifted value here
+  // fails loudly rather than silently mis-scaling.
+  var CSV_SOURCE_KEY = "csv_upload";
+  var DEFAULT_CSV_UNIT = "kWh";
+
   // The slot roster carries data-ingest-ws (it used to live on the removed #ha-connection card).
   // Its presence also gates the whole module: no roster → panel not on this page.
   var conn = document.getElementById("slot-roster");
@@ -143,12 +179,21 @@
   // store below.
   var WORKSPACE_ID = document.body.getAttribute("data-workspace-id") || "";
 
-  // Per-slot Home Assistant selections, browser-local (specs §7.5, same posture as URL/token).
-  // A JSON object { gen: <int>, slots: { <slot>: { source, statId } } } holding ONLY browser_fetch
-  // (HA) slots, tagged with the source generation the client saw when it saved (see the file header
-  // for the reconcile rule). It exists so an HA slot's source AND chosen entity survive the full-
-  // page reload a backend_load Confirm triggers. Backend-load choices are never stored — they are
-  // already server-side, and a stored copy would only drift.
+  // Per-slot source selections, browser-local (specs §7.5, same posture as URL/token).
+  // A JSON object { gen: <int>, slots: { <slot>: { source, statId, uploadId, column, unit } } },
+  // tagged with the source generation the client saw when it saved (see the file header for the
+  // reconcile rule). It exists so a slot's chosen source AND whatever that source needs to be
+  // loadable survive the full-page reload a fetch triggers.
+  //
+  // Two kinds of entry, and the difference is which extra fields are meaningful:
+  //   * home_assistant → `statId`, the chosen entity. Nothing else is needed; the connection is
+  //     global and lives under its own keys.
+  //   * csv_upload      → `uploadId`, `column`, `unit`: the per-slot BINDING (D-BIND). The FILE is
+  //     server-side; which of its columns feeds this slot is not, and this is its only home.
+  // A backend source that needs neither (energy_charts, entsoe) stores just its key. Those were
+  // once not stored at all, on the grounds that they were "already server-side" — that was only
+  // ever true of a slot that had been FETCHED, so the reasoning was wrong even then, and the CSV
+  // binding makes it plainly wrong: a staged binding is nowhere else.
   //
   // The key is PER WORKSPACE (§2′.11) — `ha.slots.<workspace id>`. Unlike the connection, a slot
   // mapping is a statement about one analysis: which entity feeds which role here. A single global
@@ -192,9 +237,16 @@
   }
 
   // Per-slot state, seeded from each slot's source button (no per-row DOM select any more).
-  //   slotState[name] = { source: <key|null>, statId: <string>, kind: "energy"|"price" }
-  // Filled below once we can read the .slot-source-btn nodes; kind derives from the slot name the
-  // same way the old template did ('price' in name ? price : energy).
+  //   slotState[name] = {
+  //     source: <key|null>, statId: <string>,          // Home Assistant's entity choice
+  //     uploadId: <string>, column: <string>, unit: <"kWh"|"Wh">,   // the CSV binding (D-BIND)
+  //     kind: "energy"|"price"
+  //   }
+  // The three CSV fields are empty strings (and `unit` its default) on every slot that is not bound
+  // to an uploaded CSV, so the shape is uniform and no reader has to test for their presence — see
+  // the file header's carrier 2 for why the binding lives here at all. Filled below once we can read
+  // the .slot-source-btn nodes; kind derives from the slot name the same way the old template did
+  // ('price' in name ? price : energy).
   var slotState = {};
   function slotKind(name) { return /price/.test(name || "") ? "price" : "energy"; }
 
@@ -251,11 +303,18 @@
   // one-time cleanup; once no browser holds it the removal is a no-op and can go.
   try { localStorage.removeItem("ha.slots"); } catch (e) { /* ignore */ }
 
-  // localStorage-backed HA slot selections, tagged with the generation they were saved at.
-  //   { gen: <int>, slots: { <slot>: { source, statId } } }
+  // localStorage-backed slot selections, tagged with the generation they were saved at.
+  //   { gen: <int>, slots: { <slot>: { source, statId, uploadId, column, unit } } }
   // loadSlotStore returns a normalised object (empty slots + gen -1 on any parse error, so it can
-  // never equal a real serverGen ≥ 0). saveSlotStore writes only the HA slots out of slotState and
-  // stamps the CURRENT serverGen; backend-load choices never land here.
+  // never equal a real serverGen ≥ 0). saveSlotStore writes the locally-customized slots out of
+  // slotState and stamps the CURRENT serverGen.
+  //
+  // loadSlotStore deliberately does NOT validate the per-slot objects, only the envelope. What the
+  // fields mean is source-specific and grows (statId, then the three CSV binding fields), so a
+  // per-field check here would need updating for every source and would silently drop an entry
+  // written by a newer build of this same file. The seed loop below reads the fields it knows and
+  // defaults the rest, and the server validates anything that reaches it — which is where a
+  // nonsense uploadId is caught, not here.
   function loadSlotStore() {
     try {
       var obj = JSON.parse(localStorage.getItem(LS_SLOTS) || "null");
@@ -271,26 +330,80 @@
   // authoritative state into the store and let it wrongly "win" as a pre-fetch customization.
   var locallyCustomized = {};
 
-  // Persist the locally-customized HA slots, tagged with the generation the client currently sees.
+  // Persist the locally-customized slots, tagged with the generation the client currently sees.
   // This covers only PRE-FETCH customizations: once a slot has been fetched, its source AND entity
   // are persisted server-side (series_meta) and render from the dataset, so the store is not what
   // carries a fetched slot across a reload.
+  //
+  // The gate per source kind is "would this entry be FETCHABLE if restored?", which is why the two
+  // configurable sources are gated and the rest are not:
+  //   * home_assistant → needs a chosen entity, so it is stored only once `statId` is set.
+  //   * csv_upload     → needs a file AND a column, so it is stored only once both are set. `unit`
+  //     is not part of the gate: it has a default (kWh, the drawer's default radio and
+  //     CsvBinding's), so an entry missing it is complete, not partial.
+  // Storing a partial entry would restore a slot that looks staged and then fails the next fetch —
+  // and under the all-or-nothing reify contract that failure takes the whole fetch with it, HA slots
+  // included, so a half-written binding is not a cosmetic problem.
   function saveSlotStore() {
     var slots = {};
     Object.keys(locallyCustomized).forEach(function (name) {
       var st = slotState[name];
       if (!st || !st.source) return;
-      // HA is stored only once it has an entity (otherwise it is not yet fetchable); a backend
-      // source is stored as soon as it is chosen (it has no entity to wait for).
       if (st.source === "home_assistant") {
         if (st.statId) slots[name] = { source: "home_assistant", statId: st.statId };
+      } else if (st.source === CSV_SOURCE_KEY) {
+        if (st.uploadId && st.column) {
+          slots[name] = {
+            source: CSV_SOURCE_KEY,
+            statId: "",
+            uploadId: st.uploadId,
+            column: st.column,
+            unit: st.unit || DEFAULT_CSV_UNIT
+          };
+        }
       } else {
+        // A backend source with nothing to configure (energy_charts, entsoe): the key is the whole
+        // choice, and it is fetchable the moment it is picked.
         slots[name] = { source: st.source, statId: "" };
       }
     });
     try {
       localStorage.setItem(LS_SLOTS, JSON.stringify({ gen: serverGen, slots: slots }));
     } catch (e) { /* quota; ignore */ }
+  }
+
+  // The READ-side counterpart of saveSlotStore's completeness gate: "is this stored entry usable as
+  // a staged choice?". saveSlotStore only decides what THIS build writes, and the seed loop reads
+  // entries this build did not write — a store hand-edited in devtools, or one left by an older
+  // build whose gate differed. So the write-side gate cannot be the only one, and the read side is
+  // the robust place for it: everything downstream of the seed loop (slotState → stagedBackendSlots
+  // → the backend_load frame) treats what it finds as already vetted.
+  //
+  // The rule mirrors saveSlotStore's csv_upload branch: an entry for that source is usable only once
+  // it names BOTH a file and a column. `unit` is NOT part of it — it has a documented default (kWh,
+  // DEFAULT_CSV_UNIT and CsvBinding's own), so an entry without one is complete.
+  //
+  // Only csv_upload is gated here, deliberately, even though saveSlotStore also requires a statId
+  // before writing a home_assistant entry. An entry with an empty or HA-without-entity source is
+  // already harmless — mappedSlots() skips a slot with no statId and stagedBackendSlots() skips one
+  // whose source is not a backend key, so neither stages anything and neither can fail a fetch — and
+  // it is a MEANINGFUL state to restore: an entry with an empty source is how a user clears a slot
+  // the server committed, which is what `_make_slot_pristine` in tests/test_smoke.py relies on.
+  // Rejecting those here would silently re-apply the server's choice over the user's deletion.
+  //
+  // An unusable entry is dropped WHOLE — the slot falls back to the server's committed source, the
+  // same state as if there were no local entry at all — rather than being kept minus its binding.
+  // Keeping `source: "csv_upload"` with no binding was the alternative and is worse in both places
+  // it shows up: the row would read as CSV-configured while `stagedBackendSlots` sent an empty
+  // upload_id, which the server rejects and which, under the all-or-nothing reify contract, fails
+  // the ENTIRE fetch including every HA slot. The user's route out of that state also does not exist
+  // yet — the csv_upload radio is filtered out of the drawer until step 6 — so a slot left in it
+  // would be neither correctable nor visibly wrong. Dropping to the server's choice leaves the slot
+  // in exactly the state the drawer already knows how to show and the user already knows how to fix.
+  function usableStoreEntry(entry) {
+    if (!entry) return false;
+    if (entry.source === CSV_SOURCE_KEY) return !!(entry.uploadId && entry.column);
+    return true;
   }
 
   // Seed slotState from the slot source buttons, reconciled against localStorage by generation
@@ -308,15 +421,35 @@
     var serverSource = btn.getAttribute("data-slot-source") || null;
     var serverStatId = btn.getAttribute("data-slot-stat-id") || "";
     var local = storeCurrent ? slotStore.slots[name] : null;
+    if (local && !usableStoreEntry(local)) local = null;
     if (local) {
-      slotState[name] = { source: local.source, statId: local.statId || "", kind: slotKind(name) };
+      // The CSV binding fields are carried across verbatim (defaulting only `unit`, which has one).
+      // They have no server-side counterpart to fall back to — unlike `statId`, which a fetched slot
+      // renders from series_meta — so dropping them here would lose the binding on every plain
+      // refresh, which is the whole thing this store exists to prevent. Verbatim is safe because
+      // `usableStoreEntry` above has already rejected a csv_upload entry missing either of them.
+      slotState[name] = {
+        source: local.source,
+        statId: local.statId || "",
+        uploadId: local.uploadId || "",
+        column: local.column || "",
+        unit: local.unit || DEFAULT_CSV_UNIT,
+        kind: slotKind(name)
+      };
       // A store entry at the current generation is a pre-fetch customization: keep tracking it so a
       // later save (from customizing another slot) preserves it rather than dropping it.
       locallyCustomized[name] = true;
     } else {
+      // No local entry: the server's committed choice. There is deliberately no server-side binding
+      // to read here — under D-BIND a CSV binding is browser-local, so a slot whose server source is
+      // `csv_upload` (i.e. one that HAS been fetched from a CSV) shows its provenance from the
+      // dataset and needs no binding to render. It needs one again only to be re-fetched.
       slotState[name] = {
         source: serverSource,
         statId: serverStatId,
+        uploadId: "",
+        column: "",
+        unit: DEFAULT_CSV_UNIT,
         kind: btn.getAttribute("data-slot-kind") || slotKind(name)
       };
     }
@@ -648,13 +781,43 @@
 
   // Staged backend-load slots: those whose committed source is a backend_load key. The fetch
   // reifies each by sending a backend_load WS message; the backend loads and persists it.
+  //
+  // A CSV slot also carries its BINDING on that message, and this is the only path the binding takes
+  // to the server (D-BIND: it is browser-local, and Confirm writes nothing server-side). Field names
+  // are snake_case here because they cross the wire into `app/ingest_ws.py`'s protocol, where every
+  // other field is too; the camelCase spelling stops at this boundary.
+  //
+  // The binding is attached only for `csv_upload`, not for every backend slot, because the server
+  // passes it on only to that source — the `DataSource` protocol is `load(slot, window)` and each
+  // source's extras are its own, so `energy_charts` would raise on an unexpected keyword. Sending a
+  // binding it will not use would be harmless today and misleading tomorrow.
+  //
+  // An INCOMPLETE binding is sent as-is rather than suppressed HERE, because it is kept out of
+  // slotState in the first place: `saveSlotStore` writes only complete bindings and
+  // `usableStoreEntry` refuses to restore an incomplete one on the way back in, so no slot reaches
+  // this function bound to half a binding (step 6's Confirm gate adds the third, in-drawer, copy of
+  // the same rule). Those are the gates; this is not one, and it must not become the only one — a
+  // filter here would drop the SLOT silently and leave a fetch quietly missing a series the user
+  // asked for. If a binding ever does arrive incomplete, sending it gets a server message naming the
+  // missing field, which is a diagnosable failure rather than a vanished slot.
   function stagedBackendSlots() {
     return Object.keys(slotState)
       .filter(function (name) {
         var st = slotState[name];
         return st && st.source && backendSourceKeys[st.source] && !slotHidden(name);
       })
-      .map(function (name) { return { name: name, source: slotState[name].source }; });
+      .map(function (name) {
+        var st = slotState[name];
+        var out = { name: name, source: st.source };
+        if (st.source === CSV_SOURCE_KEY) {
+          out.binding = {
+            upload_id: st.uploadId || "",
+            column: st.column || "",
+            unit: st.unit || DEFAULT_CSV_UNIT
+          };
+        }
+        return out;
+      });
   }
 
   // True while a fetch is running, so updateFetchEnabled does not re-enable the button mid-run.
@@ -736,9 +899,15 @@
       // `done` (all-or-nothing) and folds them into the same dataset.
       for (var b = 0; b < backends.length; b++) {
         setStatus(fetchStatus, ti("loading_slot", "Loading %(slot)s…", { slot: backends[b].name }), "text-base-content/60");
-        backend.send(JSON.stringify({
+        var msg = {
           type: "backend_load", name: backends[b].name, source: backends[b].source, window: win
-        }));
+        };
+        // The per-slot binding, for the one source that needs one (stagedBackendSlots). Omitted
+        // entirely rather than sent as null for a source with nothing to bind — `on_backend_load`
+        // treats absent and null alike, but an absent field is what the protocol documents as the
+        // normal case and keeps the message identical to what it was before CSV existed.
+        if (backends[b].binding) msg.binding = backends[b].binding;
+        backend.send(JSON.stringify(msg));
       }
 
       var result = await finishBackend(backend);
@@ -843,7 +1012,12 @@
   // drawer is open; it is seeded from the committed slotState on open and applied to slotState
   // only on Confirm. `sources` holds the current slot's source descriptors (for Confirm to read
   // the selected source's kind). `loading` guards Confirm during a backend load.
-  var draft = { slot: null, source: null, statId: "" };
+  // `uploadId`/`column`/`unit` are the CSV binding (D-BIND), staged like everything else: the
+  // step-6 file/column/unit controls will write them here and nowhere else, and Confirm is what
+  // moves them into slotState. They are carried through the staging cycle NOW, before those controls
+  // exist, so that the reify path is complete and testable behind PENDING_SOURCE_KEYS rather than
+  // landing as one large untested change with the UI.
+  var draft = { slot: null, source: null, statId: "", uploadId: "", column: "", unit: DEFAULT_CSV_UNIT };
   var drawerSources = [];
   var loading = false;
   var lastFocus = null;
@@ -870,6 +1044,12 @@
     draft.slot = name;
     draft.source = st.source;
     draft.statId = st.statId || "";
+    // The CSV binding, seeded from the committed state like the entity id. There is no data-* fallback
+    // for these: unlike `statId` the server has no copy to render from (D-BIND), so the `||` defaults
+    // are the whole of the fallback and a slot with no committed binding opens with an empty one.
+    draft.uploadId = st.uploadId || "";
+    draft.column = st.column || "";
+    draft.unit = st.unit || DEFAULT_CSV_UNIT;
     loading = false;
 
     var role = btn.getAttribute("data-slot-role") || name;
@@ -905,7 +1085,11 @@
     drawerHaNote.classList.add("hidden");
     if (drawerHaEntity) drawerHaEntity.classList.add("hidden");
     drawerBackendStatus.textContent = "";
-    draft = { slot: null, source: null, statId: "" };
+    // Reset in full, binding included. `openDrawer` assigns all six fields unconditionally, so a
+    // leftover binding could not actually leak into the next slot's draft today — this keeps the
+    // "closed drawer holds nothing" invariant true of the whole object rather than of the fields
+    // that happen to be re-seeded, which is what the next reader will assume of it.
+    draft = { slot: null, source: null, statId: "", uploadId: "", column: "", unit: DEFAULT_CSV_UNIT };
     loading = false;
     if (lastFocus) { try { lastFocus.focus(); } catch (e) { /* ignore */ } }
   }
@@ -945,18 +1129,26 @@
   }
 
   // The registry source key whose drawer controls are not built yet (step 6 of the CSV-import
-  // work). The backend now registers it, so it arrives in `row.sources` for every energy slot —
-  // but selecting it would stage a `backend_load` slot with no (upload_id, column, unit) binding,
-  // and `stageBackendSlots` below sends those to the ingest WS by KIND. A bindingless CSV slot
-  // makes `CsvSource.load` raise, which `_load_backend_frame` turns into an IngestError, which
-  // fails the WHOLE all-or-nothing fetch — including the HA slots that had nothing wrong with
-  // them. So it is filtered out of the live list and represented by the disabled pending stub
-  // until step 6 builds the file/column/unit controls and step 5 persists what they choose.
+  // work). The backend registers it, so it arrives in `row.sources` for every energy slot — but
+  // there is no control here yet for choosing a file, a column and a unit, so selecting the radio
+  // would stage a `backend_load` slot with an EMPTY binding. `stagedBackendSlots` sends those to the
+  // ingest WS by KIND, and a bindingless CSV slot makes `CsvSource` raise, which
+  // `_load_backend_frame` turns into an IngestError, which fails the WHOLE all-or-nothing fetch —
+  // including the HA slots that had nothing wrong with them.
+  //
+  // **Step 5 changed the reason this filter is still here, so read it before removing it.** The
+  // binding now travels end to end: it is stored (saveSlotStore), restored (the seed loop), staged
+  // (draft), committed (confirmDraft), sent (stagedBackendSlots) and validated server-side. What is
+  // missing is only the UI that lets the user PRODUCE one. So the filter is no longer standing in for
+  // absent plumbing; it is standing in for an absent control, and step 6 removes it together with
+  // building that control plus a Confirm gate that requires a file and a column — the gate is what
+  // replaces the filter as the guard against the empty-binding fetch above.
   //
   // Filtering here rather than unregistering the source keeps the backend honest: `available_for`
   // is the authority on which slots CSV *can* fill (and `tests/test_csv_source.py` pins it), and
   // this is the UI declining to offer a control it cannot yet complete.
-  var PENDING_SOURCE_KEYS = { csv_upload: true };
+  var PENDING_SOURCE_KEYS = {};
+  PENDING_SOURCE_KEYS[CSV_SOURCE_KEY] = true;
 
   // Render the radio list for the current slot's sources, plus the pending "Upload CSV" option
   // for the slots that will offer it.
@@ -972,7 +1164,7 @@
     // follows `available_for` — every energy slot except power_grid, and never price_spot, where
     // CSV is deliberately unavailable rather than pending (D-PRICE). Before this, the stub was
     // appended unconditionally, which promised price_spot a source it is never getting.
-    var csvPending = sources.some(function (s) { return s.key === "csv_upload"; });
+    var csvPending = sources.some(function (s) { return s.key === CSV_SOURCE_KEY; });
     sources = sources.filter(function (s) { return !PENDING_SOURCE_KEYS[s.key]; });
 
     // Stage the default from the FILTERED list — a pending key has no radio to check, so staging
@@ -1067,6 +1259,17 @@
     draft.source = s.key;
     // A different source invalidates the previously staged entity id.
     if (s.kind !== "browser_fetch") draft.statId = "";
+    // …and, symmetrically, the CSV binding. Nothing downstream would misread a stale one —
+    // `saveSlotStore` and `stagedBackendSlots` both key on `source === csv_upload`, so a binding
+    // sitting on an energy_charts slot is neither stored nor sent. What the clear buys is that
+    // re-selecting csv_upload after a detour starts from an EMPTY binding rather than silently
+    // reviving the one the user navigated away from, which is the same rule `statId` follows one line
+    // up and the one step 6's Confirm gate will read.
+    if (s.key !== CSV_SOURCE_KEY) {
+      draft.uploadId = "";
+      draft.column = "";
+      draft.unit = DEFAULT_CSV_UNIT;
+    }
     var name = draft.slot;
 
     var isHa = s.kind === "browser_fetch";
@@ -1176,17 +1379,27 @@
   // persists it (localStorage, generation-tagged), refreshes the row label, and closes.
   //   * HA (browser_fetch): statId is committed too; the Confirm gate guarantees a tested
   //     connection + a chosen entity, so a staged HA slot is always fetchable.
-  //   * backend (backend_load): no statId; the fetch reifies it via a backend_load WS message.
-  // The pending CSV option's radio is disabled, so draft.source can never be it here.
+  //   * backend (backend_load): no statId; the fetch reifies it via a backend_load WS message. For
+  //     csv_upload the staged (uploadId, column, unit) binding is committed too and rides along on
+  //     that message — the drawer still writes nothing server-side.
+  // The pending CSV option's radio is disabled TODAY (PENDING_SOURCE_KEYS), so draft.source cannot
+  // be csv_upload here yet — the branch exists because step 6 lifts that filter, and it is exercised
+  // by the store/reify tests rather than by the UI.
   function confirmDraft() {
     var s = selectedSource();
     if (!s || loading) return;
 
     var name = draft.slot;
     var isHa = draft.source === "home_assistant";
+    var isCsv = draft.source === CSV_SOURCE_KEY;
     slotState[name] = {
       source: draft.source,
       statId: isHa ? (draft.statId || "") : "",
+      // The binding is committed only for the CSV source, so the committed state cannot carry a
+      // binding that does not belong to it — the same rule `statId` follows for HA.
+      uploadId: isCsv ? (draft.uploadId || "") : "",
+      column: isCsv ? (draft.column || "") : "",
+      unit: isCsv ? (draft.unit || DEFAULT_CSV_UNIT) : DEFAULT_CSV_UNIT,
       kind: slotKind(name)
     };
     // A staged choice is a local customization until a fetch persists it server-side. Mark it so

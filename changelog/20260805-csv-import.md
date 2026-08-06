@@ -287,8 +287,40 @@ Consequences, which apply for the rest of this project:
 
 ## Current Status
 
-Specs written and internally consistent. Plan approved. Implementation brief written and tasks
-persisted. Delegating step by step; nothing implemented yet.
+Steps 1–4 implemented, reviewed by separate agents, and committed. Rebased onto master `4a4fa10`
+on 2026-08-06 (see below). Steps 5–8 remain; step 5 is at a user-requested checkpoint.
+
+The state is deliberately incomplete but coherent: the backend registers `csv_upload` and can parse,
+store and slice a CSV, but no per-slot binding is persisted yet, so `ha_fetch.js` filters the CSV
+radio out of the live list and shows the disabled pending stub instead. Selecting a bindingless CSV
+slot would fail the whole all-or-nothing fetch, HA slots included.
+
+### Rebase onto master `4a4fa10`, 2026-08-06
+
+Twelve commits from PRs #7/#8 landed on master first (results-screen defaults, charge policy P1,
+`simulate_cost` defaulting on, an HA entity preselect fix, Tailwind glob narrowing). Steps 1–4 were
+rebased on top rather than merged, keeping the branch a single commit.
+
+Three files conflicted; the rest auto-merged, including `app/main.py` and `tests/test_smoke.py`.
+
+- **`app/static/ha_fetch.js`** — a real semantic overlap, not just textual. Master added
+  `defaultSourceFor`, which stages a default source in `renderSourceList` for a slot with nothing
+  committed; our change filters `csv_upload` out of that same list. Resolved by keeping both with
+  the filter running **first**, so a pending key can never be staged as a slot's default. Today
+  every CSV-capable slot also offers Home Assistant and that sorts first, so this ordering is a
+  guard against a state step 6 will create, not a fix for observed behaviour.
+- **Both `.mo` catalogs** — binary and unmergeable. Regenerated from the cleanly auto-merged `.po`
+  files with `uv run pybabel compile -d app/locales -D messages`; strings from both sides verified
+  present. Future rebases should regenerate rather than resolve these.
+
+Verified after rebasing: 607 targeted tests pass (CSV, uploads, sources, slot load, workspaces,
+i18n, leakage) and all 41 Playwright smoke tests pass — including master's two new preselect tests,
+which exercise the hand-merged `renderSourceList` directly.
+
+No incoming commit changes steps 5–8's plan. `_load_backend_frame` and `load_slot` are untouched,
+so step 5's threading requirements stand as written. `simulate_cost` now defaulting on means
+`price_spot` is requested by default, which is the one slot CSV deliberately never offers
+(D-PRICE) — the drawer tests covering it pass.
 
 1. `uploads` table + `<workspace_id>/uploads/` storage, owner/workspace-scoped with the same
    traversal guards as `_series_dir` (`dataset.py:188-191`).

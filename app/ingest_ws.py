@@ -25,6 +25,11 @@ Protocol — client → server messages (JSON per WS text frame):
      "source": "energy_charts",
      "window": {"start": "<iso>", "end": "<iso>"}}          # 0+ times: a STAGED backend-load slot
 
+    {"type": "backend_load", "name": "grid_import_t1",
+     "source": "csv_upload",
+     "binding": {"upload_id": "<32 hex>", "column": "Verbruik_T1", "unit": "kWh"},
+     "window": {"start": "<iso>", "end": "<iso>"}}          # a CSV slot: same message + a binding
+
     {"type": "done"}                                         # once, last
 
 A fetch REIFIES the whole staged source config in one shot (specs §3.5, §2.2): the browser
@@ -49,11 +54,31 @@ that, which the fine-window cap (~10 trailing days, specs §4.3) keeps bounded.
 The route reifies backend_load slots all-or-nothing: any load failure fails the whole fetch
 (LOAD_FAILED) and persists nothing, so a fetch never yields a partial dataset.
 
+The optional `binding` on a `backend_load` message (decision D-BIND of the CSV-import brief). Most
+backend sources can answer "load this slot over this window" from the slot alone — Energy-Charts has
+one series, so there is nothing more to say. An uploaded wide CSV has MANY columns and a workspace
+has many uploads, so a CSV slot needs `(upload_id, column, unit)` as well, and this message is the
+ONLY path that binding takes to the server: it is stored browser-side in
+`localStorage ha.slots.<workspace>` beside the HA statistic id, exactly as a pre-fetch customization
+(`app/static/ha_fetch.js`'s two-carriers comment), and the drawer's Confirm writes nothing
+server-side. That keeps the drawer a pure staging surface, which is what makes "an upload survives
+Cancel, the binding does not" true without a server write.
+
+The consequence, and it is the reason the validation below is not cosmetic: **the `upload_id` is
+client-supplied.** This module checks only its SHAPE — that a binding is an object carrying a
+plausible id, a non-empty column name and a known unit — because the session is deliberately pure
+and data-dir-free and cannot ask whether that upload exists. Whether the workspace actually HAS that
+upload is checked where the load runs (`app/main.py` `_load_backend_frame` → `uploads.get`, which is
+workspace-scoped), and a foreign or absent id fails the whole fetch there rather than reading another
+workspace's file. Neither check is redundant: the shape check rejects a malformed message before any
+I/O and names the field, the existence check is the security boundary.
+
 Main items:
     IngestError                    protocol/validation failure carrying a user-facing message.
     IngestSession                  stateful accumulator: on_header / on_series / on_rows /
                                    on_backend_load / finish.
-    BackendLoadRequest             one staged backend-load slot the route must load on `done`.
+    BackendLoadRequest             one staged backend-load slot the route must load on `done`,
+                                   with the optional per-slot `binding` (D-BIND) a CSV slot needs.
     build_frames(buffers, ...)     pure: buffered rows → (frames, warnings).
 """
 
@@ -78,11 +103,26 @@ class BackendLoadRequest:
     Carries the slot name, the source descriptor key, and the window to load. The session only
     records these (it stays pure and data-dir-free); the route does the actual `source.load` and
     folds the resulting frame into the same dataset as the HA series.
+
+    `binding` is the per-slot extra a source may need beyond `(slot, window)` — today only the
+    uploaded-CSV source, which needs `{upload_id, column, unit}` to know WHICH column of WHICH
+    uploaded file this slot is (module comment, D-BIND). It is kept as the raw dict the client sent
+    rather than converted to `csv_source.CsvBinding` here, for two reasons: this module has no
+    business importing an adapter (it is the protocol layer, and `app/sources/` is I/O), and the
+    field is generic by intent — a second source needing per-slot configuration reuses it without
+    this module learning what that configuration means. The route translates it.
+
+    None for a source that needs no binding, which is every source but CSV. A CSV slot arriving
+    WITHOUT one is not rejected here: `available_for` and the binding requirement are the source's
+    to state, and it raises `CsvBindingError` naming the slot, which the route maps to a clean
+    failure. Rejecting it here would mean this module hardcoding which source keys need a binding —
+    exactly the coupling the previous paragraph avoids.
     """
 
     name: str
     source: str
     window: tuple[datetime, datetime]
+    binding: dict | None = None
 
 
 # The two native resolutions a single HA series arrives at (specs §4.3): the full-window
@@ -226,6 +266,16 @@ class IngestSession:
         the header window); the source key and its kind/availability are checked by the route when
         it actually loads (it owns the registry). A slot declared as both a `series` (HA) and a
         `backend_load` in one fetch is a client bug — rejected here.
+
+        An optional `binding` is validated for SHAPE only — see the module comment on why that is
+        the honest division of labour and why it is not redundant with the route's existence check.
+        The shape rules are deliberately weak and generic: an object, with a non-empty string
+        `upload_id` and a non-empty string `column`, and `unit` a string when present. What counts
+        as a valid unit is `csv_wide.UNIT_FACTORS`, and what counts as an existing upload is the
+        `uploads` store — both are the source's and the route's business respectively, and importing
+        either here would make the protocol layer depend on an adapter it otherwise knows nothing
+        about. What this check buys is that a malformed message is refused before any file is opened,
+        with a message naming the offending field rather than a `TypeError` from deep inside a load.
         """
         if not self._header_seen:
             raise IngestError("backend_load declared before header")
@@ -247,7 +297,10 @@ class IngestSession:
             raise IngestError(f"invalid backend_load window for {name!r}: {exc}") from exc
         if end <= start:
             raise IngestError(f"backend_load window end must be after start for {name!r}")
-        self.backend_loads[name] = BackendLoadRequest(name=name, source=source, window=(start, end))
+        binding = _check_binding_shape(name, msg.get("binding"))
+        self.backend_loads[name] = BackendLoadRequest(
+            name=name, source=source, window=(start, end), binding=binding
+        )
 
     def finish(self) -> tuple[list[SeriesFrame], list[dict], tuple[datetime, datetime]]:
         if not self._header_seen or self.window is None:
@@ -327,6 +380,53 @@ def _period_frame(name: str, kind: str, rows: _PeriodRows) -> SeriesFrame:
         frame, _ = ingest.energy_frame(name, rows.energy_rows)
         return frame
     return ingest.price_frame(name, rows.price_rows)
+
+
+def _check_binding_shape(name: str, binding) -> dict | None:
+    """The optional per-slot `binding` on a `backend_load` message, shape-checked. None passes.
+
+    Absent is the normal case — every source but the uploaded CSV needs nothing beyond
+    `(slot, window)` — so `None` is returned unchanged rather than treated as an error. A slot that
+    NEEDS a binding and did not send one is the source's to reject (`CsvBindingError`), for the
+    reason `BackendLoadRequest` records: knowing which source keys require configuration would
+    couple this module to `app/sources/`.
+
+    What is checked, and nothing more (module comment): it is an object; `upload_id` and `column` are
+    non-empty strings; `unit`, when present, is a string. Not checked here, on purpose:
+
+      * whether `unit` is one of `csv_wide.UNIT_FACTORS` — the parser owns that vocabulary and
+        already raises `bad_unit` with the list, so duplicating it here would give two places to
+        update when a unit is added;
+      * whether `upload_id` has the 32-hex shape a generated id has — `uploads._check_upload_id`
+        owns that, runs before the id becomes a path component, and is the traversal guard. A weaker
+        copy here would look like the guard without being it;
+      * whether the upload EXISTS — that needs the store, i.e. I/O, and is the route's job. It is
+        also the security-relevant check, since the id is client-supplied.
+
+    `column` is not validated against the file's header either: the header is in the file, which this
+    module never opens. `column_frame` reports an unknown column by name.
+
+    An empty-string `column` is rejected rather than passed through, because it is the one malformed
+    value a half-built drawer will actually produce (a selector with no selection) and the resulting
+    error otherwise names a missing column called `''`, which reads like a file problem rather than a
+    configuration one.
+    """
+    if binding is None:
+        return None
+    if not isinstance(binding, dict):
+        raise IngestError(
+            f"backend_load binding for {name!r} must be an object, got {type(binding).__name__}"
+        )
+    upload_id = binding.get("upload_id")
+    if not isinstance(upload_id, str) or not upload_id:
+        raise IngestError(f"backend_load binding for {name!r} is missing 'upload_id'")
+    column = binding.get("column")
+    if not isinstance(column, str) or not column:
+        raise IngestError(f"backend_load binding for {name!r} is missing 'column'")
+    unit = binding.get("unit")
+    if unit is not None and not isinstance(unit, str):
+        raise IngestError(f"backend_load binding for {name!r} has a non-string 'unit'")
+    return binding
 
 
 def _opt_float(v) -> float | None:

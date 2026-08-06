@@ -59,26 +59,40 @@ extras** on `load`, exactly as `EnergyChartsSource.load` takes its injected `ope
 `DataSource` protocol signature is deliberately NOT widened, since a protocol is the set of calls
 every implementation must answer and only this one needs a binding.
 
-**TODO (step 5 of the CSV-import brief): nothing threads the binding yet.** Both existing backend
-load paths — `app/main.py` `_load_backend_frame` (the ingest-WS reify path) and the
-`POST /w/{id}/data/slot/{slot}/load` endpoint — call `source.load(slot, win)` with no extras, so a
-CSV slot loaded through either raises `CsvBindingError` today. Step 5 persists the binding beside
-the slot's stored source choice and passes it (plus the `workspace_id`, which those paths already
-have in hand as `ws.id`) through both call sites.
+**Both backend load paths thread it as of step 5 of the CSV-import brief.** `app/main.py`'s
+`_load_backend_frame` (the ingest-WS reify path) and the `POST /w/{id}/data/slot/{slot}/load`
+endpoint pass `workspace_id=ws.id` and `binding=` — and pass them ONLY to this source, because the
+`DataSource` protocol is narrow and `EnergyChartsSource.load`'s extras are different ones
+(`_CSV_SOURCE_KEY` there carries the argument).
 
-**And that has a blast radius worth stating plainly, because it works against the payoff claimed
-just above.** `ha_fetch.js` stages `backend_load` slots by descriptor kind, which is what lets a new
-backend source be reified with no JS change — but it also means a user who merely *selects* the CSV
-radio stages a bindingless `backend_load` slot, whose load raises here, which `_load_backend_frame`
-wraps into an `IngestError`, which fails the **whole all-or-nothing fetch — including the HA slots
-that were fine**. One unconfigured slot would take down the entire run.
+**Where the binding comes from is the part with teeth.** It is not server state: decision D-BIND
+files it under `localStorage ha.slots.<workspace>` beside the HA statistic id, as a pre-fetch
+customization (`app/static/ha_fetch.js`'s two-carriers comment), and it reaches the server only on
+the WS `backend_load` message. So `binding.upload_id` is **client-supplied**, and the
+`uploads.get(workspace_id, binding.upload_id)` call in `load_with_warnings` is a security boundary
+rather than a sanity check: it is workspace-scoped, so an id belonging to another workspace resolves
+to None exactly as a nonexistent one does, and this module raises instead of reading it.
 
-That is not reachable as shipped: `renderSourceList` in `app/static/ha_fetch.js` filters
-`csv_upload` out of the live radio list (`PENDING_SOURCE_KEYS`) and shows the disabled pending stub
-instead, so the radio cannot be selected until step 6 builds the file/column/unit controls. The
-filter is the guard, and it must not be lifted before step 5 persists bindings AND the reify path
-threads them — lifting it alone re-opens exactly this failure. Registration here and selectability
-there are deliberately decoupled for that reason.
+That same call is also where a **malformed** id is turned into a `CsvBindingError`.
+`uploads._check_upload_id` — the traversal guard, unchanged and still admitting only 32 lowercase
+hex — signals a bad id with a plain `ValueError`, and both callers classify by exception type, so
+without the translation a `../../etc/passwd` id read as a load failure (502 on the endpoint) instead
+of as the bad client input it is. Translating it here rather than at either caller keeps "a
+`ValueError` out of the uploads store means the binding was malformed" in the one place that
+interprets bindings.
+
+**One consequence of `ha_fetch.js` staging `backend_load` slots by descriptor kind, still worth
+stating.** A user who merely *selects* the CSV radio without completing the file/column choice
+stages a bindingless `backend_load` slot, whose load raises here, which `_load_backend_frame` wraps
+into an `IngestError`, which fails the **whole all-or-nothing fetch — including the HA slots that
+were fine**. One unconfigured slot takes down the entire run.
+
+That is still not reachable as shipped, and by the same guard as before: `renderSourceList` in
+`app/static/ha_fetch.js` filters `csv_upload` out of the live radio list (`PENDING_SOURCE_KEYS`) and
+shows the disabled pending stub instead, so the radio cannot be selected until step 6 builds the
+file/column/unit controls. Step 5 threading the binding is a **precondition** for lifting that
+filter, not the whole of it: step 6 must also keep Confirm disabled until the binding is complete,
+or the same bindingless slot arrives from a completed-looking drawer.
 
 ## Windowing is done HERE, not in the parser
 
@@ -108,8 +122,10 @@ modal answer at all. `infer_resolution_s` is reused, not reimplemented.
 `column_frame` returns `CSV_GAP_CELLS` and `CSV_DST_AMBIGUOUS_HOUR` warnings, and §7.3's
 data-quality box wants both — the second by day. But `DataSource.load` returns a frame and nothing
 else, so there are two entry points: `load` satisfies the protocol and drops them, and
-`load_with_warnings` returns `(frame, warnings)` for the caller that reports them. Step 5 should
-use the latter.
+`load_with_warnings` returns `(frame, warnings)` for the caller that reports them. Both of
+`app/main.py`'s backend-load paths call the latter as of step 5, and `_load_backend_frame` returns
+`(frame, warnings)` for exactly that reason — a bare-frame return there would have dropped every
+CSV warning before the quality box could see it, silently and for every fetch.
 
 The warnings are **recomputed for the slice**, not passed through: a gap in March is not a warning
 about a load of July, and the ambiguous-hour day list must name the days actually inside the
@@ -176,15 +192,17 @@ class CsvBindingError(ValueError):
     is a configuration gap the user fixes in the drawer; the second is a data problem reported
     against the file.
 
-    **What the user currently sees is a 502, and that is wrong — it is step 5's to fix.** An earlier
-    version of this docstring claimed "both surface as a 4xx". They do not: `load_slot`'s bare
-    `except Exception` (`app/main.py`) maps any load failure to 502, so an unconfigured slot is
-    reported as a bad gateway. There is nothing upstream of this app to be a bad gateway. The
-    condition is "you have not chosen a file and column yet", which is a 400 — but the mapping lives
-    in `app/main.py`, which step 4 does not own (step 3's routes were landing in it concurrently),
-    and the error is unreachable in practice until step 5 threads bindings through that same
-    function. So it is recorded here rather than fixed here: **step 5 should catch
-    `CsvBindingError` in `load_slot` and `_load_backend_frame` and map it to 400.**
+    **This is a 400, as of step 5 — and it had to be made one.** An earlier docstring claimed "both
+    surface as a 4xx"; they did not. `load_slot`'s bare `except Exception` (`app/main.py`) maps every
+    load failure to 502, so an unconfigured slot was reported as a bad gateway, with nothing upstream
+    of this app to be one. `load_slot` now catches this type **above** that generic branch — ordering
+    that matters, since this is a `ValueError` and the generic branch would otherwise swallow it —
+    and answers 400: the condition is "you have not chosen a file and column yet", which is the
+    client's input.
+
+    On the WS reify path there is only one error shape (an `error` frame), so
+    `_load_backend_frame` still turns this into an `IngestError`; what it gains is a message saying
+    the slot is not fully configured rather than one blaming the source for a failed load.
     """
 
 
@@ -446,7 +464,26 @@ class CsvSource:
             )
 
         if upload is None:
-            upload = uploads.get(workspace_id, binding.upload_id)
+            try:
+                upload = uploads.get(workspace_id, binding.upload_id)
+            except ValueError as exc:
+                # `uploads._check_upload_id` refuses anything that is not 32 lowercase hex — the
+                # traversal guard — and signals it with a plain `ValueError`. That guard is right and
+                # is deliberately not weakened; what is wrong is letting its exception escape from
+                # here, because callers classify by TYPE: `load_slot` maps `CsvBindingError` to 400
+                # and everything else to 502, so a `../../etc/passwd` upload_id — the most obviously
+                # client-supplied bad input on this path — used to answer "bad gateway", and on the
+                # WS path it read as a load failure rather than as an unconfigured slot.
+                #
+                # Translated HERE rather than at either caller because this is where the binding is
+                # interpreted: the two call sites would otherwise each need to know that a
+                # `ValueError` out of the uploads store means "the binding was malformed" and not
+                # "the store broke". The message stays generic about the id and does not quote it —
+                # `app/main.py`'s `delete_upload` records why a rejected id is not echoed back.
+                raise CsvBindingError(
+                    f"slot {slot.name!r} is bound to an upload id that is not a valid one. "
+                    "Choose the file again in the source drawer."
+                ) from exc
         if upload is None:
             raise CsvBindingError(
                 f"slot {slot.name!r} is bound to uploaded file {binding.upload_id!r}, which this "

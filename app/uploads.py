@@ -40,7 +40,13 @@ file because it never looks inside one; it takes a summary it is told.
 
 No slot binding either. The binding `(upload_id, column, unit)` is per-slot CONFIGURATION, not
 data, so it lives with the slot's stored source choice rather than on the upload row — one upload
-can back several bindings, and a binding outlives nothing about the file except its id.
+can back several bindings, and a binding outlives nothing about the file except its id. **And that
+stored source choice is not server state at all:** decision D-BIND (candidate E) puts it in the
+browser, in `localStorage ha.slots.<workspace>`, from where it reaches the server only on the
+ingest-WS `backend_load` message. So "not on the upload row" understates it — there is no table,
+no column and no document key anywhere holding a binding, which is why `delete` below has no
+cascade to run and why the `upload_id` arriving with a load is client-supplied and must be checked
+against `get`.
 
 ## Ordering, and the one thing that is not atomic
 
@@ -64,14 +70,21 @@ and the generated id never returned to anyone — residue that was unreachable *
 a mistake the caller could have been told about before any write. The coercions now all happen
 before the write; see `create`. A crash between two stores is unavoidable, a preventable one is not.
 
-**A note for step 5, which is architecture rather than this module's doing.** `create` opens its own
-connection, so calling it inside an open `dataset.connect()` transaction fails with "database is
-locked" — `BEGIN IMMEDIATE` holds the write lock and a second connection waits out `db._TIMEOUT_S`.
-`db.bump_source_generation` fails identically in the same position, so this is the pre-existing
-cross-connection shape rather than something new here. A step-5 path wanting to write a slot binding
-and an upload as one logical operation has to sequence them across the two transactions (and pick
-which crash it prefers, as above) or take a connection parameter, the way `workspaces.delete`
-declined to.
+**Do not nest this module's writes inside another module's transaction** (decision D-SEQ; this is
+architecture rather than this module's doing). `create` and `delete` each open their own
+connection, so calling either inside an open `dataset.connect()` transaction fails with "database
+is locked" — `BEGIN IMMEDIATE` holds the write lock and a second connection waits out
+`db._TIMEOUT_S` before raising. `db.bump_source_generation` fails identically in the same position,
+so this is the pre-existing cross-connection shape rather than anything the CSV path introduced,
+and WAL would not help: the conflict is writer-vs-writer, which SQLite serialises under every
+journal mode. Anyone combining an uploads write with another store's write has to SEQUENCE them
+across the two transactions — and then pick which crash they prefer, as above — or thread a
+connection parameter through, the way `workspaces.delete` declined to.
+
+The CSV load path stays clear of this by construction rather than by care: the `get` a load
+performs completes before `dataset.upsert_series` opens its transaction (`app/main.py`
+`_load_backend_frame` records it), and there is no second write to sequence, because under D-BIND
+the binding is not server state.
 
 ## Owner scoping
 
@@ -502,10 +515,19 @@ def delete(workspace_id: str, upload_id: str) -> bool:
     an interrupted earlier delete, or a hand-removed file) still deletes cleanly rather than
     leaving the row behind on an error.
 
-    **This does not clear a slot binding that referenced the upload.** Step 3's route does that,
-    because the binding lives in the slot's stored configuration and this module knows nothing
-    about slots. Stated here because "delete cascades to bindings" is a real requirement and the
-    place it is NOT implemented is the place a reader will look first.
+    **This does not clear a slot binding that referenced the upload, and neither does anything
+    else.** Under decision D-BIND (candidate E, step 5 of the CSV-import brief) a slot's
+    `(upload_id, column, unit)` binding lives in the BROWSER, in `localStorage ha.slots.<workspace>`
+    beside the HA statistic id — there is no server-side binding store, so there is nothing here or
+    in the route to cascade to. A binding still naming a deleted id goes stale in the browser and
+    fails at the next fetch, where `get` returns None and `CsvSource` raises `CsvBindingError`; the
+    drawer additionally drops entries whose upload is no longer listed. `app/main.py`'s
+    `delete_upload` docstring carries the full account and the cost of that trade.
+
+    Stated here because "delete cascades to bindings" is a real requirement of §2.2 and harness
+    fixture 22, and the place it is NOT implemented is the place a reader will look first. An
+    earlier revision of this paragraph said step 3's route did it, which was written before D-BIND
+    was decided and was never true afterwards.
     """
     _check_workspace_id(workspace_id)
     _check_upload_id(upload_id)

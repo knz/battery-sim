@@ -343,41 +343,276 @@ and `load` produces a correct `SeriesFrame` from a stored upload.
 
 ## Step 5 — persist the binding, and reify it on fetch
 
-**Status:** not started — **HELD AT THE USER'S REQUEST, 2026-08-06.** Do not dispatch. The user
-asked for a pause once steps 3 and 4 closed (they are the last open ones), before any Step 5 work
-begins. This is a deliberate checkpoint, not a blocker: resume only on the user's explicit say-so.
+**Status:** done, reviewed, review defects fixed (2026-08-06). Storage is **candidate E**: the per-slot
+entry in `localStorage ha.slots.<workspace>` grew from `{source, statId}` to
+`{source, statId, uploadId, column, unit}`, and **no server-side binding store was built** — no
+table, no `series_meta` column, no `simconfig.json` key. The binding travels on the ingest WS
+`backend_load` message as `binding: {upload_id, column, unit}`; `app/ingest_ws.py` shape-checks it
+and `app/main.py` validates its existence via `uploads.get(workspace_id, upload_id)`, which is the
+security boundary because the id is client-supplied. `_load_backend_frame` now returns
+`(frame, warnings)` and both it and `load_slot` call `load_with_warnings`, passing the extras **only**
+for the `csv_upload` key (a blanket pass raises `TypeError` in `EnergyChartsSource.load`).
+`CsvBindingError` → 400 on the endpoint, above the bare `except Exception`. `PENDING_SOURCE_KEYS`
+is **unchanged** — the radio is still hidden, so this is plumbing behind the existing guard.
+New/changed tests: `tests/test_csv_binding_reify.py` (23), `tests/test_slot_load.py` (+12),
+`tests/test_ingest_ws.py` (+13), `tests/test_smoke.py` (+4, mutation-verified).
+
+**The review (2026-08-06) found six defects; all are fixed** and none reopened D-BIND. One was
+behavioural and step 6 must not undo it: the completeness gate on a `csv_upload` store entry (a file
+AND a column; `unit` has a default and is excluded) now also runs on the READ side —
+`usableStoreEntry` in the seed loop — because `saveSlotStore` only governs what this build writes,
+and a hand-edited or older-build store could otherwise restore half a binding, stage it, and fail
+the entire all-or-nothing fetch. An unusable entry is dropped whole, so the slot falls back to the
+server's committed source rather than sitting in a CSV-configured state the user cannot correct.
+**Step 6's Confirm gate is therefore the third copy of that same rule, not the first.** The other
+five: a malformed `upload_id` and a non-dict `binding` now answer 400 / "not fully configured"
+instead of 502, translated at the two places the binding is interpreted (`CsvSource` and
+`_csv_binding`) — `uploads._check_upload_id`'s traversal whitelist is untouched and must stay so;
+and four comments that contradicted D-BIND or the code were corrected in `app/uploads.py` and
+`app/static/ha_fetch.js`. Details, rationales and the mutation runs are in
+[20260806-csv-import-step5-binding.md](20260806-csv-import-step5-binding.md).
 **Depends on:** steps 1, 4.
 
-### Inherited requirements from steps 3 and 4 — read before starting
+### Inherited requirements from steps 3 and 4 — status after the step-5 work
 
-These came out of the step-3/step-4 reviews and are not derivable from the sections below:
+These came out of the step-3/step-4 reviews and are not derivable from the sections below. Each is
+marked with what became of it, since a later reader will otherwise re-derive it:
 
-- Thread `workspace_id=` and `binding=` through **both** `app/main.py`'s `_load_backend_frame`
-  (the WS reify path) and the `POST /w/{id}/data/slot/{slot}/load` endpoint. Both currently call
-  `source.load(slot, win)` with no extras, so a CSV slot raises `CsvBindingError`.
-- Call **`load_with_warnings`**, not `load`, or §7.3's quality box loses the CSV flags.
-- Map `CsvBindingError` → **400**. It is currently swallowed by `load_slot`'s bare
-  `except Exception` → 502, which contradicts the exception's own docstring.
-- The binding's `column` must store the **uniquified** name `csv_wide` reports (`"A (2)"`,
-  `"Column 4"`), never a raw header cell, or it will not resolve.
-- Honour **D-SEQ** above: sequence the upload write and the binding write, never nest them.
-- `ha_fetch.js` currently **filters `csv_upload` out of the live radio list** — a deliberate guard,
-  because a bindingless `backend_load` message fails the whole all-or-nothing fetch, HA slots
-  included. Do NOT lift that filter until both call sites are threaded.
-- Step 3 left a `**TODO (step 5)**` in `delete_upload`'s docstring: after `uploads.delete`
-  succeeds, clear every binding of that workspace whose `upload_id` matches, as a separate write.
-  Until then a slot bound to a deleted upload fails at load time rather than delete time.
+- **DONE** — Thread `workspace_id=` and `binding=` through **both** `app/main.py`'s
+  `_load_backend_frame` (the WS reify path) and the `POST /w/{id}/data/slot/{slot}/load` endpoint.
+  Threaded via the `_CSV_SOURCE_KEY` condition, not unconditionally: the `DataSource` protocol is
+  narrow and `EnergyChartsSource.load`'s own extras are `opener`/`now`, so passing `binding=` to it
+  raises `TypeError`. Pinned by
+  `test_load_endpoint_energy_charts_still_takes_no_binding_extras` and
+  `test_a_non_csv_backend_slot_still_needs_no_binding`.
+- **DONE** — Call **`load_with_warnings`**, not `load`. `_load_backend_frame`'s return type changed
+  to `(frame, warnings)` for it, and the WS handler stamps each warning with the series name and
+  extends the dataset's list.
+- **DONE** — Map `CsvBindingError` → **400**, ordered above the bare `except Exception` (it is a
+  `ValueError`, so order is load-bearing).
+- **CARRIED TO STEP 6** — The binding's `column` must be the **uniquified** name `csv_wide` reports
+  (`"A (2)"`, `"Column 4"`), never a raw header cell. Step 5 stores and transports whatever string it
+  is given and resolves it by name, so the requirement now lands entirely on the drawer's column
+  selector, which is what will produce the string. `app/main.py`'s `_upload_json` docstring already
+  records the trap (`columns[0]` is not uniquified; send names, never a searched index).
+- **DONE, differently** — Honour **D-SEQ**. Nothing needed sequencing, because no second write was
+  added: under candidate E the binding is not server state. The `uploads.get` inside the load runs to
+  completion before `save_dataset`/`upsert_series` opens a transaction, so the two writers never
+  nest. `_load_backend_frame`'s docstring records that anyone moving the load inside a
+  `dataset.connect()` block would deadlock.
+- **UNCHANGED, deliberately** — `ha_fetch.js` still filters `csv_upload` out of the live radio list.
+  Step 5 was a precondition for lifting it, not the whole of it: step 6 must also gate Confirm on a
+  complete binding, or a completed-looking drawer still stages an empty one.
+- **MOOT under E** — the `delete_upload` cascade. There is no server-side binding to clear; the
+  `TODO (step 5)` marker was replaced by a note recording why. The rule it carried is kept on record
+  in D-BIND below in case the binding ever moves server-side.
 
-The binding `(upload_id, column, unit)` is per-slot **configuration**, not data, so it belongs
-with the slot's stored source choice (`08-architecture.md` says `params`; verify against how
-`dataset.series_sources` and the simconfig store actually divide responsibility —
-`app/simconfig_store.py`, `app/dataset.py:96-113`).
+### Rebase onto master `4a4fa10`, 2026-08-06 — what changed underneath
 
-Then carry it into the ingest WS reify path (`app/ingest_ws.py`, and the `done` handler at
-`app/main.py:1199-1222`) so a fetch loads CSV slots server-side alongside HA and backend slots,
-into the same dataset, all-or-nothing. Note `ha_fetch.js:624-631` already stages `backend_load`
-slots by kind — confirm whether the existing `backend_load` WS message carries enough for CSV or
-needs the binding added.
+Steps 1–4 were rebased onto master after PRs #7/#8 landed twelve commits (results-screen defaults,
+charge policy P1, `simulate_cost` on by default, the HA entity preselect fix, Tailwind glob
+narrowing). Three files conflicted; the rest auto-merged. What a step-5/6 agent needs to know:
+
+- **`ha_fetch.js` gained `defaultSourceFor`** (master's fix for a fresh slot leaving `draft.source`
+  null, so no radio matched and the entity `<select>` never populated). `renderSourceList` now
+  stages a default source before building the radios. The merge puts our `csv_upload` filter
+  **before** that staging deliberately, so a pending key can never be staged as the default.
+  Today every CSV-capable slot also offers Home Assistant, which sorts first, so the ordering is a
+  guard rather than a fix for observed behaviour — but step 6 removes the filter, and step 6 must
+  keep `defaultSourceFor` in mind: once `csv_upload` is a live radio it becomes stageable, and on a
+  slot where it is the only option it would be staged with no `(upload, column, unit)` binding yet.
+  Confirm must stay disabled until the binding is complete.
+- **The two `.mo` catalogs conflicted** (binary, unmergeable) and were regenerated with
+  `uv run pybabel compile -d app/locales -D messages` from the auto-merged `.po` files. Both sides'
+  strings survived. Regenerate rather than resolve these on any future rebase.
+- **Step 5's call sites are untouched by the rebase.** `_load_backend_frame(slot_name, source_key,
+  window)` still takes no workspace and still calls `source.load(slot, win)`; `load_slot` still has
+  the bare `except Exception`. Every requirement listed above stands as written.
+- **`tests/test_smoke.py` auto-merged** and gained master's two preselect tests, which drive the
+  hand-merged `renderSourceList`. They pass — see the verification below.
+
+### D-BIND — where the binding lives, and how it travels (decided by the user, 2026-08-06)
+
+The brief previously left this open ("belongs with the slot's stored source choice… verify against
+how `dataset.series_sources` and the simconfig store actually divide responsibility"). It was
+investigated and **decided**. The investigation findings, because they are the reason:
+
+- **The server persists NO per-slot source choice today.** There are exactly five tables
+  (`workspace_state`, `workspaces` in `app/db.py:78-82`; `datasets`, `series_meta` in
+  `app/dataset.py:68-79`; `uploads` in `app/uploads.py:109`) and none holds a slot's chosen source.
+  The slot source lives only in browser `localStorage` (`ha.slots.<workspace_id>`); the server
+  learns it per-fetch from the WS message. So there was no existing home to add a field to.
+- **`dataset.series_sources` is `dict[str, str]`** (`app/dataset.py:113`) — a bare source key per
+  series, restored with the frames. It is provenance (what *was* loaded), not configuration.
+- **`simconfig_store` is the wrong home and says so itself.** It is one JSON document of *run
+  parameters* per workspace, and its module comment argues at length against adding anything that
+  is not a parameter of a run ("It is not the home of … as a class… none generalises to a fourth
+  without the same argument being made again"). A data-source binding is not a run parameter.
+- **`series_meta.stat_id` is the precedent.** `app/dataset.py:129-131` already stores the HA
+  statistic id per series "so a fetched HA slot can render its entity after a reload", surfaced to
+  the roster as `row.stat_id` and read back by the drawer via `data-slot-stat-id`
+  (`app/templates/_data_roster.html:114-128`). A CSV binding is the same kind of thing.
+
+**Decision 1 — storage: RETRACTED AND REOPENED, 2026-08-06.** An earlier revision of this section
+recorded "extend `series_meta`, exactly like `stat_id`". **That was wrong and must not be
+implemented.** It was proposed on the strength of the `stat_id` precedent before `series_meta`'s
+lifecycle was checked. Verified against the code, `series_meta` fails two requirements outright:
+
+- **A row exists only for a series that already has data.** `_insert_series_meta`
+  (`app/dataset.py:232`) is reached only from `save_dataset` / `upsert_series`, both of which
+  persist frames. There is no row to hold a binding for a slot the user has *bound but not yet
+  fetched* — which is precisely the state that has to survive, because the binding is what the
+  next fetch reifies.
+- **Each fetch orphans the last one's bindings.** `save_dataset` does `INSERT INTO datasets` per
+  fetch (`app/dataset.py:298-300`) and `load_latest` reads only the newest row
+  (`ORDER BY id DESC LIMIT 1`, `app/dataset.py:517`). `workspaces.delete_data` deletes every
+  `series_meta` row for the workspace (`app/workspaces.py:452`) and its docstring already states
+  that a fetched slot's source mapping does not survive.
+
+**The `stat_id` precedent is misleading, and that is the general lesson.** `source_type` and
+`stat_id` record *data that exists* (provenance — what was fetched). A binding records *data the
+user intends to load* (configuration). They have the same shape and opposite lifecycles; do not
+reason from one to the other.
+
+**Decision 1, as actually made (user, 2026-08-06): candidate E — `localStorage`, extending the
+existing pre-fetch slot store.** See "### D-BIND candidates" below for E and the two rejected
+server-side alternatives (B: `retained.slot_bindings` in `simconfig.json`; D: a new `slot_bindings`
+table). E was chosen because `app/static/ha_fetch.js:64-84` already documents pre-fetch
+customizations as a category with a home and a reconciliation rule, and a CSV binding is one; it
+needs no new table, no new document key, no delete cascade, and no new architectural category.
+
+**What this changes about Step 5's scope — read carefully, it is smaller and differently shaped
+than the section below was originally written to describe:**
+
+- **There is NO server-side binding storage to build.** No new table, no `series_meta` columns, no
+  `simconfig.json` key. Any earlier text in this file implying otherwise is superseded.
+- **The binding is a per-slot `localStorage` field** beside `statId` in
+  `ha.slots.<workspace_id>` → `slots[<slot>] = {source, statId, uploadId, column, unit}`, and it
+  inherits the existing `source_generation` reconciliation with no change to that mechanism.
+- **The WS message is therefore the only path the binding takes to the server** (Decision 2), which
+  makes server-side validation of `upload_id` load-bearing rather than defence in depth: the server
+  receives an id from the client and must check it against `uploads.get(workspace_id, upload_id)`.
+- **No delete cascade is needed in `delete_upload`.** A deleted upload leaves a stale local entry
+  that fails validation at the next fetch. Remove the `TODO (step 5)` marker in `delete_upload`'s
+  docstring and replace it with a short note recording *why* there is nothing to cascade, so a
+  later reader does not mistake the absence for an oversight. The "clear bindings unconditionally,
+  not gated on `existed`" requirement in "Inherited requirements" is **moot under E** — it applied
+  to a server-side store. Keep the reasoning on record; it will matter if the binding ever moves
+  server-side.
+- **Step 6 gains an obligation:** when the drawer lists uploads, it should drop local entries whose
+  upload no longer exists, so a stale binding surfaces in the drawer rather than only at fetch time.
+
+**Decision 2 — transport: carry the binding in the WS `backend_load` message.** Confirmed by
+reading the code: `stagedBackendSlots()` (`app/static/ha_fetch.js:649-656`) sends only
+`{name, source}`, so it has no room for a binding and must be extended. The message gains a
+`binding: {upload_id, column, unit}` object for CSV slots:
+
+```json
+{"type": "backend_load", "name": "grid_import_t1", "source": "csv_upload",
+ "binding": {"upload_id": "…", "column": "Verbruik_T1", "unit": "kWh"},
+ "window": {"start": "<iso>", "end": "<iso>"}}
+```
+
+This keeps the drawer a **pure staging surface** — Confirm still writes nothing to the server,
+matching how an HA slot carries its `statId` — and it is what makes step 6's rule work ("uploads
+survive Cancel; the binding does not"). Rejected alternative: look the binding up server-side from
+storage. It would need the binding persisted *before* the fetch, which forces the new table and
+makes Confirm a server write, breaking the staging contract the drawer documents at
+`ha_fetch.js:42-52`.
+
+**Validate the binding server-side regardless of transport.** A client-supplied `upload_id` must be
+checked against `uploads.get(workspace_id, upload_id)` — a foreign or absent id must not load.
+This holds under every storage candidate and is not affected by the retraction above.
+
+### D-BIND candidates — storage, RESOLVED (candidate E, chosen by the user 2026-08-05)
+
+**The decision: candidate E, `localStorage`, extending the existing pre-fetch slot store.** The
+three candidates are kept below with their costs, because the trade-offs are the record of why the
+binding is *not* server state and are what a later move to B or D would have to re-argue.
+
+Requirements a candidate must meet: **(a)** survives dataset re-versioning; **(b)** can be cleared
+when an upload is deleted; **(c)** exists for a slot with no data yet (a binding is chosen *before*
+any fetch). `series_meta` fails (a) and (c) — see the retraction above.
+
+**Candidate B — a `retained.slot_bindings` block in `simconfig.json`** (`app/simconfig_store.py`).
+Meets (a) by construction (per-workspace document, no dataset linkage, and `delete_data` explicitly
+preserves it, `app/workspaces.py:417-421`), (c) trivially, and (b) via a read-modify-write copied
+from `save_results_period` (`:607-658`) — which is already exactly this shape: a single-slot update
+that does not go through `save()` and creates a missing document with `retained` alone. Being a
+file, it does not contend with `uploads.delete`'s write lock, so D-SEQ's `database is locked` hazard
+does not arise here at all. Costs, all specific: (i) `retained`'s own module comment (`:35-62`)
+argues that it "is not the home of … as a class" and that each of its three entries needed its own
+argument — a fourth needs that argument made, and a per-slot *dict* is structurally unlike the three
+scalars there; (ii) **`to_dict` rebuilds `retained` from named keys only** (`:234-238`), so omitting
+a `slot_bindings` line silently drops every binding on the next parameter save — this is the exact
+defect that once ate the stored results period, so it is a demonstrated failure mode, not a
+hypothetical; (iii) whole-document `os.replace` writes mean a binding write and a concurrent
+parameter save can lose one another; (iv) it puts a reference to a SQLite row id (`upload_id`) in a
+JSON file, so referential integrity is manual; (v) `load()` never raises and substitutes defaults,
+so a corrupt document silently reverts slots to "Choose source…". Note `08-architecture.md:79` says
+a slot's binding lives in `params`, and the spec's `params` *table* does not exist — the honest
+reading of the spec is this document.
+
+**Candidate D — a new `slot_bindings` SQLite table.** Shape
+`slot_bindings(workspace_id, slot_name, upload_id, column_name, unit, updated_at)` with
+`PRIMARY KEY (workspace_id, slot_name)`, upserted with the `ON CONFLICT DO UPDATE` idiom already
+used by `bump_source_generation` (`app/db.py:243-251`). Meets (a) and (c); meets (b) most cleanly of
+all — `DELETE FROM slot_bindings WHERE workspace_id = ? AND upload_id = ?` is one indexable
+statement rather than JSON surgery, and a `delete_all_rows` sibling slots into `workspaces.delete`'s
+existing step list (`app/workspaces.py:500-507`). Costs: (i) a fourth module following the
+`app/uploads.py` template verbatim — its own `_SCHEMA` + `_connect()`, id guards, row→dataclass, at
+this codebase's comment density; (ii) it lands in the same SQLite file as `uploads`, so the delete
+cascade is two `BEGIN IMMEDIATE` transactions on two connections — D-SEQ's sequenced, non-atomic
+window, and `database is locked` if anyone ever nests them (`app/uploads.py:67-74`); (iii) it is the
+app's first table holding pure configuration, which cuts against the "params live in the JSON
+document" division `simconfig_store`'s module comment establishes; (iv) §5.5 invariant 1 (every row
+carries `workspace_id`) and the `workspaces.delete` cascade become new obligations.
+
+**Candidate E — `localStorage`, extending the existing pre-fetch slot store.** Surfaced last, and it
+is the one that matches the architecture already documented in `app/static/ha_fetch.js:64-84`, which
+states there are exactly **two** carriers of a source choice across a reload: (1) *fetched* slots,
+server-side in `series_meta` — provenance; (2) *pre-fetch customizations*, in
+`localStorage ha.slots.<workspace>`, reconciled by the `source_generation` number. A CSV binding is
+a choice the user has made but **not yet fetched**, i.e. category 2 verbatim. The store already
+holds `{gen, slots: {<slot>: {source, statId}}}`; a binding extends the per-slot entry with
+`{uploadId, column, unit}` beside `statId`, and inherits the generation reconciliation unchanged
+(local gen === server gen → use local; server ahead → drop stale local, because the fetch that
+advanced it has already written real provenance).
+
+Consequences, stated honestly: (a) is met differently from B/D — the binding does not *survive*
+dataset re-versioning, it is *superseded* by it, which is the existing designed behaviour for HA
+slots rather than a new asymmetry; (b) needs no cascade at all in the server's delete path — a
+deleted upload leaves a stale local entry that fails validation on the next fetch, which is the
+same class of staleness the generation number already handles, though it does mean the *user-facing*
+error arrives at fetch time rather than delete time (the drawer should also drop entries whose
+upload is gone when it lists uploads); (c) is met natively. It also keeps Confirm a pure client
+action, which is what makes the drawer's staging contract and step 6's "uploads survive Cancel, the
+binding does not" rule work without a server write.
+
+The cost, and it is real: `localStorage` is browser-local, so a binding does not follow the user to
+another browser or device, and it is not part of the workspace's exportable state. For a
+locally-run single-user app this is the same trade already accepted for the HA entity choice and the
+URL/token — but it is a genuine limitation, not a free win, and it is the reason B or D might still
+be preferred.
+
+**B and D differ in failure mode, not in capability.** B makes a binding part of the workspace's
+configuration document, inheriting never-raise-on-read and whole-file replace. D makes it a row,
+inheriting per-statement integrity and writer-lock contention. **E differs from both in kind:** it
+declines to make the binding server state at all, and instead files it under the existing pre-fetch
+category — no new table, no new document key, no cascade, and no new architectural category.
+
+**Under E as chosen, there is no clear-on-upload-delete write at all** — there is no server-side
+binding to clear, and `delete_upload`'s docstring now records that absence as a decision rather than
+a TODO. The rule the rejected candidates carried is kept here in case the binding ever moves
+server-side: such a cascade would be a **separate transaction** from `uploads.delete` (D-SEQ) and
+would run **unconditionally**, not gated on `existed`, because the retry after a crash between the
+two writes is exactly the call where `existed` is false.
+
+Then carry it into the ingest WS reify path (`app/ingest_ws.py` `BackendLoadRequest` /
+`on_backend_load` at `:75-95` and `:222-240`, and the reify loop in `app/main.py:1366-1372`, where
+`workspace.id` is already in scope and `sources_map` already records per-series provenance) so a
+fetch loads CSV slots server-side alongside HA and backend slots, into the same dataset,
+all-or-nothing.
 
 ### D-SEQ — do not nest the two writes; sequence them
 

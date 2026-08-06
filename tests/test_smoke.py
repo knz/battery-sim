@@ -1874,3 +1874,227 @@ def test_the_wizard_escapes_the_blocked_step_by_answering_no(browser, base_url):
     assert pg.locator("[data-next-blocked]").count() == 0, "the block must be gone"
     assert pg.locator('input[name="setup_haspv"][value="0"]').is_checked()
     context.close()
+
+
+# --- the CSV binding in the slot store (step 5 of the CSV-import brief, decision D-BIND) --------
+#
+# Decision D-BIND puts the per-slot `(upload_id, column, unit)` binding in browser `localStorage`,
+# in the same `ha.slots.<workspace>` entry that already carries the HA statistic id, reconciled by
+# the same `source_generation` number. That makes the whole mechanism a BROWSER behaviour: what the
+# module does to localStorage at load, and what it puts on the wire at fetch. No route test can see
+# either, which is why these live here rather than in `tests/test_slot_load.py`.
+#
+# The drawer cannot produce a binding yet — step 6 builds the file/column/unit controls and lifts the
+# `PENDING_SOURCE_KEYS` filter that hides the radio. So the store is seeded directly, which is the
+# same technique `_make_slot_pristine` above already uses and for the same reason: the store is the
+# documented pre-fetch override, and a current-generation entry is authoritative over the server's
+# committed choice. What is under test is the RESTORE-and-SEND half, which is the half step 5 built.
+
+# A stand-in for our own ingest WebSocket, installed before any script runs. It records every frame
+# the client sends and answers `done` with a plausible `result`, so `fetchHistory` runs to completion
+# without a server round trip — the point is what the client SENDS, and asserting that against a real
+# ingest endpoint would mean the test passing or failing on the server's validation instead.
+#
+# `window.__backendSent` is the observation. It is the only way to see `stagedBackendSlots`' output:
+# the module is an IIFE with no exports, so there is nothing to call from the page.
+_BACKEND_WS_STUB = """
+window.__backendSent = [];
+class FakeBackendSocket {
+  constructor(url) {
+    this.url = url;
+    setTimeout(() => this.onopen && this.onopen(), 0);
+  }
+  send(raw) {
+    const msg = JSON.parse(raw);
+    window.__backendSent.push(msg);
+    if (msg.type === 'done') {
+      setTimeout(() => this.onmessage && this.onmessage({data: JSON.stringify(
+        {type: 'result', dataset_id: 1, series: 1, warnings: [], grid: {}, generation: 1})}), 0);
+    }
+  }
+  close() { if (this.onclose) this.onclose(); }
+}
+window.WebSocket = FakeBackendSocket;
+"""
+
+
+def _seed_csv_binding(pg, base_url: str, workspace_id: str, *, gen_offset: int = 0,
+                      slot: str = "grid_import_t1", upload_id: str = "a" * 32,
+                      column: str = "Verbruik", unit: str = "kWh"):
+    """Write a CSV-bound slot into `ha.slots.<workspace>` and reload so the module reads it.
+
+    `gen_offset` shifts the stored generation relative to the server's: 0 means "current" (a live
+    pre-fetch customization, which must be restored) and -1 means "stale" (a fetch has happened
+    since, so the server is authoritative and the entry must be dropped). Both branches are
+    behaviours the reconcile rule specifies, and only the browser can exercise them.
+    """
+    pg.goto(f"{base_url}/w/{workspace_id}/data", wait_until="networkidle")
+    gen = pg.evaluate(
+        "() => JSON.parse(document.getElementById('source-generation').textContent)"
+    )
+    slots = {slot: {"source": "csv_upload", "statId": "",
+                    "uploadId": upload_id, "column": column, "unit": unit}}
+    pg.evaluate(
+        "([k, payload]) => localStorage.setItem(k, JSON.stringify(payload))",
+        [f"ha.slots.{workspace_id}", {"gen": gen + gen_offset, "slots": slots}],
+    )
+    pg.reload(wait_until="networkidle")
+    return gen
+
+
+def test_a_stored_csv_binding_is_restored_and_sent_on_the_backend_load_message(browser, base_url):
+    """The round trip step 5 built: store -> slotState -> the `backend_load` WS message.
+
+    Three things are asserted, and they fail for three different reasons:
+
+      * `[ Fetch history ]` is ENABLED after the reload. That needs the SOURCE to have survived, i.e.
+        the seed loop to have restored the entry and `stagedBackendSlots` to have counted it.
+      * the `backend_load` frame carries `binding` with all three fields in snake_case. That needs
+        the three CSV FIELDS to have survived the seed loop and `stagedBackendSlots` to have attached
+        them — a seed loop that copied only `source` and `statId` would pass the first assertion and
+        fail this one, which is exactly the mutation worth catching.
+      * the values are the ones stored, not defaults. A binding rebuilt from `|| ""` fallbacks would
+        send empty strings and still have the right SHAPE.
+    """
+    url = _workspace_url(base_url)
+    workspace_id = url.rstrip("/").split("/")[-2]
+
+    context = browser.new_context()
+    context.add_cookies([{"name": "lang", "value": "en", "url": base_url}])
+    pg = context.new_page()
+    pg.add_init_script(_BACKEND_WS_STUB)
+    _seed_csv_binding(pg, base_url, workspace_id, column="Verbruik_T1", unit="Wh")
+
+    fetch_btn = pg.locator("#ha-fetch-btn")
+    assert not fetch_btn.is_disabled(), (
+        "a restored CSV-bound slot must make a fetch possible — if this fails, the store entry was "
+        "not restored into slotState at all"
+    )
+
+    fetch_btn.click()
+    # The fetch is a chain of promises around the stubbed socket; wait for the frame rather than a
+    # fixed delay.
+    pg.wait_for_function(
+        "() => (window.__backendSent || []).some(m => m.type === 'backend_load')", timeout=5000
+    )
+    sent = pg.evaluate("() => window.__backendSent")
+
+    loads = [m for m in sent if m["type"] == "backend_load"]
+    assert len(loads) == 1, sent
+    msg = loads[0]
+    assert msg["name"] == "grid_import_t1"
+    assert msg["source"] == "csv_upload"
+    # snake_case on the wire: `app/ingest_ws.py`'s protocol reads these keys, and the camelCase
+    # spelling stops at the localStorage boundary.
+    assert msg["binding"] == {"upload_id": "a" * 32, "column": "Verbruik_T1", "unit": "Wh"}
+    context.close()
+
+
+def test_a_stale_generation_drops_the_stored_csv_binding(browser, base_url):
+    """The reconcile rule applies to a binding unchanged: an older generation is discarded.
+
+    Not a new mechanism — the point is that the binding INHERITS this one rather than needing its
+    own, which is the argument candidate E rests on. A stale entry means a fetch has happened since
+    it was written, so the server's committed choice wins and the store is cleared; a binding that
+    survived would re-stage a slot the server already filled.
+    """
+    url = _workspace_url(base_url)
+    workspace_id = url.rstrip("/").split("/")[-2]
+
+    context = browser.new_context()
+    context.add_cookies([{"name": "lang", "value": "en", "url": base_url}])
+    pg = context.new_page()
+    pg.add_init_script(_BACKEND_WS_STUB)
+    # A generation that does not match the server's. `gen_offset=-1` is deliberately NOT used here:
+    # this throwaway workspace has never been fetched, so its `source_generation` is 0 and -1 is
+    # `loadSlotStore`'s own parse-error sentinel — which `ha_fetch.js` explicitly exempts from the
+    # remove-stale-store branch (`slotStore.gen !== -1`), since removing a key it merely failed to
+    # parse would destroy data it does not understand. Verified by running it: the entry survives at
+    # -1. So the offset used is +1, a generation the server has not reached; what makes an entry apply
+    # is EQUALITY with the server's, not being older than it, and either direction is a mismatch.
+    _seed_csv_binding(pg, base_url, workspace_id, gen_offset=1)
+
+    # The binding does not apply: no source was restored, so nothing is staged and a fetch has
+    # nothing to reify. This is the assertion that matters — whether the key is also deleted is a
+    # separate housekeeping branch, and asserting deletion here would pin the sentinel exemption
+    # above as a bug rather than the documented behaviour it is.
+    assert pg.locator("#ha-fetch-btn").is_disabled(), (
+        "a mismatched-generation entry must not leave a fetchable slot behind"
+    )
+    context.close()
+
+
+def test_a_partial_csv_binding_is_not_persisted_by_confirm(browser, base_url):
+    """`saveSlotStore` stores a CSV slot only once it has BOTH a file and a column.
+
+    Why this matters more than tidiness: a restored partial binding stages a `backend_load` slot with
+    an empty `upload_id`, and under the all-or-nothing reify contract that one slot fails the WHOLE
+    fetch, HA slots included. So "would this be fetchable if restored?" is the gate, and it is
+    asserted by writing a partial entry and confirming an UNRELATED slot — which triggers a save that
+    rewrites the whole store from `slotState`.
+    """
+    url = _workspace_url(base_url)
+    workspace_id = url.rstrip("/").split("/")[-2]
+
+    context = browser.new_context()
+    context.add_cookies([{"name": "lang", "value": "en", "url": base_url}])
+    pg = context.new_page()
+    pg.add_init_script(_BACKEND_WS_STUB)
+    # A CSV entry with a file but NO column, restored at the current generation. It is tracked as
+    # locally-customized, so the next save re-writes it — or drops it, which is the behaviour here.
+    _seed_csv_binding(pg, base_url, workspace_id, column="")
+
+    # Confirm a different slot, which is what makes saveSlotStore run over the whole store.
+    pg.locator("#slot-roster .slot-source-btn[data-slot='price_spot']").click()
+    pg.locator("#source-drawer input[name='drawer-source'][value='energy_charts']").check()
+    pg.locator("#drawer-confirm").click()
+    pg.wait_for_timeout(150)
+
+    stored = pg.evaluate(f"localStorage.getItem('ha.slots.{workspace_id}')")
+    assert stored is not None and "energy_charts" in stored, stored
+    # The incomplete CSV entry is gone rather than written back.
+    assert "csv_upload" not in stored, (
+        f"a binding with no column is not fetchable and must not be persisted: {stored}"
+    )
+    context.close()
+
+
+def test_a_partial_csv_binding_already_in_the_store_is_not_restored(browser, base_url):
+    """The READ side of the same rule: `usableStoreEntry` drops an incomplete entry on the way in.
+
+    The test above only covers what a save WRITES, which leaves the case that matters more: an
+    incomplete entry that is ALREADY in the store when the page loads, put there by a hand edit or by
+    an older build whose gate differed. Before `usableStoreEntry` the seed loop copied `uploadId` and
+    `column` across verbatim, so such an entry was restored into `slotState`, counted by
+    `stagedBackendSlots` (which filters only on the source being a backend key) and sent as
+    `binding: {upload_id: …, column: "", unit: "kWh"}`. The server's shape check rejects the empty
+    column, and under the all-or-nothing reify contract that failure takes the WHOLE fetch down —
+    every HA slot with it — so the cost of restoring half a binding is not confined to the CSV slot.
+
+    Asserted through `[ Fetch history ]` being disabled rather than by inspecting the store: what has
+    to be false is that the slot is STAGED. This throwaway workspace has no other staged slot, so the
+    button's state is a direct read of whether the entry survived, and it is the same observation the
+    round-trip test above makes in the positive direction.
+    """
+    url = _workspace_url(base_url)
+    workspace_id = url.rstrip("/").split("/")[-2]
+
+    context = browser.new_context()
+    context.add_cookies([{"name": "lang", "value": "en", "url": base_url}])
+    pg = context.new_page()
+    pg.add_init_script(_BACKEND_WS_STUB)
+    # A file but no column, at the CURRENT generation — so the reconcile rule says "apply this", and
+    # only the completeness gate can reject it. (The stale-generation path is a different test.)
+    _seed_csv_binding(pg, base_url, workspace_id, column="")
+
+    assert pg.locator("#ha-fetch-btn").is_disabled(), (
+        "an incomplete stored binding must not leave a fetchable slot behind"
+    )
+
+    # And the slot did not merely fail to stage: it fell back to the server's committed source, which
+    # for this fresh workspace is none at all. Nothing anywhere claims the slot is bound to a CSV.
+    assert pg.evaluate(
+        "() => (document.querySelector(\"#slot-roster .slot-source-btn[data-slot='grid_import_t1']\")"
+        " || {}).textContent || ''"
+    ).find("Upload CSV") == -1
+    context.close()

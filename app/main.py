@@ -208,6 +208,7 @@ from app.domain.series_vocab import SLOT_BY_NAME
 from app.sample_data import sample_view
 from app.sources import registry
 from app.sources.base import SourceKind
+from app.sources.csv_source import CsvBinding, CsvBindingError, CsvSource
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -1364,11 +1365,29 @@ async def data_ingest_ws(
                     # IngestError → LOAD_FAILED and nothing is written, so a fetch never yields a
                     # partial dataset.
                     for req in session.backend_loads.values():
-                        frame = await asyncio.to_thread(
-                            _load_backend_frame, req.name, req.source, req.window
+                        # `workspace.id` and `req.binding` are what a CSV slot needs beyond
+                        # (slot, window) — D-BIND. The binding travelled on this very message
+                        # (`app/ingest_ws.py`) because it lives browser-side, so `workspace.id` is
+                        # also what scopes the `uploads.get` that validates the client's upload id:
+                        # a foreign id fails here and takes the whole fetch with it, which is the
+                        # all-or-nothing contract doing the right thing rather than a special case.
+                        frame, load_warnings = await asyncio.to_thread(
+                            _load_backend_frame,
+                            req.name,
+                            req.source,
+                            req.window,
+                            workspace_id=workspace.id,
+                            binding=req.binding,
                         )
                         backend_frames.append(frame)
                         sources_map[frame.name] = req.source
+                        # §7.3's data-quality box reports these (gap cells, the October ambiguous
+                        # hour), counted against this fetch's window. Stamped with the series name
+                        # the same way `build_frames` stamps the HA warnings, so the box can name
+                        # the slot rather than an anonymous count.
+                        for warn in load_warnings:
+                            warn["series"] = frame.name
+                        warnings.extend(load_warnings)
 
                     frames = ha_frames + backend_frames
                     # Persistence is I/O, so it runs off the event loop (specs §5.1 adapters).
@@ -1510,6 +1529,21 @@ def _jsonable_grid(report: dict) -> dict:
 # client error, not something the backend can do (the HA token stays in the browser, specs §7.5).
 _BACKEND_LOAD: SourceKind = "backend_load"
 
+# The one source whose `load` needs more than `(slot, window)`: an uploaded wide CSV holds many
+# columns and a workspace holds many uploads, so a CSV slot carries a `(upload_id, column, unit)`
+# binding (D-BIND of the CSV-import brief). Both backend-load call sites below pass the binding
+# extras ONLY for this key.
+#
+# Why a key comparison and not "pass the extras to everyone": the `DataSource` protocol is
+# `load(slot, window)` and each source's extras are keyword-only additions of its own
+# (`app/sources/base.py`). `EnergyChartsSource.load` takes `opener`/`now`, so a blanket
+# `binding=None` would raise `TypeError` there — the narrowness of the protocol is deliberate and
+# its price is that the caller must know whose extras it is holding.
+#
+# Read off `csv_source`'s own descriptor rather than spelled `"csv_upload"` here, so the two cannot
+# drift; the key is persisted with a slot's chosen source and is stable by contract (§2.2).
+_CSV_SOURCE_KEY = CsvSource().descriptor.key
+
 
 def _resolve_backend_source(slot_name: str, source_key: str):
     """Resolve (slot, source) for a backend-load of `slot_name` from `source_key`.
@@ -1538,12 +1572,53 @@ def _resolve_backend_source(slot_name: str, source_key: str):
     return slot, source
 
 
-def _load_backend_frame(slot_name: str, source_key: str, window) -> SeriesFrame:
-    """Load one staged backend-load slot into a frame (WS reify path, specs §2.2).
+def _load_backend_frame(
+    slot_name: str,
+    source_key: str,
+    window,
+    *,
+    workspace_id: str | None = None,
+    binding: dict | None = None,
+) -> tuple[SeriesFrame, list[dict]]:
+    """Load one staged backend-load slot into a frame + its warnings (WS reify path, specs §2.2).
 
     Runs on a worker thread (called via asyncio.to_thread). Raises ingest_ws.IngestError on any
     validation or load failure so the WS route reports LOAD_FAILED and persists nothing — the
     all-or-nothing reify contract. The window is normalised to tz-aware UTC like the endpoint.
+
+    **Returns `(frame, warnings)`, not a bare frame** (changed in step 5 of the CSV-import brief).
+    Only the CSV source produces warnings on this path, and §7.3's data-quality box wants them: how
+    many cells were gaps and which days the October DST fold touched, counted against the WINDOW
+    this fetch asked for. A bare-frame return would have silently dropped them for every CSV slot,
+    which is why the second element is not optional — `energy_charts` simply returns an empty list.
+
+    `workspace_id` and `binding` are the per-slot extras a CSV slot needs (D-BIND). They are passed
+    on to `load_with_warnings` ONLY for the CSV source, and that condition is not defensive tidiness:
+    `EnergyChartsSource.load`'s keyword-only extras are `opener` and `now`, so handing it a
+    `binding=` raises `TypeError: unexpected keyword argument` and would break the price path. The
+    `DataSource` protocol is deliberately narrow (`app/sources/base.py`) precisely so that each
+    source's extras are its own business, and that means the caller has to know whose extras it
+    holds. Keyed on the descriptor key rather than `isinstance`, because the key is the stable
+    persisted identity of a source and is what the client sent.
+
+    `binding` arrives as the raw dict from the WS message and is converted here. Two things make
+    that conversion the security boundary rather than a formality:
+
+      * the `upload_id` is **client-supplied** (the binding lives in browser localStorage under
+        D-BIND, and the WS message is its only path to the server), so `uploads.get` is what decides
+        whether this workspace actually has that upload;
+      * `uploads.get` is **workspace-scoped** — it filters on `workspace_id`, so an id belonging to
+        another workspace resolves to None exactly like one that never existed, and `CsvSource`
+        raises rather than reading it. Guessing another workspace's id therefore buys nothing.
+
+    The existence check is left to `CsvSource.load_with_warnings`, which already performs it and
+    raises `CsvBindingError` naming the file — doing it here as well would be a second copy of the
+    same query with the same answer.
+
+    D-SEQ holds by construction on this path: the load (and the `uploads.get` inside it) runs to
+    completion before the caller opens `dataset`'s transaction to persist, so the two writers never
+    nest. Anyone moving this call inside a `dataset.connect()` block would deadlock on
+    "database is locked".
     """
     try:
         slot, source = _resolve_backend_source(slot_name, source_key)
@@ -1551,11 +1626,69 @@ def _load_backend_frame(slot_name: str, source_key: str, window) -> SeriesFrame:
         raise ingest_ws.IngestError(str(exc)) from exc
     win = (_as_utc(window[0]), _as_utc(window[1]))
     try:
-        return source.load(slot, win)
+        if source.descriptor.key == _CSV_SOURCE_KEY:
+            return source.load_with_warnings(
+                slot,
+                win,
+                workspace_id=workspace_id,
+                binding=_csv_binding(binding),
+            )
+        return source.load(slot, win), []
+    except CsvBindingError as exc:
+        # Its own branch so the message says "this slot is not configured" rather than reading like
+        # a transport failure. The WS protocol has exactly one error shape (an `error` frame), so it
+        # still becomes an IngestError — but the wording is what the user sees, and "could not load
+        # X from csv_upload: …" would blame the file for a choice that was never made.
+        raise ingest_ws.IngestError(
+            f"slot {slot_name!r} is not fully configured: {exc}"
+        ) from exc
     except Exception as exc:  # network down / rate-limited / parse failure
         raise ingest_ws.IngestError(
             f"could not load {slot_name!r} from {source_key!r}: {exc}"
         ) from exc
+
+
+def _csv_binding(binding: dict | None) -> CsvBinding | None:
+    """The WS/JSON binding dict as a `CsvBinding`, or None when the client sent none.
+
+    None is passed through rather than turned into an error here so that the SOURCE reports the
+    missing binding: `CsvSource.load_with_warnings` raises `CsvBindingError` naming the slot and
+    telling the user what to choose in the drawer, which is a better message than anything this
+    function knows enough to write.
+
+    `unit` defaults to `CsvBinding`'s own default (kWh, the drawer's default radio) when absent, so
+    an older or minimal client that sends only `{upload_id, column}` gets the documented default
+    rather than a rejection. An unknown unit is NOT rejected here: `CsvSource` checks it against
+    `csv_wide.UNIT_FACTORS` before reading the file and raises `bad_unit` naming the accepted
+    values, and a second copy of that vocabulary here would be one more place to update.
+
+    The fields' shapes were already checked by `ingest_ws._check_binding_shape` on the WS path.
+    `load_slot` calls this on a hand-written request body that has had no such check, so this
+    function has to be safe on its own. Two halves to that, and only the second was here at first:
+
+      * the `.get`-plus-`str` spelling handles a missing or oddly-typed FIELD — a missing key becomes
+        `""`, which `CsvSource` reports as a missing/unknown column rather than raising;
+      * the isinstance check handles a binding that is not an object at all. `"binding": "a string"`
+        used to reach `.get` and raise `AttributeError: 'str' object has no attribute 'get'`, which
+        `load_slot`'s bare `except Exception` reported as a 502 with that text in it. A non-dict
+        binding is malformed client input, so it is a `CsvBindingError` and therefore a 400 — the
+        same answer, and the same reasoning, as a malformed `upload_id` inside a well-shaped one.
+        `ingest_ws._check_binding_shape` already rejects it with its own message on the WS path, so
+        this branch is reachable only from `load_slot`.
+    """
+    if binding is None:
+        return None
+    if not isinstance(binding, dict):
+        raise CsvBindingError(
+            f"the CSV binding must be an object with 'upload_id' and 'column', "
+            f"not {type(binding).__name__}."
+        )
+    unit = binding.get("unit")
+    return CsvBinding(
+        upload_id=str(binding.get("upload_id") or ""),
+        column=str(binding.get("column") or ""),
+        **({"unit": str(unit)} if unit is not None else {}),
+    )
 
 
 @app.post("/w/{workspace_id}/data/slot/{slot_name}/load")
@@ -1566,17 +1699,47 @@ async def load_slot(
 ):
     """Load one slot from a backend_load source and merge its series into the latest dataset.
 
-    Body: {"source": "<source_key>", "window": {"start": "<iso>", "end": "<iso>"}}. The window is
+    Body: {"source": "<source_key>", "window": {"start": "<iso>", "end": "<iso>"}}, plus an optional
+    `"binding": {"upload_id": …, "column": …, "unit": …}` for a source that needs one (today only
+    `csv_upload` — D-BIND of the CSV-import brief). The window is
     parsed like the WS ingest header (tz-aware ISO, end > start). The source is looked up in the
     registry, must offer this slot, and must be a backend_load source — a browser_fetch source
     (Home Assistant) is rejected here because its frame arrives over the ingest WS, not this call.
 
     The source's `load` and the `upsert_series` merge both do file/network I/O, so they run off the
     event loop (asyncio.to_thread). On success the response reports the dataset id, the series name,
-    its resolution and interval count, and the panel-① grid report (the same shape the WS path
+    its resolution and interval count, any load warnings (§7.3: the CSV path's gap and DST-ambiguity
+    counts, empty for every other source), and the panel-① grid report (the same shape the WS path
     returns) so the caller can re-render without a full reload. Unknown slot/source, an unavailable
     or wrong-kind source, and a load/network failure all return a clean 4xx/5xx JSON error rather
     than a 500 stack trace (specs §3.2 LOAD_FAILED).
+
+    **`CsvBindingError` is 400, and that is a fix rather than an addition** (step 5 of the brief).
+    The bare `except Exception` below maps every load failure to 502, and an unconfigured slot — no
+    file and column chosen yet, or a binding naming an upload this workspace does not have — was
+    therefore reported as a bad gateway. There is nothing upstream of this app to be a bad gateway;
+    the condition is "you have not told us what to load", which is the client's input and a 400. The
+    branch is ordered above the generic one deliberately, since `CsvBindingError` is a `ValueError`
+    and would otherwise be swallowed by it (`CsvBindingError`'s own docstring records this).
+
+    **Every malformed binding takes that same 400 branch**, which is a review fix rather than the
+    original behaviour. Two shapes reached the generic 502 instead: a `binding` that is not an object
+    (`"binding": "a string"` answered 502 with `'str' object has no attribute 'get'`) and an
+    `upload_id` that is not 32 lowercase hex (`../../etc/passwd` answered 502, because the traversal
+    guard in `uploads._check_upload_id` raises a plain `ValueError`). Both are client input, so both
+    are 400 now — see `_csv_binding` and `CsvSource.load_with_warnings` for where each is translated,
+    and note that neither fix touched the guard itself.
+
+    **The `upload_id` in a binding is client-supplied and is validated server-side**, which on this
+    route is the only thing standing between a guessed id and another workspace's file. The check is
+    `uploads.get(ws.id, upload_id)` inside `CsvSource`, scoped to the workspace the URL named and the
+    principal `deps.get_workspace` already authorised — so a foreign id is indistinguishable from a
+    nonexistent one and neither loads. Nothing is persisted on that path: the `upsert_series` call is
+    strictly after the load.
+
+    Note this route is not what the drawer uses — the fetch reifies staged slots over the WS instead
+    (`ha_fetch.js`'s "Staged-then-confirm" comment) — but it is a real route with the same exposure,
+    so it gets the same validation rather than relying on being unused.
     """
     # 1–3. Resolve and validate the (slot, source): unknown slot/source → 404, unavailable or
     # wrong-kind source → 400. Shared with the WS reify path via _resolve_backend_source.
@@ -1592,10 +1755,22 @@ async def load_slot(
     window = _parse_window(body.get("window"))
 
     # 5. Load off the event loop (file + possible network I/O), then merge off the event loop.
+    #    The CSV source takes the per-slot binding extras; every other source must NOT be handed
+    #    them (see `_CSV_SOURCE_KEY` on why a blanket pass raises TypeError in energy_charts).
+    binding = body.get("binding")
     try:
-        frame = await asyncio.to_thread(source.load, slot, window)
+        if source.descriptor.key == _CSV_SOURCE_KEY:
+            frame, load_warnings = await asyncio.to_thread(
+                _load_csv_for_endpoint, source, slot, window, ws.id, binding
+            )
+        else:
+            frame, load_warnings = await asyncio.to_thread(source.load, slot, window), []
     except HTTPException:
         raise
+    except CsvBindingError as exc:
+        # 400, not the 502 below: an unconfigured slot is bad input, not a failed upstream call.
+        # See the docstring.
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:  # network down / rate-limited / parse failure → clean 502
         raise HTTPException(
             status_code=502,
@@ -1612,8 +1787,23 @@ async def load_slot(
             "series": frame.name,
             "resolution_s": frame.resolution_s,
             "intervals": int(len(frame.values)),
+            "warnings": load_warnings,
             "grid": _jsonable_grid(report),
         }
+    )
+
+
+def _load_csv_for_endpoint(source, slot, window, workspace_id: str, binding: dict | None):
+    """`CsvSource.load_with_warnings` with the endpoint's binding extras. Runs on a worker thread.
+
+    A named function rather than a lambda or a `functools.partial` inside the `to_thread` call
+    because `asyncio.to_thread` forwards keyword arguments to the CALLABLE, and reading a
+    five-argument `to_thread(...)` line correctly requires knowing that — a `partial` there would
+    put the same knowledge one level further away. It exists only to hold that signature; every
+    decision it embodies is documented at `_load_backend_frame` and `_csv_binding`.
+    """
+    return source.load_with_warnings(
+        slot, window, workspace_id=workspace_id, binding=_csv_binding(binding)
     )
 
 
@@ -2054,27 +2244,33 @@ async def delete_upload(
     produce a *better error message* would trade the store's central invariant for cosmetics. The
     choice made instead is that both are 200, and neither acts on data outside the workspace.
 
-    **TODO (step 5): clear any slot binding that referenced this upload.** §2.2 and harness fixture
-    22 both require it — "Deleting an upload that a slot still references clears that slot's
-    binding and leaves the others intact", and the slot returns to "Choose source…".
-    `uploads.delete` deliberately does not do it (its docstring says so): the binding is per-slot
-    CONFIGURATION and the store knows nothing about slots, so the cascade is this route's job.
+    ## There is no binding cascade here, and its absence is a decision, not an omission
 
-    It is not implemented yet because the binding has no home yet. Step 5 owns that decision — the
-    implementation brief's open item 3 is still open on whether `(upload_id, column, unit)` lives
-    in `params` or beside `dataset.series_sources` — and inventing a store here would be this
-    module pre-empting it. What step 5 must add, precisely: clear every binding of `ws.id` whose
-    `upload_id` matches, as a SEPARATE write from the delete rather than nesting the two (decision
-    D-SEQ: a second writer inside an open `dataset.connect()` transaction fails with "database is
-    locked"). **Run that clear unconditionally, NOT only when `existed` is true.** A binding
-    referencing an id this workspace no longer has is exactly the wreckage the cascade exists to
-    clean, and it is reachable — a delete that removed the row but crashed before the bindings were
-    cleared leaves one, and the retry that fixes it is precisely the call where `existed` is false.
-    Gating on `existed` would make the retry a no-op and strand the binding permanently.
+    §2.2 and harness fixture 22 both say deleting an upload a slot references clears that slot's
+    binding. An earlier revision of this docstring carried a `TODO (step 5)` planning that cascade.
+    **Step 5 decided the binding lives in the BROWSER** (`localStorage ha.slots.<workspace>`, beside
+    the HA statistic id — decision D-BIND, candidate E), so there is nothing server-side to clear:
+    this route has no access to it, and no server write could reach it.
 
-    Until then, a slot bound to a deleted upload fails at LOAD time with the 502 convention rather
-    than at delete time: `uploads.read_text` raises `FileNotFoundError` for a row (or a binding)
-    that outlived its file. Loud and recoverable, but not what §2.2 promises.
+    What happens instead, which satisfies the same requirement by a different route:
+
+      * the delete removes the row and the file, unconditionally, as it always did;
+      * a local binding still naming that id becomes stale. It reaches the server only on the next
+        fetch, where `uploads.get(workspace_id, upload_id)` returns None and `CsvSource` raises
+        `CsvBindingError` — the same failure a foreign id gets, since the store cannot tell the two
+        apart and does not need to;
+      * the drawer drops local entries whose upload is no longer listed (step 6's obligation), so the
+        slot returns to "Choose source…" in the UI rather than only failing at fetch time.
+
+    The cost, stated because it is real: the user-facing error arrives at FETCH time rather than at
+    delete time for anyone whose drawer has not re-listed the uploads in between. That is the same
+    class of staleness the `source_generation` number already handles for a pre-fetch HA choice, and
+    it is the trade candidate E was chosen with open eyes (the brief's D-BIND section records the
+    alternatives, B and D, that would have made the binding server state and therefore cascadable).
+
+    The retracted plan's one durable rule is kept on record in the brief in case the binding ever
+    moves server-side: such a cascade must run **unconditionally, not gated on `existed`**, because
+    the retry after a crash between the two writes is exactly the call where `existed` is false.
     """
     try:
         removed = await asyncio.to_thread(uploads.delete, ws.id, upload_id)
