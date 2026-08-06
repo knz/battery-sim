@@ -3345,3 +3345,120 @@ def test_deleting_a_referenced_upload_leaves_the_other_files_bindings_intact(bro
     pg.reload(wait_until="networkidle")
     expect(b_label).to_have_text(f"Upload CSV · {upload2['filename']} · Zon", timeout=5000)
     context.close()
+
+
+def test_the_selected_chart_tab_survives_a_recompute(browser, base_url):
+    """The reader stays on the chart they were reading when the panel is recomputed.
+
+    Same class of defect as `test_the_advanced_pane_survives_a_parameter_swap` above, and the same
+    cause: `POST /w/{id}/results` answers with a fresh render of the panel, whose tab strip carries
+    the template's default (`btn-active` on the first button, `#flows-charts` hidden). Swapping that
+    in verbatim put the reader back on *Monthly grid import* every time they changed a parameter —
+    so looking at the energy flows and adjusting the battery, which is the obvious way to use the
+    screen, meant re-picking the tab after every adjustment.
+
+    A browser test because every part of it is browser state: which container is visible is a class
+    the server never sees, and the reset only happens under the delegated fetch handler. The
+    server-side tests in `test_workspace_results.py` are green either way, since the MARKUP is
+    correct in both — it is the default, and it is supposed to be.
+
+    Its own workspace, since it seeds a dataset and persists a parameter.
+    """
+    url = _workspace_url(base_url)
+    workspace_id = url.rstrip("/").split("/")[-2]
+    # With no dataset there is no `energy_flows` in the view-model and hence no tab to select, so
+    # the test would pass vacuously. has_pv=False matches the stored answers this helper writes.
+    _seed_reconstructable_dataset(workspace_id)
+
+    context = browser.new_context()
+    context.add_cookies([{"name": "lang", "value": "en", "url": base_url}])
+    pg = context.new_page()
+    pg.goto(f"{base_url}/w/{workspace_id}/results", wait_until="networkidle")
+
+    flows_tab = pg.locator('[data-chart-tab="flows"]')
+    assert flows_tab.count() == 1, "the tab under test is not on the screen to begin with"
+    # The precondition: the panel opens on monthly, which is what makes the assertion after the
+    # swap meaningful rather than a tautology.
+    assert not pg.locator("#flows-charts").is_visible()
+
+    flows_tab.click()
+    pg.wait_for_timeout(300)
+    assert pg.locator("#flows-charts").is_visible(), "clicking the tab did not show the charts"
+
+    # Recompute the way a user does — change a battery parameter and press Calculate.
+    pg.locator('input[name="battery.usable_capacity_kwh"]').fill("12")
+    pg.get_by_role("button", name="Calculate").click()
+    pg.wait_for_timeout(1500)
+
+    assert pg.locator("#flows-charts").is_visible(), (
+        "the recompute dropped the reader back on the first tab"
+    )
+    assert "btn-active" in (flows_tab.get_attribute("class") or ""), (
+        "the charts are shown but the strip highlights a different tab"
+    )
+    assert not pg.locator("#monthly-chart").is_visible(), "both containers are visible at once"
+    # Restored means REDRAWN, not merely un-hidden: a container shown without a draw against its
+    # real width is empty or the wrong size. Plotly writes an <svg> per plot.
+    assert pg.locator("#flows-avgday svg").count() > 0, "the restored tab was not drawn"
+
+    # A results-only swap (a period change) must restore it too — that path swaps the same panel.
+    pg.locator("[data-period='last_1_week']").click()
+    pg.wait_for_timeout(1200)
+    assert pg.locator("#flows-charts").is_visible(), "a period change dropped the tab"
+    context.close()
+
+
+def test_a_swap_that_removes_the_selected_tab_falls_back_to_the_default(browser, base_url):
+    """The hazard the old reset-everything behaviour was protecting against, tested directly.
+
+    `Monthly savings (€)` is rendered only when the window HAS a euro series, so a swap can
+    legitimately return a strip in which the selected button no longer exists. Restoring a
+    remembered selection blindly would leave the strip with nothing active and the reader looking
+    at a chart no button claims — which is why restoreChartTab() matches on the attribute pair and
+    does nothing when it finds no button.
+
+    Forced server-side rather than through the cost toggle, which is not on this screen: flipping
+    the stored `simulate_cost` and then triggering a swap is what produces the condition where the
+    fresh markup lacks the selected button, and that condition is the whole point of the test.
+    """
+    import os
+
+    url = _workspace_url(base_url)
+    workspace_id = url.rstrip("/").split("/")[-2]
+    _seed_reconstructable_dataset(workspace_id)
+
+    context = browser.new_context()
+    context.add_cookies([{"name": "lang", "value": "en", "url": base_url}])
+    pg = context.new_page()
+    errors = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{base_url}/w/{workspace_id}/results", wait_until="networkidle")
+
+    eur = pg.locator('[data-chart-view="eur"]')
+    assert eur.count() == 1, "the euro tab must exist for this test to remove it"
+    eur.click()
+    pg.wait_for_timeout(300)
+    assert pg.locator("#monthly-chart").get_attribute("data-chart-view") == "eur"
+
+    os.environ["BATTERY_SIM_DATA_DIR"] = _SERVER_DATA_DIR
+    from app import simconfig_store
+
+    cfg = simconfig_store.load(workspace_id)
+    cfg.simulate_cost = False
+    simconfig_store.save(simconfig_store.clone(cfg), workspace_id)
+
+    pg.locator("[data-period='last_1_week']").click()
+    pg.wait_for_timeout(1500)
+
+    assert pg.locator('[data-chart-view="eur"]').count() == 0, (
+        "the precondition failed: the euro tab is still rendered"
+    )
+    # Exactly one tab active, and it is the default — not zero (a strip claiming nothing) and not
+    # two (a stale highlight left beside the new one).
+    active = pg.locator("[data-chart-tab].btn-active")
+    assert active.count() == 1, f"expected one active tab, got {active.count()}"
+    assert active.first.get_attribute("data-chart-view") == "kwh"
+    assert pg.locator("#monthly-chart").is_visible()
+    assert pg.locator("#monthly-chart svg").count() > 0, "the fallback tab was not drawn"
+    assert errors == [], f"restoring an absent tab raised: {errors}"
+    context.close()

@@ -278,9 +278,10 @@
       // two-section split exists to prevent", since a euro series moves with tariff structure as
       // well as with kWh. So this draws ONE series at a time and the tabs switch which.
       //
-      // The selected view is held on the chart container rather than in a variable, so a fragment
-      // swap (which replaces the container) resets to the default — which is what should happen:
-      // a swap means a new window, and the euro series may not exist for it.
+      // The selected view is read off the chart container, which a fragment swap replaces — so
+      // this function always draws the FRESH panel's default. Carrying the user's choice across a
+      // swap is restoreChartTab()'s job, and it runs after this; the split is deliberate, since
+      // the euro series may not exist for the new window and only the restore can check.
       function drawMonthlyChart() {
         if (typeof Plotly === 'undefined') return;
         var node = document.getElementById('monthly-data');
@@ -559,12 +560,18 @@
       //                       monthly buttons carry it, and they carry `data-chart-tab="monthly"`
       //                       as well, so picking € from the flows tab both switches back and
       //                       selects the series in one click.
-      // The view is still held ON the chart container rather than in a variable, so a fragment
-      // swap resets it to the default — which is right: a swap means a new window, and the euro
-      // series may not exist for it. Container VISIBILITY resets the same way, back to monthly.
-      document.addEventListener('click', function (ev) {
-        var btn = ev.target.closest ? ev.target.closest('[data-chart-tab]') : null;
-        if (!btn || btn.tagName !== 'BUTTON') return;
+      //
+      // The selection SURVIVES a fragment swap (see restoreChartTab below). It did not used to:
+      // the state was held on the swapped-away nodes, so every Calculate dropped the reader back
+      // on the first tab. The reason recorded for that was the €-series hazard — `Monthly savings
+      // (€)` and `Energy flows` are each rendered conditionally, so a swap really can return
+      // markup in which the selected tab is gone. That hazard is real but is handled by CHECKING
+      // after the swap, not by discarding every selection including the valid ones.
+      //
+      // Selecting a tab is four coupled steps (highlight, toggle both containers, set the view,
+      // draw), and the restore path needs the same four — so they live in one function that both
+      // callers use rather than in two copies that can drift apart.
+      function selectChartTab(btn) {
         var chart = document.getElementById('monthly-chart');
         var flows = document.getElementById('flows-charts');
         if (!chart) return;
@@ -592,6 +599,53 @@
         var view = btn.getAttribute('data-chart-view');
         if (view) chart.setAttribute('data-chart-view', view);
         drawMonthlyChart();
+      }
+
+      // What the user last picked, as the PAIR of attributes rather than two independent values:
+      // one button can carry both, and tracking them separately would allow a combination the
+      // strip never offered. Null until the first click, which is why an untouched page still
+      // renders exactly as the server sent it.
+      //
+      // In-page only, by choice: it lives as long as the page does. A reload starts on the
+      // default tab again. Nothing is written to sessionStorage or localStorage, so there is no
+      // key to migrate, nothing to clear, and no way for one workspace's selection to surface in
+      // another's.
+      var selectedChartTab = null;
+
+      function rememberChartTab(btn) {
+        selectedChartTab = {
+          tab: btn.getAttribute('data-chart-tab'),
+          view: btn.getAttribute('data-chart-view')
+        };
+      }
+
+      // Re-apply the remembered selection to the FRESH markup a swap just brought in.
+      //
+      // Deliberately a no-op in two cases, both of which leave the server's own default in place
+      // (`btn-active` on the first button, `#flows-charts` hidden): nothing has been selected
+      // yet, and the selected button did not come back — `Monthly savings (€)` is absent when the
+      // new window has no euro series, and `Energy flows` when it has no frame to simulate. That
+      // second case is the hazard the old reset-everything behaviour was protecting against; it
+      // is handled here by asking whether the button exists.
+      //
+      // Matching on both attributes finds the one button that IS the remembered selection. The
+      // view attribute is part of the selector rather than applied afterwards, so a remembered
+      // `eur` cannot be re-applied by way of the `kwh` button. `button` leads the selector for the
+      // same reason the click handler checks tagName: only a button is a tab, and a future
+      // non-button carrying the attribute should be ignored here rather than selected.
+      function restoreChartTab() {
+        if (!selectedChartTab) return;
+        var sel = 'button[data-chart-tab="' + selectedChartTab.tab + '"]';
+        if (selectedChartTab.view) sel += '[data-chart-view="' + selectedChartTab.view + '"]';
+        var btn = document.querySelector(sel);
+        if (btn) selectChartTab(btn);
+      }
+
+      document.addEventListener('click', function (ev) {
+        var btn = ev.target.closest ? ev.target.closest('[data-chart-tab]') : null;
+        if (!btn || btn.tagName !== 'BUTTON') return;
+        rememberChartTab(btn);
+        selectChartTab(btn);
       });
 
       // ── The §6.12 perfect-foresight benchmark box, fetched LAZILY ───────────────────────────
@@ -742,6 +796,10 @@
             // are re-drawn from the new node rather than left showing the old window's.
             drawMonthlyChart();
             drawEnergyFlows();
+            // The swap brought the panel back on its default tab. Put the reader back on the one
+            // they were looking at — after both draws above, since restoring `flows` re-draws it
+            // at the size it has once visible (Plotly cannot size a plot inside `hidden`).
+            restoreChartTab();
             // The fresh period card brings an empty hint span (the server cannot fill it in).
             applyDateFormatHint();
             // The benchmark box is INSIDE #panel-results, so the swap replaced it with a fresh

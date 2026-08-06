@@ -48,7 +48,11 @@
       container holding four plot divs, a `#flows-data` node beside `#monthly-data`, and
       window.drawEnergyFlows() over there. The Charts box now holds TWO containers, so the tab
       strip carries `data-chart-tab` (which container is visible) alongside the older
-      `data-chart-view` (which series the monthly container draws).
+      `data-chart-view` (which series the monthly container draws). Those two attributes are also
+      how the reader's tab choice SURVIVES a swap: this template always renders the default (first
+      button `btn-active`, `#flows-charts` hidden), and restoreChartTab() over there re-selects the
+      remembered button by matching on the pair — finding nothing, and so leaving the default
+      alone, exactly when the selected tab was rendered away by one of the conditions below.
 
   UI chrome is wrapped in _() for translation; coverage strings and ISO dates stay literal.
   Labels/titles/caveats come pre-marked from the view-model and are translated here via _().
