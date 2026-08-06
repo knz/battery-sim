@@ -471,7 +471,9 @@
   // source is already `csv_upload`. That guard is what keeps this from being an override: the carry
   // does not re-stage anything the server disagrees with, it re-attaches the missing half of a
   // choice the server itself recorded. A slot the server has since filled from a different source
-  // keeps the server's source and the orphaned binding goes with it.
+  // keeps the server's source and the orphaned binding goes with it. That guard is pinned by
+  // `test_a_stale_binding_is_not_carried_onto_a_slot_the_server_committed_elsewhere`
+  // (tests/test_smoke.py); removing it leaves the whole suite green without that test.
   var slotStore = loadSlotStore();
   var storeCurrent = slotStore.gen === serverGen;  // local customization still applies?
   // Bindings salvaged from a stale store, by slot. Gated by `usableStoreEntry` exactly as a current

@@ -557,3 +557,65 @@ amendment is recorded.
 - Multi-client: a second browser in the same workspace fetching between this
   client's two fetches. The carry is keyed on the server's committed source, so it
   should behave the same, but nothing pins it.
+
+## Follow-up: the carry's guard was unpinned, and now is not
+
+### What was found
+
+The carry-forward fix is gated on the slot's SERVER-committed source
+(`serverSource === CSV_SOURCE_KEY` in the seed loop of `app/static/ha_fetch.js`).
+That guard is what keeps the fix an exception to the reconcile rule rather than a
+repeal of it: a stale binding is re-attached only to a slot the server itself
+recorded as `csv_upload`, never to one the server has since filled from a
+different source.
+
+Mutation testing showed the guard was not covered. With it replaced by
+`var carry = carriedBindings[name] || null;` the entire 60-test smoke suite still
+passed. `test_a_stale_generation_drops_a_binding_for_a_slot_the_server_did_not_commit`
+does not reach it — its workspace has never been fetched, so the entry is rejected
+by the generation check for a reason unrelated to the guard.
+
+### What was added
+
+`test_a_stale_binding_is_not_carried_onto_a_slot_the_server_committed_elsewhere`
+in `tests/test_smoke.py`. It does a REAL fetch (one CSV-bound energy slot plus
+`price_spot` on `energy_charts`), so the generation genuinely bumps and the server
+genuinely commits `price_spot` to a backend source that is not `csv_upload`. It
+then writes a stale store holding a COMPLETE `csv_upload` binding for `price_spot`
+alone, reloads, and asserts the binding was not carried.
+
+The observation is the store rewrite, not the wire frame. `stagedBackendSlots`
+attaches a `binding` only when the slot's source is `csv_upload`, and under the
+mutation `price_spot`'s source still comes from the server — so the `backend_load`
+frame is byte-identical either way and cannot discriminate. What the carry does
+change is `locallyCustomized[name] = true` / `carried = true`, which turns the
+stale store's removal into a rewrite at the new generation.
+
+### Rationale for the slot pair
+
+`price_spot` + `energy_charts` is the one pair reachable without a live Home
+Assistant: `CsvSource.available_for` excludes `price_spot` (D-PRICE) and
+`EnergyChartsSource.available_for` allows only it, so the two sources are disjoint
+by construction and the committed source is guaranteed to differ from `csv_upload`.
+The test asserts `data-slot-source == "energy_charts"` after the fetch rather than
+assuming it, so it cannot pass on a workspace where the commit did not happen.
+
+### Verification
+
+- New test against the current (guarded) code: PASSES.
+- Against the mutation `var carry = carriedBindings[name] || null;` (applied to a
+  `cp` backup and restored afterwards, md5 `3feaa240de5ddb65a3008c96790cad84`):
+  FAILS with
+  `Got '{"gen":1,"slots":{"price_spot":{"source":"energy_charts","statId":""}}}'
+  — the carry guard (serverSource === CSV_SOURCE_KEY) is not holding.`
+- `tests/test_smoke.py` → 61 passed (was 60).
+
+### Not covered
+
+The other shape of this scenario: an ENERGY slot the server committed to
+`home_assistant` while the stale store claims `csv_upload` for it. Constructing it
+needs an HA slot that actually reifies, and `_HA_WS_STUB` answers
+`recorder/list_statistic_ids` but not `statistics_during_period`, so no HA slot
+can be fetched for real in this harness. The guard is a single comparison against
+`csv_upload` and does not branch per alternative source, so the `energy_charts`
+case exercises the same line — but the HA arm is not exercised.
