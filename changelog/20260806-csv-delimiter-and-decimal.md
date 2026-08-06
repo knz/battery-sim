@@ -399,3 +399,161 @@ Open, not yet ruled on:
   it should cover both radios at once.
 - The March spring-forward gap (carried over from earlier work, unrelated to
   this task, still never ruled on).
+
+---
+
+## Follow-up: a fetched CSV slot lost its binding on the reload (bug fix)
+
+### The report (user's original prompt, verbatim)
+
+> I've tried the change so far with the following test:
+> - upload csv
+> - select two columns for grid consumption and production
+> - click "fetch"
+> - then select a 3rd column for solar production
+> - clicked fetch again - an error is produced: "Ingest rejected: backend_load binding for 'grid_import_t1' is missing 'upload_id'"
+>
+> please investigate
+
+### The mechanism
+
+Reproduced and traced; the chain is:
+
+1. A successful fetch bumps `source_generation` server-side (`app/main.py`, the
+   only bump site), then the client reloads the page (`ha_fetch.js` fetchHistory).
+2. On reload `storeCurrent` (`slotStore.gen === serverGen`) is FALSE — the store
+   was stamped at the OLD generation by `saveSlotStore`.
+3. So `local` is forced to null and every slot takes the server-seeded branch of
+   the seed loop, which sets `source: serverSource` (the server DID persist
+   `csv_upload`) but leaves `uploadId`/`column` empty. Under D-BIND the binding
+   is browser-local — there is no server copy to restore.
+4. `stagedBackendSlots()` filters on the COMMITTED source, not on whether the
+   slot was staged this session, so it includes that slot and emits
+   `upload_id: ""`.
+5. `app/ingest_ws.py` rejects the empty id. The reify is all-or-nothing, so the
+   newly-bound third slot dies with it — which is why the error names an
+   already-bound slot rather than the new one.
+
+Pre-existing rather than introduced by the delimiter/decimal work: it dates to
+step 5 and became reachable at step 7, when `csv_upload` became a live radio. It
+requires a SUCCESSFUL CSV fetch to have committed the source, which is why no
+earlier manual pass hit it.
+
+### The fix, and why this shape
+
+The reconcile rule exists so the server's committed choice wins over a stale
+local customization. That is right for `source` and `statId`, which the server
+has its own copy of. It is NOT right for the three CSV binding fields
+(`uploadId`, `column`, `unit`): under D-BIND the server has no copy, so there is
+nothing for it to win with. Discarding them does not defer to the server — it
+destroys the only copy that exists.
+
+So the generation rule is narrowed rather than lifted. A stale store still loses
+`source` and `statId` wholesale; the binding fields are carried forward, and
+only onto a slot whose SERVER-COMMITTED source is already `csv_upload`. The
+carry is thus not a local override at all — it re-attaches the missing half of a
+choice the server itself recorded. `source` still comes from the server in that
+branch, so a slot the server has since filled from another source keeps the
+server's answer and drops the orphaned binding with it.
+
+The rejected alternative was the more conservative "don't stage an unbound
+slot": filter `stagedBackendSlots` so a CSV slot with no binding is skipped.
+That stops the error, but it also silently drops a series the user asked for —
+the row would still read as CSV-sourced while the fetch quietly omitted it. The
+comment above `stagedBackendSlots` already argues against exactly that. It also
+does not fix the user's actual complaint, which is that a binding they made and
+successfully fetched should not have to be made again.
+
+`saveSlotStore` now re-stamps the carried entries at the CURRENT generation, so
+the stale store is rewritten rather than deleted. The other constraints are
+unchanged and were checked: `pruneStaleCsvBindings` still clears a binding whose
+upload the server no longer lists (it runs off `slotState` and does not care how
+the entry got there); the store stays keyed per workspace; and
+`csvBindingComplete` / `usableStoreEntry` still gate the carry, so an incomplete
+binding is neither persisted nor restored.
+
+### The test that passed for the wrong reason
+
+`tests/test_smoke.py::test_a_stale_generation_drops_the_stored_csv_binding`
+asserted that `#ha-fetch-btn` is disabled after seeding a mismatched-generation
+entry. It passed only because its throwaway workspace had never been fetched:
+`source_generation` was 0, no slot had a committed server source, and the button
+was disabled because NOTHING was staged — not because the binding was correctly
+dropped. Its own docstring said "a stale entry means a fetch has happened since
+it was written", but the fixture never made one happen. On a fetched workspace
+the button would have been ENABLED and would have staged an empty binding. That
+is the bug, sitting inside the test meant to cover it.
+
+It has been rewritten to assert what the rule now is, and a second case covers
+the part that still holds (a stale `source`/`statId` yielding to the server).
+
+### The coverage gap
+
+No test reached "committed server source is `csv_upload` AND the local store is
+stale", because every CSV smoke test used `_BACKEND_WS_STUB`, a fake socket that
+persists nothing and never bumps the generation. The new regression test drives
+the user's exact sequence against the REAL ingest WebSocket instead of the stub —
+bind two slots, fetch for real (which persists, bumps the generation and
+reloads), bind a third, fetch again — and asserts all three `backend_load`
+frames carry a non-empty `upload_id`.
+
+### Files modified
+
+- `app/static/ha_fetch.js` — the seed loop gains `carriedBindings` (bindings
+  salvaged from a stale store, gated by `usableStoreEntry` exactly as a current
+  entry is) and applies them in the server-seeded branch, only where the server's
+  own committed source is `csv_upload`. The stale-store branch now REWRITES the
+  store at the current generation when something was carried, instead of deleting
+  it. Three comments corrected: the file header's statement of the generation rule
+  (which described it as uniform across the fields), the claim above
+  `stagedBackendSlots` that "no slot reaches this function bound to half a
+  binding" (it missed the server-seeded path — that is the bug), and the
+  seed loop's "needs one again only to be re-fetched" (which was the missed case,
+  since every fetch is all-or-nothing and re-fetches every committed slot).
+- `tests/test_smoke.py` — `_THREE_COLUMN_CSV` fixture and a `_wait_for_fetch_reload`
+  helper that surfaces the fetch status line instead of timing out.
+  `test_a_stale_generation_drops_the_stored_csv_binding` renamed to
+  `..._drops_a_binding_for_a_slot_the_server_did_not_commit` and its docstring
+  rewritten to say what it actually covers and why the old claim was false. New
+  `test_rebinding_after_a_real_fetch_keeps_the_earlier_slots_bindings` drives the
+  user's five steps against the real ingest WebSocket.
+
+### Obstacles
+
+- The stub could not be extended to bump the generation: it answers `done` with a
+  fake `result` and then the page RELOADS against the real server, whose generation
+  is unchanged. So the new test drops the stub and wraps `WebSocket.prototype.send`
+  to observe frames while the socket stays real.
+- Waiting on the URL cannot distinguish fetch success from failure (same URL
+  either way); `_wait_for_fetch_reload` waits on the status line instead, which is
+  what turned the first red run into a diagnosable message.
+- `solar_production` is `pv_only` and hidden unless the household declares PV, so
+  the third slot in the regression is `grid_import_t2`, which is always visible.
+
+### Verification
+
+- `tests/test_csv_binding_reify.py tests/test_ingest_ws.py tests/test_csv_source.py`
+  → 100 passed.
+- `tests/test_smoke.py` → 60 passed (was 59; the rewritten test plus one new one).
+- `tests/test_slot_load.py tests/test_upload_routes.py tests/test_uploads.py
+  tests/test_csv_wide.py` → 252 passed.
+- The new regression was run against the UNFIXED `ha_fetch.js` (restored from a
+  `cp` backup) and FAILS there with the user's exact symptom:
+  `grid_import_t1 must still carry its upload id on the second fetch; got
+  {'upload_id': '', 'column': '', 'unit': 'kWh'}`. The fix was then restored.
+
+`docs/specs/` was checked for a statement of the reconcile rule (D-BIND,
+candidate E, §2.2, the data-formats and architecture specs). It does not state
+one — the rule is documented in `ha_fetch.js`'s header and in the step-5
+changelog, both of which are amended here. No spec change was needed, so no spec
+amendment is recorded.
+
+### Not verified
+
+- The mixed HA + CSV fetch. The regression is backend-load-only, which is the
+  sequence reported and the only one reachable without a Home Assistant. The seed
+  loop and `stagedBackendSlots` are shared, so the mechanism is the same, but that
+  combination is not exercised.
+- Multi-client: a second browser in the same workspace fetching between this
+  client's two fetches. The carry is keyed on the server's committed source, so it
+  should behave the same, but nothing pins it.

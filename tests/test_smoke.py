@@ -1919,6 +1919,17 @@ _WIDE_CSV = (
     "01-01-2025 03:00:00,0.377,0.0\n"
 )
 
+# Three bindable columns, for the rebind-after-a-real-fetch regression below: it needs one column
+# per slot, and the three slots it uses are the ones always visible regardless of the household's
+# PV/battery answers (`solar_production` is `pv_only`). Longer than `_WIDE_CSV` because the fetch it
+# feeds is a REAL one that persists a dataset rather than a stubbed socket that discards it — and
+# each column is non-monotone, so none is refused on parse as a cumulative register (D-KIND).
+_THREE_COLUMN_CSV = "Tijdstip,Verbruik_T1,Verbruik_T2,Teruglevering\n" + "".join(
+    f"01-01-2025 {h:02d}:00:00,{0.4 + (h % 3) * 0.01:.3f},"
+    f"{0.2 + (h % 4) * 0.01:.3f},{0.1 + (h % 5) * 0.01:.3f}\n"
+    for h in range(24)
+)
+
 
 def _upload_csv(base_url: str, workspace_id: str, *, filename: str = "meterstanden_2025.csv",
                 text: str = _WIDE_CSV, tz: str = "Europe/Amsterdam",
@@ -2063,13 +2074,23 @@ def test_a_stored_csv_binding_is_restored_and_sent_on_the_backend_load_message(b
     context.close()
 
 
-def test_a_stale_generation_drops_the_stored_csv_binding(browser, base_url):
-    """The reconcile rule applies to a binding unchanged: an older generation is discarded.
+def test_a_stale_generation_drops_a_binding_for_a_slot_the_server_did_not_commit(browser, base_url):
+    """A stale entry does not RE-STAGE a slot: the source and statId still yield to the server.
 
-    Not a new mechanism — the point is that the binding INHERITS this one rather than needing its
-    own, which is the argument candidate E rests on. A stale entry means a fetch has happened since
-    it was written, so the server's committed choice wins and the store is cleared; a binding that
-    survived would re-stage a slot the server already filled.
+    This is the half of the reconcile rule that survives the carry-forward exception (see the
+    sibling test below and `ha_fetch.js`'s header). The workspace here has never been fetched, so
+    NO slot has a committed server source; a mismatched-generation entry therefore has nothing to
+    re-attach itself to and must leave the roster with nothing staged.
+
+    Which is exactly why this test is no longer allowed to stand alone, and why its previous form
+    was wrong. It used to be named `..._drops_the_stored_csv_binding` and was read as covering the
+    whole rule. It could not: on a never-fetched workspace `source_generation` is 0 and no slot has
+    a server source, so `[ Fetch history ]` is disabled because NOTHING IS STAGED — not because the
+    binding was correctly dropped. Its own docstring claimed "a stale entry means a fetch has
+    happened since it was written" while the fixture never made one happen. On a FETCHED workspace
+    the same seeding left the button enabled and staged an empty `upload_id`, which is the bug the
+    sibling test now covers. The assertion below is kept because it is true and worth pinning; the
+    claim that it covers the stale case is what has been removed.
     """
     url = _workspace_url(base_url)
     workspace_id = url.rstrip("/").split("/")[-2]
@@ -2087,12 +2108,258 @@ def test_a_stale_generation_drops_the_stored_csv_binding(browser, base_url):
     # is EQUALITY with the server's, not being older than it, and either direction is a mismatch.
     _seed_csv_binding(pg, base_url, workspace_id, gen_offset=1)
 
-    # The binding does not apply: no source was restored, so nothing is staged and a fetch has
-    # nothing to reify. This is the assertion that matters — whether the key is also deleted is a
-    # separate housekeeping branch, and asserting deletion here would pin the sentinel exemption
-    # above as a bug rather than the documented behaviour it is.
+    # Nothing staged: `source` came from the store and the store did not apply. The BINDING fields
+    # of that entry are not carried either, because the carry is gated on the slot's SERVER source
+    # being `csv_upload` and this server committed no source at all.
     assert pg.locator("#ha-fetch-btn").is_disabled(), (
-        "a mismatched-generation entry must not leave a fetchable slot behind"
+        "a mismatched-generation entry must not re-stage a slot the server never committed"
+    )
+    context.close()
+
+
+def _wait_for_fetch_reload(pg):
+    """Wait out a real fetch, failing with the STATUS LINE rather than a bare timeout.
+
+    `fetchHistory` ends success in a `window.location.reload()` 600ms after the "Imported N series"
+    status, and ends failure by writing the reason into `#ha-fetch-status` and re-enabling the
+    button. Waiting on the URL cannot tell those apart — the URL is the same either way — so this
+    waits for the status to reach a terminal state and surfaces the failure text, which is the
+    difference between a diagnosable assertion and a 20-second timeout with nothing in it.
+    """
+    pg.wait_for_function(
+        "() => { const e = document.getElementById('ha-fetch-status');"
+        "        return e && /Imported|✗/.test(e.textContent); }",
+        timeout=20000,
+    )
+    status = pg.locator("#ha-fetch-status").inner_text()
+    assert "✗" not in status, f"the fetch failed: {status}"
+    # Then the reload it schedules.
+    pg.wait_for_function(
+        "() => document.readyState === 'complete' && "
+        "     !/Imported/.test((document.getElementById('ha-fetch-status')||{}).textContent||'')",
+        timeout=20000,
+    )
+    pg.wait_for_load_state("networkidle")
+
+
+def test_rebinding_after_a_real_fetch_keeps_the_earlier_slots_bindings(browser, base_url):
+    """The user's reported bug: bind two, fetch, bind a third, fetch again — and it failed.
+
+    The failure was `Ingest rejected: backend_load binding for 'grid_import_t1' is missing
+    'upload_id'`, naming an ALREADY-BOUND slot rather than the new one. A successful fetch bumps
+    `source_generation` and reloads; the store, stamped at the old generation, then failed the
+    `storeCurrent` check, so every slot fell into the seed loop's server-seeded branch — which
+    restored `source: csv_upload` (the server did persist it) with an EMPTY binding, because under
+    D-BIND the server has no binding to restore. `stagedBackendSlots` filters on the committed
+    source, so it staged that slot and sent `upload_id: ""`, and the all-or-nothing reify took the
+    newly-bound third slot down with it.
+
+    This test deliberately does NOT use `_BACKEND_WS_STUB`. The stub is what left this uncovered:
+    it persists nothing and never bumps the generation, so no stubbed test can ever reach the state
+    "committed server source is `csv_upload` AND the local store is stale". It answers `done` with a
+    plausible `result` and the page then reloads against a server whose generation is still 0, so
+    the store still matches and the broken branch is never taken. The real ingest WebSocket is used
+    instead: the first fetch genuinely persists a dataset, genuinely bumps the generation, and the
+    reload genuinely re-renders the roster from the server's committed sources.
+
+    The fetch window is `historyWindow()`'s trailing `HISTORY_DAYS` (730) from now, and the fixture
+    CSV is dated 2025-01-01, so the data is inside the window — a fetch that loaded nothing would
+    fail the reify and the test would not reach its assertions.
+
+    What is NOT covered here: the HA arm. This fetch is backend-load-only, which is the sequence the
+    user reported and the only one reachable without a Home Assistant to talk to. A mixed HA+CSV
+    fetch takes the same seed loop and the same `stagedBackendSlots`, so the mechanism is shared,
+    but that combination is not exercised.
+    """
+    url = _workspace_url(base_url)
+    workspace_id = url.rstrip("/").split("/")[-2]
+    _upload_csv(base_url, workspace_id, text=_THREE_COLUMN_CSV)
+
+    context = browser.new_context()
+    context.add_cookies([{"name": "lang", "value": "en", "url": base_url}])
+    pg = context.new_page()
+    # Only the frames are observed; the socket itself is the real one. Wrapping `send` rather than
+    # replacing `WebSocket` is what keeps the round trip real.
+    pg.add_init_script("""
+      window.__backendSent = [];
+      const _send = WebSocket.prototype.send;
+      WebSocket.prototype.send = function (raw) {
+        try { window.__backendSent.push(JSON.parse(raw)); } catch (e) { /* binary */ }
+        return _send.call(this, raw);
+      };
+    """)
+
+    pg.goto(f"{base_url}/w/{workspace_id}/data", wait_until="networkidle")
+    gen_before = pg.evaluate(
+        "() => JSON.parse(document.getElementById('source-generation').textContent)"
+    )
+
+    # Steps 1-2: bind two slots.
+    _bind_slot_via_drawer(pg, "grid_import_t1", "Verbruik_T1")
+    _bind_slot_via_drawer(pg, "grid_export_t1", "Teruglevering")
+
+    # Step 3: fetch for real. Success ends in a full page reload, so wait for that rather than for
+    # the frame — the reload is the event that puts the client in the broken state.
+    pg.locator("#ha-fetch-btn").click()
+    _wait_for_fetch_reload(pg)
+
+    gen_after = pg.evaluate(
+        "() => JSON.parse(document.getElementById('source-generation').textContent)"
+    )
+    assert gen_after > gen_before, (
+        "the first fetch must genuinely persist and bump the generation — otherwise this test is "
+        f"not in the state it claims to be testing (before={gen_before}, after={gen_after})"
+    )
+
+    # The reload cleared the recorder, so re-arm it for the second fetch.
+    pg.evaluate("() => { window.__backendSent = []; }")
+
+    # Step 4: bind a third slot, on a page whose store is now stale.
+    _bind_slot_via_drawer(pg, "grid_import_t2", "Verbruik_T2")
+
+    # Step 5: fetch again. This is where it used to fail.
+    pg.locator("#ha-fetch-btn").click()
+    pg.wait_for_function(
+        "() => (window.__backendSent || []).filter(m => m.type === 'backend_load').length >= 3",
+        timeout=20000,
+    )
+    loads = [m for m in pg.evaluate("() => window.__backendSent") if m["type"] == "backend_load"]
+
+    by_slot = {m["name"]: m for m in loads}
+    assert set(by_slot) == {"grid_import_t1", "grid_export_t1", "grid_import_t2"}, sorted(by_slot)
+    for name, msg in by_slot.items():
+        binding = msg.get("binding") or {}
+        # The assertion the bug fails. `upload_id` empty is what `app/ingest_ws.py` rejects, and it
+        # is the two ALREADY-FETCHED slots that lose it, not the newly-bound one.
+        assert binding.get("upload_id"), (
+            f"{name} must still carry its upload id on the second fetch; got {binding!r}"
+        )
+        assert binding.get("column"), f"{name} must still carry its column; got {binding!r}"
+
+    # And the reify actually succeeds end to end: a second reload rather than an error line.
+    _wait_for_fetch_reload(pg)
+    context.close()
+
+
+def test_a_stale_binding_is_not_carried_onto_a_slot_the_server_committed_elsewhere(
+    browser, base_url
+):
+    """The GUARD on the carry: `serverSource === CSV_SOURCE_KEY` in `ha_fetch.js`'s seed loop.
+
+    The carry-forward exception exists because the server has no copy of a CSV binding (D-BIND), so
+    dropping a stale store's binding fields destroys the only copy. But it is an exception to the
+    reconcile rule, not a repeal of it, and the guard is what keeps the difference: a binding is
+    re-attached only to a slot the SERVER ITSELF committed to `csv_upload`. A slot the server has
+    since filled from a DIFFERENT source keeps the server's choice, and the orphaned binding goes
+    with it — otherwise the carry would be a blanket override of the reconcile rule, re-staging
+    browser-local state onto slots the server disagrees with.
+
+    Found unpinned by mutation testing: with the guard removed
+    (`var carry = carriedBindings[name] || null;`) the whole smoke suite still passed. The sibling
+    `test_a_stale_generation_drops_a_binding_for_a_slot_the_server_did_not_commit` does not reach it
+    — its workspace has never been fetched, so `serverSource` is empty AND the store's own generation
+    check already rejects the entry, and removing the guard changes nothing there.
+
+    What this needs and how it is built:
+
+      * a FETCHED workspace, so `source_generation` has moved and the store is genuinely stale. That
+        means a REAL fetch (not `_BACKEND_WS_STUB`, which persists nothing and never bumps the
+        generation), for the reason the sibling test's docstring gives at length.
+      * a slot whose SERVER-committed source is a backend source other than `csv_upload`. That slot
+        is `price_spot` with `energy_charts`: `CsvSource.available_for` excludes `price_spot`
+        (D-PRICE) and `EnergyChartsSource.available_for` allows only it, so the two sources are
+        disjoint by construction and this is the one pair reachable without a live Home Assistant.
+        (An energy slot committed to `home_assistant` would be the other shape of this test; the HA
+        stub answers `list_statistic_ids` but not `statistics_during_period`, so no HA slot can be
+        made to reify here. That arm is not covered.)
+      * a stale store holding a COMPLETE `csv_upload` binding for that same slot, and for NO other
+        slot — `carried` is a single flag over the whole loop, so an entry for the CSV slot would
+        set it and mask the difference this test is looking for.
+
+    The observation is the store rewrite, which is the surface the carry actually changes here.
+    `stagedBackendSlots` attaches a `binding` only when the slot's source is `csv_upload`, and under
+    the mutation `price_spot`'s source still comes from the server (`energy_charts`) — so the wire
+    frame is identical either way and cannot discriminate. What the carry does change is the two
+    bookkeeping writes beside it: `locallyCustomized[name] = true` and `carried = true`, which turn
+    the stale store's REMOVAL into a REWRITE at the new generation. So:
+
+      * guarded — nothing is carried, `carried` stays false, and the stale store is removed outright.
+      * mutated — `price_spot` is carried, marked locally-customized, and written back. Its source is
+        `energy_charts` (the server's, correctly) so `saveSlotStore`'s else-branch stores the bare
+        key — a browser-local claim on a slot the server has already decided, resurrected from a
+        store the reconcile rule had thrown away.
+
+    Both are asserted: the store is gone, and the stale upload id is nowhere in `localStorage`.
+    """
+    url = _workspace_url(base_url)
+    workspace_id = url.rstrip("/").split("/")[-2]
+    upload = _upload_csv(base_url, workspace_id, text=_THREE_COLUMN_CSV)
+
+    context = browser.new_context()
+    context.add_cookies([{"name": "lang", "value": "en", "url": base_url}])
+    pg = context.new_page()
+    pg.goto(f"{base_url}/w/{workspace_id}/data", wait_until="networkidle")
+    gen_before = pg.evaluate(
+        "() => JSON.parse(document.getElementById('source-generation').textContent)"
+    )
+
+    # One CSV slot so the fetch has an energy series to reify, plus `price_spot` on `energy_charts`
+    # — the slot whose committed source this test needs to be something OTHER than `csv_upload`.
+    _bind_slot_via_drawer(pg, "grid_import_t1", "Verbruik_T1")
+    pg.locator("#slot-roster .slot-source-btn[data-slot='price_spot']").click()
+    pg.locator("#source-drawer input[name='drawer-source'][value='energy_charts']").check()
+    pg.locator("#drawer-confirm").click()
+    pg.wait_for_timeout(150)
+
+    pg.locator("#ha-fetch-btn").click()
+    _wait_for_fetch_reload(pg)
+
+    gen_after = pg.evaluate(
+        "() => JSON.parse(document.getElementById('source-generation').textContent)"
+    )
+    assert gen_after > gen_before, (
+        "the fetch must genuinely persist and bump the generation, or the store below would not be "
+        f"stale and this test would not be in the state it claims (before={gen_before}, "
+        f"after={gen_after})"
+    )
+    # The premise the guard is read against: the server really did commit `price_spot` to
+    # `energy_charts`. Asserted rather than assumed — if this attribute were empty or `csv_upload`,
+    # the test below would pass for a reason that has nothing to do with the guard.
+    committed = pg.get_attribute(
+        "#slot-roster .slot-source-btn[data-slot='price_spot']", "data-slot-source"
+    )
+    assert committed == "energy_charts", (
+        f"price_spot's committed server source must be energy_charts, got {committed!r}"
+    )
+
+    # Now the stale store: a COMPLETE binding (a real upload id, so `pruneStaleCsvBindings` is not
+    # what removes it) claiming `price_spot` for `csv_upload`, stamped at the PRE-fetch generation.
+    # Only this slot, so `carried` reflects this slot alone.
+    pg.evaluate(
+        """([k, g, uid]) => localStorage.setItem(k, JSON.stringify({
+               gen: g,
+               slots: {price_spot: {source: 'csv_upload', statId: '',
+                                    uploadId: uid, column: 'Verbruik_T1', unit: 'kWh'}}}))""",
+        [f"ha.slots.{workspace_id}", gen_before, upload["id"]],
+    )
+    pg.reload(wait_until="networkidle")
+
+    stored = pg.evaluate(f"localStorage.getItem('ha.slots.{workspace_id}')")
+    assert stored in (None, ""), (
+        "a stale binding must NOT be carried onto a slot whose committed source is not csv_upload: "
+        "nothing was carried, so the stale store must have been removed rather than rewritten. "
+        f"Got {stored!r} — the carry guard (serverSource === CSV_SOURCE_KEY) is not holding."
+    )
+    assert upload["id"] not in (stored or ""), (
+        f"the orphaned upload id must go with the binding, not survive in the store: {stored!r}"
+    )
+
+    # The row still reads as the server's choice, not as a CSV-bound slot.
+    label = pg.locator(
+        "#slot-roster .slot-source-btn[data-slot='price_spot'] .slot-source-label"
+    ).inner_text()
+    assert "Upload CSV" not in label, (
+        f"price_spot must keep the server's committed source in the row label, got {label!r}"
     )
     context.close()
 

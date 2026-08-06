@@ -88,10 +88,24 @@
  *     generation. On load:
  *       * local gen === server gen → USE LOCAL wholesale (source, statId AND the CSV binding): the
  *         pre-fetch choice survives the reload.
- *       * server gen  >  local gen → a fetch has happened since (here or on another client in the
- *         same workspace); the server is authoritative, the stale local slots are dropped.
+ *       * gen mismatch (normally server > local) → a fetch has happened since (here or on another
+ *         client in the same workspace); the server is authoritative and the stale local `source`
+ *         and `statId` are dropped — EXCEPT for the CSV binding fields, see below.
  *     A fetch advances the generation, so a pre-fetch entry saved beforehand is superseded by the
  *     freshly-persisted server state (which now renders that slot itself, per 1).
+ *
+ *     The generation rule is NOT uniform across the fields, and the exception is load-bearing.
+ *     "The server is authoritative" presupposes the server has an answer. It has one for `source`
+ *     and `statId`; it has none for `(uploadId, column, unit)`, which under D-BIND live in this
+ *     store and nowhere else. Dropping those on a stale store therefore does not hand the decision
+ *     to the server — it destroys the only copy, leaving a slot the server renders as `csv_upload`
+ *     with no binding to re-fetch it with, which stagedBackendSlots() sends as an empty `upload_id`
+ *     and the server rejects, failing the whole all-or-nothing fetch. So on a stale store the three
+ *     binding fields are CARRIED onto a slot whose SERVER-committed source is already `csv_upload`
+ *     (the seed loop's `carriedBindings`), and the store is rewritten at the new generation. The
+ *     server-source guard is what keeps this from being an override: nothing is re-staged that the
+ *     server disagrees with; the missing half of the server's own recorded choice is put back. The
+ *     same completeness gate applies as ever, so a half-binding is not carried either.
  *
  *     The three CSV fields — uploadId, column, unit — are the per-slot BINDING for an uploaded wide
  *     CSV (decision D-BIND of the CSV-import brief). They live here, and only here, for the reason
@@ -442,8 +456,40 @@
   // overrides that when it applies: its generation still matches the server's (a PRE-FETCH
   // customization not yet superseded by a fetch). When the server's generation is newer, the store
   // is stale — the server choice wins and the store is cleared.
+  //
+  // ONE EXCEPTION, and it is the reason this comment is longer than the loop. "The server wins" is
+  // only meaningful where the server HAS an answer. It has one for `source` and for `statId`
+  // (series_meta), so a stale entry's copies of those are dropped and the committed choice stands.
+  // It has NONE for the three CSV binding fields: under D-BIND `(uploadId, column, unit)` lives
+  // here and nowhere else. Dropping them on a stale store does not defer to the server — it
+  // destroys the only copy, and the slot is then rendered as CSV-sourced (from the server) while
+  // holding no binding, which `stagedBackendSlots` duly sends as an empty `upload_id` and
+  // `app/ingest_ws.py` duly rejects, taking the whole all-or-nothing fetch with it. That was a real
+  // bug: fetch a CSV slot, then bind another, and the second fetch failed naming the FIRST slot.
+  //
+  // So a stale store's binding fields are CARRIED, and only onto a slot whose server-committed
+  // source is already `csv_upload`. That guard is what keeps this from being an override: the carry
+  // does not re-stage anything the server disagrees with, it re-attaches the missing half of a
+  // choice the server itself recorded. A slot the server has since filled from a different source
+  // keeps the server's source and the orphaned binding goes with it.
   var slotStore = loadSlotStore();
   var storeCurrent = slotStore.gen === serverGen;  // local customization still applies?
+  // Bindings salvaged from a stale store, by slot. Gated by `usableStoreEntry` exactly as a current
+  // entry is, so an incomplete binding is no more restorable when stale than when fresh.
+  var carriedBindings = {};
+  if (!storeCurrent) {
+    Object.keys(slotStore.slots || {}).forEach(function (name) {
+      var e = slotStore.slots[name];
+      if (!e || e.source !== CSV_SOURCE_KEY || !usableStoreEntry(e)) return;
+      carriedBindings[name] = {
+        uploadId: e.uploadId, column: e.column, unit: e.unit || DEFAULT_CSV_UNIT
+      };
+    });
+  }
+  // Set when a carry actually happened, so the stale store is REWRITTEN at the new generation
+  // rather than deleted (below). Without the rewrite the binding would survive this reload and be
+  // lost on the next plain refresh, which is the same bug one step further out.
+  var carried = false;
   Array.prototype.slice.call(document.querySelectorAll(".slot-source-btn")).forEach(function (btn) {
     var name = btn.getAttribute("data-slot");
     if (!name) return;
@@ -469,23 +515,39 @@
       // later save (from customizing another slot) preserves it rather than dropping it.
       locallyCustomized[name] = true;
     } else {
-      // No local entry: the server's committed choice. There is deliberately no server-side binding
-      // to read here — under D-BIND a CSV binding is browser-local, so a slot whose server source is
-      // `csv_upload` (i.e. one that HAS been fetched from a CSV) shows its provenance from the
-      // dataset and needs no binding to render. It needs one again only to be re-fetched.
+      // No local entry that applies: the server's committed choice. There is no server-side binding
+      // to read — under D-BIND a CSV binding is browser-local. A slot whose server source is
+      // `csv_upload` (i.e. one that HAS been fetched from a CSV) renders its provenance from the
+      // dataset and so needs no binding to LOOK right; but the fetch button stages it by its
+      // committed source, so it needs one again the moment anything is re-fetched — and every fetch
+      // is all-or-nothing, so "the user binds a THIRD slot and fetches" re-fetches this one too.
+      // That is why `carriedBindings` exists: the binding is put back here, from the stale store the
+      // reconcile rule would otherwise have thrown away. See the exception above the loop.
+      var carry = (serverSource === CSV_SOURCE_KEY) ? carriedBindings[name] : null;
       slotState[name] = {
         source: serverSource,
         statId: serverStatId,
-        uploadId: "",
-        column: "",
-        unit: DEFAULT_CSV_UNIT,
+        uploadId: carry ? carry.uploadId : "",
+        column: carry ? carry.column : "",
+        unit: carry ? carry.unit : DEFAULT_CSV_UNIT,
         kind: btn.getAttribute("data-slot-kind") || slotKind(name)
       };
+      if (carry) {
+        // Tracked as locally-customized so `saveSlotStore` keeps writing it: the binding is still
+        // browser-only state, and the next save (from binding some other slot) must not drop it.
+        locallyCustomized[name] = true;
+        carried = true;
+      }
     }
   });
-  // Drop a stale store (older generation) so it does not shadow a future save at the new gen.
+  // A stale store (a generation that is not the server's) must not shadow a future save at the new
+  // gen. Rewriting it re-stamps what survived — the carried bindings — at the CURRENT generation;
+  // that is a strict improvement on removing it, because a removal would make the carry good for
+  // this reload only and lose the binding on the next plain refresh. With nothing carried the
+  // rewrite reduces to an empty store, which is what the removal produced anyway.
   if (!storeCurrent && slotStore.gen !== -1) {
-    try { localStorage.removeItem(LS_SLOTS); } catch (e) { /* ignore */ }
+    if (carried) saveSlotStore();
+    else try { localStorage.removeItem(LS_SLOTS); } catch (e) { /* ignore */ }
   }
 
   // -----------------------------------------------------------------------------------------
@@ -821,14 +883,22 @@
   // source's extras are its own, so `energy_charts` would raise on an unexpected keyword. Sending a
   // binding it will not use would be harmless today and misleading tomorrow.
   //
-  // An INCOMPLETE binding is sent as-is rather than suppressed HERE, because it is kept out of
-  // slotState in the first place: `saveSlotStore` writes only complete bindings and
-  // `usableStoreEntry` refuses to restore an incomplete one on the way back in, so no slot reaches
-  // this function bound to half a binding (step 6's Confirm gate adds the third, in-drawer, copy of
-  // the same rule). Those are the gates; this is not one, and it must not become the only one — a
-  // filter here would drop the SLOT silently and leave a fetch quietly missing a series the user
-  // asked for. If a binding ever does arrive incomplete, sending it gets a server message naming the
-  // missing field, which is a diagnosable failure rather than a vanished slot.
+  // An INCOMPLETE binding is sent as-is rather than suppressed HERE. Three gates upstream aim to
+  // keep one out of slotState: the drawer's Confirm gate, `saveSlotStore`'s write gate and
+  // `usableStoreEntry`'s read gate, all three the same `csvBindingComplete` predicate. This is not a
+  // fourth, and it must not become the only one — a filter here would drop the SLOT silently and
+  // leave a fetch quietly missing a series the user asked for. If a binding ever does arrive
+  // incomplete, sending it gets a server message naming the missing field, which is a diagnosable
+  // failure rather than a vanished slot.
+  //
+  // Those three gates are NOT jointly a proof that no slot reaches here half-bound, and this comment
+  // used to claim they were. They all guard the LOCAL-STORE path; the seed loop has a second path,
+  // the server-seeded branch, which sets `source` from `data-slot-source` with no binding at all —
+  // and this function's filter is on the COMMITTED source, so a slot the server records as
+  // `csv_upload` is staged by that alone. That is precisely how a fetched CSV slot came to send an
+  // empty `upload_id` and fail an entire all-or-nothing fetch. The seed loop's `carriedBindings` is
+  // the fix; the gap it closed is real and is the reason this paragraph is here rather than the
+  // old claim.
   function stagedBackendSlots() {
     return Object.keys(slotState)
       .filter(function (name) {
