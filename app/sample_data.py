@@ -100,6 +100,21 @@ def _info_for(name: str) -> str | None:
     return slot.info if slot is not None else None
 
 
+def _req_for(name: str) -> str:
+    """The slot's requirement level (specs §4.1), single-sourced from `SlotSpec.requirement`.
+
+    Same discipline as `_info_for`: the sample roster paints the same ●/◐/○ marker the live one
+    does. Hand-copying this field is what let the demo drift — it showed the T2 registers as
+    `required` while the vocabulary called them `optional`, which is the level §4.1 note 4's
+    *expected* collapses to (there is no "expected" level in code). Falling back to "optional"
+    for an unknown name keeps the sample from claiming a slot is mandatory on a typo.
+    """
+    from app.domain.series_vocab import SLOT_BY_NAME
+
+    slot = SLOT_BY_NAME.get(name)
+    return slot.requirement if slot is not None else "optional"
+
+
 # Source descriptor labels/blurbs live in app/sources/*.py (not string literals here), so
 # pybabel would not otherwise discover them as msgids. Mark them for extraction once, so the
 # template's _(source.label) / _(source.blurb) calls have catalog entries to look up. Keep this
@@ -179,7 +194,10 @@ def _panel_data():
             "statistic_count": "1,284",
         },
         # Series mapping table. `req` is one of required / conditional / optional, rendered as
-        # ● / ◐ / ○.
+        # ● / ◐ / ○. It comes from `_req_for`, i.e. from SlotSpec, rather than being written out
+        # here: hand-copied, it drifted, and the demo painted the T2 registers ● while the live
+        # roster painted them ○. §4.1 note 4 marks T2 *expected* — both registers should be there,
+        # but a single-tariff meter that fills only T1 still runs, so nothing gates on them.
         #
         # The slot roster is derived from the setup band (§2.2): rows flagged `pv_only` show
         # only when cfg.has_pv; rows flagged `battery_only` only when cfg.has_battery.
@@ -191,16 +209,16 @@ def _panel_data():
         # The two corroboration rows (power_grid, house_load) carry an `info` blurb so the demo
         # previews the picker's ⓘ affordance; `_info_for` single-sources the text from SlotSpec.
         "mapping": [
-            {"name": "grid_import_t1", "role": _N("Grid import T1"), "req": "required", "entity": "sensor.electricity_meter_import_t1", "stat_id": "sensor.electricity_meter_import_t1", "source": "home_assistant", "sources": _sources_for("grid_import_t1")},
-            {"name": "grid_import_t2", "role": _N("Grid import T2"), "req": "required", "entity": "sensor.electricity_meter_import_t2", "stat_id": "sensor.electricity_meter_import_t2", "source": "home_assistant", "sources": _sources_for("grid_import_t2")},
-            {"name": "grid_export_t1", "role": _N("Grid export T1"), "req": "required", "entity": "sensor.electricity_meter_export_t1", "stat_id": "sensor.electricity_meter_export_t1", "source": "home_assistant", "sources": _sources_for("grid_export_t1")},
-            {"name": "grid_export_t2", "role": _N("Grid export T2"), "req": "required", "entity": "sensor.electricity_meter_export_t2", "stat_id": "sensor.electricity_meter_export_t2", "source": "home_assistant", "sources": _sources_for("grid_export_t2")},
-            {"name": "solar_production", "role": _N("Solar production"), "req": "conditional", "entity": "sensor.solar_total_production", "stat_id": "sensor.solar_total_production", "pv_only": True, "source": "home_assistant", "sources": _sources_for("solar_production")},
-            {"name": "battery_charge", "role": _N("Battery charge"), "req": "optional", "entity": None, "stat_id": None, "battery_only": True, "source": None, "sources": _sources_for("battery_charge")},
-            {"name": "battery_discharge", "role": _N("Battery discharge"), "req": "optional", "entity": None, "stat_id": None, "battery_only": True, "source": None, "sources": _sources_for("battery_discharge")},
-            {"name": "price_spot", "role": _N("Spot price"), "req": "required", "entity": "sensor.epex_spot_price", "stat_id": None, "source": "energy_charts", "sources": _sources_for("price_spot")},
-            {"name": "power_grid", "role": _N("Grid power"), "req": "optional", "entity": None, "stat_id": None, "source": None, "sources": _sources_for("power_grid"), "info": _info_for("power_grid")},
-            {"name": "house_load", "role": _N("House load"), "req": "optional", "entity": None, "stat_id": None, "source": None, "sources": _sources_for("house_load"), "info": _info_for("house_load")},
+            {"name": "grid_import_t1", "role": _N("Grid import T1"), "req": _req_for("grid_import_t1"), "entity": "sensor.electricity_meter_import_t1", "stat_id": "sensor.electricity_meter_import_t1", "source": "home_assistant", "sources": _sources_for("grid_import_t1")},
+            {"name": "grid_import_t2", "role": _N("Grid import T2"), "req": _req_for("grid_import_t2"), "entity": "sensor.electricity_meter_import_t2", "stat_id": "sensor.electricity_meter_import_t2", "source": "home_assistant", "sources": _sources_for("grid_import_t2")},
+            {"name": "grid_export_t1", "role": _N("Grid export T1"), "req": _req_for("grid_export_t1"), "entity": "sensor.electricity_meter_export_t1", "stat_id": "sensor.electricity_meter_export_t1", "source": "home_assistant", "sources": _sources_for("grid_export_t1")},
+            {"name": "grid_export_t2", "role": _N("Grid export T2"), "req": _req_for("grid_export_t2"), "entity": "sensor.electricity_meter_export_t2", "stat_id": "sensor.electricity_meter_export_t2", "source": "home_assistant", "sources": _sources_for("grid_export_t2")},
+            {"name": "solar_production", "role": _N("Solar production"), "req": _req_for("solar_production"), "entity": "sensor.solar_total_production", "stat_id": "sensor.solar_total_production", "pv_only": True, "source": "home_assistant", "sources": _sources_for("solar_production")},
+            {"name": "battery_charge", "role": _N("Battery charge"), "req": _req_for("battery_charge"), "entity": None, "stat_id": None, "battery_only": True, "source": None, "sources": _sources_for("battery_charge")},
+            {"name": "battery_discharge", "role": _N("Battery discharge"), "req": _req_for("battery_discharge"), "entity": None, "stat_id": None, "battery_only": True, "source": None, "sources": _sources_for("battery_discharge")},
+            {"name": "price_spot", "role": _N("Spot price"), "req": _req_for("price_spot"), "entity": "sensor.epex_spot_price", "stat_id": None, "source": "energy_charts", "sources": _sources_for("price_spot")},
+            {"name": "power_grid", "role": _N("Grid power"), "req": _req_for("power_grid"), "entity": None, "stat_id": None, "source": None, "sources": _sources_for("power_grid"), "info": _info_for("power_grid")},
+            {"name": "house_load", "role": _N("House load"), "req": _req_for("house_load"), "entity": None, "stat_id": None, "source": None, "sources": _sources_for("house_load"), "info": _info_for("house_load")},
         ],
         "quality": {
             # The dates are pure data; only the day count carries a word, so only that part is a

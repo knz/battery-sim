@@ -243,9 +243,9 @@ before the slot is known forces a single answer onto a set of slots that do not 
 │  │  ROLE              REQ  SOURCE                                          │  │
 │  │  ──────────────────────────────────────────────────────────────────    │  │
 │  │  Grid import T1     ●  [ Home Assistant · sensor.…import_t1        ▸ ]  │  │
-│  │  Grid import T2     ●  [ Home Assistant · sensor.…import_t2        ▸ ]  │  │
+│  │  Grid import T2     ○  [ Home Assistant · sensor.…import_t2        ▸ ]  │  │
 │  │  Grid export T1     ●  [ Home Assistant · sensor.…export_t1        ▸ ]  │  │
-│  │  Grid export T2     ●  [ Home Assistant · sensor.…export_t2        ▸ ]  │  │
+│  │  Grid export T2     ○  [ Home Assistant · sensor.…export_t2        ▸ ]  │  │
 │  │  Solar production   ◐  [ Home Assistant · choose entity…           ▸ ]  │  │
 │  │  Battery charge     ○  [ Choose source…                            ▸ ]  │  │
 │  │  Battery discharge  ○  [ Choose source…                            ▸ ]  │  │
@@ -439,8 +439,8 @@ screen, directly above the roster. `simulate_cost`, answered on the results scre
 too and no longer does:
 
 - **`has_pv`** governs the **Solar production** row. It is rendered only when the household
-  has declared PV; with PV declared it is required and carries the same `●` as the grid
-  registers, and the `◐` in the wireframe marks the row as conditional on that declaration
+  has declared PV; with PV declared it is required just as the T1 grid registers are, and the
+  `◐` in the wireframe marks the row as conditional on that declaration
   rather than as a third level of optionality. With PV not declared the row is hidden
   entirely rather than shown greyed, so there is no invitation to map a sensor the run will
   ignore.
@@ -555,9 +555,9 @@ to download", with one upload slot per series and a pointer to where each file c
   │  SERIES              REQ  FILE                                         │
   │  ───────────────────────────────────────────────────────────────────   │
   │  Grid import T1       ●   import_t1_2025.csv  ✓ 8,760 rows  [ replace ]│
-  │  Grid import T2       ●   import_t2_2025.csv  ✓ 8,760 rows  [ replace ]│
+  │  Grid import T2       ○   import_t2_2025.csv  ✓ 8,760 rows  [ replace ]│
   │  Grid export T1       ●   [ choose file… ]                             │
-  │  Grid export T2       ●   [ choose file… ]                             │
+  │  Grid export T2       ○   [ choose file… ]                             │
   │  Solar production     ◐   solar_2025.csv      ✓ 8,760 rows  [ replace ]│
   │  Battery charge       ○   [ choose file… ]                             │
   │  Battery discharge    ○   [ choose file… ]                             │
