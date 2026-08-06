@@ -84,7 +84,7 @@ updated first**.
 │  │  │  9,983 intervals · hourly                                        │  │  │
 │  │  └──────────────────────────────────────────────────────────────────┘  │  │
 │  │                                                                        │  │
-│  │  [ Results ]  [ Configure data ]  [ Configure workspace ]              │  │
+│  │  [ Results ]  [ Configure data ]  [ Configure analysis ]               │  │
 │  │                                  [ Delete data ]  [ Delete analysis ]  │  │
 │  └────────────────────────────────────────────────────────────────────────┘  │
 │                                                                              │
@@ -100,7 +100,7 @@ updated first**.
 │  │  │  8,760 intervals · hourly                                        │  │  │
 │  │  └──────────────────────────────────────────────────────────────────┘  │  │
 │  │                                                                        │  │
-│  │  [ Results ]  [ Configure data ]  [ Configure workspace ]              │  │
+│  │  [ Results ]  [ Configure data ]  [ Configure analysis ]               │  │
 │  │                                  [ Delete data ]  [ Delete analysis ]  │  │
 │  └────────────────────────────────────────────────────────────────────────┘  │
 │                                                                              │
@@ -113,7 +113,7 @@ updated first**.
 │  │  │  Choose your data sources to get a result.                       │  │  │
 │  │  └──────────────────────────────────────────────────────────────────┘  │  │
 │  │                                                                        │  │
-│  │  [ Configure data ]  [ Configure workspace ]                           │  │
+│  │  [ Configure data ]  [ Configure analysis ]                            │  │
 │  │                                                   [ Delete analysis ]  │  │
 │  └────────────────────────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────────────────────┘
@@ -171,7 +171,7 @@ different facts and the card should not report a deliberate configuration as a m
 |---|---|---|
 | `[ Results ]` | [§2′.6](#26-results) | data is loaded |
 | `[ Configure data ]` | [§2′.5](#25-configure-data) | always |
-| `[ Configure workspace ]` | [§2′.4](#24-edit-workspace) | always |
+| `[ Configure analysis ]` | [§2′.4](#24-edit-workspace) | always |
 | `[ Delete data ]` | modal, then stays on the list | data is loaded |
 | `[ Delete analysis ]` | modal, then stays on the list | always |
 
@@ -280,7 +280,7 @@ sentence changed.
 ## 2′.4 Edit workspace
 
 The household's fixed facts: what and where it is, what it is connected to, and what it pays.
-Reached by `[ Configure workspace ]` from a card, or as step 1 of the new-workspace wizard.
+Reached by `[ Configure analysis ]` from a card, or as step 1 of the new-workspace wizard.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-05 23:36+0200\n"
+"POT-Creation-Date: 2026-08-06 12:51+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -338,6 +338,9 @@ msgid ""
 "discharge %(discharge_policy)s."
 msgstr ""
 
+msgid "Configure analysis"
+msgstr ""
+
 msgid "Configure data"
 msgstr ""
 
@@ -345,9 +348,6 @@ msgid "Configure the Home Assistant connection first."
 msgstr ""
 
 msgid "Configure the connection first"
-msgstr ""
-
-msgid "Configure workspace"
 msgstr ""
 
 msgid "Configure…"
@@ -714,9 +714,6 @@ msgstr ""
 msgid "Loading…"
 msgstr ""
 
-msgid "Location"
-msgstr ""
-
 msgid "Lost feed-in compensation"
 msgstr ""
 
@@ -881,9 +878,6 @@ msgid ""
 "Please tell us about your setup — inverter model, phase allocation, and "
 "whether you have per-phase sensors. It directly determines whether this "
 "lands in version 2."
-msgstr ""
-
-msgid "Postcode"
 msgstr ""
 
 msgid "Preset historical (ENTSO-E NL)"
@@ -1345,11 +1339,6 @@ msgid "Usable capacity"
 msgstr ""
 
 msgid "Usable capacity must be greater than zero."
-msgstr ""
-
-msgid ""
-"Used to work out sunrise and sunset at your address. Nothing is sent "
-"anywhere — the calculation is local."
 msgstr ""
 
 msgid ""

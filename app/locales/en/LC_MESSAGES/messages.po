@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-05 23:36+0200\n"
+"POT-Creation-Date: 2026-08-06 12:51+0200\n"
 "PO-Revision-Date: 2026-07-23 20:40+0200\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: en\n"
@@ -371,6 +371,9 @@ msgstr ""
 "%(efficiency)s round-trip efficiency, charge %(charge_policy)s / "
 "discharge %(discharge_policy)s."
 
+msgid "Configure analysis"
+msgstr "Configure analysis"
+
 msgid "Configure data"
 msgstr "Configure data"
 
@@ -379,9 +382,6 @@ msgstr "Configure the Home Assistant connection first."
 
 msgid "Configure the connection first"
 msgstr "Configure the connection first"
-
-msgid "Configure workspace"
-msgstr "Configure workspace"
 
 msgid "Configure…"
 msgstr "Configure…"
@@ -770,9 +770,6 @@ msgstr "Loading %(slot)s…"
 msgid "Loading…"
 msgstr "Loading…"
 
-msgid "Location"
-msgstr ""
-
 msgid "Lost feed-in compensation"
 msgstr ""
 
@@ -960,9 +957,6 @@ msgstr ""
 "Please tell us about your setup — inverter model, phase allocation, and "
 "whether you have per-phase sensors. It directly determines whether this "
 "lands in version 2."
-
-msgid "Postcode"
-msgstr ""
 
 msgid "Preset historical (ENTSO-E NL)"
 msgstr "Preset historical (ENTSO-E NL)"
@@ -1533,11 +1527,6 @@ msgstr "Usable capacity"
 
 msgid "Usable capacity must be greater than zero."
 msgstr "Usable capacity must be greater than zero."
-
-msgid ""
-"Used to work out sunrise and sunset at your address. Nothing is sent "
-"anywhere — the calculation is local."
-msgstr ""
 
 msgid ""
 "Uses the shared Home Assistant connection — configure it once (the button"
@@ -2670,4 +2659,20 @@ msgstr "👍 I want this"
 #~ "of roughly 2–3. Select 6 months or"
 #~ " 1 year to see an annual "
 #~ "figure."
+
+#~ msgid "Configure workspace"
+#~ msgstr "Configure workspace"
+
+#~ msgid "Location"
+#~ msgstr ""
+
+#~ msgid "Postcode"
+#~ msgstr ""
+
+#~ msgid ""
+#~ "Used to work out sunrise and "
+#~ "sunset at your address. Nothing is "
+#~ "sent anywhere — the calculation is "
+#~ "local."
+#~ msgstr ""
 

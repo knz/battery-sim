@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-05 23:36+0200\n"
+"POT-Creation-Date: 2026-08-06 12:51+0200\n"
 "PO-Revision-Date: 2026-07-23 20:30+0200\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: nl\n"
@@ -375,6 +375,9 @@ msgstr ""
 "%(efficiency)s retourrendement, laden %(charge_policy)s / ontladen "
 "%(discharge_policy)s."
 
+msgid "Configure analysis"
+msgstr "Analyse instellen"
+
 msgid "Configure data"
 msgstr "Gegevens instellen"
 
@@ -383,9 +386,6 @@ msgstr "Stel eerst de Home Assistant-verbinding in."
 
 msgid "Configure the connection first"
 msgstr "Configureer eerst de verbinding"
-
-msgid "Configure workspace"
-msgstr "Werkruimte instellen"
 
 msgid "Configure…"
 msgstr "Configureren…"
@@ -782,9 +782,6 @@ msgstr "%(slot)s laden…"
 msgid "Loading…"
 msgstr "Laden…"
 
-msgid "Location"
-msgstr "Locatie"
-
 msgid "Lost feed-in compensation"
 msgstr "Gemiste terugleververgoeding"
 
@@ -983,9 +980,6 @@ msgstr ""
 "Vertel ons over je opstelling — omvormermodel, verdeling over de fasen, "
 "en of je sensoren per fase hebt. Dat bepaalt rechtstreeks of dit in "
 "versie 2 terechtkomt."
-
-msgid "Postcode"
-msgstr "Postcode"
 
 msgid "Preset historical (ENTSO-E NL)"
 msgstr "Vaste historische reeks (ENTSO-E NL)"
@@ -1610,13 +1604,6 @@ msgstr "Bruikbare capaciteit"
 
 msgid "Usable capacity must be greater than zero."
 msgstr "De bruikbare capaciteit moet groter dan nul zijn."
-
-msgid ""
-"Used to work out sunrise and sunset at your address. Nothing is sent "
-"anywhere — the calculation is local."
-msgstr ""
-"Wordt gebruikt om zonsopkomst en zonsondergang op je adres te bepalen. Er"
-" wordt niets verstuurd — de berekening gebeurt lokaal."
 
 msgid ""
 "Uses the shared Home Assistant connection — configure it once (the button"
@@ -2815,4 +2802,24 @@ msgstr "👍 Ik wil dit"
 #~ "ongeveer een factor 2–3 overschatten. "
 #~ "Kies 6 maanden of 1 jaar voor "
 #~ "een jaarcijfer."
+
+#~ msgid "Configure workspace"
+#~ msgstr "Werkruimte instellen"
+
+#~ msgid "Location"
+#~ msgstr "Locatie"
+
+#~ msgid "Postcode"
+#~ msgstr "Postcode"
+
+#~ msgid ""
+#~ "Used to work out sunrise and "
+#~ "sunset at your address. Nothing is "
+#~ "sent anywhere — the calculation is "
+#~ "local."
+#~ msgstr ""
+#~ "Wordt gebruikt om zonsopkomst en "
+#~ "zonsondergang op je adres te bepalen."
+#~ " Er wordt niets verstuurd — de "
+#~ "berekening gebeurt lokaal."
 

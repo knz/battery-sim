@@ -187,7 +187,7 @@ def card(summary: WorkspaceSummary) -> dict:
 
         [ Results ]             data is loaded     →  `has_data`
         [ Configure data ]      always             →  unconditional in the template
-        [ Configure workspace ] always             →  unconditional in the template
+        [ Configure analysis ] always              →  unconditional in the template
         [ Delete data ]         data is loaded     →  `has_data`
         [ Delete analysis ]     always             →  unconditional in the template
 
