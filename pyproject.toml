@@ -35,6 +35,15 @@ dependencies = [
     "numpy>=2.5.1",
     "python-multipart>=0.0.20",
     "pywebview>=6.2.1",
+    # The IANA timezone database, as a package. `zoneinfo` looks at the SYSTEM database first
+    # (zoneinfo.TZPATH) and falls back to this; Windows ships no system database at all, so there
+    # it is the only source and `ZoneInfo("Europe/Amsterdam")` in app/i18n.py raises without it.
+    # That broke the build, not just the app: packaging/battery-sim.spec imports app.i18n on the
+    # build machine. Nothing is needed in the spec — PyInstaller's contrib hooks add it as a
+    # Windows hidden import (hook-zoneinfo) and collect its data (hook-tzdata). Unconditional
+    # rather than marked win32 so every environment resolves the same zones; see
+    # changelog/20260806-windows-tzdata.md.
+    "tzdata>=2026.3",
     "uvicorn[standard]>=0.51.0",
 ]
 

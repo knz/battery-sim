@@ -30,12 +30,25 @@ bf562f5 (PR #16). Adds `tzdata>=2026.3` to `[project.dependencies]`
 unconditionally, with `uv.lock` and `THIRD-PARTY-NOTICES.md` following, plus two
 tests in `tests/test_packaging_metadata.py`.
 
+Full detail is in the commit's own changelog,
+[20260806-windows-tzdata.md](20260806-windows-tzdata.md), which came across with
+the pick.
+
 ## Obstacles and Solutions
 
 - 735371c also appended a note to `changelog/20260806-backend-tls-system-trust.md`,
   a changelog belonging to the TLS branch it was written on and absent here, which
   surfaced as a modify/delete conflict. Dropped that file from the pick and
   recorded the app.css rebuild in this changelog instead.
+- 90cd91c was written on top of that same TLS branch, so all four of its files
+  conflicted against master. Resolved by keeping only the tzdata half and dropping
+  the `truststore` dependency, its notices row, and its hidden-import test, none of
+  which were requested here. `uv.lock` was regenerated with `uv lock` (it added
+  tzdata alone) and `THIRD-PARTY-NOTICES.md` with its generator script rather than
+  hand-merged; the generator's `--check` gate passes and the packaging-metadata
+  suite is green (32 passed).
+- Two in-tree references pointed at the TLS branch's changelog filename; both now
+  point at this branch's files.
 
 ## Files Modified
 
