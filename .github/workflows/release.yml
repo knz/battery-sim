@@ -65,10 +65,13 @@
 # Windows has since been tightened: the spec now sets an icon and generates a VERSIONINFO
 # resource carrying the version and the build SHA, so the exe is identifiable once downloaded.
 # What is still missing there is an installer and code signing — the artifact remains a ZIP of an
-# onedir tree, and an unsigned one, so first-run SmartScreen warnings are expected. `console=True`
-# is also still set on purpose: the launcher prints its URL and its fallback reason to stderr, and
-# that channel stays until the new fallback dialog (app/desktop.py::_show_fallback_dialog) has
-# been looked at on a real Windows machine.
+# onedir tree, and an unsigned one, so first-run SmartScreen warnings are expected.
+#
+# `console=True` was kept on Windows until 2026-08-06, so that the launcher's URL and fallback
+# reason had somewhere to go. It is now False on every platform, because that output goes to
+# <data_dir>/logs/session-*.log instead — see app/desktop.py::start_session_log and
+# docs/en/troubleshooting.md. The fallback dialog still has not been looked at on a real Windows
+# machine; the log file is what makes that acceptable rather than a silent failure.
 #
 # macOS has since been tightened too: the spec's `BUNDLE(...)` block wraps the COLLECT output as
 # `Home Battery Simulator.app`, with an icon, a bundle identifier and the version in its Info.plist,
@@ -87,10 +90,10 @@
 # invisible to CI either way, since an unsigned bundle builds perfectly well. Blocking on build
 # failure does not and cannot track them.
 #
-# Two consequences worth knowing before the next red run is blamed on this change. Both were
-# previously absorbed silently and now fail the run: a retired runner label (macos-26-intel dies
-# with macos-15 in Fall 2027), and PyInstaller being unpinned in both this workflow and
-# build-linux.sh, so a bad upstream release lands directly in a tag build.
+# One consequence worth knowing before the next red run is blamed on this change: a retired
+# runner label (macos-26-intel dies with macos-15 in Fall 2027) was previously absorbed silently
+# and now fails the run. PyInstaller was a second such case until it was pinned — see
+# PYINSTALLER_VERSION in build-linux.sh and the pin in the desktop-bundle job below.
 #
 # ## Runner labels for macOS
 #
