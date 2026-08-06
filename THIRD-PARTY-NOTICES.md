@@ -90,6 +90,7 @@ because one notice file covers all three builds.
 | pyyaml | 6.0.3 | MIT | https://pypi.org/project/pyyaml/ |
 | qtpy | 2.4.3 | MIT | https://pypi.org/project/qtpy/ |
 | starlette | 1.3.1 | BSD-3-Clause | https://pypi.org/project/starlette/ |
+| truststore | 0.10.4 | MIT | https://pypi.org/project/truststore/ |
 | typing-extensions | 4.16.0 | PSF-2.0 | https://pypi.org/project/typing-extensions/ |
 | typing-inspection | 0.4.2 | MIT | https://pypi.org/project/typing-inspection/ |
 | tzdata | 2026.3 | Apache-2.0 | https://pypi.org/project/tzdata/ |

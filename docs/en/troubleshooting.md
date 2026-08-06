@@ -36,6 +36,17 @@ browser exception is stored per-browser. Keep the section even if the message ch
 macOS and Linux steps are user-reported and confirmed. Windows is reasoned by analogy and says
 so; drop the hedge when someone verifies it.
 
+The price-loading section is the OTHER trust store and is deliberately kept separate from the HA
+one, even though both say CERTIFICATE_VERIFY_FAILED. That request is made by the backend over
+urllib, in the app's own process, so it is Python's `ssl` that verifies and app/net_trust.py
+(truststore) that points it at the OS store. A reader who followed the keychain steps above and
+then hit this would otherwise conclude the steps failed; the section says outright that they do
+not apply. Paired with `_load_failed_message` in app/main.py, which links here.
+
+It asks for a report rather than giving a remedy on purpose: if truststore is installed and
+working, the user has nothing to fix, and the session log carries the one line that says whether
+it loaded. Give this section real steps only if a cause turns up that a user can act on.
+
 Dutch counterpart: ../nl/probleemoplossing.md.
 -->
 
@@ -47,6 +58,7 @@ useful thing to attach to a bug report.
 
 **Go straight to:** [Finding the log](#finding-the-log) · [Finding the address](#finding-the-address) ·
 [Certificate errors connecting to Home Assistant](#test-connection-fails-with-a-certificate-error) ·
+[Certificate errors loading prices](#loading-prices-fails-with-a-certificate-error) ·
 [Reporting a problem](#reporting-a-problem)
 
 ## Finding the log
@@ -156,6 +168,24 @@ also keeps its own store on Linux, so trusting a CA there does not add it system
 
 Please do not disable certificate checking to get past this. It removes the protection the
 certificate exists to provide, and trusting your own CA is not much more work.
+
+## Loading prices fails with a certificate error
+
+A different failure, with a message like:
+
+```
+could not load 'price_spot' from 'energy_charts': <urlopen error [SSL: CERTIFICATE_VERIFY_FAILED]
+certificate verify failed: unable to get local issuer certificate>
+```
+
+This one is not about your Home Assistant. The app is fetching spot prices from a public server,
+and it could not check that server's certificate. The steps above will not help: the certificate
+involved is an ordinary public one, and nothing about your setup is wrong.
+
+The app is meant to use your system's certificates for this, so on most machines the problem does
+not arise. If you see it, please [report it](#reporting-a-problem) and attach the log file — it
+records whether the app could reach your system's certificate store, which is the first thing we
+will want to know.
 
 ## Reporting a problem
 

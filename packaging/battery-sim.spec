@@ -183,6 +183,18 @@ HIDDENIMPORTS = [
     # the PyInstaller analysis, and the AppImage is assembled after PyInstaller has finished. The
     # cost to a non-AppImage bundle is one small stdlib module.
     "optparse",
+    # `truststore`'s three platform backends. It picks one at RUNTIME on `platform.system()`
+    # (truststore/_api.py), which static analysis cannot follow, so PyInstaller collects none of
+    # them and the packaged app raises ModuleNotFoundError the first time it verifies a
+    # certificate — on the user's machine, never in a build. All three are listed rather than the
+    # host's, because one spec builds macOS, Windows and Linux artifacts; the two that do not
+    # apply are small pure-Python modules that are simply never imported.
+    #
+    # This is what makes app/net_trust.py work in a bundle, which is the whole point of the
+    # dependency: see changelog/20260806-backend-tls-system-trust.md.
+    "truststore._macos",
+    "truststore._windows",
+    "truststore._openssl",
 ]
 
 # ── what stays out ────────────────────────────────────────────────────────────

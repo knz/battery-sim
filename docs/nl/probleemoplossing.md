@@ -40,6 +40,19 @@ ook als de melding verandert.
 De stappen voor macOS en Linux zijn door gebruikers gemeld en bevestigd. Windows is naar analogie
 beredeneerd en zegt dat erbij; haal die slag om de arm weg zodra iemand het verifieert.
 
+De sectie over prijzen laden gaat over de ANDERE certificaatopslag en staat bewust los van die
+over HA, ook al melden beide CERTIFICATE_VERIFY_FAILED. Dat verzoek doet de backend via urllib, in
+het proces van de app zelf, dus daar controleert Python's `ssl` en wijst app/net_trust.py
+(truststore) die naar de opslag van het besturingssysteem. Een lezer die de stappen voor de
+sleutelhanger heeft gevolgd en dan hierop stuit, zou anders denken dat die stappen niet werkten;
+de sectie zegt daarom expliciet dat ze hier niet van toepassing zijn. Hoort bij
+`_load_failed_message` in app/main.py, die hierheen linkt.
+
+De sectie vraagt bewust om een melding in plaats van een oplossing te geven: werkt truststore,
+dan valt er voor de gebruiker niets te repareren, en het logbestand bevat de regel die zegt of het
+geladen is. Zet hier pas echte stappen neer als er een oorzaak opduikt waar een gebruiker iets
+mee kan.
+
 Engelse tegenhanger: ../en/troubleshooting.md.
 -->
 
@@ -51,6 +64,7 @@ kijken — en het nuttigste wat je kunt meesturen bij een melding.
 
 **Direct naar:** [Het logbestand vinden](#het-logbestand-vinden) · [Het adres vinden](#het-adres-vinden) ·
 [Certificaatfouten bij Home Assistant](#verbinding-testen-mislukt-met-een-certificaatfout) ·
+[Certificaatfouten bij prijzen laden](#prijzen-laden-mislukt-met-een-certificaatfout) ·
 [Een probleem melden](#een-probleem-melden)
 
 ## Het logbestand vinden
@@ -165,6 +179,24 @@ dus een CA daar vertrouwen zet hem evenmin systeembreed.
 Zet de certificaatcontrole alsjeblieft niet uit om hier langs te komen. Daarmee verdwijnt precies
 de bescherming waarvoor het certificaat bedoeld is, en je eigen CA vertrouwen is nauwelijks meer
 werk.
+
+## Prijzen laden mislukt met een certificaatfout
+
+Een andere fout, met een melding als:
+
+```
+could not load 'price_spot' from 'energy_charts': <urlopen error [SSL: CERTIFICATE_VERIFY_FAILED]
+certificate verify failed: unable to get local issuer certificate>
+```
+
+Deze gaat niet over je Home Assistant. De app haalt spotprijzen op bij een openbare server en kon
+het certificaat van die server niet controleren. De stappen hierboven helpen hier niet: het gaat
+om een gewoon openbaar certificaat, en er is niets mis met jouw installatie.
+
+De app hoort hiervoor de certificaten van je systeem te gebruiken, dus op de meeste machines komt
+dit niet voor. Zie je het toch, [meld het dan](#een-probleem-melden) met het logbestand erbij —
+daarin staat of de app de certificaatopslag van je systeem kon bereiken, en dat is het eerste wat
+we willen weten.
 
 ## Een probleem melden
 

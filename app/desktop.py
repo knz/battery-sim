@@ -8,7 +8,9 @@ packaging tooling yet — that is phase 3.
 The order of operations is load-bearing and is the main reason this module exists at all:
 
   1. `multiprocessing.freeze_support()`, before anything else;
-  2. resolve the per-user data directory and put it in `BATTERY_SIM_DATA_DIR`;
+  2. resolve the per-user data directory and put it in `BATTERY_SIM_DATA_DIR`, then start the
+     session log and point `ssl` at the OS trust store (`app/net_trust.py`) — in that order, so
+     the one thing the second can complain about lands in the file;
   3. take the single-instance lock, or hand off to the instance that already holds it;
   4. **only then** import `app.main` — see `_load_asgi_app` for what breaks otherwise;
   5. check the bundled assets are really there;
@@ -55,7 +57,10 @@ from pathlib import Path
 from urllib.error import URLError
 from urllib.request import urlopen
 
-from app import config
+# `net_trust` is safe to import here because it pulls in no part of the ASGI app — `app.main` is
+# loaded later and inside a function (`_load_asgi_app`), the data directory having to be resolved
+# first. It imports `truststore` lazily, inside the call, so this line stays cheap.
+from app import config, net_trust
 
 BIND_HOST = "127.0.0.1"
 """The only host this app is ever bound to. Not a setting — see `run` for why.
@@ -786,6 +791,12 @@ def run(port: int | None = None, ui: UiMode = UiMode.WINDOW) -> int:
     # resolved, so `--help` and usage errors still go to the terminal only. Those are
     # terminal-invoked paths, where a console exists by definition.
     start_session_log(data_dir)
+
+    # AFTER the log exists, so the one line this prints when it cannot use the system trust store
+    # is captured in the file a bug report attaches rather than lost to a closed console. Nothing
+    # above makes an HTTPS request, so nothing is verified before this runs. `app.main` installs
+    # it too, at import; whichever gets there first wins and the other is a no-op.
+    net_trust.install_system_trust()
 
     lock = SingleInstance(data_dir / _LOCK_FILENAME)
     if not lock.acquire():

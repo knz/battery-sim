@@ -18,6 +18,9 @@ Three layers:
     `CsvSource.load_with_warnings`, an `upload_id` this workspace does not have is a 400 that
     persists nothing, and `CsvBindingError` is a 400 rather than the 502 the bare `except Exception`
     used to give it. The WS reify path's own coverage is `tests/test_csv_binding_reify.py`.
+  * The message a failed load produces, including the docs pointer a certificate failure gets —
+    the load path is where the app makes its own HTTPS request, on a trust store the webview
+    knows nothing about (app/net_trust.py). The SSL error is constructed, never provoked.
 
 Every test runs against an isolated data dir (BATTERY_SIM_DATA_DIR) so the SQLite DB and the .npz
 series files never touch the working tree. No test hits the network.
@@ -771,3 +774,83 @@ def test_load_endpoint_energy_charts_still_takes_no_binding_extras(csv_client):
     assert resp.status_code == 200, resp.text
     loaded = dataset.load_latest(dataset.db.WORKSPACE_ID)
     assert loaded.series_sources["price_spot"] == "energy_charts"
+
+
+# ── certificate failures get a pointer, not just the raw OpenSSL text ─────────
+#
+# A backend load is the one place the app makes its own HTTPS request, and it does so through
+# urllib rather than the webview — a different trust store, and in a packaged build usually an
+# empty one (app/net_trust.py). The bare exception reads as though the user misconfigured
+# something, so the message names the cause and links the troubleshooting page. Other failures
+# keep the plain text: the message already names them.
+
+
+def _wrapped_cert_error():
+    """An SSL verification failure shaped like the real one: wrapped by urllib in a URLError."""
+    import ssl
+    import urllib.error
+
+    inner = ssl.SSLCertVerificationError(
+        1,
+        "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: "
+        "unable to get local issuer certificate (_ssl.c:1010)",
+    )
+    try:
+        try:
+            raise inner
+        except ssl.SSLCertVerificationError as exc:
+            raise urllib.error.URLError(exc) from exc
+    except urllib.error.URLError as exc:
+        return exc
+
+
+def test_a_certificate_failure_points_at_the_docs():
+    """The pointer must survive the wrapping — urllib hides the SSL error under a URLError."""
+    from app.main import _load_failed_message
+
+    detail = _load_failed_message("price_spot", "energy_charts", _wrapped_cert_error())
+
+    assert "could not load 'price_spot' from 'energy_charts'" in detail
+    assert "verify the server's certificate" in detail
+    assert "docs/en/troubleshooting.md" in detail
+
+
+def test_an_ordinary_failure_keeps_the_plain_message():
+    """Only a certificate failure gets the pointer; the API being down is self-explanatory."""
+    from app.main import _load_failed_message
+
+    detail = _load_failed_message("price_spot", "energy_charts", RuntimeError("API is down"))
+
+    assert detail == "could not load 'price_spot' from 'energy_charts': API is down"
+    assert "troubleshooting" not in detail
+
+
+def test_a_self_referential_cause_chain_terminates():
+    """Defensive: the walk follows __cause__/__context__, which can be made to loop."""
+    from app.main import _load_failed_message
+
+    a = RuntimeError("a")
+    b = RuntimeError("b")
+    a.__cause__ = b
+    b.__cause__ = a
+
+    assert "could not load" in _load_failed_message("price_spot", "energy_charts", a)
+
+
+def test_the_load_endpoint_surfaces_the_pointer_as_502(client, monkeypatch):
+    """End to end through the route: a certificate failure is a clean 502 carrying the link."""
+    from app.sources.energy_charts import EnergyChartsSource
+
+    def _raise(*_args, **_kwargs):
+        raise _wrapped_cert_error()
+
+    monkeypatch.setattr(EnergyChartsSource, "load", _raise)
+
+    tc, _, _ = client
+    resp = tc.post(
+        w("/data/slot/price_spot/load"),
+        json={"source": "energy_charts", "window": _HIST_WINDOW},
+    )
+
+    assert resp.status_code == 502
+    assert "docs/en/troubleshooting.md" in resp.json()["detail"]

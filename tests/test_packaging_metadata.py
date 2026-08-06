@@ -356,3 +356,21 @@ def test_the_display_timezone_resolves_without_a_system_database():
         assert datetime(2026, 1, 1, 12, tzinfo=tz).utcoffset() == timedelta(hours=1), "CET"
     finally:
         zoneinfo.reset_tzpath(to=list(original))
+
+
+@pytest.mark.parametrize(
+    "backend", ["truststore._macos", "truststore._windows", "truststore._openssl"]
+)
+def test_the_truststore_backends_are_hidden_imports(backend):
+    """`truststore` picks its backend at runtime, so PyInstaller collects none of them.
+
+    The selection is `platform.system()` inside `truststore/_api.py` — invisible to static
+    analysis. Without these three entries the bundle imports `truststore` fine and then raises
+    ModuleNotFoundError the first time it verifies a certificate, which is a failure on the
+    user's machine and never in a build. All three are required because one spec produces the
+    macOS, Windows and Linux artifacts.
+    """
+    assert f'"{backend}"' in SPEC_TEXT, (
+        f"{backend} is missing from HIDDENIMPORTS; the packaged app would fail to verify "
+        "certificates on that platform (see app/net_trust.py)"
+    )

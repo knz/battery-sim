@@ -28,6 +28,7 @@ from datetime import date, timedelta
 # Allow `python scripts/fetch_spot_prices.py` from the repo root without an install.
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.parent))
 
+from app.net_trust import install_system_trust  # noqa: E402
 from app.sources.energy_charts_api import BZN_NL, fetch_prices  # noqa: E402
 from app.sources.price_store import write_year, year_path  # noqa: E402
 
@@ -52,6 +53,12 @@ def main(argv: list[str] | None = None) -> int:
                         help=f"first calendar year to fetch (default {DEFAULT_START_YEAR})")
     parser.add_argument("--bzn", default=BZN_NL, help="bidding zone (default NL)")
     args = parser.parse_args(argv)
+
+    # This script reaches the API without importing `app.main`, so it installs the OS trust store
+    # patch itself — otherwise it would verify against the interpreter's built-in CA set, which on
+    # a machine with a private CA or an inspecting proxy is the difference between working and
+    # CERTIFICATE_VERIFY_FAILED. See app/net_trust.py.
+    install_system_trust()
 
     today = date.today()
     if args.start > today.year:

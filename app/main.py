@@ -165,6 +165,7 @@ Run:  uv run uvicorn app.main:app --reload
 import asyncio
 import csv
 import logging
+import ssl
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -192,6 +193,7 @@ from app import (
     deps,
     i18n,
     ingest_ws,
+    net_trust,
     params_view,
     results_screen_view,
     results_view,
@@ -220,6 +222,15 @@ BASE_DIR = Path(__file__).resolve().parent
 PANEL_SPLIT = "<!--panel-split-->"
 
 log = logging.getLogger(__name__)
+
+# Route HTTPS verification through the OS trust store before anything can make a request. At
+# IMPORT time rather than in `lifespan` below, deliberately: this process-wide patch has to be in
+# place for every way `app.main` is reached, including a `TestClient(app)` built outside a `with`
+# block, which never runs the lifespan. It is also the one piece of startup work that writes
+# nothing — the objection that put `migrate_local` in a lifespan does not apply. Idempotent, so
+# the desktop launcher having already called it makes this free. See app/net_trust.py.
+net_trust.install_system_trust()
+
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
@@ -1572,6 +1583,41 @@ def _resolve_backend_source(slot_name: str, source_key: str):
     return slot, source
 
 
+# Where a reader is sent when a backend load fails to verify a certificate. English-only, like
+# every other message on this path: these strings are f-strings built in the route and are not in
+# the catalogs, so a pointer is all that can be offered here without translating the whole path.
+_TLS_HELP_URL = "https://github.com/knz/battery-sim/blob/master/docs/en/troubleshooting.md"
+
+
+def _load_failed_message(slot_name: str, source_key: str, exc: BaseException) -> str:
+    """The user-facing text for a failed backend load; adds a docs pointer for a TLS failure.
+
+    A certificate failure is singled out because it is the one cause here the user cannot read
+    anything into: the exception says CERTIFICATE_VERIFY_FAILED, which sounds like something they
+    misconfigured, when in a packaged build it usually means the app could not reach the system
+    trust store at all (app/net_trust.py). Every other cause — the API down, rate-limiting, a
+    parse failure — keeps the bare text, since the message already names it.
+
+    The check walks `__context__`/`__cause__` because the SSL error arrives wrapped: urllib
+    raises URLError with the `ssl.SSLCertVerificationError` underneath.
+    """
+    detail = f"could not load {slot_name!r} from {source_key!r}: {exc}"
+
+    seen = set()
+    cur: BaseException | None = exc
+    while cur is not None and id(cur) not in seen:
+        seen.add(id(cur))
+        if isinstance(cur, ssl.SSLCertVerificationError):
+            return (
+                f"{detail} — this machine could not verify the server's certificate. "
+                f"It is usually not a problem with your data or your settings; "
+                f"see {_TLS_HELP_URL}"
+            )
+        cur = cur.__cause__ or cur.__context__
+
+    return detail
+
+
 def _load_backend_frame(
     slot_name: str,
     source_key: str,
@@ -1642,9 +1688,9 @@ def _load_backend_frame(
         raise ingest_ws.IngestError(
             f"slot {slot_name!r} is not fully configured: {exc}"
         ) from exc
-    except Exception as exc:  # network down / rate-limited / parse failure
+    except Exception as exc:  # network down / rate-limited / parse failure / certificate
         raise ingest_ws.IngestError(
-            f"could not load {slot_name!r} from {source_key!r}: {exc}"
+            _load_failed_message(slot_name, source_key, exc)
         ) from exc
 
 
@@ -1771,10 +1817,10 @@ async def load_slot(
         # 400, not the 502 below: an unconfigured slot is bad input, not a failed upstream call.
         # See the docstring.
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:  # network down / rate-limited / parse failure → clean 502
+    except Exception as exc:  # network down / rate-limited / parse failure / certificate → 502
         raise HTTPException(
             status_code=502,
-            detail=f"could not load {slot_name!r} from {source_key!r}: {exc}",
+            detail=_load_failed_message(slot_name, source_key, exc),
         ) from exc
 
     dataset_id = await asyncio.to_thread(
