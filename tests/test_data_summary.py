@@ -36,6 +36,26 @@ def test_sample_view_includes_data_summary():
     assert "data_summary" in sample_view()
 
 
+def test_sample_roster_requirement_matches_the_vocabulary():
+    # The demo roster's `req` must agree with SlotSpec, not be hand-copied. It drifted once: the
+    # T2 registers were written out as "required" while series_vocab called them "optional", so
+    # the sample screen painted ● where the live screen painted ○ — which reads as "you must
+    # supply a night register" to exactly the single-tariff households §4.1 note 1 describes.
+    from app.domain.series_vocab import SLOT_BY_NAME
+
+    rows = _panel_data()["mapping"]
+    assert {r["name"] for r in rows} == set(SLOT_BY_NAME)
+    for r in rows:
+        assert r["req"] == SLOT_BY_NAME[r["name"]].requirement, r["name"]
+
+    # The specific pair the drift hit, pinned by name: expected (note 4), never required.
+    by_name = {r["name"]: r for r in rows}
+    assert by_name["grid_import_t2"]["req"] == "optional"
+    assert by_name["grid_export_t2"]["req"] == "optional"
+    assert by_name["grid_import_t1"]["req"] == "required"
+    assert by_name["grid_export_t1"]["req"] == "required"
+
+
 def test_summary_always_present_groups():
     # Grid and Household are always present (specs §2.3a table): they need no PV, no battery, no
     # price — only the meter registers and the load reconstruction.
