@@ -619,3 +619,70 @@ needs an HA slot that actually reifies, and `_HA_WS_STUB` answers
 can be fetched for real in this harness. The guard is a single comparison against
 `csv_upload` and does not branch per alternative source, so the `energy_charts`
 case exercises the same line — but the HA arm is not exercised.
+
+## Rebase onto master
+
+The branch was rebased from its original base (`4a4fa10`) onto `master` at
+`73bc3e7`, which had picked up the packaging, docs, desktop and UI-tweak work
+plus the spot-price default. All 13 commits replayed; the branch is now a clean
+fast-forward from master.
+
+### Where the two streams actually collided
+
+Only one function. Master added a `slotName` parameter to `defaultSourceFor` so
+the spot-price slot stages the committed Energy-Charts preset instead of Home
+Assistant (`PRESET_DEFAULT_SOURCE`); this branch rewrote the same function's
+leading comment across three separate commits as `csv_upload` moved from a
+pending key to a live radio. The conflict therefore recurred three times, and
+each time the resolution was the same: keep master's signature, call site and
+preset branch, keep this branch's comment.
+
+The branch's own final version of that function had dropped `slotName`
+altogether — replaying it unresolved would have silently reverted master's
+preset default while leaving every test green except master's own. That is the
+one substantive judgement in this rebase.
+
+One clause in the carried-over comment was amended because the merge made it
+incomplete rather than wrong: it argued no CSV slot can be defaulted to
+`csv_upload` because `home_assistant` sorts first, which was true but no longer
+exhaustive once a branch above it could return early. The added clause notes the
+preset branch fires only for `price_spot`, and D-PRICE means `price_spot` is
+never offered `csv_upload`, so it cannot preempt the CSV case either.
+
+### Catalogs
+
+`messages.pot` and both `.po`/`.mo` files conflicted on nearly every commit. The
+`.mo` files are compiled artefacts and were rebuilt with `pybabel compile`
+throughout, never hand-merged.
+
+Regenerating the `.po` files from source was tried first and abandoned: `pybabel
+extract` then runs against a mid-rebase tree, and the documented
+`--no-fuzzy-matching` on `pybabel update` drops every translation whose msgid
+text shifted. It took the Dutch catalog from 110 to 155 empty `msgstr`s and
+failed 10 i18n tests. The catalogs were instead merged textually by
+`resolve_po.py`, which handles exactly two hunk shapes — a `POT-Creation-Date`
+header (keep the later timestamp) and an obsolete-entry (`#~`) block (keep BOTH
+sides, since each side retired a different set of msgids and these blocks are
+translation memory) — and refuses any hunk touching a live msgid.
+
+Merging the obsolete blocks initially truncated one entry, leaving a `msgid` in
+the English catalog with no `msgstr`: the conflict region ended immediately
+before it, so its `msgstr ""` fell on the far side of the marker. `pybabel
+compile` flagged it by line number; it was restored by hand.
+
+### Verification
+
+- 1720 backend tests pass, 25 skipped; 62 smoke tests pass (was 61 — master
+  added the spot-price coverage).
+- 10 of the 13 commits are byte-identical to their pre-rebase form once blob
+  hashes and hunk offsets are discounted. The 3 that differ touch only
+  `defaultSourceFor`, and the whole of their difference is the resolution above.
+- The rebased tree differs from the pre-rebase tip only by master's own work;
+  `git log HEAD..master` is empty, so master is fully contained.
+- Both interacting behaviours were mutation-checked in the merged file, not just
+  read: disabling the preset branch fails master's
+  `test_the_spot_price_slot_defaults_to_the_energy_charts_preset`, and dropping
+  the `serverSource === CSV_SOURCE_KEY` guard fails this branch's
+  `test_a_stale_binding_is_not_carried_onto_a_slot_the_server_committed_elsewhere`.
+  Restored from a `cp` backup afterwards, md5 `3a0e8d3a2c61cdc334f2340198c0a495`.
+- The pre-rebase tip is tagged `pre-rebase-csv-import-bdeee14`.
