@@ -22,9 +22,23 @@ Answer in Dutch or English, whichever you prefer.
 
 **What did you expect to happen instead?**
 
-**Anything printed in the terminal or console window?**
+**The log file from the run that went wrong**
 
 <!--
-If the app opened a terminal or console window, paste what it says. If it never opened a
-window at all, running the app from a terminal will usually print the reason.
+Attach it, or paste the contents. The app writes one file per launch and it is the single most
+useful thing in a report of this kind.
+
+Where to find it — docs/en/troubleshooting.md and docs/nl/probleemoplossing.md have the full
+steps, including how to read the app's address out of it:
+
+  macOS    ~/Library/Application Support/BatterySim/logs/
+  Windows  %LOCALAPPDATA%\BatterySim\data\logs\
+  Linux    ~/.local/share/battery-sim/logs/
+
+The newest `session-*.log` is the run you just tried. It contains no energy data, no prices and
+no Home Assistant token — but it does contain the path to your data directory, which usually
+includes your username. Feel free to replace that before posting.
+
+If there is no logs folder at all, say so: it means the app stopped before it got that far,
+which is itself useful. Running the app from a terminal will usually print the reason.
 -->

@@ -22,6 +22,7 @@ over this period".
 
 - **[Installing and running](docs/en/install.md)** — [Installeren en starten](docs/nl/installatie.md)
 - **[The security warnings your OS shows](docs/en/security-warnings.md)** — [Beveiligingswaarschuwingen](docs/nl/beveiligingswaarschuwingen.md)
+- **[When something goes wrong](docs/en/troubleshooting.md)** — [Als er iets misgaat](docs/nl/probleemoplossing.md)
 - **[Supporting the project](docs/en/sponsor.md)** — [Het project steunen](docs/nl/sponsor.md)
 
 Every page exists in English and Dutch; the index is [`docs/README.md`](docs/README.md).

@@ -71,6 +71,23 @@ fi
 VIRTUAL_ENV="$BUILD_VENV" uv pip install --python "$BUILD_VENV/bin/python" -e "$ROOT" \
     "pyinstaller==$PYINSTALLER_VERSION"
 
+# tkinter is what app/desktop.py::_show_fallback_dialog draws with when the webview cannot open —
+# the one moment a user has no other way to reach the app's URL. PyInstaller bundles only what it
+# can import, and when tkinter is missing it says so in a single line among thousands
+# ("WARNING: tkinter installation is broken. It will be excluded from the application") and
+# carries on. That is how every AppImage built before 2026-08-06 shipped without the dialog.
+#
+# Warn rather than fail: the dialog is itself a fallback, the browser still opens without it, and
+# a hard stop would block someone building on a machine where the Tk headers are simply absent.
+# The gate below is the ABI check, which IS fatal, because that one produces a broken import at
+# the user's launch rather than a missing nicety.
+if ! "$BUILD_VENV/bin/python" -c "import tkinter" >/dev/null 2>&1; then
+    echo "WARNING: tkinter is not importable by $BUILD_VENV/bin/python." >&2
+    echo "         The AppImage will build, but the webview-failure fallback dialog will be" >&2
+    echo "         silently absent. Install python3-tk for the interpreter uv resolves to" >&2
+    echo "         (on Debian/Ubuntu: sudo apt-get install python3-tk)." >&2
+fi
+
 echo "==> cleaning previous output"
 rm -rf "$ROOT/build" "$DIST"
 

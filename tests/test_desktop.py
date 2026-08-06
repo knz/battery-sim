@@ -1192,3 +1192,195 @@ def test_the_launcher_serves_on_the_chosen_port_and_writes_only_to_its_data_dir(
     finally:
         proc.terminate()
         proc.wait(timeout=15)
+
+
+# ── session logging ──────────────────────────────────────────────────────────
+#
+# `start_session_log` is what makes `console=False` on every platform survivable: with no console
+# anywhere, this file is the only account of what the launcher did. The tests below cover the
+# three properties that matter — the output lands somewhere, a failure to log does not stop the
+# app, and pruning removes only what it should.
+
+
+def test_session_log_captures_stdout_and_stderr_in_one_file(monkeypatch, tmp_path):
+    """Both streams reach the log, interleaved in write order.
+
+    Interleaving is the point of a single file: "which happened first" is usually the question a
+    bug report is trying to answer, and two files cannot answer it.
+    """
+    monkeypatch.setattr(sys, "stdout", io.StringIO())
+    monkeypatch.setattr(sys, "stderr", io.StringIO())
+
+    path = desktop.start_session_log(tmp_path)
+
+    assert path is not None
+    print("first, on stdout")
+    print("second, on stderr", file=sys.stderr)
+    sys.stdout.flush()
+    sys.stderr.flush()
+
+    body = path.read_text(encoding="utf-8")
+    assert "first, on stdout" in body
+    assert "second, on stderr" in body
+    assert body.index("first, on stdout") < body.index("second, on stderr")
+    # The header names the data directory, which is what makes a pasted log self-describing.
+    assert str(tmp_path) in body
+
+
+def test_session_log_is_created_under_a_logs_subdirectory(monkeypatch, tmp_path):
+    """The path is `<data_dir>/logs/session-*.log` — the contract docs/troubleshooting.md states,
+    and the scope `_prune_old_logs` is allowed to delete inside."""
+    monkeypatch.setattr(sys, "stdout", io.StringIO())
+    monkeypatch.setattr(sys, "stderr", io.StringIO())
+
+    path = desktop.start_session_log(tmp_path)
+
+    assert path is not None
+    assert path.parent == tmp_path / "logs"
+    assert path.name.startswith("session-")
+    assert path.suffix == ".log"
+
+
+def test_a_tty_is_teed_so_a_shell_user_still_sees_output(monkeypatch, tmp_path):
+    """Running from a terminal must keep printing to that terminal, as it always has.
+
+    Without this the packaged binary would be strictly worse to debug from a shell than the
+    source checkout, which is where most debugging actually happens.
+    """
+
+    class _FakeTty(io.StringIO):
+        def isatty(self):
+            return True
+
+    terminal = _FakeTty()
+    monkeypatch.setattr(sys, "stdout", terminal)
+    monkeypatch.setattr(sys, "stderr", io.StringIO())
+
+    path = desktop.start_session_log(tmp_path)
+
+    print("visible in both places")
+    sys.stdout.flush()
+
+    assert "visible in both places" in terminal.getvalue()
+    assert "visible in both places" in path.read_text(encoding="utf-8")
+
+
+def test_a_non_tty_is_not_teed(monkeypatch, tmp_path):
+    """No terminal attached means the file only — there is nowhere else for it to go, and the
+    substituted devnull writer from `_ensure_std_streams` must not be written to twice."""
+    monkeypatch.setattr(sys, "stdout", io.StringIO())  # StringIO.isatty() is False
+    monkeypatch.setattr(sys, "stderr", io.StringIO())
+
+    desktop.start_session_log(tmp_path)
+
+    assert not isinstance(sys.stdout, desktop._Tee)
+
+
+def test_an_unwritable_data_directory_does_not_stop_the_launcher(monkeypatch, tmp_path):
+    """Returns None and leaves the streams alone, rather than raising.
+
+    This is the whole reasoning of D3 in the changelog: a launcher that refuses to start because
+    it could not open a log file is a worse product than one with no log. The user has already
+    double-clicked something by this point.
+    """
+    sentinel_out, sentinel_err = io.StringIO(), io.StringIO()
+    monkeypatch.setattr(sys, "stdout", sentinel_out)
+    monkeypatch.setattr(sys, "stderr", sentinel_err)
+
+    def _refuse(*args, **kwargs):
+        raise OSError("read-only file system")
+
+    monkeypatch.setattr(Path, "mkdir", _refuse)
+
+    assert desktop.start_session_log(tmp_path) is None
+    # Unchanged: a failed redirect must not cost the caller the streams it already had.
+    assert sys.stdout is sentinel_out
+    assert sys.stderr is sentinel_err
+
+
+def test_pruning_removes_old_logs_and_keeps_recent_ones(tmp_path):
+    """90 days by mtime. The boundary either side is what the retention promise means."""
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+
+    stale = log_dir / "session-20200101-000000.log"
+    fresh = log_dir / "session-20991231-235959.log"
+    stale.write_text("old", encoding="utf-8")
+    fresh.write_text("new", encoding="utf-8")
+
+    ancient = time.time() - 91 * 86400
+    os.utime(stale, (ancient, ancient))
+
+    desktop._prune_old_logs(log_dir)
+
+    assert not stale.exists()
+    assert fresh.exists()
+
+
+def test_pruning_touches_only_session_logs(tmp_path):
+    """The narrow glob is a data-loss guard, not tidiness.
+
+    A data directory holds the user's database and workspaces. `_prune_old_logs` deletes by age,
+    so a pattern that reached those files would destroy user data that is merely old — which is
+    exactly what a long-lived database looks like.
+    """
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+
+    ancient = time.time() - 400 * 86400
+    victims = []
+    for name in ("battery-sim.db", "workspaces.json", "notes.txt", "session-keep.log.bak"):
+        target = log_dir / name
+        target.write_text("precious", encoding="utf-8")
+        os.utime(target, (ancient, ancient))
+        victims.append(target)
+
+    # A real session log of the same age, to prove the prune ran at all rather than no-oping.
+    doomed = log_dir / "session-20200101-000000.log"
+    doomed.write_text("old", encoding="utf-8")
+    os.utime(doomed, (ancient, ancient))
+
+    desktop._prune_old_logs(log_dir)
+
+    assert not doomed.exists(), "the prune did not run, so this test proves nothing"
+    for survivor in victims:
+        assert survivor.exists(), f"{survivor.name} was deleted and should not have been"
+
+
+def test_pruning_is_not_recursive(tmp_path):
+    """A nested directory of old files is out of scope. `glob` and not `rglob`, deliberately."""
+    log_dir = tmp_path / "logs"
+    nested = log_dir / "archive"
+    nested.mkdir(parents=True)
+
+    buried = nested / "session-20200101-000000.log"
+    buried.write_text("archived on purpose", encoding="utf-8")
+    ancient = time.time() - 400 * 86400
+    os.utime(buried, (ancient, ancient))
+
+    desktop._prune_old_logs(log_dir)
+
+    assert buried.exists()
+
+
+def test_tee_survives_a_broken_log_handle():
+    """If the log file fails mid-run, the terminal must keep working.
+
+    A full disk or an unmounted volume is survivable; losing the user's console output to it is
+    not. The primary stream is deliberately left to fail normally — see `_Tee`.
+    """
+
+    class _Broken:
+        def write(self, data):
+            raise OSError("no space left on device")
+
+        def flush(self):
+            raise OSError("no space left on device")
+
+    terminal = io.StringIO()
+    tee = desktop._Tee(terminal, _Broken())
+
+    tee.write("still gets through")
+    tee.flush()
+
+    assert terminal.getvalue() == "still gets through"

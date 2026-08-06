@@ -34,6 +34,9 @@ Main items:
     SingleInstance          the `<data_dir>/desktop.lock` exclusive lock, and its takeover rules.
     check_assets()          fail early and by name when a bundled asset directory is missing.
     _ensure_std_streams()   stdout/stderr are never None, even in a windowed frozen build.
+    start_session_log()     redirect stdout/stderr into `<data_dir>/logs/session-*.log`.
+    _Tee                    write to the log and the terminal at once, when a TTY is attached.
+    _prune_old_logs()       delete session logs older than 90 days.
 """
 
 from __future__ import annotations
@@ -775,6 +778,15 @@ def run(port: int | None = None, ui: UiMode = UiMode.WINDOW) -> int:
     """
     data_dir = resolve_data_dir()
 
+    # Immediately after the data directory is known and before anything is printed, because the
+    # log's path depends on that directory. `main()` has already guaranteed the streams are not
+    # None; this replaces them with something that persists. Everything below reaches the file.
+    #
+    # Deliberately NOT at the top of `main()`: argument parsing runs before the data directory is
+    # resolved, so `--help` and usage errors still go to the terminal only. Those are
+    # terminal-invoked paths, where a console exists by definition.
+    start_session_log(data_dir)
+
     lock = SingleInstance(data_dir / _LOCK_FILENAME)
     if not lock.acquire():
         # Someone holds the lock. If they are serving, hand the user over to them and stop.
@@ -923,6 +935,165 @@ def _ensure_std_streams() -> None:
         sys.stdout = open(os.devnull, "w")  # noqa: SIM115 - lives as long as the process
     if sys.stderr is None:
         sys.stderr = open(os.devnull, "w")  # noqa: SIM115 - lives as long as the process
+
+
+class _Tee:
+    """Write to two streams at once. Used only when a TTY is attached.
+
+    A packaged app started from a file manager has no terminal, and the log file is the only
+    place its output can go. A developer running the same binary from a shell expects to see that
+    output where they typed the command. Teeing satisfies both without a mode flag: the file
+    always gets everything, the terminal additionally gets it when there is a terminal.
+
+    Every method swallows errors from the SECONDARY stream only. If the log file goes away —
+    a full disk, a removed USB volume, a user deleting the directory mid-run — that must not take
+    the terminal output with it, nor raise inside a `print()` somewhere unrelated. The primary
+    stream is left to fail normally, because if the console itself is broken the process has
+    bigger problems than logging.
+    """
+
+    def __init__(self, primary, secondary) -> None:
+        self._primary = primary
+        self._secondary = secondary
+
+    def write(self, data: str) -> int:
+        n = self._primary.write(data)
+        try:
+            self._secondary.write(data)
+        except Exception:
+            pass
+        return n
+
+    def flush(self) -> None:
+        self._primary.flush()
+        try:
+            self._secondary.flush()
+        except Exception:
+            pass
+
+    def isatty(self) -> bool:
+        # Reports the PRIMARY stream's answer. Callers ask this to decide whether to colourise or
+        # to prompt; the presence of a log file behind the scenes does not change that answer.
+        try:
+            return bool(self._primary.isatty())
+        except Exception:
+            return False
+
+    def fileno(self) -> int:
+        # Delegated so that anything wanting a real descriptor — subprocess redirection, uvicorn's
+        # logging setup — gets the terminal's, not an error. A tee has no descriptor of its own.
+        return self._primary.fileno()
+
+    @property
+    def encoding(self) -> str:
+        return getattr(self._primary, "encoding", "utf-8")
+
+
+_LOG_DIRNAME = "logs"
+"""Subdirectory of the data directory holding session logs. Also the prune scope — see `_prune`."""
+
+_LOG_RETENTION_DAYS = 90
+"""Three months, chosen by the user. Pruning is by mtime, not by file count."""
+
+
+def _prune_old_logs(log_dir: Path, retention_days: int = _LOG_RETENTION_DAYS) -> None:
+    """Delete `session-*.log` files in `log_dir` older than `retention_days`.
+
+    Deletion is the only destructive thing this module does, so the scope is deliberately narrow
+    on three axes at once: one directory (never recursive), one filename pattern, and one file
+    type. A data directory holds the user's database and their workspaces; a glob that reached
+    those would be a data-loss bug in a debugging feature.
+
+    Age is mtime, not the timestamp in the filename. The two normally agree, but mtime is what the
+    filesystem actually knows — a clock change or a copied file can make the name lie, and the
+    consequence of trusting the name would be deleting something newer than it claims to be.
+
+    Silent on every error. Pruning is housekeeping: a file that cannot be deleted (locked on
+    Windows by another instance still writing it) is not a reason to fail a launch, and the next
+    run tries again.
+    """
+    cutoff = time.time() - retention_days * 86400
+    try:
+        entries = list(log_dir.glob("session-*.log"))
+    except OSError:
+        return
+    for entry in entries:
+        try:
+            if entry.is_file() and entry.stat().st_mtime < cutoff:
+                entry.unlink()
+        except OSError:
+            # Locked, already gone, or not ours to remove. Housekeeping is best-effort.
+            continue
+
+
+def start_session_log(data_dir: Path) -> Path | None:
+    """Redirect `sys.stdout`/`sys.stderr` into a timestamped file under `<data_dir>/logs/`.
+
+    Returns the log's path, or None if logging could not be started.
+
+    **Why this exists.** With `console=False` on every platform (see packaging/battery-sim.spec),
+    a double-clicked app has nowhere to print. The launcher's messages — the URL it is serving,
+    the already-running notice, the reason the window fell back to a browser — are exactly what a
+    bug report needs, and without this they are discarded. docs/en/troubleshooting.md tells users
+    where to find the file this creates.
+
+    **One file per launch, interleaved.** stdout and stderr share a handle, so their relative
+    order is preserved; splitting them would make "which happened first" unanswerable, which is
+    usually the question. Line-buffered, so a crash does not lose the lines leading up to it.
+
+    **Teeing when a TTY is attached** keeps `battery-sim` from a shell behaving as it always has.
+    The check is on the stream this function is about to replace, before replacement.
+
+    **It never raises.** Every failure — unwritable directory, full disk, a read-only volume —
+    leaves the existing streams untouched and returns None. A launcher that refuses to start
+    because it could not open a log file would be a worse product than one with no log at all,
+    and this runs on the path where the user has already double-clicked something.
+    """
+    try:
+        log_dir = data_dir / _LOG_DIRNAME
+        log_dir.mkdir(parents=True, exist_ok=True)
+
+        # Local time, not UTC: the user reading this filename to find "the run that just failed"
+        # is comparing it against their own clock. Colons are avoided — illegal in Windows
+        # filenames — which is why this is not isoformat().
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        path = log_dir / f"session-{stamp}.log"
+
+        # buffering=1 is line buffering, valid because the handle is opened in text mode. utf-8
+        # explicitly: the default is locale-dependent, and a Windows machine on a legacy code page
+        # would otherwise raise UnicodeEncodeError on a path or an error message containing
+        # non-ASCII — which is a real case here, since Dutch is a supported language.
+        handle = open(path, "a", buffering=1, encoding="utf-8", errors="replace")  # noqa: SIM115
+    except OSError:
+        return None
+
+    _prune_old_logs(log_dir)
+
+    header = (
+        f"=== Home Battery Simulator — session started {time.strftime('%Y-%m-%d %H:%M:%S')} ===\n"
+        f"platform: {sys.platform}  frozen: {getattr(sys, 'frozen', False)}\n"
+        f"data directory: {data_dir}\n"
+    )
+    try:
+        handle.write(header)
+    except OSError:
+        return None
+
+    # Checked BEFORE replacing the streams, and on the streams being replaced. `_ensure_std_streams`
+    # has already run, so these are never None here — but they may be the devnull writers it
+    # substituted, which correctly report isatty() False.
+    for name in ("stdout", "stderr"):
+        stream = getattr(sys, name)
+        try:
+            attached = bool(stream.isatty())
+        except Exception:
+            # A substituted or exotic stream that cannot answer. Treat as no terminal: the file
+            # gets the output either way, and guessing True would mean writing to something that
+            # may not accept it.
+            attached = False
+        setattr(sys, name, _Tee(stream, handle) if attached else handle)
+
+    return path
 
 
 def main(argv: list[str] | None = None) -> int:

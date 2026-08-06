@@ -216,12 +216,29 @@ jobs:
       #   adwaita/hicolor icon themes -> the two names the icon-copy loop looks for.
       # Most are already on the runner image; naming them means the build does not depend on
       # that staying true.
+      #
+      # `python3-tk` is here for a different reason than the rest, and it is not optional. The
+      # spec deliberately does NOT exclude tkinter, because app/desktop.py::_show_fallback_dialog
+      # uses it to show the server URL when the webview cannot open. But PyInstaller can only
+      # bundle what it can import at build time, and run 31094839305 logged
+      #
+      #     WARNING: tkinter installation is broken. It will be excluded from the application
+      #
+      # on this job — so the Linux fallback dialog was silently absent from every AppImage built
+      # before 2026-08-06, on exactly the machines it exists for. macOS and Windows were fine
+      # (their logs show hook-_tkinter and pyi_rth__tkinter, no warning); this was Linux-only.
+      #
+      # It must be the apt package rather than a pip install because tkinter is a C extension
+      # against system Tcl/Tk, not a PyPI distribution. It attaches to /usr/bin/python3.12, which
+      # is what `uv venv --python 3.12` in build-linux.sh resolves to on this runner — verified in
+      # the same run's log, and the reason a uv-managed standalone build would not have helped.
       - name: Install the GTK / WebKit build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             gir1.2-webkit2-4.1 \
             python3-gi \
+            python3-tk \
             libwebkit2gtk-4.1-0 \
             libgtk-3-0 \
             libgirepository-1.0-1 \

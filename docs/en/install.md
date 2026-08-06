@@ -173,4 +173,5 @@ in your browser, the same way you would for any other site.
 ## Next
 
 - [The security warnings your operating system shows](security-warnings.md)
+- [When something goes wrong](troubleshooting.md) — finding the log file and the app's address
 - [Supporting the project](sponsor.md) — including what would remove these warnings
