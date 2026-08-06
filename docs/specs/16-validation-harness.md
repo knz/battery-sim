@@ -179,18 +179,73 @@ Conservation and closure identities are asserted to `CLOSURE_TOL` (a module cons
     [§4.5](07-internal-representation.md#45-result-object),
     [§7.3](15-data-quality-and-limits.md#73-data-quality-checks-in-execution-order)
 
-22. **A failed slot upload is recoverable** — fill every required slot with a valid file
-    except `price_spot`, into which a file with naive timestamps (no UTC offset) is
-    uploaded. Assert that the upload is rejected against that slot with an error naming the
-    missing offset, that the session state is unchanged and no `LOAD_FAILED` is emitted,
-    that the already-filled slots still hold their files, and that `SOURCE_CONFIGURED` has
-    not fired. Then upload a well-formed `price_spot` file into the same slot and assert
-    that it is accepted, replaces nothing else, and that `SOURCE_CONFIGURED` now fires and
-    the run completes normally. Assert additionally that uploading a second valid file into
-    an already-filled slot replaces its contents rather than appending, leaving the series
-    row count equal to the second file's. The point is that a bad supplier export is a
-    panel-local condition: a validation failure on one slot must not be reachable from, or
-    escalate into, the session's `DATA_ERROR` state.
-    → [§4.2](05-data-formats.md#validation-and-failure),
-    [§2.2](02-ux-wireframes.md#csv-variant-of-the-source-sub-panel),
+22. **A failed CSV upload or column binding is recoverable** — the two failure points on the
+    wide-CSV path ([§4.2a](05-data-formats.md#42a-the-wide-multi-series-file-format)) are the
+    upload and the per-slot column choice, and neither may escalate.
+
+    *At upload:* upload a valid wide file, then upload a malformed one (no header row, a first
+    column that does not parse, or a declared field separator this app does not know). Assert the
+    second is rejected in the dialog naming what was expected and the offending row, that no
+    `uploads` row or file is written for it, that the first file is still listed and still bound
+    wherever it was bound, that the session state is unchanged, and that no `LOAD_FAILED` is
+    emitted.
+
+    *The declared separator is used, not guessed:* upload a semicolon-separated file with the
+    semicolon radio selected and assert it parses — the right column count, the right values. Then
+    upload **the same bytes** with the comma radio selected and assert they are rejected with
+    `too_few_columns`: under the comma separator each row is a single field, so the header names
+    one column and the two-column minimum fails. The pair is what proves the answer is applied
+    rather than sniffed — a sniffer would accept both, and this format's rule is that it asks.
+
+    *At column selection:* bind a monotonic non-decreasing column to an energy slot. Assert the
+    drawer shows the cumulative-register warning, and — because it warns rather than refuses —
+    that Confirm stays enabled, that the binding is accepted, that `SOURCE_CONFIGURED` fires once
+    every required slot is bound, that the run completes, and that the flagged column is named in
+    the data-quality box. Assert also that the values are passed through **undifferenced**: the
+    series must carry the register's own readings, since silently differencing them is the one
+    thing this format never does. Then select a non-monotonic column from the same file and assert
+    no warning is shown. A non-numeric column, by contrast, still *is* rejected on selection —
+    assert that separately, and that the slot keeps whatever binding it had.
+
+    *Reuse and replacement:* bind two different slots to two different columns of the **same**
+    upload and assert both series load with the right values — one file feeding many slots is
+    the point of the format. Rebinding a slot to a different column replaces that slot's binding
+    and touches no other slot. Deleting an upload that a slot still references clears that
+    slot's binding and leaves the others intact.
+
+    The point throughout is that a bad supplier export is a panel-local condition: a validation
+    failure at either point must not be reachable from, or escalate into, the session's
+    `DATA_ERROR` state.
+    → [§4.2a](05-data-formats.md#42a-the-wide-multi-series-file-format),
+    [§2.2](02-ux-wireframes.md#the-csv-source),
     [§3.2](04-state-machine.md#32-events)
+
+22a. **The declared timezone is applied once, at upload** — upload the same file twice, once
+    declared Europe/Amsterdam and once UTC, and assert the stored series differ by the expected
+    offset rather than being identical. Upload an Amsterdam-declared file spanning the October
+    transition and assert the repeated 02:00–03:00 hour resolves to its first (CEST) occurrence,
+    that the affected samples carry the ambiguity flag, and that the flag is reported in the
+    data-quality box naming the day. Assert a UTC-declared file spanning the same date raises no
+    such flag.
+    → [§4.2a](05-data-formats.md#timestamps-carry-no-offset--the-zone-is-answered-once-at-upload),
+    [§7.3](15-data-quality-and-limits.md#73-data-quality-checks-in-execution-order)
+
+22b. **Decimal separators are read per cell** — a separate fixture from 22, whose subject is
+    recoverability; this one is a format claim ([§4.2a](05-data-formats.md#42a-the-wide-multi-series-file-format)).
+
+    Upload one comma-delimited wide file whose value cells mix the two conventions **within the
+    same column**, in the shape real exports produce: bare `0.56` on one row and quoted `"1,9"`
+    a few rows later in that column, and back to a bare dot cell after that. Assert every row
+    loads, that each value carries the number its own cell spells (`0.56` → 0.56 and `"1,9"` →
+    1.9, so neither a per-file nor a per-column rule could have produced the result), and that
+    the mixing raises **no warning at all** — it is ordinary valid data, not a suspicion.
+
+    The pinned negative, which must be asserted in the same fixture so the two cannot drift
+    apart: take the same file with the quotes removed and assert it is rejected **at upload**
+    with `row_length_mismatch`. An unquoted `1,9` is split into two fields by the tokenizer
+    before any cell is read, so it is one cell too long; reading it as `1` and `9` would be
+    wrong by a factor of a thousand. Accepting the quoted form must never license the bare one.
+
+    Assert also that a cell containing **both** a dot and a comma (`1.234,56`) is rejected on
+    column selection — panel-local, naming the column and the row — and not guessed at.
+    → [§4.2a](05-data-formats.md#42a-the-wide-multi-series-file-format)

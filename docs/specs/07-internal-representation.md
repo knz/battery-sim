@@ -23,7 +23,15 @@ SeriesFrame:
 ```
 
 `QualityFlags` bits: `OK`, `GAP_FILLED`, `RESET_CORRECTED`, `INTERPOLATED`,
-`RESAMPLED_DOWN`, `CLAMPED_NEGATIVE`.
+`RESAMPLED_DOWN`, `CLAMPED_NEGATIVE`, `DST_AMBIGUOUS`.
+
+`DST_AMBIGUOUS` belongs to the wide-CSV path
+([§4.2a](05-data-formats.md#42a-the-wide-multi-series-file-format)). That format carries no UTC
+offset, so a naive local timestamp in the hour Europe/Amsterdam repeats each October denotes two
+instants; the parser resolves it to the first (CEST) occurrence and raises this bit so
+[§7.3](15-data-quality-and-limits.md#73-data-quality-checks-in-execution-order) check 1 can name
+the affected day. Unlike every other bit here it records an **irreducible ambiguity in the
+input** rather than a repair the app performed.
 
 `resolution_s` is the series' **native** resolution — the spacing at which it was recorded,
 before any reconciliation with the simulation grid. It is the source of the per-series

@@ -101,7 +101,6 @@ control it was about.
 
 | Key | Control | Template | Blocked on |
 |---|---|---|---|
-| `data_source_csv` | "Upload CSV" data source | `_panel_data.html` | CSV ingestion |
 | `pricing_contract_fixed` | "Fixed" contract radio in the Pricing box | `_panel_params.html` | §6.4's `tariff_zone` axis and the FIXED rate source |
 | `pricing_contract_variable` | "Variable" contract radio in the Pricing box | `_panel_params.html` | a dated `rate_schedule` on `PricingConfig`, plus its editor |
 | `pricing_tlk_tiered` | "tiered by annual volume" terugleverkosten | `_panel_params.html` | a tier table, annualisation, `min_tlk_tiering_days` |
@@ -115,6 +114,7 @@ control it was about.
 |---|---|---|
 | `discharge_allow_export` | "Allow export to grid during D2/D3" | panel ② wiring — now a real checkbox bound to `policy.allow_grid_export` |
 | `simulate_cost` | "Simulate cost savings?" choice in the setup band | the cost-simulation increment — the band's radios now POST to `/params` and panel ② draws the whole Pricing box behind the answer |
+| `data_source_csv` | "Upload CSV" data source | the CSV-import increment — a real source radio in the per-slot drawer, with an upload dialog and File/Column/Unit controls behind it |
 
 ## How to add a pending control
 

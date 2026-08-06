@@ -65,7 +65,7 @@ re-parameterisation feel responsive.
 
 | Event | Trigger | Effect |
 |---|---|---|
-| `SOURCE_CONFIGURED` | HA credentials tested OK, or every required CSV slot holds a file that passed validation | → `DATA_LOADING` |
+| `SOURCE_CONFIGURED` | HA credentials tested OK, or every required CSV slot holds a validated file-and-column binding | → `DATA_LOADING` |
 | `LOAD_SUCCEEDED` | Ingest + normalise + QA complete | → `DATA_READY`, persist dataset |
 | `LOAD_FAILED` | Network, auth, or a validation error against the assembled dataset | → `DATA_ERROR` with actionable message |
 | `PARAMS_CHANGED` | Any field in panel ② | Validate; persist; if valid → `INPUT_CHANGED` |
@@ -78,16 +78,16 @@ re-parameterisation feel responsive.
 | `RUN_FAILED` | Exception in domain layer | → `RUN_ERROR`, previous results retained |
 | `RELOAD_DATA` | User edits panel ① | → `DATA_LOADING` |
 
-**Per-slot CSV validation is panel-local and emits nothing here.** On the CSV path the user
-uploads one file per series into a named slot, and each file is validated against that
-slot's expected format as it arrives
-([§2.2](02-ux-wireframes.md#csv-variant-of-the-source-sub-panel)). A file that fails is
-rejected on its own row, with the other slots untouched and the session state unchanged —
-it never reaches `DATA_ERROR`. Downloading the wrong export from a supplier's website is an
-ordinary event on this path, and the recourse is another file for the same slot, not a
-restart. `SOURCE_CONFIGURED` fires only once every required slot holds a file that passed,
-so the states below always describe an assembled dataset. This mirrors the Home Assistant
-path, where filling in the mapping table likewise produces no session event until
+**CSV upload and column binding are panel-local and emit nothing here.** On the CSV path the
+user uploads a file once and then binds one of its columns to each slot that needs it
+([§2.2](02-ux-wireframes.md#the-csv-source)). Both steps are validated where they happen: a
+malformed file is rejected in the upload dialog, and an unusable column is rejected on
+selection in the drawer. Neither touches the other slots, any other uploaded file, or the
+session state — it never reaches `DATA_ERROR`. Downloading the wrong export from a supplier's
+website is an ordinary event on this path, and the recourse is another file or another column,
+not a restart. `SOURCE_CONFIGURED` fires only once every required slot holds a binding that
+passed, so the states below always describe an assembled dataset. This mirrors the Home
+Assistant path, where filling in the mapping table likewise produces no session event until
 **Fetch history**.
 
 Two choices live in the **setup band** above panel ① (§2.1) rather than in a panel:

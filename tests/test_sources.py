@@ -54,9 +54,11 @@ def test_price_spot_offers_ha_then_both_preset_sources():
     assert [d.key for d in descriptors] == ["home_assistant", "energy_charts", "entsoe_nl"]
 
 
-def test_energy_slot_offers_ha_only():
+def test_energy_slot_offers_ha_then_csv():
+    # HA leads (registration order, and the primary origin); the uploaded-CSV source follows for
+    # every energy slot (D-PRICE: energy only). The two spot-price sources do not appear.
     descriptors = sources_for(SLOT_BY_NAME["grid_import_t1"])
-    assert [d.key for d in descriptors] == ["home_assistant"]
+    assert [d.key for d in descriptors] == ["home_assistant", "csv_upload"]
 
 
 # --- registry: key lookup ------------------------------------------------------------------

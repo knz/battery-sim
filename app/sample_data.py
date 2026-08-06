@@ -128,6 +128,9 @@ _SOURCE_STRINGS = [
     _N("Preset historical (ENTSO-E NL)"),
     _N("NL day-ahead spot prices from mid-2022, extracted from the ENTSO-E transparency "
        "platform at their native hourly then quarter-hourly resolution."),
+    _N("Upload CSV"),
+    _N("A file you upload: one timestamp column plus one column per measurement. One file "
+       "can fill several slots — pick the column for this one."),
 ]
 
 def _res(label: str) -> dict:
@@ -275,6 +278,11 @@ def _panel_data():
             # Same msgid as data_view's uncounted reset line (its English carries no noun to
             # pluralise, so a translator whose language needs one rephrases the whole clause).
             "resets": _msg("%(n)s detected and corrected", n=num(2, "count")),
+            # The October clock-change note (§4.2a). Only a wide CSV can carry that ambiguity —
+            # this sample demos a Home Assistant dataset, whose timestamps carry an offset — so it
+            # shows the clean branch rather than a fabricated day. Same msgid as the gaps and
+            # resets lines use for their clean branch, so the three share one catalog entry.
+            "dst": _msg("none detected"),
             # A literal "%" is inert everywhere now — app/i18n.interpolate doubles every percent
             # sign that does not begin a "%(name)s" placeholder, and _() no longer %-formats at
             # all (i18n.install_for, newstyle=False). The fullwidth "％" this string used to carry
@@ -291,6 +299,12 @@ def _panel_data():
             # than one assembled from parts. `_N` rather than `_msg`: with no params it is a plain
             # string, which the template's `msg()` macro also accepts.
             "registers": _N("T1 ✓ mapped    T2 ✓ mapped, active"),
+            # `cumulative` (§4.2a, §7.3 check 2 — a wide-CSV column that may be a meter register)
+            # is deliberately ABSENT rather than present-and-empty, and that absence is the shape
+            # the real path has too. The check only runs when a CSV column is bound to a slot, so
+            # a Home Assistant dataset — which is what this sample demos — has no answer to give
+            # rather than a clean one, and the template's `{% if %}` drops the alert. Setting it
+            # to None here would render identically but would claim the check ran and passed.
         },
     }
 

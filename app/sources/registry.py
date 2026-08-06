@@ -6,7 +6,8 @@ fill it (`sources_for`, what the drawer lists), and for a stored source key, whi
 handles it (`get_source`, used when a slot's chosen source is loaded).
 
 Sources are instantiated once here. HA is listed first for every slot it offers (it is the
-primary origin); other sources follow in registration order.
+primary origin); other sources follow in registration order — the two preset spot-price sources
+for `price_spot`, and the uploaded-CSV source for every energy slot.
 
 Main items:
     ALL_SOURCES            the instantiated sources, in registration order (HA first).
@@ -18,6 +19,7 @@ from __future__ import annotations
 
 from app.domain.series_vocab import SlotSpec
 from app.sources.base import DataSource, SourceDescriptor
+from app.sources.csv_source import CsvSource
 from app.sources.energy_charts import EnergyChartsSource
 from app.sources.entsoe import EntsoeSource
 from app.sources.home_assistant import HomeAssistantSource
@@ -27,10 +29,16 @@ from app.sources.home_assistant import HomeAssistantSource
 # Energy-Charts precedes ENTSO-E because it bridges live to `now` while ENTSO-E stops at the last
 # extracted dump, making it the better default for a window reaching the present; ENTSO-E offers
 # earlier coverage (mid-2022) and its own native resolutions.
+# CSV is last for every energy slot it offers. HA is the primary origin and the one a household
+# with Home Assistant should reach for first; an upload is the fallback for a household that has
+# an export but no HA, and for the slots HA cannot supply. Ordering is presentation only — nothing
+# selects a source by position — but the drawer reads top to bottom, so the order is the
+# recommendation.
 ALL_SOURCES: list[DataSource] = [
     HomeAssistantSource(),
     EnergyChartsSource(),
     EntsoeSource(),
+    CsvSource(),
 ]
 
 # Descriptor-key → source lookup, built once from ALL_SOURCES. Keys are the stable ids persisted

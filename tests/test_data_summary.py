@@ -16,6 +16,12 @@ Three layers:
     a first-time user sees and a formatted string there would render English on a Dutch page
     while the live page rendered Dutch.
 
+One group inside that third layer is different in kind: the suspected-cumulative-column row
+(§4.2a, §7.3 check 2) is the only data-quality fact read from the persisted
+`LoadedDataset.warnings` rather than derived from the per-interval quality flags, because the claim
+is about a whole COLUMN and so has no flag. Those tests attach a warnings list directly, which is
+also the only way to reach the malformed and unrecognised shapes a persisted list can carry.
+
 No layer launches a browser or seeds a real dataset (the smoke test covers empty-state absence);
 the computed cases build SeriesFrames in-process and wrap them in a LoadedDataset.
 """
@@ -438,7 +444,7 @@ def test_panel_quality_strings_are_message_pairs_not_formatted_strings():
     """The regression this whole shape exists for: a string assembled here has a msgid that only
     exists at runtime, so it can never be translated and renders in English on a Dutch page."""
     q = _panel([_energy("grid_import_t1", 2.0), _energy("grid_export_t1", 0.0)])["quality"]
-    for key in ("coverage", "grid", "gaps", "resets", "registers"):
+    for key in ("coverage", "grid", "gaps", "resets", "dst", "registers"):
         assert isinstance(q[key], dict) and "msgid" in q[key], f"{key} is not a message pair"
 
 
@@ -463,6 +469,194 @@ def test_panel_register_marks_distinguish_flat_from_active():
         _energy("grid_export_t1", 0.0),
     ])["quality"]
     assert _render(q["registers"]) == "import T1 mapped, active · T2 mapped, flat"
+
+
+def _dst_flagged(name: str = "grid_import_t1", hours=(2, 3), n: int = HOURS) -> SeriesFrame:
+    """An hourly frame with `DST_AMBIGUOUS` raised on the given interval offsets.
+
+    The bit is what the wide-CSV parser raises on the two rows sharing a wall-clock timestamp at
+    the October fold (`app/domain/csv_wide.py`). Set directly rather than by parsing a CSV: this
+    layer asserts what the view-model does with the bit, and `tests/test_csv_wide.py` /
+    `tests/test_csv_source.py` already pin that the parser raises it on the right samples.
+    """
+    f = _energy(name, 2.0, n=n)
+    for h in hours:
+        f.quality[h] = int(QualityFlags.DST_AMBIGUOUS)
+    return f
+
+
+def test_panel_clock_change_note_names_the_affected_day():
+    """The §16 fixture 22a requirement: the ambiguity is reported "naming the day".
+
+    A count alone would not be actionable — the reader's question is which hour of their data the
+    app had to guess about, and the day is the answer. The wording says the input is ambiguous and
+    states the assumption rather than claiming a repair, matching what the flag records.
+    """
+    q = _panel([_dst_flagged(), _energy("grid_export_t1", 0.0)])["quality"]
+    assert isinstance(q["dst"], dict) and "msgid" in q["dst"]
+    assert _render(q["dst"]) == (
+        "2026-01-01 — the clock went back on this day, so one hour appears twice in your data "
+        "and the run assumes the first (summer-time) one."
+    )
+
+
+def test_panel_clock_change_note_pluralises_on_the_number_of_days():
+    """Two named days read "on these days"; the plural follows the day count the sentence prints,
+    not the flagged-interval count — which varies with the series' resolution."""
+    q = _panel([_dst_flagged(hours=(2, 26), n=48),
+                _energy("grid_export_t1", 0.0, n=48)])["quality"]
+    assert _render(q["dst"]).startswith(
+        "2026-01-01, 2026-01-02 — the clock went back on these days,"
+    )
+
+
+def test_panel_clock_change_note_lists_each_day_once():
+    """The day list is de-duplicated across series and across the intervals within a day: two
+    flagged hours on one day in two series is one date, not four."""
+    q = _panel([_dst_flagged(), _dst_flagged("grid_export_t1")])["quality"]
+    assert q["dst"]["params"]["days"] == "2026-01-01"
+
+
+def test_panel_clock_change_note_is_none_detected_when_nothing_is_flagged():
+    """The row is unconditional, like Gaps: "none detected" is the informative answer, and it tells
+    the reader the app read their file as written rather than assuming anything."""
+    q = _panel([_energy("grid_import_t1", 2.0), _energy("grid_export_t1", 0.0)])["quality"]
+    assert _render(q["dst"]) == "none detected"
+
+
+# ── The suspected-cumulative CSV columns (§4.2a, §7.3 check 2) ────────────────────────────────
+#
+# The one data-quality fact read from the persisted `LoadedDataset.warnings` rather than derived
+# from the per-interval quality bits, because there is no bit for it: the claim is about a whole
+# COLUMN (its values never decrease over the window), not about a sample. Before this row existed
+# the warning reached the fetch path and died at persistence, so a user who proceeded past the
+# drawer's small print kept no record of the caveat.
+
+
+def _dataset_with_warnings(warnings: list) -> LoadedDataset:
+    """The base two-meter dataset, with an arbitrary persisted warnings list attached.
+
+    Written directly rather than by uploading a CSV: this layer asserts what the VIEW-MODEL does
+    with a persisted warning, and `tests/test_csv_wide.py` / `tests/test_csv_source.py` already pin
+    that the parser and the source stamp the right ones. Building the list here is also the only way
+    to reach the malformed and unrecognised shapes below, which no current writer produces — and
+    which a persisted list can nonetheless carry from an older schema.
+    """
+    ds = _dataset([_energy("grid_import_t1", 2.0), _energy("grid_export_t1", 0.0)])
+    ds.warnings = warnings
+    return ds
+
+
+def _cumulative(warnings: list):
+    from app.data_view import panel_data_from
+    return panel_data_from(_dataset_with_warnings(warnings))["quality"].get("cumulative")
+
+
+def test_panel_cumulative_row_names_the_flagged_column():
+    """§4.2a: "the suspect column is also named in §7.3's data-quality box, so the reason survives
+    the run". The column NAME is the whole point — a count would not tell the reader which of their
+    bindings to look at."""
+    m = _cumulative([{"code": "CSV_CUMULATIVE_COLUMN", "column": "Verbruik"}])
+    assert isinstance(m, dict) and "msgid" in m
+    assert m["params"]["columns"] == "Verbruik"
+    assert _render(m) == (
+        "Verbruik — the values in this column never go down, so it may be a cumulative meter "
+        "reading rather than the amount used per interval. If it is, the results will be far too "
+        "high."
+    )
+
+
+def test_panel_cumulative_row_lists_several_columns_and_pluralises():
+    """One uploaded file can feed many slots (§4.2a), so several columns can be flagged. The plural
+    follows the number of columns the sentence lists, so "1 columns" cannot happen."""
+    m = _cumulative([
+        {"code": "CSV_CUMULATIVE_COLUMN", "column": "Verbruik"},
+        {"code": "CSV_CUMULATIVE_COLUMN", "column": "Teruglevering"},
+    ])
+    assert m["params"]["columns"] == "Teruglevering, Verbruik"  # sorted, for a stable render
+    assert _render(m).startswith(
+        "Teruglevering, Verbruik — the values in these columns never go down,"
+    )
+
+
+def test_panel_cumulative_row_lists_each_column_once():
+    """The warning is stamped per BINDING, so one column bound to two slots arrives twice. It is
+    one column and must be named once."""
+    m = _cumulative([
+        {"code": "CSV_CUMULATIVE_COLUMN", "column": "Meter"},
+        {"code": "CSV_CUMULATIVE_COLUMN", "column": "Meter"},
+    ])
+    assert m["params"]["columns"] == "Meter"
+    # De-duplicated BEFORE the plural is chosen, so two records of one column read singular.
+    assert "this column" in _render(m)
+
+
+def test_panel_cumulative_row_is_omitted_when_nothing_is_flagged():
+    """Absent, not "none detected" — unlike Gaps and the clock-change row.
+
+    Check 2 runs on CSV column selection, so a dataset with no CSV binding was never examined: it
+    has no answer rather than a clean one, and saying "none detected" would report a check that
+    never ran. The template guards on presence, so the alert simply does not appear.
+    """
+    from app.data_view import panel_data_from
+
+    quality = panel_data_from(_dataset_with_warnings([]))["quality"]
+    # The KEY is absent, not None: the template's `{% if %}` would drop either, but a present-and-
+    # empty key would let a later reader treat "the check ran and passed" as the meaning.
+    assert "cumulative" not in quality
+
+
+def test_panel_cumulative_row_ignores_warning_codes_it_does_not_recognise():
+    """`warnings` is a heterogeneous PERSISTED list. The two other CSV codes already have their own
+    flag-derived rows (Gaps, Clock change) and must not be re-reported here, and a code from an
+    older or newer schema must not be reported at all."""
+    assert _cumulative([
+        {"code": "CSV_GAP_CELLS", "column": "Verbruik", "count": 3},
+        {"code": "CSV_DST_AMBIGUOUS_HOUR", "column": "Verbruik", "count": 1,
+         "days": ["2026-10-25"]},
+        {"code": "SOMETHING_INVENTED_LATER", "column": "Verbruik"},
+    ]) is None
+
+
+def test_panel_cumulative_row_survives_a_malformed_persisted_warning():
+    """A stored row with no `column`, a non-string one, or one that is not a mapping at all must be
+    skipped rather than crash the whole panel — the list is persisted, so it can carry shapes this
+    code did not write. A well-formed sibling is still reported."""
+    m = _cumulative([
+        {"code": "CSV_CUMULATIVE_COLUMN"},                  # no column key at all
+        {"code": "CSV_CUMULATIVE_COLUMN", "column": None},   # column present but null
+        {"code": "CSV_CUMULATIVE_COLUMN", "column": "  "},   # blank: nothing to name
+        "CSV_CUMULATIVE_COLUMN",                             # not a mapping
+        {"code": "CSV_CUMULATIVE_COLUMN", "column": "Meter"},
+    ])
+    assert m["params"]["columns"] == "Meter"
+    # …and a list of ONLY malformed entries reports nothing rather than an empty name.
+    assert _cumulative([{"code": "CSV_CUMULATIVE_COLUMN"}]) is None
+
+
+def test_panel_cumulative_row_renders_through_the_real_template_in_both_locales():
+    """The column name is USER DATA from an uploaded header row, so it is rendered rather than
+    asserted on the view-model: `_msg.html` escapes a substituted param exactly once, and the Dutch
+    catalog has to actually carry this sentence (not just the .po file)."""
+    from app.data_view import panel_data_from
+
+    d = panel_data_from(_dataset_with_warnings(
+        [{"code": "CSV_CUMULATIVE_COLUMN", "column": "<Verbruik & co>"}]
+    ))
+    for locale in i18n.SUPPORTED:
+        html = i18n.env_for(locale).from_string(
+            '{% from "_data_quality.html" import data_quality with context %}{{ data_quality(d) }}'
+        ).render(d=d)
+        # Escaped exactly once: the raw "<" must not reach the page, and it must not be
+        # double-escaped into "&amp;lt;" either.
+        assert "&lt;Verbruik &amp; co&gt;" in html, f"[{locale}] column name not escaped once"
+        assert "<Verbruik" not in html
+    # The Dutch render must not be the English sentence — the catalog entry has to exist and be
+    # compiled, which asserting on the .po alone would not show.
+    nl = i18n.env_for("nl").from_string(
+        '{% from "_data_quality.html" import data_quality with context %}{{ data_quality(d) }}'
+    ).render(d=d)
+    assert "never go down" not in nl, "the cumulative-column warning is untranslated in Dutch"
 
 
 def test_panel_resolution_label_is_a_nested_message_not_a_baked_word():
@@ -524,7 +718,7 @@ def test_panel_counted_messages_pick_the_singular_at_one():
 
 def test_sample_panel_quality_strings_are_message_pairs():
     q = _panel_data()["quality"]
-    for key in ("coverage", "grid", "gaps", "resets", "price_warning", "load_warning"):
+    for key in ("coverage", "grid", "gaps", "resets", "dst", "price_warning", "load_warning"):
         assert isinstance(q[key], dict) and "msgid" in q[key], f"{key} is not a message pair"
     # `registers` is a plain marked string: it carries no runtime value, so there is nothing to
     # hold out and the whole line is one constant msgid the macro translates directly.
@@ -539,6 +733,9 @@ def test_sample_panel_quality_renders_the_wireframe_english():
     assert _render(q["grid"]) == "hourly  ·  8,760 intervals"
     assert _render(q["gaps"]) == "3 gaps totalling 4.2 h  (0.04%)"
     assert _render(q["resets"]) == "2 detected and corrected"
+    # The clock-change row shows the clean branch: only a wide CSV can carry that ambiguity and
+    # this sample demos a Home Assistant dataset, so a named day here would be fiction.
+    assert _render(q["dst"]) == "none detected"
     assert _render(q["registers"]) == "T1 ✓ mapped    T2 ✓ mapped, active"
 
 
@@ -571,7 +768,7 @@ def test_sample_shares_the_computed_paths_msgids_where_the_wording_matches():
     sample = _panel_data()
     computed = panel_data_from(_dataset([_energy("grid_import_t1", 2.0),
                                          _energy("grid_export_t1", 0.0)]))
-    for key in ("coverage", "grid"):
+    for key in ("coverage", "grid", "dst"):
         assert sample["quality"][key]["msgid"] == computed["quality"][key]["msgid"], key
     assert sample["summary"]["msgid"] == computed["summary"]["msgid"]
     # `resets` cannot be compared against this fixture — it has no corrected resets, so the

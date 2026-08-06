@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-06 12:51+0200\n"
+"POT-Creation-Date: 2026-08-06 15:40+0200\n"
 "PO-Revision-Date: 2026-07-23 20:30+0200\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: nl\n"
@@ -43,6 +43,24 @@ msgid "%(before)s → %(after)s"
 msgstr "%(before)s → %(after)s"
 
 #, python-format
+msgid ""
+"%(columns)s — the values in this column never go down, so it may be a "
+"cumulative meter reading rather than the amount used per interval. If it "
+"is, the results will be far too high."
+msgid_plural ""
+"%(columns)s — the values in these columns never go down, so they may be "
+"cumulative meter readings rather than the amount used per interval. If "
+"they are, the results will be far too high."
+msgstr[0] ""
+"%(columns)s — de waarden in deze kolom lopen nooit terug, dus het kan een"
+" cumulatieve meterstand zijn in plaats van de hoeveelheid per interval. "
+"Als dat zo is, vallen de uitkomsten veel te hoog uit."
+msgstr[1] ""
+"%(columns)s — de waarden in deze kolommen lopen nooit terug, dus het "
+"kunnen cumulatieve meterstanden zijn in plaats van de hoeveelheid per "
+"interval. Als dat zo is, vallen de uitkomsten veel te hoog uit."
+
+#, python-format
 msgid "%(count)s interval · %(res)s"
 msgid_plural "%(count)s intervals · %(res)s"
 msgstr[0] "%(count)s interval · %(res)s"
@@ -53,6 +71,20 @@ msgid "%(dates)s   (%(n)s day)"
 msgid_plural "%(dates)s   (%(n)s days)"
 msgstr[0] "%(dates)s   (%(n)s dag)"
 msgstr[1] "%(dates)s   (%(n)s dagen)"
+
+#, python-format
+msgid ""
+"%(days)s — the clock went back on this day, so one hour appears twice in "
+"your data and the run assumes the first (summer-time) one."
+msgid_plural ""
+"%(days)s — the clock went back on these days, so one hour appears twice "
+"in your data and the run assumes the first (summer-time) one."
+msgstr[0] ""
+"%(days)s — op deze dag ging de klok terug, dus één uur komt twee keer in "
+"je gegevens voor en de run gaat uit van het eerste (zomertijd)."
+msgstr[1] ""
+"%(days)s — op deze dagen ging de klok terug, dus één uur komt twee keer "
+"in je gegevens voor en de run gaat uit van het eerste (zomertijd)."
 
 #, python-format
 msgid ""
@@ -86,12 +118,24 @@ msgstr ""
 "een bestaande batterij voedt het net en is niet gekoppeld."
 
 #, python-format
+msgid "%(first)s → %(last)s"
+msgstr "%(first)s → %(last)s"
+
+#, python-format
 msgid "%(full)s / %(empty)s"
 msgstr "%(full)s / %(empty)s"
 
 #, python-format
 msgid "%(kwh)s throughput"
 msgstr "%(kwh)s doorzet"
+
+#, python-format
+msgid "%(message)s (row %(row)s)"
+msgstr "%(message)s (regel %(row)s)"
+
+#, python-format
+msgid "%(message)s — %(detail)s"
+msgstr "%(message)s — %(detail)s"
 
 #, python-format
 msgid "%(n)s / day"
@@ -124,6 +168,14 @@ msgid "%(n)s value overridden"
 msgid_plural "%(n)s values overridden"
 msgstr[0] "%(n)s waarde aangepast"
 msgstr[1] "%(n)s waarden aangepast"
+
+#, python-format
+msgid "%(n)s-minute"
+msgstr "%(n)s-minuten"
+
+#, python-format
+msgid "%(n)s-second"
+msgstr "%(n)s-seconden"
 
 #, python-format
 msgid "%(n)ss"
@@ -176,10 +228,17 @@ msgid "%(res)s, held"
 msgstr "%(res)s, vastgehouden"
 
 #, python-format
+msgid "%(rows)s rows · %(resolution)s · %(columns)s columns"
+msgstr "%(rows)s regels · %(resolution)s · %(columns)s kolommen"
+
+#, python-format
 msgid "(%(res)s, %(n)s interval)"
 msgid_plural "(%(res)s, %(n)s intervals)"
 msgstr[0] "(%(res)s, %(n)s interval)"
 msgstr[1] "(%(res)s, %(n)s intervallen)"
+
+msgid "(file no longer available)"
+msgstr "(bestand niet meer beschikbaar)"
 
 msgid "+ New analysis"
 msgstr "+ Nieuwe analyse"
@@ -192,6 +251,9 @@ msgstr "1-fase batterij"
 
 msgid "15-min"
 msgstr "15-min"
+
+msgid "15-minute"
+msgstr "kwartierwaarden"
 
 msgid "2027 tariffs are not yet published. These values are estimates."
 msgstr ""
@@ -210,6 +272,23 @@ msgstr "30-min"
 msgid "5-min"
 msgstr "5-min"
 
+msgid "5-minute"
+msgstr "5-minuten"
+
+msgid ""
+"A file you upload: one timestamp column plus one column per measurement. "
+"One file can fill several slots — pick the column for this one."
+msgstr ""
+"Een bestand dat je uploadt: één kolom met tijdstippen plus één kolom per "
+"meting. Één bestand kan meerdere reeksen vullen — kies hier de juiste "
+"kolom."
+
+msgid "A row has a different number of fields than the header."
+msgstr "Een regel heeft een ander aantal velden dan de kopregel."
+
+msgid "A row has an empty timestamp."
+msgstr "Een regel heeft een leeg tijdstip."
+
 msgid ""
 "A solar sensor is mapped but reported almost no production over this "
 "period, so the Solar figures are hidden. It may not be wired up "
@@ -218,6 +297,40 @@ msgstr ""
 "Er is een zonnesensor toegewezen, maar die gaf over deze periode vrijwel "
 "geen opwekking door, dus de zonne-cijfers zijn verborgen. Mogelijk is hij"
 " niet goed aangesloten."
+
+msgid ""
+"A timestamp could not be read. It must be written as DD-MM-YYYY HH:MM:SS,"
+" on a 24-hour clock."
+msgstr ""
+"Een tijdstip kon niet gelezen worden. Het moet geschreven zijn als DD-MM-"
+"JJJJ UU:MM:SS, met een 24-uursklok."
+
+msgid ""
+"A timestamp names a local time that does not exist — the hour skipped "
+"when the clocks go forward in March. Check the timezone you chose."
+msgstr ""
+"Een tijdstip noemt een lokale tijd die niet bestaat — het uur dat wordt "
+"overgeslagen als de klok in maart vooruit gaat. Controleer de tijdzone "
+"die u gekozen hebt."
+
+msgid ""
+"A value contains both a dot and a comma, so it is unclear which is the "
+"decimal separator. Use one or the other, and no thousands separator."
+msgstr ""
+"Een waarde bevat zowel een punt als een komma, waardoor onduidelijk is "
+"welk teken het decimaalteken is. Gebruik het een of het ander, en geen "
+"duizendtalscheiding."
+
+msgid "A value is infinite or not a number."
+msgstr "Een waarde is oneindig of geen getal."
+
+msgid ""
+"A value is not a number. A value may use either a dot or a comma as the "
+"decimal separator, but not both, and an empty cell means a gap."
+msgstr ""
+"Een waarde is geen getal. Een waarde mag een punt of een komma als "
+"decimaalteken gebruiken, maar niet allebei, en een lege cel betekent een "
+"gat."
 
 msgid "AC-coupled"
 msgstr "AC-gekoppeld"
@@ -246,6 +359,9 @@ msgstr "Geavanceerd"
 
 msgid "Allow export to grid during D2/D3"
 msgstr "Teruglevering aan net toestaan tijdens D2/D3"
+
+msgid "Amsterdam local time"
+msgstr "Amsterdamse lokale tijd"
 
 msgid ""
 "An analysis is one household and one question: your data, your contract, "
@@ -354,14 +470,26 @@ msgstr "Kies een bron"
 msgid "Choose a source for at least one slot first."
 msgstr "Kies eerst voor minstens één reeks een bron."
 
+msgid "Choose file…"
+msgstr "Bestand kiezen…"
+
 msgid "Choose source…"
 msgstr "Kies bron…"
 
 msgid "Choose your data sources to get a result."
 msgstr "Kies je gegevensbronnen om een resultaat te krijgen."
 
+msgid "Clock change"
+msgstr "Klokwisseling"
+
 msgid "Close"
 msgstr "Sluiten"
+
+msgid "Column"
+msgstr "Kolom"
+
+msgid "Columns are separated by"
+msgstr "Kolommen zijn gescheiden door"
 
 #, python-format
 msgid ""
@@ -425,6 +553,10 @@ msgstr "Omzettingsverliezen"
 msgid "Cost savings"
 msgstr "Kostenbesparing"
 
+#, python-format
+msgid "Could not list the uploaded files: %(reason)s"
+msgstr "De geüploade bestanden konden niet worden opgehaald: %(reason)s"
+
 msgid "Could not load. Please try again."
 msgstr "Laden mislukt. Probeer het opnieuw."
 
@@ -434,6 +566,10 @@ msgstr "Kon geen WebSocket openen naar %(url)s."
 
 msgid "Could not reach the app's ingest endpoint."
 msgstr "Kon het invoerpunt van de app niet bereiken."
+
+#, python-format
+msgid "Could not remove that file: %(reason)s"
+msgstr "Dat bestand kon niet verwijderd worden: %(reason)s"
 
 msgid "Counter resets"
 msgstr "Tellerresets"
@@ -575,6 +711,17 @@ msgstr ""
 "bewerkscherm. Pas ze daar aan en kom terug: de bedragen worden opnieuw "
 "berekend met de nieuwe tarieven."
 
+msgid ""
+"Every other column holds values. Fractional values are fine, written with"
+" either a dot (0.412) or a comma (0,412) — but a value written with a "
+"comma must be put in double quotes if the comma is also the field "
+"separator you choose below."
+msgstr ""
+"Elke andere kolom bevat waarden. Waarden met decimalen zijn prima, "
+"geschreven met een punt (0.412) of met een komma (0,412) — maar een waarde "
+"met een komma moet tussen dubbele aanhalingstekens staan als de komma ook "
+"het veldscheidingsteken is dat je hieronder kiest."
+
 msgid "Export CSV"
 msgstr "CSV exporteren"
 
@@ -603,6 +750,9 @@ msgstr ""
 #, python-format
 msgid "Fetching %(slot)s (%(n)s/%(total)s)…"
 msgstr "%(slot)s ophalen (%(n)s/%(total)s)…"
+
+msgid "File"
+msgstr "Bestand"
 
 msgid "Fixed"
 msgstr "Vast"
@@ -870,6 +1020,17 @@ msgstr "Zonder batterij"
 msgid "No data loaded yet."
 msgstr "Nog geen gegevens geladen."
 
+msgid "No file was chosen."
+msgstr "Er is geen bestand gekozen."
+
+msgid "No files uploaded yet — use the Upload… button above to add one."
+msgstr ""
+"Nog geen bestanden geüpload — gebruik de knop Uploaden… hierboven om er "
+"een toe te voegen."
+
+msgid "No files uploaded yet."
+msgstr "Nog geen bestanden geüpload."
+
 msgid "Not built yet"
 msgstr "Nog niet gebouwd"
 
@@ -1033,6 +1194,12 @@ msgstr ""
 msgid "Recorded at"
 msgstr "Vastgelegd op"
 
+#, python-format
+msgid "Remove %(name)s? Any series that uses it will go back to “Choose source…”."
+msgstr ""
+"Wilt u %(name)s verwijderen? Elke reeks die het gebruikt gaat terug naar "
+"“Kies bron…”."
+
 msgid "Req"
 msgstr "Vereist"
 
@@ -1100,6 +1267,9 @@ msgstr "Afrekening"
 
 msgid "Shared across all slots that use Home Assistant"
 msgstr "Gedeeld door alle plaatsen die Home Assistant gebruiken"
+
+msgid "Shared across all slots that use an uploaded CSV"
+msgstr "Gedeeld door alle reeksen die een geüpload CSV-bestand gebruiken"
 
 msgid "Simulate cost savings?"
 msgstr "Kostenbesparing simuleren?"
@@ -1208,6 +1378,21 @@ msgstr "Terugleverkosten"
 msgid "Test connection"
 msgstr "Verbinding testen"
 
+msgid "That column is not in the file."
+msgstr "Die kolom staat niet in het bestand."
+
+msgid "That field separator is not one this app knows."
+msgstr "Dat veldscheidingsteken kent deze app niet."
+
+msgid "That file could not be uploaded."
+msgstr "Dat bestand kon niet geüpload worden."
+
+msgid "That file is too large to upload."
+msgstr "Dat bestand is te groot om te uploaden."
+
+msgid "That file reference is not valid."
+msgstr "Die bestandsverwijzing is niet geldig."
+
 msgid ""
 "That matters here in one specific way. This simulator is a retrospective "
 "calculator: it estimates what a battery would have done over a past "
@@ -1222,6 +1407,12 @@ msgstr ""
 "Hij voorspelt niet wat een batterij je gaat besparen, en hij is geen "
 "financieel advies. Toets de aannames aan je eigen contract voordat je "
 "geld uitgeeft op grond van een getal dat hier op het scherm staat."
+
+msgid "That timezone is not one this app knows."
+msgstr "Die tijdzone kent deze app niet."
+
+msgid "That unit is not one this app knows."
+msgstr "Die eenheid kent deze app niet."
 
 #, python-format
 msgid ""
@@ -1321,6 +1512,46 @@ msgstr ""
 "niet veranderen door een batterij en sowieso tegen elkaar wegvallen in de"
 " vergelijking. Dit zijn dus geen twee factuurtotalen; het zijn de twee "
 "helften van je rekening waar een batterij iets aan kan doen."
+
+msgid ""
+"The file could not be read as CSV. Check that it is really comma-"
+"separated text and not a spreadsheet or an archive."
+msgstr ""
+"Het bestand kon niet als CSV gelezen worden. Controleer of het echt door "
+"komma’s gescheiden tekst is en geen spreadsheet of archief."
+
+msgid "The file has a header but no data rows."
+msgstr "Het bestand heeft een kopregel maar geen gegevensregels."
+
+msgid "The file has no header row naming the columns."
+msgstr "Het bestand heeft geen kopregel met de namen van de kolommen."
+
+msgid ""
+"The file is not valid UTF-8 text. Save or export it as UTF-8 and try "
+"again."
+msgstr ""
+"Het bestand is geen geldige UTF-8-tekst. Sla het op of exporteer het als "
+"UTF-8 en probeer het opnieuw."
+
+msgid "The file must be laid out like this:"
+msgstr "Het bestand moet er zo uitzien:"
+
+msgid "The file needs at least two columns: a timestamp and one value column."
+msgstr ""
+"Het bestand heeft minstens twee kolommen nodig: een tijdstip en één "
+"waardekolom."
+
+msgid ""
+"The first column holds the timestamp, written as DD-MM-YYYY HH:MM:SS, "
+"with hours on a 24-hour clock (so 6 in the evening is 18:00:00, not "
+"06:00:00 PM)."
+msgstr ""
+"De eerste kolom bevat het tijdstip, geschreven als DD-MM-JJJJ UU:MM:SS, "
+"met de uren op een 24-uursklok (dus 6 uur ’s avonds is 18:00:00, niet "
+"06:00:00 PM)."
+
+msgid "The first row holds the column names."
+msgstr "De eerste regel bevat de namen van de kolommen."
 
 msgid ""
 "The initial state of charge is outside the operating window and will be "
@@ -1501,6 +1732,19 @@ msgstr ""
 msgid "This cannot be undone."
 msgstr "Dit kan niet ongedaan worden gemaakt."
 
+msgid ""
+"This column never decreases, so it may be a meter reading (a running "
+"total) rather than the amount used in each interval. If it is, the "
+"results will be wrong. You can continue anyway — a column that only rises"
+" across the whole file, such as solar in a morning-only export, is "
+"flagged here too."
+msgstr ""
+"Deze kolom loopt nooit terug en kan dus een meterstand zijn (een oplopend"
+" totaal) in plaats van de hoeveelheid per interval. Als dat zo is, worden"
+" de uitkomsten onjuist. Je kunt toch doorgaan — een kolom die over het "
+"hele bestand alleen stijgt, zoals zon in een export van alleen de "
+"ochtend, wordt hier ook gemeld."
+
 msgid "This control"
 msgstr "Dit onderdeel"
 
@@ -1561,6 +1805,9 @@ msgstr ""
 " gebrekkig te zijn, dan draag je zelf de kosten van elk onderhoud, "
 "herstel of correctie."
 
+msgid "Timestamps are"
+msgstr "Tijdstippen zijn in"
+
 msgid "Title"
 msgstr "Titel"
 
@@ -1593,11 +1840,38 @@ msgstr "Twee omzettingen PV→batterij"
 msgid "Type"
 msgstr "Type"
 
+msgid "UTC"
+msgstr "UTC"
+
+msgid "Unit"
+msgstr "Eenheid"
+
 msgid "Update your data →"
 msgstr "Je gegevens bijwerken →"
 
 msgid "Upload CSV"
 msgstr "CSV uploaden"
+
+#, python-format
+msgid "Upload CSV · %(file)s · %(column)s"
+msgstr "CSV uploaden · %(file)s · %(column)s"
+
+msgid ""
+"Upload your own data as a CSV file. One file can supply several series — "
+"you choose which column feeds which series afterwards."
+msgstr ""
+"Upload uw eigen gegevens als CSV-bestand. Eén bestand kan meerdere "
+"reeksen leveren — u kiest daarna welke kolom welke reeks voedt."
+
+msgid "Uploaded files"
+msgstr "Geüploade bestanden"
+
+#, python-format
+msgid "Uploading %(name)s…"
+msgstr "Bezig met uploaden van %(name)s…"
+
+msgid "Upload…"
+msgstr "Uploaden…"
 
 msgid "Usable capacity"
 msgstr "Bruikbare capaciteit"
@@ -1616,11 +1890,21 @@ msgstr ""
 msgid "VAT"
 msgstr "Btw"
 
+msgid ""
+"Values are amounts per interval, not meter readings. A column whose "
+"values only ever increase is refused."
+msgstr ""
+"Waarden zijn hoeveelheden per interval, geen meterstanden. Een kolom "
+"waarvan de waarden alleen maar stijgen wordt geweigerd."
+
 msgid "Variable"
 msgstr "Variabel"
 
 msgid "Want to know what this is worth in euros?"
 msgstr "Wil je weten wat dit in euro's waard is?"
+
+msgid "Wh"
+msgstr "Wh"
 
 msgid "What \"no warranty\" means"
 msgstr "Wat “geen garantie” betekent"
@@ -1970,6 +2254,15 @@ msgstr ""
 msgid "Your supplier bills"
 msgstr "Je leverancier rekent af op basis van"
 
+msgid "a comma (,)"
+msgstr "een komma (,)"
+
+msgid "a semicolon (;)"
+msgstr "een puntkomma (;)"
+
+msgid "a tab"
+msgstr "een tab"
+
 msgid "as your meter recorded them"
 msgstr "zoals je meter ze heeft geregistreerd"
 
@@ -2057,6 +2350,9 @@ msgstr "afname T1 %(t1)s · T2 %(t2)s"
 msgid "irregular"
 msgstr "onregelmatig"
 
+msgid "irregular spacing"
+msgstr "onregelmatige afstand"
+
 msgid ""
 "is part of the plan for this simulator, but it is not built yet. The app "
 "is being written one feature at a time and this one has not been reached."
@@ -2137,6 +2433,9 @@ msgstr "per kWh doorzet; 0 schakelt het uit"
 msgid "recalculating…"
 msgstr "opnieuw berekenen…"
 
+msgid "remove"
+msgstr "verwijderen"
+
 msgid "required"
 msgstr "vereist"
 
@@ -2174,6 +2473,10 @@ msgstr "tot"
 msgid "undefined"
 msgstr "niet gedefinieerd"
 
+#, python-format
+msgid "uploaded %(date)s · %(rows)s rows · %(resolution)s"
+msgstr "geüpload %(date)s · %(rows)s regels · %(resolution)s"
+
 msgid "valid"
 msgstr "geldig"
 
@@ -2182,6 +2485,9 @@ msgstr "α"
 
 msgid "β"
 msgstr "β"
+
+msgid "— choose a column —"
+msgstr "— kies een kolom —"
 
 msgid "— none —"
 msgstr "— geen —"
@@ -2233,6 +2539,20 @@ msgstr "✓ Verbonden · %(energy)s energie- + %(price)s meetstatistieken"
 #, python-format
 msgid "✓ Imported %(count)s series. Reloading…"
 msgstr "✓ %(count)s reeksen geïmporteerd. Opnieuw laden…"
+
+#, python-format
+msgid "✓ Removed %(name)s"
+msgstr "✓ %(name)s verwijderd"
+
+#, python-format
+msgid "✓ Removed %(name)s. These series went back to “Choose source…”: %(slots)s"
+msgstr ""
+"✓ %(name)s verwijderd. Deze reeksen gingen terug naar “Kies bron…”: "
+"%(slots)s"
+
+#, python-format
+msgid "✓ Uploaded %(name)s"
+msgstr "✓ %(name)s geüpload"
 
 #, python-format
 msgid "✗ %(reason)s"
@@ -2822,4 +3142,50 @@ msgstr "👍 Ik wil dit"
 #~ "zonsondergang op je adres te bepalen."
 #~ " Er wordt niets verstuurd — de "
 #~ "berekening gebeurt lokaal."
+
+#~ msgid ""
+#~ "Remove %(name)s? Any series that uses"
+#~ " it will go back to \"Choose "
+#~ "source…\"."
+#~ msgstr ""
+#~ "Wilt u %(name)s verwijderen? Elke reeks"
+#~ " die het gebruikt gaat terug naar "
+#~ "\"Kies bron…\"."
+
+#~ msgid ""
+#~ "✓ Removed %(name)s. These series went"
+#~ " back to \"Choose source…\": %(slots)s"
+#~ msgstr ""
+#~ "✓ %(name)s verwijderd. Deze reeksen "
+#~ "gingen terug naar \"Kies bron…\": "
+#~ "%(slots)s"
+
+#~ msgid ""
+#~ "That column looks like a cumulative "
+#~ "meter reading rather than an amount "
+#~ "per interval, so it was refused. "
+#~ "This app reads every value as the"
+#~ " amount during the interval that "
+#~ "starts at its timestamp."
+#~ msgstr ""
+#~ "Die kolom ziet eruit als een "
+#~ "cumulatieve meterstand in plaats van een"
+#~ " hoeveelheid per interval, en is "
+#~ "daarom geweigerd. Deze app leest elke"
+#~ " waarde als de hoeveelheid gedurende "
+#~ "het interval dat op dat tijdstip "
+#~ "begint."
+
+#~ msgid ""
+#~ "A value is not a number. Values"
+#~ " use a dot as the decimal "
+#~ "separator, and an empty cell means "
+#~ "a gap."
+#~ msgstr ""
+#~ "Een waarde is geen getal. Waarden "
+#~ "gebruiken een punt als decimaalteken, en"
+#~ " een lege cel betekent een gat."
+
+#~ msgid "Every other column holds values. Fractional values are fine."
+#~ msgstr "Elke andere kolom bevat waarden. Waarden met decimalen zijn prima."
 

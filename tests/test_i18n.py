@@ -210,7 +210,14 @@ def test_drawer_strings_are_actually_translated_in_dutch():
     en, nl = _drawer_i18n("en"), _drawer_i18n("nl")
     same = [k for k in en if en[k] == nl[k]]
     # A few are legitimately identical across locales (proper nouns, symbols, "Token"-likes).
-    allowed = {"ha_source", "failed_reason", "ha_error"}
+    #
+    # The two `csv_*` entries are pure ASSEMBLY templates: `%(first)s → %(last)s` and
+    # `%(message)s — %(detail)s` are entirely placeholders and punctuation, with no word to
+    # translate. They are still msgids rather than JS string concatenation, because the SEPARATOR
+    # and the ORDER are what a translator may need to change — a locale that wants "van … tot …" or
+    # a different dash can express it here, and nowhere else. Identical today is the expected
+    # outcome for both, not a sign they were missed.
+    allowed = {"ha_source", "failed_reason", "ha_error", "csv_file_span", "csv_error_with_detail"}
     unexpected = sorted(set(same) - allowed)
     assert not unexpected, f"identical in EN and NL — probably not extracted: {unexpected}"
 

@@ -61,6 +61,13 @@ create or destroy. The two deletions are the reason this module exists; `POST /w
 because an unchecked create lets a page fill the user's list with junk analyses, which is noise
 rather than damage but is trivially prevented by the same dependency.
 
+Also covered, added with the CSV-import upload routes (specs §4.2a):
+`POST /w/{id}/data/uploads` and `DELETE /w/{id}/data/uploads/{upload_id}` — the same
+destroy-or-create line applied to a new resource. The DELETE removes a file the user cannot
+recreate without re-uploading it, and will additionally clear any slot binding referencing it;
+the POST creates persistent per-workspace state. `GET /w/{id}/data/uploads` is a read and is not
+covered.
+
 **`POST /w/{id}/params` is deliberately NOT covered, and that asymmetry is a decision.** It is an
 idempotent overwrite of one workspace's parameter set with values the forging page chose blind and
 cannot read back — which is precisely the threat followups B6 weighed and accepted, and nothing

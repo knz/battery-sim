@@ -46,7 +46,6 @@ _ISSUE_TEMPLATE = "feature.yml"
 FEATURE_KEYS: frozenset[str] = frozenset(
     {
         "export_csv",            # Export CSV button (panel ③ results)
-        "data_source_csv",       # Upload CSV source radio (panel ①)
         "chart_soc_price",       # SoC + price chart tab (panel ③ charts)
         "chart_energy_flows",    # Energy flows chart tab (panel ③ charts)
         # The Pricing box's three unbuilt options (§2.3, §6.5). `Contract` and `TlkMode` carry
@@ -69,6 +68,11 @@ RETIRED_KEYS: frozenset[str] = frozenset(
         # Shipped in the cost-simulation increment: the setup band's "Simulate cost savings?"
         # radios now POST to /params, and panel ② draws the whole Pricing box behind the answer.
         "simulate_cost",
+        # Shipped in the CSV-import increment: "Upload CSV" is a real source radio in the
+        # per-slot source drawer, with an upload dialog and File/Column/Unit controls behind it
+        # (app/static/ha_fetch.js, app/templates/workspace_data.html). The disabled stub that
+        # used to render this key is gone.
+        "data_source_csv",
     }
 )
 
@@ -81,7 +85,6 @@ RETIRED_KEYS: frozenset[str] = frozenset(
 # language. The dialog around the link is translated; this string is not.
 FEATURE_TITLES: dict[str, str] = {
     "export_csv": "Export CSV",
-    "data_source_csv": "Upload CSV",
     "chart_soc_price": "SoC + price chart",
     "chart_energy_flows": "Energy flows chart",
     "pricing_contract_fixed": "Fixed price contract",
@@ -90,6 +93,7 @@ FEATURE_TITLES: dict[str, str] = {
     # Retired, kept readable for issues already filed (see the ongoing-work rule above).
     "discharge_allow_export": "Allow export to grid",
     "simulate_cost": "Simulate cost savings",
+    "data_source_csv": "Upload CSV",
 }
 
 

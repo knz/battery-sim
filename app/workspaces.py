@@ -67,9 +67,15 @@ Two different operations, per §2′.3:
     workspace row. The workspace survives with its CONFIGURATION intact — but note that a FETCHED
     slot's source mapping does not survive, because it lives in `series_meta`, which is part of
     what is being deleted. See `delete_data` and §2′.3.
-  * `delete` removes the workspace row, every row keyed by its id, and the whole workspace
-    directory. Every table it leaves behind is keyed by some other workspace's id; there is no
-    longer an installation-wide table to make an exception for (see `app/db.py`).
+  * `delete` removes the workspace row, every row keyed by its id — including the `uploads` rows
+    (app/uploads.py), whose FILES go with the workspace directory rather than separately — and the
+    whole workspace directory. Every table it leaves behind is keyed by some other workspace's id;
+    there is no longer an installation-wide table to make an exception for (see `app/db.py`).
+
+An upload is deleted by `delete` and NOT by `delete_data`, which is a judgement rather than an
+oversight: §2′.3's "clear the data" keeps the configuration, and an uploaded CSV is an input the
+user supplied once that many runs draw on — closer to configuration than to the measurements of a
+run. The reasoning is in `uploads.delete_all_rows`.
 
 The ROW deletes within EACH FUNCTION's own `with` block are atomic: a block is a transaction
 (`db._Connection`), so `delete_data` cannot leave `series_meta` rows whose `datasets` parent is
@@ -96,8 +102,8 @@ Main items:
                               updated first.
     rename(id, title)         set the title (does NOT touch updated_at — a rename is not a save).
     touch(id)                 bump `updated_at` to now; called on config save only.
-    delete(id)                remove the workspace, its rows and its directory.
-    delete_data(id)      remove its dataset rows and series files, keeping the config.
+    delete(id)                remove the workspace, its rows (uploads included) and its directory.
+    delete_data(id)      remove its dataset rows and series files, keeping the config and uploads.
     migrate_local()      idempotent startup migration of the pre-index single workspace.
 """
 
@@ -109,7 +115,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from app import config, dataset, db, simconfig_store
+from app import config, dataset, db, simconfig_store, uploads
 
 OWNER_ID = "local"
 """`owner_id` exists on `workspaces` from day one, populated with "local" (§5.5 invariant 7).
@@ -492,6 +498,12 @@ def delete(workspace_id: str) -> None:
         conn.execute("DELETE FROM workspace_state WHERE workspace_id = ?", (workspace_id,))
         conn.execute("DELETE FROM workspaces WHERE id = ?", (workspace_id,))
     delete_data(workspace_id)
+    # The `uploads` rows (app/uploads.py, specs §4.2a). Rows only: their files live under the
+    # workspace directory the `rmtree` below removes wholesale, so deleting them here would be a
+    # second traversal of the same tree for no gain. This is the step that keeps §5.5 invariant 1
+    # honest on delete — every table keyed by this workspace's id must go with it, and `uploads`
+    # is one. `delete_data` deliberately does NOT do this; see `uploads.delete_all_rows`.
+    uploads.delete_all_rows(workspace_id)
     shutil.rmtree(_workspace_dir(workspace_id), ignore_errors=True)
 
 

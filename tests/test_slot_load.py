@@ -10,6 +10,10 @@ Three layers:
     historical in-range window so no bridge fires and no network is hit.
   * Endpoint error paths: unknown slot (404), unknown source (404), and requesting a browser_fetch
     source ("home_assistant") here (400 with a clear message).
+  * The endpoint's CSV path (step 5 of the CSV-import brief): a `binding` in the body is threaded to
+    `CsvSource.load_with_warnings`, an `upload_id` this workspace does not have is a 400 that
+    persists nothing, and `CsvBindingError` is a 400 rather than the 502 the bare `except Exception`
+    used to give it. The WS reify path's own coverage is `tests/test_csv_binding_reify.py`.
 
 Every test runs against an isolated data dir (BATTERY_SIM_DATA_DIR) so the SQLite DB and the .npz
 series files never touch the working tree. No test hits the network.
@@ -468,3 +472,274 @@ def test_load_endpoint_bad_window_400(client):
     )
     assert resp.status_code == 400
     assert "after start" in resp.json()["detail"]
+
+
+# --- 6. the endpoint's CSV path: the binding, and its error statuses ---------------------------
+#
+# The drawer does not use this route — a fetch reifies staged slots over the ingest WS instead — but
+# it is a real, reachable route with the same exposure, so it gets the binding and the same
+# server-side validation rather than relying on being unused. `tests/test_csv_binding_reify.py`
+# covers the WS path; what is specific here is the HTTP STATUS each failure answers.
+
+_CSV_WINDOW = {"start": "2025-01-01T00:00:00+00:00", "end": "2025-01-01T04:00:00+00:00"}
+
+
+@pytest.fixture()
+def csv_client(tmp_path, monkeypatch):
+    """`client`, plus `app.uploads` reloaded against the same isolated data dir.
+
+    A separate fixture rather than an extra return value on `client`, so that the twelve tests above
+    are untouched by this step — reloading one more module changes nothing for them, but adding a
+    fourth element to their tuple unpacking would.
+    """
+    monkeypatch.setenv("BATTERY_SIM_DATA_DIR", str(tmp_path))
+    import app.config as config
+    importlib.reload(config)
+    import app.db as db
+    importlib.reload(db)
+    import app.dataset as dataset
+    importlib.reload(dataset)
+    import app.uploads as uploads
+    importlib.reload(uploads)
+    import app.workspaces as workspaces
+    importlib.reload(workspaces)
+    import app.deps as deps
+    importlib.reload(deps)
+    import app.main as main
+    importlib.reload(main)
+    seed_workspace()
+    from fastapi.testclient import TestClient
+    return TestClient(main.app), main, dataset, uploads
+
+
+def _store_csv(uploads, *, workspace_id: str = "local", n: int = 6) -> str:
+    """Store a small hourly wide CSV for `workspace_id`; return its upload id.
+
+    Values alternate so the column is not non-decreasing — a monotone column is a cumulative meter
+    register and `csv_wide` rejects it (D-KIND), which would make every test here fail for the wrong
+    reason.
+    """
+    from app.domain import csv_wide
+
+    lines = ["Tijdstip,Verbruik"]
+    for i in range(n):
+        lines.append(f"01-01-2025 {i:02d}:00:00,{0.5 if i % 2 else 0.1:.1f}")
+    text = "\n".join(lines) + "\n"
+    wide, summary = csv_wide.parse_and_summarise(text, "UTC")
+    return uploads.create(
+        workspace_id,
+        filename="export.csv",
+        tz="UTC",
+        content=text,
+        columns=[wide.timestamp_name, *wide.columns],
+        rows=summary.rows,
+        resolution_s=summary.resolution_s,
+        first_ts=summary.first_ts,
+        last_ts=summary.last_ts,
+    ).id
+
+
+def test_load_endpoint_loads_a_bound_csv_column(csv_client):
+    """The body's `binding` is threaded through to the source and the series is merged."""
+    tc, _main, dataset, uploads = csv_client
+    upload_id = _store_csv(uploads)
+
+    resp = tc.post(
+        w("/data/slot/grid_import_t1/load"),
+        json={
+            "source": "csv_upload",
+            "window": _CSV_WINDOW,
+            "binding": {"upload_id": upload_id, "column": "Verbruik", "unit": "kWh"},
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["series"] == "grid_import_t1"
+    assert body["resolution_s"] == 3600
+    assert body["intervals"] == 4  # the 4-hour window, not the 6-row file
+    # `load_with_warnings` is what this route calls now, so the reply carries the §7.3 list (empty
+    # for a clean file). A route still calling `load` would have no such key at all.
+    assert body["warnings"] == []
+
+    loaded = dataset.load_latest(dataset.db.WORKSPACE_ID)
+    assert loaded.series_sources["grid_import_t1"] == "csv_upload"
+
+
+def test_load_endpoint_reports_csv_warnings(csv_client):
+    """A gap cell raises CSV_GAP_CELLS, and the route reports it rather than dropping it (§7.3)."""
+    tc, _main, dataset, uploads = csv_client
+    from app.domain import csv_wide
+
+    text = "Tijdstip,Verbruik\n" + "".join(
+        f"01-01-2025 {i:02d}:00:00,{'' if i == 1 else (0.5 if i % 2 else 0.1)}\n"
+        for i in range(6)
+    )
+    wide, summary = csv_wide.parse_and_summarise(text, "UTC")
+    upload_id = uploads.create(
+        "local", filename="gappy.csv", tz="UTC", content=text,
+        columns=[wide.timestamp_name, *wide.columns], rows=summary.rows,
+        resolution_s=summary.resolution_s, first_ts=summary.first_ts, last_ts=summary.last_ts,
+    ).id
+
+    resp = tc.post(
+        w("/data/slot/grid_import_t1/load"),
+        json={"source": "csv_upload", "window": _CSV_WINDOW,
+              "binding": {"upload_id": upload_id, "column": "Verbruik"}},
+    )
+    assert resp.status_code == 200, resp.text
+    assert [warn["code"] for warn in resp.json()["warnings"]] == ["CSV_GAP_CELLS"]
+
+
+def test_load_endpoint_missing_binding_is_400_not_502(csv_client):
+    """`CsvBindingError` → 400. It was a 502 via the bare `except Exception` (step 5 fixed it).
+
+    502 means "the upstream service failed" and there is no upstream here; the condition is "you have
+    not chosen a file and column yet", which is the client's input. The status is the assertion — a
+    mutation that removed the `except CsvBindingError` branch answers 502 and fails here.
+    """
+    tc, _main, dataset, _uploads = csv_client
+
+    resp = tc.post(
+        w("/data/slot/grid_import_t1/load"),
+        json={"source": "csv_upload", "window": _CSV_WINDOW},
+    )
+    assert resp.status_code == 400, resp.text
+    assert "no CSV binding" in resp.json()["detail"]
+    # Nothing was merged: the load runs strictly before `upsert_series`.
+    assert dataset.load_latest(dataset.db.WORKSPACE_ID) is None
+
+
+def test_load_endpoint_foreign_upload_id_is_400_and_persists_nothing(csv_client):
+    """The security case on this route: a real upload id belonging to ANOTHER workspace.
+
+    Under decision D-BIND the binding lives in browser localStorage, so `upload_id` is client-supplied
+    on every call. `uploads.get` is workspace-scoped, which is what makes the foreign id resolve to
+    None exactly as a nonexistent one does. The upload below genuinely exists — only the workspace
+    asking for it is wrong — so the rejection cannot be "no such file" by accident.
+    """
+    tc, _main, dataset, uploads = csv_client
+    seed_workspace("other")
+    foreign_id = _store_csv(uploads, workspace_id="other")
+    assert uploads.get("other", foreign_id) is not None
+    assert uploads.get("local", foreign_id) is None
+
+    resp = tc.post(
+        w("/data/slot/grid_import_t1/load"),
+        json={"source": "csv_upload", "window": _CSV_WINDOW,
+              "binding": {"upload_id": foreign_id, "column": "Verbruik"}},
+    )
+    assert resp.status_code == 400, resp.text
+    assert "no longer has" in resp.json()["detail"]
+    # Nothing persisted for the asking workspace, and the other workspace's upload is untouched.
+    assert dataset.load_latest(dataset.db.WORKSPACE_ID) is None
+    assert uploads.get("other", foreign_id) is not None
+
+
+def test_load_endpoint_absent_upload_id_is_400(csv_client):
+    """A well-formed id no workspace has: the same 400, for the same reason."""
+    tc, _main, dataset, _uploads = csv_client
+
+    resp = tc.post(
+        w("/data/slot/grid_import_t1/load"),
+        json={"source": "csv_upload", "window": _CSV_WINDOW,
+              "binding": {"upload_id": "f" * 32, "column": "Verbruik"}},
+    )
+    assert resp.status_code == 400, resp.text
+    assert dataset.load_latest(dataset.db.WORKSPACE_ID) is None
+
+
+def test_load_endpoint_malformed_upload_id_is_400(csv_client):
+    """A traversal-shaped id is refused by `uploads._check_upload_id` before it becomes a path.
+
+    That guard raises a plain `ValueError`, which is NOT a `CsvBindingError`, so this used to take
+    the generic branch and answer 502 — "bad gateway" for the most obviously client-supplied bad
+    input on the route. `CsvSource.load_with_warnings` now translates it at the point the binding is
+    interpreted, so it lands in the 400 branch with every other unusable binding. The guard itself is
+    unchanged and still rejects everything but 32 lowercase hex.
+
+    Asserted as one status, not `in (400, 502)`: a two-value disjunction passes under either
+    behaviour and so pins neither.
+    """
+    tc, _main, dataset, _uploads = csv_client
+
+    resp = tc.post(
+        w("/data/slot/grid_import_t1/load"),
+        json={"source": "csv_upload", "window": _CSV_WINDOW,
+              "binding": {"upload_id": "../../etc/passwd", "column": "Verbruik"}},
+    )
+    assert resp.status_code == 400, resp.text
+    # The rejected id is not echoed back (the reason is at `delete_upload`), so the message is
+    # checked for its subject rather than for the segment submitted.
+    assert "not a valid" in resp.json()["detail"]
+    assert "etc/passwd" not in resp.json()["detail"]
+    assert dataset.load_latest(dataset.db.WORKSPACE_ID) is None
+
+
+def test_load_endpoint_non_dict_binding_is_400(csv_client):
+    """`"binding": "a string"` is malformed client input, not a failed upstream call.
+
+    `load_slot` reads an unvalidated body, so `_csv_binding` gets whatever JSON the caller sent. It
+    used to call `.get` on it unguarded and the resulting `AttributeError` surfaced as a 502 quoting
+    `'str' object has no attribute 'get'`. Same class as the malformed `upload_id` above, same 400.
+    """
+    tc, _main, dataset, _uploads = csv_client
+
+    resp = tc.post(
+        w("/data/slot/grid_import_t1/load"),
+        json={"source": "csv_upload", "window": _CSV_WINDOW, "binding": "a string"},
+    )
+    assert resp.status_code == 400, resp.text
+    assert "object" in resp.json()["detail"]
+    assert dataset.load_latest(dataset.db.WORKSPACE_ID) is None
+
+
+def test_load_endpoint_unknown_column_is_502_and_persists_nothing(csv_client):
+    """A column the file does not have is a load failure, and nothing is merged.
+
+    502 rather than 400 because it arrives as a `CsvFormatError` through the generic branch, matching
+    the route's existing "load failure" convention. What matters for correctness here is the second
+    assertion: a failed load must not have written a dataset.
+    """
+    tc, _main, dataset, uploads = csv_client
+    upload_id = _store_csv(uploads)
+
+    resp = tc.post(
+        w("/data/slot/grid_import_t1/load"),
+        json={"source": "csv_upload", "window": _CSV_WINDOW,
+              "binding": {"upload_id": upload_id, "column": "Nope"}},
+    )
+    assert resp.status_code == 502, resp.text
+    assert dataset.load_latest(dataset.db.WORKSPACE_ID) is None
+
+
+def test_load_endpoint_csv_rejected_for_price_slot(csv_client):
+    """D-PRICE: `available_for` excludes price_spot, so the source guard 400s before any binding."""
+    tc, _main, _dataset, uploads = csv_client
+    upload_id = _store_csv(uploads)
+
+    resp = tc.post(
+        w("/data/slot/price_spot/load"),
+        json={"source": "csv_upload", "window": _CSV_WINDOW,
+              "binding": {"upload_id": upload_id, "column": "Verbruik"}},
+    )
+    assert resp.status_code == 400
+    assert "not available" in resp.json()["detail"]
+
+
+def test_load_endpoint_energy_charts_still_takes_no_binding_extras(csv_client):
+    """The non-CSV path must not be handed `workspace_id=`/`binding=` (it raises TypeError).
+
+    `EnergyChartsSource.load`'s keyword-only extras are `opener`/`now`, so a blanket "thread the
+    extras to every backend source" breaks the price path. A `binding` in the body is IGNORED for a
+    source that does not take one, rather than passed through — asserted by sending one.
+    """
+    tc, _main, dataset, _uploads = csv_client
+
+    resp = tc.post(
+        w("/data/slot/price_spot/load"),
+        json={"source": "energy_charts", "window": _HIST_WINDOW,
+              "binding": {"upload_id": "f" * 32, "column": "irrelevant"}},
+    )
+    assert resp.status_code == 200, resp.text
+    loaded = dataset.load_latest(dataset.db.WORKSPACE_ID)
+    assert loaded.series_sources["price_spot"] == "energy_charts"
