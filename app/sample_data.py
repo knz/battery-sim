@@ -278,6 +278,11 @@ def _panel_data():
             # Same msgid as data_view's uncounted reset line (its English carries no noun to
             # pluralise, so a translator whose language needs one rephrases the whole clause).
             "resets": _msg("%(n)s detected and corrected", n=num(2, "count")),
+            # The October clock-change note (§4.2a). Only a wide CSV can carry that ambiguity —
+            # this sample demos a Home Assistant dataset, whose timestamps carry an offset — so it
+            # shows the clean branch rather than a fabricated day. Same msgid as the gaps and
+            # resets lines use for their clean branch, so the three share one catalog entry.
+            "dst": _msg("none detected"),
             # A literal "%" is inert everywhere now — app/i18n.interpolate doubles every percent
             # sign that does not begin a "%(name)s" placeholder, and _() no longer %-formats at
             # all (i18n.install_for, newstyle=False). The fullwidth "％" this string used to carry

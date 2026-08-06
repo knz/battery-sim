@@ -73,8 +73,9 @@ def client(tmp_path, monkeypatch):
 def _wide_csv(n: int = 8, *, gap_at: int | None = None) -> str:
     """`n` hourly rows from 01-01-2025 00:00 with two value columns.
 
-    Values rise and then fall so neither column reads as a cumulative register (D-KIND rejects a
-    non-decreasing column). `gap_at` blanks one cell of `Verbruik` to raise `CSV_GAP_CELLS`.
+    Values rise and then fall so neither column reads as a cumulative register (a non-decreasing
+    column warns; the warning would be noise in every test here). `gap_at` blanks one cell of
+    `Verbruik` to raise `CSV_GAP_CELLS`.
     """
     lines = ["Tijdstip,Verbruik,Teruglevering"]
     for i in range(n):
@@ -462,8 +463,13 @@ def test_a_bad_unit_fails_the_fetch_and_persists_nothing(client):
     assert dataset.load_latest(dataset.db.WORKSPACE_ID) is None
 
 
-def test_a_cumulative_column_fails_the_fetch(client):
-    """D-KIND: a non-decreasing column is a meter register and is rejected, not differenced."""
+def test_a_cumulative_column_warns_and_the_fetch_still_succeeds(client):
+    """D-KIND: a non-decreasing column reads as a meter register — warned about, not rejected.
+
+    The behaviour this pins is the whole point of the change: the fetch must SUCCEED and must
+    persist a dataset. Asserting only the warning would pass against an implementation that warned
+    and then failed the load anyway, which is what this used to do.
+    """
     tc, main, dataset, uploads = client
     lines = ["Tijdstip,Register"]
     for i in range(24):
@@ -473,8 +479,21 @@ def test_a_cumulative_column_fails_the_fetch(client):
     with tc.websocket_connect(w("/data/ingest/ws")) as ws:
         result = _send_csv_fetch(ws, upload_id=upload.id, column="Register")
 
-    assert result["type"] == "error", result
-    assert dataset.load_latest(dataset.db.WORKSPACE_ID) is None
+    assert result["type"] == "result", result
+    warn = next(
+        w_ for w_ in result["warnings"] if w_.get("code") == "CSV_CUMULATIVE_COLUMN"
+    )
+    assert warn["column"] == "Register"
+    # Stamped with the slot by the same plumbing that stamps CSV_GAP_CELLS, so the quality box can
+    # say which row it is about.
+    assert warn["series"] == "grid_import_t1"
+
+    # A dataset exists, and it holds the column as read — undifferenced (D-KIND).
+    loaded = dataset.load_latest(dataset.db.WORKSPACE_ID)
+    assert loaded is not None
+    frame = next(f for f in loaded.frames if f.name == "grid_import_t1")
+    assert frame.values[0] == pytest.approx(1000.0)
+    assert any(w_.get("code") == "CSV_CUMULATIVE_COLUMN" for w_ in loaded.warnings)
 
 
 def test_csv_is_rejected_for_a_price_slot(client):

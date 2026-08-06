@@ -438,7 +438,7 @@ def test_panel_quality_strings_are_message_pairs_not_formatted_strings():
     """The regression this whole shape exists for: a string assembled here has a msgid that only
     exists at runtime, so it can never be translated and renders in English on a Dutch page."""
     q = _panel([_energy("grid_import_t1", 2.0), _energy("grid_export_t1", 0.0)])["quality"]
-    for key in ("coverage", "grid", "gaps", "resets", "registers"):
+    for key in ("coverage", "grid", "gaps", "resets", "dst", "registers"):
         assert isinstance(q[key], dict) and "msgid" in q[key], f"{key} is not a message pair"
 
 
@@ -463,6 +463,59 @@ def test_panel_register_marks_distinguish_flat_from_active():
         _energy("grid_export_t1", 0.0),
     ])["quality"]
     assert _render(q["registers"]) == "import T1 mapped, active · T2 mapped, flat"
+
+
+def _dst_flagged(name: str = "grid_import_t1", hours=(2, 3), n: int = HOURS) -> SeriesFrame:
+    """An hourly frame with `DST_AMBIGUOUS` raised on the given interval offsets.
+
+    The bit is what the wide-CSV parser raises on the two rows sharing a wall-clock timestamp at
+    the October fold (`app/domain/csv_wide.py`). Set directly rather than by parsing a CSV: this
+    layer asserts what the view-model does with the bit, and `tests/test_csv_wide.py` /
+    `tests/test_csv_source.py` already pin that the parser raises it on the right samples.
+    """
+    f = _energy(name, 2.0, n=n)
+    for h in hours:
+        f.quality[h] = int(QualityFlags.DST_AMBIGUOUS)
+    return f
+
+
+def test_panel_clock_change_note_names_the_affected_day():
+    """The §16 fixture 22a requirement: the ambiguity is reported "naming the day".
+
+    A count alone would not be actionable — the reader's question is which hour of their data the
+    app had to guess about, and the day is the answer. The wording says the input is ambiguous and
+    states the assumption rather than claiming a repair, matching what the flag records.
+    """
+    q = _panel([_dst_flagged(), _energy("grid_export_t1", 0.0)])["quality"]
+    assert isinstance(q["dst"], dict) and "msgid" in q["dst"]
+    assert _render(q["dst"]) == (
+        "2026-01-01 — the clock went back on this day, so one hour appears twice in your data "
+        "and the run assumes the first (summer-time) one."
+    )
+
+
+def test_panel_clock_change_note_pluralises_on_the_number_of_days():
+    """Two named days read "on these days"; the plural follows the day count the sentence prints,
+    not the flagged-interval count — which varies with the series' resolution."""
+    q = _panel([_dst_flagged(hours=(2, 26), n=48),
+                _energy("grid_export_t1", 0.0, n=48)])["quality"]
+    assert _render(q["dst"]).startswith(
+        "2026-01-01, 2026-01-02 — the clock went back on these days,"
+    )
+
+
+def test_panel_clock_change_note_lists_each_day_once():
+    """The day list is de-duplicated across series and across the intervals within a day: two
+    flagged hours on one day in two series is one date, not four."""
+    q = _panel([_dst_flagged(), _dst_flagged("grid_export_t1")])["quality"]
+    assert q["dst"]["params"]["days"] == "2026-01-01"
+
+
+def test_panel_clock_change_note_is_none_detected_when_nothing_is_flagged():
+    """The row is unconditional, like Gaps: "none detected" is the informative answer, and it tells
+    the reader the app read their file as written rather than assuming anything."""
+    q = _panel([_energy("grid_import_t1", 2.0), _energy("grid_export_t1", 0.0)])["quality"]
+    assert _render(q["dst"]) == "none detected"
 
 
 def test_panel_resolution_label_is_a_nested_message_not_a_baked_word():
@@ -524,7 +577,7 @@ def test_panel_counted_messages_pick_the_singular_at_one():
 
 def test_sample_panel_quality_strings_are_message_pairs():
     q = _panel_data()["quality"]
-    for key in ("coverage", "grid", "gaps", "resets", "price_warning", "load_warning"):
+    for key in ("coverage", "grid", "gaps", "resets", "dst", "price_warning", "load_warning"):
         assert isinstance(q[key], dict) and "msgid" in q[key], f"{key} is not a message pair"
     # `registers` is a plain marked string: it carries no runtime value, so there is nothing to
     # hold out and the whole line is one constant msgid the macro translates directly.
@@ -539,6 +592,9 @@ def test_sample_panel_quality_renders_the_wireframe_english():
     assert _render(q["grid"]) == "hourly  ·  8,760 intervals"
     assert _render(q["gaps"]) == "3 gaps totalling 4.2 h  (0.04%)"
     assert _render(q["resets"]) == "2 detected and corrected"
+    # The clock-change row shows the clean branch: only a wide CSV can carry that ambiguity and
+    # this sample demos a Home Assistant dataset, so a named day here would be fiction.
+    assert _render(q["dst"]) == "none detected"
     assert _render(q["registers"]) == "T1 ✓ mapped    T2 ✓ mapped, active"
 
 
@@ -571,7 +627,7 @@ def test_sample_shares_the_computed_paths_msgids_where_the_wording_matches():
     sample = _panel_data()
     computed = panel_data_from(_dataset([_energy("grid_import_t1", 2.0),
                                          _energy("grid_export_t1", 0.0)]))
-    for key in ("coverage", "grid"):
+    for key in ("coverage", "grid", "dst"):
         assert sample["quality"][key]["msgid"] == computed["quality"][key]["msgid"], key
     assert sample["summary"]["msgid"] == computed["summary"]["msgid"]
     # `resets` cannot be compared against this fixture — it has no corrected resets, so the

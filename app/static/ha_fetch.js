@@ -37,7 +37,9 @@
  *         and an upload survives Cancel, exactly as a tested HA connection does; the BINDING is
  *         per-slot, browser-local (D-BIND) and staged like everything else. Confirm is blocked
  *         until the binding names both a file and a column, which is what stops a bindingless CSV
- *         slot from failing an entire all-or-nothing fetch.
+ *         slot from failing an entire all-or-nothing fetch. A column the server flagged as looking
+ *         like a cumulative meter register gets small print under the picker and nothing more —
+ *         Confirm stays enabled (`updateCsvCumulativeWarning`).
  *
  *     A row may also carry an ⓘ info affordance (SlotSpec.info, specs §4.1). A delegated click on
  *     any .slot-info-btn fills the shared #slot-info-dialog from the button's data-info-title/body
@@ -1037,6 +1039,7 @@
   var drawerCsvFile = document.getElementById("drawer-csv-file");
   var drawerCsvFileSummary = document.getElementById("drawer-csv-file-summary");
   var drawerCsvColumn = document.getElementById("drawer-csv-column");
+  var drawerCsvCumulative = document.getElementById("drawer-csv-cumulative");
   var drawerCsvNoFiles = document.getElementById("drawer-csv-no-files");
   var csvUploadDialog = document.getElementById("csv-upload-dialog");
   var csvUploadChooseBtn = document.getElementById("csv-upload-choose");
@@ -1177,7 +1180,9 @@
     nonexistent_local_time: "csv_err_nonexistent_local_time",
     non_numeric_value: "csv_err_non_numeric_value",
     non_finite_value: "csv_err_non_finite_value",
-    cumulative_column: "csv_err_cumulative_column",
+    // No `cumulative_column` entry: the server no longer rejects a non-decreasing column. It warns
+    // and proceeds (`csv_wide.column_frame`), and the user-facing wording is the small print under
+    // the column picker (`updateCsvCumulativeWarning`), not an error.
     bad_unit: "csv_err_bad_unit",
     unknown_column: "csv_err_unknown_column"
   };
@@ -1187,7 +1192,7 @@
   var CSV_ERROR_DETAILED = {
     row_length_mismatch: true, empty_timestamp: true, bad_timestamp: true,
     nonexistent_local_time: true, non_numeric_value: true, non_finite_value: true,
-    cumulative_column: true, unknown_column: true, missing_header: true,
+    unknown_column: true, missing_header: true,
     too_few_columns: true, unreadable_csv: true
   };
 
@@ -1512,6 +1517,9 @@
     if (drawerCsvFileSummary) drawerCsvFileSummary.textContent = up ? csvFileSummary(up) : "";
     if (!up) {
       draft.column = "";
+      // Cleared on this path too: with no file staged there is no verdict, and a stale line left over
+      // from the previously staged file would attach a warning to a column that is no longer shown.
+      updateCsvCumulativeWarning();
       return;
     }
     var placeholder = document.createElement("option");
@@ -1530,6 +1538,41 @@
     var keep = draft.column && (up.columns || []).slice(1).indexOf(draft.column) !== -1;
     sel.value = keep ? draft.column : "";
     draft.column = sel.value;
+    updateCsvCumulativeWarning();
+  }
+
+  // Small print under the Column select when the staged column looks like a cumulative meter
+  // register rather than per-interval amounts.
+  //
+  // **It warns and nothing else.** `updateConfirmEnabled` never sees this — Confirm stays enabled,
+  // the fetch succeeds, and the server only attaches a `CSV_CUMULATIVE_COLUMN` warning. That is the
+  // decided behaviour, because the detector has a documented false positive: it cannot distinguish a
+  // register from a column that merely rises throughout the file, and a morning-only solar export is
+  // exactly that (see csv_wide.py's note at MONOTONIC_MIN_SAMPLES). Blocking cost a user with valid
+  // data their whole binding and gave them no override; this line costs a false positive one line of
+  // small print. The other side of the trade is real and is stated in the message itself: a user who
+  // proceeds with a genuine register gets a confidently wrong answer, and this is the only signal.
+  //
+  // The verdict comes from the upload row (`_upload_json`'s `cumulative_columns`), NOT from a fresh
+  // parse, which is why it survives a page reload — the drawer's cache is filled from the LIST route.
+  // `null` there means the row predates the column and no verdict was ever computed, and it is
+  // treated as "say nothing" rather than as "nothing flagged": both render the same, but conflating
+  // them in the condition would make a later reader think a null row had been checked.
+  function updateCsvCumulativeWarning() {
+    if (!drawerCsvCumulative) return;
+    var up = csvUploadById(draft.uploadId);
+    var flagged = up && up.cumulative_columns;   // array, or null/undefined when not computed
+    var suspect = !!(draft.column && flagged && flagged.indexOf(draft.column) !== -1);
+    // textContent, never innerHTML: the message is fixed, but keeping the rule uniform here means a
+    // later edit that interpolates the column name cannot introduce an injection.
+    drawerCsvCumulative.textContent = suspect
+      ? t("csv_cumulative_warning",
+          "This column never decreases, so it may be a meter reading (a running total) rather than " +
+          "the amount used in each interval. If it is, the results will be wrong. You can continue " +
+          "anyway — a column that only rises across the whole file, such as solar in a morning-only " +
+          "export, is flagged here too.")
+      : "";
+    drawerCsvCumulative.classList.toggle("hidden", !suspect);
   }
 
   // The chosen file's coverage line under the File select (§2.2's "uploaded 2026-08-05 · 8,760 rows
@@ -1561,6 +1604,11 @@
   if (drawerCsvColumn) {
     drawerCsvColumn.addEventListener("change", function () {
       draft.column = drawerCsvColumn.value || "";
+      // The warning is per COLUMN, so it is refreshed here as well as in `fillCsvColumnSelect` —
+      // that covers a file change and a drawer open, this covers the user picking a column. Called
+      // before `updateConfirmEnabled` only for readability; the two are independent, and Confirm's
+      // state must not depend on this one (see `updateCsvCumulativeWarning`).
+      updateCsvCumulativeWarning();
       updateConfirmEnabled();
     });
   }

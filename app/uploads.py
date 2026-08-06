@@ -15,7 +15,9 @@ This module is the persistence half of that. It owns two things, and nothing els
     they declared at upload — `Europe/Amsterdam` or `UTC` — which the parser has already applied,
     so it is a record of what was done rather than an instruction for later. The remaining fields
     are the parse summary the upload dialog and the drawer's file selector show: the header, the
-    row count, the inferred resolution and the coverage.
+    row count, the inferred resolution and the coverage. One later addition rides along:
+    `cumulative_columns_json`, the names of the value columns that looked like meter registers at
+    upload, so the drawer can annotate its column picker without re-parsing the file.
   * **The file** at `<data_dir>/<workspace_id>/uploads/<upload_id>.csv`, beside the `series/`
     directory the dataset writes, under the same workspace directory and behind the same
     traversal-rejecting helper — so a workspace stays one directory on disk.
@@ -96,7 +98,9 @@ There is no `owner_id` column, for the same reason `datasets` has none: ownershi
 must not do is answer a query that is not workspace-scoped, and it has no such function.
 
 Main items:
-    Upload                          one row: id, filename, tz, header, parse summary.
+    Upload                          one row: id, filename, tz, header, parse summary, and the
+                                    per-column cumulative verdict.
+    _ADDED_COLUMNS / _migrate       the forward migration for an older local table.
     MAX_UPLOAD_BYTES                the size cap step 3's route enforces.
     connect()                       a connection with this schema (and app/db.py's) applied.
     create(workspace_id, filename, tz, content, columns, rows, ...) -> Upload   file + row.
@@ -129,7 +133,8 @@ CREATE TABLE IF NOT EXISTS uploads (
     resolution_s INTEGER,
     first_ts     TEXT,
     last_ts      TEXT,
-    uploaded_at  TEXT    NOT NULL
+    uploaded_at  TEXT    NOT NULL,
+    cumulative_columns_json TEXT
 );
 CREATE INDEX IF NOT EXISTS uploads_workspace ON uploads (workspace_id);
 """
@@ -144,15 +149,56 @@ file always has all three, but `infer_resolution_s` returns None for a file whos
 irregular for a modal answer (app/domain/ingest.py), and that file is still a legitimate upload —
 the resolution is a summary for display, not a validity condition.
 
-There is no added-columns migration list here, unlike `dataset._SERIES_META_ADDED_COLUMNS`. This
-table has never shipped, so no installation carries an older shape to grow, and an empty migration
-list would assert a mechanism that is not yet needed. `dataset._migrate` is the pattern to copy
-when the first column is genuinely added.
+`cumulative_columns_json` is the newest field and the only one that is not part of the parse
+summary the spec names. It holds a JSON array of the VALUE-column names that
+`csv_wide._looks_cumulative` flagged at upload, so the drawer can print small print beside the
+column picker when the user selects one. It is NULLABLE and NULL means "not computed" — a row
+written before the column existed — which is distinct from `[]`, "computed, nothing flagged". That
+distinction is what makes the migration below need no backfill: a NULL row simply shows no
+annotation, which is what it showed before.
+
+It is deliberately NOT folded into `columns_json`. That field's contract is a plain `list[str]` and
+the public API exposes it as one; putting a second kind of thing in there would make every reader of
+`Upload.columns` responsible for knowing which entries are names and which are verdicts.
+
+Why it is persisted at all, rather than returned by the upload POST and recomputed on demand: the
+drawer fills its file cache from the LIST route, not from the POST response, so a POST-only verdict
+would appear right after upload and silently vanish on the next page load. Recomputing it in the
+LIST route would mean re-parsing every uploaded file on every page load, which is the one thing
+the summary columns exist to avoid.
+
+`_ADDED_COLUMNS` below is the forward migration for it, copying `dataset._migrate`'s pattern — an
+earlier version of this comment said there was no migration list here because the table had never
+shipped, which was true until this column was added.
 
 The index on `workspace_id` is for `list_for`, the only query that is not by primary key. It is
 not needed at this scale — a household has a handful of uploads — and is here because the column
 is in the WHERE clause of every non-key read, which is the shape an index exists for.
 """
+
+_ADDED_COLUMNS = (
+    # The per-column cumulative verdict (see the `_SCHEMA` docstring). `CREATE TABLE IF NOT EXISTS`
+    # never alters an existing table, so a database created before this column existed needs it
+    # added here or every SELECT built from `_COLUMNS` fails with "no such column". Each entry is
+    # (column, type); adding one that is already there is skipped rather than swallowed as an error,
+    # so the migration is idempotent by inspection rather than by exception handling.
+    ("cumulative_columns_json", "TEXT"),
+)
+
+
+def _migrate(conn) -> None:
+    """Add any column missing from an older local `uploads` table (idempotent).
+
+    Exactly `dataset._migrate`'s shape, for one table. Run from `_connect` after the schema script,
+    so every entry point into this module — including the public `connect` other modules use to
+    query `uploads` alongside their own tables — gets a migrated table without having to know that
+    one is needed.
+    """
+    existing = {r[1] for r in conn.execute("PRAGMA table_info(uploads)").fetchall()}
+    for column, coltype in _ADDED_COLUMNS:
+        if column not in existing:
+            conn.execute(f"ALTER TABLE uploads ADD COLUMN {column} {coltype}")
+
 
 MAX_UPLOAD_BYTES = 32 * 1024 * 1024
 """The size cap on one uploaded file (step 3's route enforces it; this module does not).
@@ -190,6 +236,23 @@ class Upload:
     answer and is None when no spacing dominates. `first_ts` / `last_ts` are the coverage in
     tz-aware UTC, and are None only for a file with no parseable rows, which the route rejects
     before it gets here.
+
+    `cumulative_columns` is the subset of the VALUE column names that `csv_wide._looks_cumulative`
+    flagged at upload — a column that never decreases and so reads as a meter register rather than
+    per-interval amounts. It does NOT include the timestamp column, unlike `columns`, because the
+    timestamp is not a value column and is never offered for binding.
+
+    Its three states are all distinct and all reachable:
+
+      * `None` — never computed. A row written before this column existed (the migration adds it
+        NULL rather than backfilling, which would mean re-parsing every stored file). Readers show
+        no annotation, which is what they showed before the field existed.
+      * `[]` — computed, nothing flagged. The ordinary case.
+      * a non-empty list — computed, these columns look like registers.
+
+    It is a WARNING and not a gate: nothing refuses a binding on it (`csv_wide.column_frame` warns
+    and returns the frame), and the drawer shows small print the user can ignore. The detector has a
+    documented false positive on monotonically rising partial-day solar, which is why.
     """
 
     id: str
@@ -202,17 +265,24 @@ class Upload:
     first_ts: datetime | None
     last_ts: datetime | None
     uploaded_at: datetime
+    cumulative_columns: list[str] | None = None
 
 
 def _connect():
     """A connection with this module's table created, layered on app/db.py's schema.
 
     Same shape as `dataset._connect`: `db.connect()` resolves the data dir, opens the shared file
-    and applies its own schema, and this adds `uploads` on top. Used as a context manager it is a
-    transaction (`db._Connection`).
+    and applies its own schema, this adds `uploads` on top, and `_migrate` grows an older table to
+    the current shape. Used as a context manager it is a transaction (`db._Connection`).
+
+    Both statements run OUTSIDE a `with` block, i.e. in autocommit (`db._Connection` only begins a
+    transaction when used as a context manager), so the DDL commits as it goes. That is what
+    `dataset._connect` does too, and it matters here: wrapping the migration in a transaction of its
+    own would take the write lock on every connect, including the read-only ones.
     """
     conn = db.connect()
     conn.executescript(_SCHEMA)
+    _migrate(conn)
     return conn
 
 
@@ -349,17 +419,23 @@ def _row_to_upload(row) -> Upload:
         first_ts=_parse_ts(row[7]),
         last_ts=_parse_ts(row[8]),
         uploaded_at=_parse_ts(row[9]),  # type: ignore[arg-type]  # NOT NULL, always present
+        # NULL stays None rather than becoming `[]`: the two mean different things (not computed vs
+        # computed and empty) and only the caller can decide what to do with "unknown".
+        cumulative_columns=None if row[10] is None else list(json.loads(row[10])),
     )
 
 
 _COLUMNS = (
     "id, workspace_id, filename, tz, columns_json, rows, resolution_s, "
-    "first_ts, last_ts, uploaded_at"
+    "first_ts, last_ts, uploaded_at, cumulative_columns_json"
 )
 """The SELECT list every read shares, so `_row_to_upload` can index positionally.
 
 Written once rather than repeated per query: the mapping from position to field is the one thing
 that silently breaks when a column is added to only some of the queries.
+
+Also the INSERT's column list in `create`, whose placeholder count must match this string's length —
+so adding a column here means adding a `?` and a value there, in the same position.
 """
 
 
@@ -374,15 +450,19 @@ def create(
     resolution_s: int | None = None,
     first_ts: datetime | None = None,
     last_ts: datetime | None = None,
+    cumulative_columns: list[str] | None = None,
 ) -> Upload:
     """Store `content` as a new upload for this workspace and record its summary. Returns the row.
 
-    The summary arguments (`columns`, `rows`, `resolution_s`, `first_ts`, `last_ts`) come from the
+    The summary arguments (`columns`, `rows`, `resolution_s`, `first_ts`, `last_ts`,
+    `cumulative_columns`) come from the
     caller's parse — this module does not parse (module comment), so it takes what it is told and
     cannot reject a malformed file. That is the route's job, and it must parse BEFORE calling here,
-    because a rejected upload must leave no row and no file.
+    because a rejected upload must leave no row and no file. `cumulative_columns` is a judgement
+    rather than a measurement, and this module does not make it either: `csv_wide._looks_cumulative`
+    does, per value column, and the route passes the result down.
 
-    Keyword-only past `workspace_id`: nine of the ten parameters are metadata of comparable type
+    Keyword-only past `workspace_id`: most of the parameters are metadata of comparable type
     (three strings, three optionals) and a positional call would be unreadable and easy to
     transpose — `filename` and `tz` are both strings and swapping them produces a stored row that
     is wrong in a way nothing detects.
@@ -408,6 +488,12 @@ def create(
     # or pure SQL, so no argument-shape error can fire once the file exists.
     columns_json = json.dumps(list(columns))
     columns_list = list(columns)
+    # The default is None and is stored as NULL, not as `[]`: a caller that does not compute the
+    # verdict is saying "unknown", and recording that as "nothing flagged" would make a row written
+    # by an older or simpler caller claim a check that never ran. `Upload.cumulative_columns` keeps
+    # the three states apart for the same reason.
+    cumulative_list = None if cumulative_columns is None else list(cumulative_columns)
+    cumulative_json = None if cumulative_list is None else json.dumps(cumulative_list)
     row_count = int(rows)
     resolution = None if resolution_s is None else int(resolution_s)
     first_iso = first_ts.isoformat() if first_ts else None
@@ -420,7 +506,7 @@ def create(
 
     with _connect() as conn:
         conn.execute(
-            f"INSERT INTO uploads ({_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            f"INSERT INTO uploads ({_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 upload_id,
                 workspace_id,
@@ -432,6 +518,7 @@ def create(
                 first_iso,
                 last_iso,
                 uploaded_at.isoformat(),
+                cumulative_json,
             ),
         )
 
@@ -450,6 +537,7 @@ def create(
         first_ts=_to_utc(first_ts),
         last_ts=_to_utc(last_ts),
         uploaded_at=uploaded_at,
+        cumulative_columns=cumulative_list,
     )
 
 

@@ -163,6 +163,75 @@ def test_upload_stores_row_and_file_and_returns_the_summary(client):
     assert uploads.read_text("local", payload["id"]) == _CSV
 
 
+_CSV_REGISTER = (
+    "Tijdstip,Meterstand,Verbruik\n"
+    + "".join(
+        f"01-01-2025 {i:02d}:00:00,{14200 + i * 0.5:.1f},{0.3 + 0.1 * (i % 3):.1f}\n"
+        for i in range(24)
+    )
+)
+"""24 hourly rows: `Meterstand` rises throughout (a meter register), `Verbruik` does not.
+
+Two columns rather than one, so a test can assert the verdict names the right one — a verdict that
+flagged every column, or flagged by position, would pass against a single-column file.
+"""
+
+
+def test_upload_reports_which_columns_look_like_meter_registers(client):
+    """The POST computes a per-column cumulative verdict and reports it (non-blocking).
+
+    Three claims, and they fail for three different reasons: the upload SUCCEEDS (it used to be the
+    binding, not the upload, that refused — but a verdict computed by raising would break this), the
+    flagged column is named, and the ordinary column is not.
+    """
+    api, uploads, tmp_path = client
+    r = _post(api, _CSV_REGISTER, tz="UTC")
+    assert r.status_code == 201, r.text
+    payload = r.json()["upload"]
+    assert payload["cumulative_columns"] == ["Meterstand"]
+    # Persisted, not merely echoed: the drawer reads this off the LIST route on every page load.
+    assert uploads.get("local", payload["id"]).cumulative_columns == ["Meterstand"]
+
+
+def test_the_verdict_is_an_empty_list_for_an_ordinary_file(client):
+    """`[]` and not null: the check ran and found nothing, which is what licenses "no warning"."""
+    api, uploads, tmp_path = client
+    r = _post(api)
+    assert r.json()["upload"]["cumulative_columns"] == []
+
+
+def test_the_list_route_reports_the_verdict_too(client):
+    """The LIST route is what the drawer actually reads, so the verdict has to be there.
+
+    `ha_fetch.js` fills its file cache from `refreshCsvUploads`, i.e. from GET, never from the POST
+    response. A verdict present only on the POST would annotate the column picker once and vanish on
+    the next page load — the worst shape for a warning, since its absence reads as "this is fine".
+    """
+    api, uploads, tmp_path = client
+    assert _post(api, _CSV_REGISTER, tz="UTC").status_code == 201
+
+    r = api.get(w("/data/uploads"))
+    assert r.status_code == 200
+    rows = r.json()["uploads"]
+    assert [row["cumulative_columns"] for row in rows] == [["Meterstand"]]
+
+
+def test_a_non_numeric_column_does_not_break_the_verdict_for_the_others(client):
+    """§4.2a defers the numeric check to SELECTION, so a text column must not fail the upload.
+
+    `_cumulative_columns` skips a column it cannot parse. Without that, this file would 500 — the
+    verdict pass would raise `CsvFormatError` for `Notitie` from inside a route that has already
+    decided the file is acceptable.
+    """
+    api, uploads, tmp_path = client
+    text = "Tijdstip,Meterstand,Notitie\n" + "".join(
+        f"01-01-2025 {i:02d}:00:00,{100 + i:.1f},tekst\n" for i in range(24)
+    )
+    r = _post(api, text, tz="UTC")
+    assert r.status_code == 201, r.text
+    assert r.json()["upload"]["cumulative_columns"] == ["Meterstand"]
+
+
 def test_a_file_part_with_no_filename_is_a_400(client):
     """A `file` part carrying no `filename=` is not a file as far as the parser is concerned.
 

@@ -25,8 +25,9 @@ places, and a failure must be reported where it happened:
 
   * **File level, at upload** (`parse_wide_csv`): no header, fewer than two columns, no data
     rows, a first column that does not parse. These reject the whole file.
-  * **Column level, on selection** (`column_frame`): a non-numeric column, or a cumulative
-    register. These reject only that one binding; the file and every other slot keep working.
+  * **Column level, on selection** (`column_frame`): a non-numeric column rejects only that one
+    binding; the file and every other slot keep working. A column that looks like a cumulative
+    register does NOT reject — it warns and proceeds (see below).
 
 So `parse_wide_csv` returns a `WideCsv` holding the resolved UTC index plus the value columns
 **still as strings**. Nothing about column 3 can invalidate an upload whose column 2 the user
@@ -70,21 +71,34 @@ one of them:
     a reading at a wall-clock time the meter never saw, and dropping it discards data silently.
     A user whose file legitimately contains those timestamps declares UTC instead.
 
-## Cumulative registers are rejected, not differenced (D-KIND)
+## Cumulative registers are WARNED about, not differenced and not refused (D-KIND)
 
-§4.2a: a column whose values never decrease is a meter register, and this format does not accept
-registers. It is refused on selection with an explanation rather than differenced, because a
-register misread as per-interval amounts (or the reverse) produces a plausible and completely
-wrong answer. `ingest.cumulative_to_delta` exists for the HA path and is deliberately not called
-here. See `_looks_cumulative` for the threshold and why the degenerate non-decreasing cases (an
-all-zero unused register, an all-constant column, a very short file) are accepted as ordinary
-data.
+§4.2a: a column whose values never decrease reads as a meter register, and this format does not
+accept registers. It is never differenced — `ingest.cumulative_to_delta` exists for the HA path
+and is deliberately not called here — because a register misread as per-interval amounts (or the
+reverse) produces a plausible and completely wrong answer.
+
+But it is no longer REFUSED either. `column_frame` emits a `CSV_CUMULATIVE_COLUMN` warning and
+returns the frame, and the drawer shows small print beside the column picker; the user can
+proceed. That is a decision by the user of this app, taken with the cost stated: proceeding with
+a genuine register yields a confidently wrong simulation with no other signal.
+
+The reason it is the better trade is the false positive documented at MONOTONIC_MIN_SAMPLES
+below. The detector cannot distinguish a register from a monotonically rising per-interval
+column, and partial-day solar is exactly that shape — morning-only PV, or a window ending at
+solar noon, is ordinary valid data and was refused. Refusing cost the user their data with no
+way to override; warning costs them a line of small print. The threshold is unchanged and the
+false positive is unchanged; only what happens next is.
+
+See `_looks_cumulative` for the threshold and why the degenerate non-decreasing cases (an
+all-zero unused register, an all-constant column, a very short file) are not flagged at all.
 
 Main items:
     TIMESTAMP_FORMAT, AMSTERDAM_TZ, UTC_TZ    the format string and the two declarable zones.
     UNIT_FACTORS                              kWh (identity) and Wh (÷1000).
-    MONOTONIC_MIN_SAMPLES/_MIN_RISE/_NOISE    the register-detection threshold (open item 2),
-                                              with its measured residual risk both ways.
+    MONOTONIC_MIN_SAMPLES/_MIN_RISE/_NOISE    the register-DETECTION threshold (open item 2),
+                                              with its measured residual risk both ways. What it
+                                              triggers is a warning, not a rejection.
     GAP_TOKENS                                cell spellings that mean "gap, not zero".
     CsvFormatError                            one error type, carrying a machine-readable `code`.
     WideCsv                                   parsed file: columns, UTC index, string cells,
@@ -171,24 +185,28 @@ GAP_TOKENS: frozenset[str] = frozenset({"", "nan", "na", "n/a", "null", "none", 
 #
 # ## Residual risk, in both directions — measured, not assumed
 #
-# **False positives (ordinary data rejected) are real, not theoretical.** Any column that rises
-# monotonically across the whole file is rejected, and partial-day solar does exactly that:
+# **False positives (ordinary data flagged) are real, not theoretical.** Any column that rises
+# monotonically across the whole file is flagged, and partial-day solar does exactly that:
 # 5-minute PV from dawn to noon (72 samples), 15-minute PV from dawn to solar noon (28 samples),
-# and even a 13-sample 5-minute dawn ramp are all refused. A *full* day passes only because the
+# and even a 13-sample 5-minute dawn ramp are all flagged. A *full* day is not, only because the
 # afternoon decline breaks monotonicity — so the shape of the window, not the shape of the data,
 # decides. A user who uploads a morning-only export, or slices a window ending at midday, will be
-# told their PV column is a meter register. That is wrong and it will happen.
+# told their PV column looks like a meter register. That is wrong and it will happen.
 #
-# It is accepted for this increment anyway, because the alternative is worse in a way the user
-# cannot detect: the failure here is loud, panel-local, recoverable (pick another column) and
-# never produces a number, whereas accepting a register as per-interval data yields a plausible
-# and completely wrong answer with no signal at all (§4.2a's whole rationale). Better mitigations
-# exist and are deliberately not built yet — comparing the column's total against the window
-# length, or asking the user to confirm on rejection — because they need UI that Step 6 owns.
+# That false positive is why the flag is a WARNING and not a rejection. It used to reject, on the
+# argument that a loud panel-local failure beats a plausible wrong answer — which is sound about
+# registers and wrong about the false positive, where a loud failure blocks correct data and the
+# user has no override. So the consequence moved: `column_frame` warns, the drawer prints one line
+# beside the column picker, and the user decides. The cost of that trade, stated because it is
+# real and was accepted knowingly: a user who proceeds with a genuine register gets a confidently
+# wrong simulation and the small print is the only signal they will ever get. Better mitigations
+# are still unbuilt — comparing the column's total against the window length would separate the two
+# cases far more reliably than monotonicity does.
 #
-# **False negatives (registers accepted) also exist.** A register spanning a meter reset — the
+# **False negatives (registers not flagged) also exist.** A register spanning a meter reset — the
 # sequence rises, drops to near zero, rises again — is not monotonic, so it is accepted as
-# per-interval data and silently produces nonsense. `ingest.cumulative_to_delta` handles exactly
+# per-interval data with no warning at all and silently produces nonsense.
+# `ingest.cumulative_to_delta` handles exactly
 # that case on the HA path; this path cannot, because it has already decided not to difference
 # anything (D-KIND). A reset inside an uploaded wide CSV is therefore undetected here.
 MONOTONIC_MIN_SAMPLES = 12
@@ -621,7 +639,13 @@ def _looks_cumulative(values: np.ndarray) -> bool:
     the register would pass with the gap absent.
 
     Read the residual-risk note at those constants before trusting this either way: monotone
-    partial-day PV is rejected, and a register spanning a meter reset is accepted.
+    partial-day PV is flagged, and a register spanning a meter reset is not. This is a SUSPICION,
+    which is why its consequence is `column_frame`'s `CSV_CUMULATIVE_COLUMN` warning rather than a
+    rejection — the function name says "looks", and the caller must not read more into it.
+
+    Public-ish despite the underscore: `app/main.py`'s upload route calls it once per value column
+    so the verdict can be persisted with the `uploads` row and reach the drawer's column picker on
+    a later page load. Nothing outside this module and that route uses it.
     """
     finite = values[np.isfinite(values)]
     if len(finite) < MONOTONIC_MIN_SAMPLES:
@@ -640,15 +664,24 @@ def column_frame(
     is **never** used for it — §4.2a is explicit that headers are shown and not interpreted.
     `unit` is the per-binding radio value, one of `UNIT_FACTORS`.
 
-    Runs §4.2a's two column-level checks, in the order the user meets them: the values must be
-    numeric, and the column must not be a cumulative register. Then converts to kWh and assembles
-    the frame — no differencing (D-KIND), because every value column already *is* the
-    per-interval amount for the interval starting at its timestamp, which is `SeriesFrame.values`'
-    own definition for an energy series.
+    Runs §4.2a's two column-level checks, and they have DIFFERENT consequences:
+
+      * the values must be numeric — a non-numeric or infinite cell REJECTS this binding
+        (`parse_column_values`);
+      * a column that looks like a cumulative register only WARNS (`CSV_CUMULATIVE_COLUMN`) and the
+        frame is returned anyway. It used to reject; the module docstring's "Cumulative registers"
+        section records why that changed and what it costs. Nothing here is differenced either way
+        (D-KIND), because every value column already *is* the per-interval amount for the interval
+        starting at its timestamp, which is `SeriesFrame.values`' own definition for an energy
+        series — so proceeding on a genuine register reads its running total as an hourly amount,
+        and the warning is the only thing that says so.
 
     Quality bits raised here: `GAP_FILLED` where the cell was empty, and `DST_AMBIGUOUS` on the
-    rows the October fold resolution touched. Warnings mirror `ingest.energy_frame`'s
-    `list[dict]` shape so the existing plumbing carries them unchanged.
+    rows the October fold resolution touched. There is deliberately no quality bit for the
+    cumulative suspicion: quality flags are per-SAMPLE facts and this is a claim about the whole
+    column, so it would have to be set on every row to mean anything and would then be indistinguishable
+    from a per-sample problem in §7.3's box. Warnings mirror `ingest.energy_frame`'s `list[dict]`
+    shape so the existing plumbing carries them unchanged.
     """
     if unit not in UNIT_FACTORS:
         raise CsvFormatError(
@@ -658,14 +691,11 @@ def column_frame(
 
     values = parse_column_values(wide, column)
 
-    if _looks_cumulative(values):
-        raise CsvFormatError(
-            "cumulative_column",
-            f"Column {column!r} never decreases across the file, so it looks like a cumulative "
-            f"meter reading (a total that keeps growing) rather than the amount used in each "
-            f"interval. This format needs per-interval amounts. Pick a column that gives the "
-            f"consumption per hour or per quarter-hour instead.",
-        )
+    # Tested BEFORE the unit conversion, so the verdict cannot depend on the unit the binding
+    # happens to declare. Both thresholds are unit-free by design (see MONOTONIC_NOISE), so the
+    # answer would be the same either way at any realistic magnitude — but "the same column reads
+    # as a register in kWh and not in Wh" is not a property worth leaving reachable.
+    cumulative = _looks_cumulative(values)
 
     values = values * UNIT_FACTORS[unit]
 
@@ -675,6 +705,12 @@ def column_frame(
     quality[wide.ambiguous] |= QUALITY_DTYPE(QualityFlags.DST_AMBIGUOUS)
 
     warnings: list[dict] = []
+    if cumulative:
+        # First in the list because it is the one warning that says the NUMBERS may be wrong rather
+        # than incomplete. Same `{"code", "column", ...}` shape as the two below so the existing
+        # plumbing carries it; no `count`, because it is a claim about the column as a whole and any
+        # number here would invite being read as "this many suspect rows".
+        warnings.append({"code": "CSV_CUMULATIVE_COLUMN", "column": column})
     gap_count = int(gaps.sum())
     if gap_count:
         warnings.append({"code": "CSV_GAP_CELLS", "column": column, "count": gap_count})

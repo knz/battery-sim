@@ -567,41 +567,86 @@ def test_a_bad_column_does_not_invalidate_a_good_one_in_the_same_file():
         csv_wide.column_frame(wide, "Bad", "grid_import_t2", "kWh")
 
 
-# --- cumulative-register rejection (D-KIND; open item 2's threshold) -------------------------
+# --- cumulative-register WARNING (D-KIND; open item 2's threshold) ---------------------------
+#
+# This used to be a rejection block. It is now a warning block, and the difference is the point of
+# every test here: a flagged column must still produce a FRAME with the right values, so a test that
+# only checked "did it warn" would pass against an implementation that returned garbage, and a test
+# that only checked the values would pass against one that dropped the warning. Both are asserted
+# together throughout.
+#
+# The threshold itself is unchanged, which is why the not-flagged cases below are unchanged too.
 
 _HOURS = list(range(24))
 
 
-def test_a_rising_register_column_is_rejected():
+def _cumulative_warnings(warnings):
+    return [w for w in warnings if w["code"] == "CSV_CUMULATIVE_COLUMN"]
+
+
+def test_a_rising_register_column_warns_and_still_returns_its_values():
     values = [14200.0 + 0.5 * i for i in range(24)]
     wide = csv_wide.parse_wide_csv(_hourly("01-01-2025", _HOURS, values), UTC_TZ)
-    with pytest.raises(CsvFormatError) as exc:
-        csv_wide.column_frame(wide, "Verbruik", "grid_import_t1", "kWh")
-    assert exc.value.code == "cumulative_column"
-    assert "per-interval" in str(exc.value)
+    frame, warnings = csv_wide.column_frame(wide, "Verbruik", "grid_import_t1", "kWh")
+    # The frame is the column as read, undifferenced (D-KIND). This is the "confidently wrong"
+    # outcome the user accepted: 14200.0 is read as 14200 kWh used in that one hour.
+    assert np.allclose(frame.values, values)
+    assert _cumulative_warnings(warnings) == [
+        {"code": "CSV_CUMULATIVE_COLUMN", "column": "Verbruik"}
+    ]
 
 
-def test_a_register_with_a_gap_in_the_middle_is_still_rejected():
-    # A NaN must not break the monotonic chain — finite readings are compared to each other.
+def test_the_warning_names_the_column_it_is_about():
+    # Two columns, only one of them monotone. The warning must name the one it describes — the
+    # drawer matches on this name to decide which picker entry gets the small print.
+    rising = [100.0 + i for i in range(24)]
+    profile = [0.3 + 0.1 * (i % 3) for i in range(24)]
+    text = _csv(
+        ("Tijdstip", "Meterstand", "Verbruik"),
+        *[(f"01-01-2025 {i:02d}:00:00", rising[i], profile[i]) for i in range(24)],
+    )
+    wide = csv_wide.parse_wide_csv(text, UTC_TZ)
+    _, meter_warnings = csv_wide.column_frame(wide, "Meterstand", "grid_import_t1", "kWh")
+    _, use_warnings = csv_wide.column_frame(wide, "Verbruik", "grid_import_t2", "kWh")
+    assert [w["column"] for w in _cumulative_warnings(meter_warnings)] == ["Meterstand"]
+    assert _cumulative_warnings(use_warnings) == []
+
+
+def test_the_warning_is_unaffected_by_the_declared_unit():
+    # The verdict is taken before the unit conversion, so the same column cannot read as a register
+    # in kWh and as ordinary data in Wh. The values, of course, do change.
+    values = [14200.0 + 0.5 * i for i in range(24)]
+    wide = csv_wide.parse_wide_csv(_hourly("01-01-2025", _HOURS, values), UTC_TZ)
+    frame, warnings = csv_wide.column_frame(wide, "Verbruik", "grid_import_t1", "Wh")
+    assert len(_cumulative_warnings(warnings)) == 1
+    assert np.allclose(frame.values, [v / 1000.0 for v in values])
+
+
+def test_a_register_with_a_gap_in_the_middle_still_warns():
+    # A NaN must not break the monotonic chain — finite readings are compared to each other. Both
+    # warnings are expected here: the gap and the register verdict are independent facts.
     values = [str(14200.0 + 0.5 * i) for i in range(24)]
     values[10] = ""
     wide = csv_wide.parse_wide_csv(_hourly("01-01-2025", _HOURS, values), UTC_TZ)
-    with pytest.raises(CsvFormatError) as exc:
-        csv_wide.column_frame(wide, "Verbruik", "grid_import_t1", "kWh")
-    assert exc.value.code == "cumulative_column"
+    frame, warnings = csv_wide.column_frame(wide, "Verbruik", "grid_import_t1", "kWh")
+    assert len(frame.values) == 24
+    assert len(_cumulative_warnings(warnings)) == 1
+    assert [w["code"] for w in warnings] == ["CSV_CUMULATIVE_COLUMN", "CSV_GAP_CELLS"]
 
 
 def test_a_flat_zero_column_is_ordinary_data_not_a_register():
     # An unused register, or solar over a window with no daylight. Non-decreasing but no rise.
     wide = csv_wide.parse_wide_csv(_hourly("01-01-2025", _HOURS, [0.0] * 24), UTC_TZ)
-    frame, _ = csv_wide.column_frame(wide, "Verbruik", "solar_production", "kWh")
+    frame, warnings = csv_wide.column_frame(wide, "Verbruik", "solar_production", "kWh")
     assert np.allclose(frame.values, np.zeros(24))
+    assert _cumulative_warnings(warnings) == []
 
 
 def test_an_all_constant_column_is_ordinary_data_not_a_register():
     wide = csv_wide.parse_wide_csv(_hourly("01-01-2025", _HOURS, [0.25] * 24), UTC_TZ)
-    frame, _ = csv_wide.column_frame(wide, "Verbruik", "grid_import_t1", "kWh")
+    frame, warnings = csv_wide.column_frame(wide, "Verbruik", "grid_import_t1", "kWh")
     assert np.allclose(frame.values, np.full(24, 0.25))
+    assert _cumulative_warnings(warnings) == []
 
 
 def test_an_11_sample_ascending_column_is_not_judged_a_register():
@@ -610,49 +655,54 @@ def test_an_11_sample_ascending_column_is_not_judged_a_register():
     # threshold value and so pin nothing.
     values = [0.1 * (i + 1) for i in range(11)]
     wide = csv_wide.parse_wide_csv(_hourly("01-01-2025", list(range(11)), values), UTC_TZ)
-    frame, _ = csv_wide.column_frame(wide, "Verbruik", "grid_import_t1", "kWh")
+    frame, warnings = csv_wide.column_frame(wide, "Verbruik", "grid_import_t1", "kWh")
     assert len(frame.values) == 11
+    assert _cumulative_warnings(warnings) == []
 
 
-def test_at_12_samples_an_ascending_column_is_a_register():
+def test_at_12_samples_an_ascending_column_warns():
     values = [0.1 * (i + 1) for i in range(12)]
     wide = csv_wide.parse_wide_csv(_hourly("01-01-2025", list(range(12)), values), UTC_TZ)
-    with pytest.raises(CsvFormatError) as exc:
-        csv_wide.column_frame(wide, "Verbruik", "grid_import_t1", "kWh")
-    assert exc.value.code == "cumulative_column"
+    frame, warnings = csv_wide.column_frame(wide, "Verbruik", "grid_import_t1", "kWh")
+    assert np.allclose(frame.values, values)
+    assert len(_cumulative_warnings(warnings)) == 1
 
 
-def test_monotone_partial_day_pv_is_rejected_a_known_false_positive():
-    # DOCUMENTED RESIDUAL RISK, pinned so a change of behaviour is deliberate rather than
-    # accidental: 15-minute PV from dawn to solar noon rises monotonically, is perfectly ordinary
-    # per-interval data, and is refused. See the note at MONOTONIC_MIN_SAMPLES in csv_wide.py.
+def test_monotone_partial_day_pv_warns_but_loads_the_known_false_positive():
+    # DOCUMENTED RESIDUAL RISK, and the reason the rejection became a warning: 15-minute PV from
+    # dawn to solar noon rises monotonically, is perfectly ordinary per-interval data, and is
+    # flagged. It used to be REFUSED, which cost the user valid data with no override. Now the data
+    # loads and the flag is small print. See the note at MONOTONIC_MIN_SAMPLES in csv_wide.py.
     values = [round(0.01 * i * i, 4) for i in range(28)]
     rows = [(f"01-07-2025 {6 + i // 4:02d}:{(i % 4) * 15:02d}:00", v)
             for i, v in enumerate(values)]
     wide = csv_wide.parse_wide_csv(_csv(("Tijdstip", "Zon"), *rows), UTC_TZ)
-    with pytest.raises(CsvFormatError) as exc:
-        csv_wide.column_frame(wide, "Zon", "solar_production", "kWh")
-    assert exc.value.code == "cumulative_column"
+    frame, warnings = csv_wide.column_frame(wide, "Zon", "solar_production", "kWh")
+    assert np.allclose(frame.values, values)   # the data the old behaviour threw away
+    assert len(_cumulative_warnings(warnings)) == 1
 
 
-def test_a_full_day_of_pv_is_accepted_because_the_afternoon_declines():
-    # The counterpart to the test above: the same data over a full day passes. What differs is the
-    # window, not the nature of the data — which is exactly why the heuristic is weak.
+def test_a_full_day_of_pv_is_not_flagged_because_the_afternoon_declines():
+    # The counterpart to the test above: the same data over a full day is not flagged. What differs
+    # is the window, not the nature of the data — which is exactly why the heuristic is weak, and
+    # why its verdict is now advice rather than a gate.
     rise = [round(0.01 * i * i, 4) for i in range(12)]
     values = rise + rise[::-1]
     wide = csv_wide.parse_wide_csv(_hourly("01-07-2025", _HOURS, values), UTC_TZ)
-    frame, _ = csv_wide.column_frame(wide, "Verbruik", "solar_production", "kWh")
+    frame, warnings = csv_wide.column_frame(wide, "Verbruik", "solar_production", "kWh")
     assert len(frame.values) == 24
+    assert _cumulative_warnings(warnings) == []
 
 
-def test_a_register_spanning_a_reset_is_accepted_a_known_false_negative():
+def test_a_register_spanning_a_reset_is_not_flagged_a_known_false_negative():
     # DOCUMENTED RESIDUAL RISK in the other direction: the drop at the reset breaks monotonicity,
-    # so a genuine cumulative register slips through and would produce nonsense. This path cannot
-    # detect it, having decided not to difference anything (D-KIND).
+    # so a genuine cumulative register is not flagged at all and would produce nonsense with no
+    # warning. This path cannot detect it, having decided not to difference anything (D-KIND).
     values = [14200.0 + 0.5 * i for i in range(12)] + [0.5 * i for i in range(12)]
     wide = csv_wide.parse_wide_csv(_hourly("01-01-2025", _HOURS, values), UTC_TZ)
-    frame, _ = csv_wide.column_frame(wide, "Verbruik", "grid_import_t1", "kWh")
+    frame, warnings = csv_wide.column_frame(wide, "Verbruik", "grid_import_t1", "kWh")
     assert len(frame.values) == 24
+    assert _cumulative_warnings(warnings) == []
 
 
 def test_one_genuine_decrease_makes_a_column_per_interval_data():
@@ -660,8 +710,9 @@ def test_one_genuine_decrease_makes_a_column_per_interval_data():
     values = [14200.0 + 0.5 * i for i in range(24)]
     values[12] = values[11] - 0.005
     wide = csv_wide.parse_wide_csv(_hourly("01-01-2025", _HOURS, values), UTC_TZ)
-    frame, _ = csv_wide.column_frame(wide, "Verbruik", "grid_import_t1", "kWh")
+    frame, warnings = csv_wide.column_frame(wide, "Verbruik", "grid_import_t1", "kWh")
     assert len(frame.values) == 24
+    assert _cumulative_warnings(warnings) == []
 
 
 def test_a_realistic_load_profile_is_accepted():

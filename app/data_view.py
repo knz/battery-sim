@@ -4,8 +4,8 @@ Bridges the persisted `LoadedDataset` (app/dataset.py) to the dict the `_panel_d
 template consumes. Before this increment the template rendered a static sample
 (app/sample_data.py); once a real Home Assistant dataset has been fetched and persisted, this
 module builds the panel from it instead — real coverage, the chosen simulation grid, per-series
-native resolutions and reconciliation (§6.2), and the gap/reset counts recovered from the
-per-interval quality flags (§4.4).
+native resolutions and reconciliation (§6.2), and the gap/reset counts and the wide-CSV October
+clock-change days recovered from the per-interval quality flags (§4.4).
 
 What it does NOT populate yet — because those computations are later increments — is left out
 rather than faked: the negative-load reconstruction warning (§6.3), the tariff-register
@@ -40,6 +40,8 @@ Main items:
     ROLE_LABEL                 series name → human role label (translation msgid).
     _fmt_res(seconds)          seconds → a resolution label; the label is a msgid.
     _res_msg(seconds)          the same label as a nested `_msg` pair, for embedding in a sentence.
+    _count_flag(frames, flag)  how many intervals across all series carry a quality flag.
+    _flagged_days(frames, f)   the ISO dates of the intervals carrying a quality flag.
     panel_data_from(dataset)   the panel-① dict; shape-compatible with sample_data._panel_data.
 """
 
@@ -144,6 +146,29 @@ def _count_flag(frames: list[SeriesFrame], flag: QualityFlags) -> int:
         if len(f.quality):
             total += int((np.asarray(f.quality) & int(flag)).astype(bool).sum())
     return total
+
+
+def _flagged_days(frames: list[SeriesFrame], flag: QualityFlags) -> list[str]:
+    """The ISO dates of every interval carrying `flag`, sorted and de-duplicated.
+
+    Derived from the same quality bits `_count_flag` counts, and from the index those bits sit
+    beside, so the days and the count in one sentence cannot disagree. The persisted
+    `CSV_DST_AMBIGUOUS_HOUR` warning carries a `days` list too, but that key exists only on the
+    CSV path, and nothing reads `LoadedDataset.warnings` at all — the bits are the authority the
+    rest of this box already uses.
+
+    The date is read off the UTC index without converting to Europe/Amsterdam. For the one flag
+    that uses this today (`DST_AMBIGUOUS`) the two dates coincide: the October transition happens
+    at 03:00 local, which is 01:00 UTC on the same day. `csv_source._warnings_for_slice` records
+    the same reasoning where it builds its own day list.
+    """
+    days: set[str] = set()
+    for f in frames:
+        if not len(f.quality):
+            continue
+        mask = (np.asarray(f.quality) & int(flag)) != 0
+        days.update(str(ts)[:10] for ts in np.asarray(f.index)[mask])
+    return sorted(days)
 
 
 def panel_data_from(dataset: LoadedDataset) -> dict:
@@ -271,6 +296,7 @@ def panel_data_from(dataset: LoadedDataset) -> dict:
 
     gaps = _count_flag(frames, QualityFlags.GAP_FILLED)
     resets = _count_flag(frames, QualityFlags.RESET_CORRECTED)
+    dst_days = _flagged_days(frames, QualityFlags.DST_AMBIGUOUS)
     days = (window[1] - window[0]).days
 
     intervals = report["intervals"] or 0
@@ -305,6 +331,29 @@ def panel_data_from(dataset: LoadedDataset) -> dict:
         "resets": (
             _msg("%(n)s detected and corrected", n=num(resets, "count")) if resets
             else _msg("none detected")
+        ),
+        # The October clock change (§4.2a, §7.3 check 1). Unlike gaps and resets this reports an
+        # ambiguity in the INPUT rather than a repair: a wide CSV carries no UTC offset, so the
+        # hour the clock goes back is written twice with the same wall-clock timestamps and the
+        # parser cannot know which row is which. The sentence therefore names the day and states
+        # the assumption made, instead of saying something was corrected. The day list is data and
+        # stays literal (ISO, per `_fmt_date`).
+        #
+        # Counted on the number of DAYS, which is also what the sentence prints. Not on the number
+        # of flagged intervals: that varies with the series' resolution (four 15-min intervals are
+        # one repeated hour), so it would make the plural disagree with the "one repeated hour per
+        # day named" the sentence describes. One day is the normal case and the reachable one — the
+        # transition happens once a year — so the singular is not hypothetical.
+        "dst": (
+            _msg_n(
+                "%(days)s — the clock went back on this day, so one hour appears twice in your "
+                "data and the run assumes the first (summer-time) one.",
+                "%(days)s — the clock went back on these days, so one hour appears twice in your "
+                "data and the run assumes the first (summer-time) one.",
+                len(dst_days),
+                days=", ".join(dst_days),
+            )
+            if dst_days else _msg("none detected")
         ),
         "registers": _register_summary(present),
     }

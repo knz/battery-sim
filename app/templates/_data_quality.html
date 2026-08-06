@@ -6,7 +6,8 @@
 
   **Every VALUE in here goes through the `msg()` macro (_msg.html), not through a bare `{{ … }}`
   or `_()`.** The panel summary, the coverage and grid lines, the per-series granularity cells, the
-  gap/reset/register lines and the price caveat all arrive from app/data_view.py as (msgid, params)
+  gap/reset/clock-change/register lines and the price caveat all arrive from app/data_view.py as
+  (msgid, params)
   pairs, so their msgid is a compile-time constant the extractor can see. Rendering one raw would
   print the dict; wrapping one in `_()` would look up a runtime string matching no catalog entry —
   which is exactly the defect the pairs exist to fix. The macro also accepts a bare string, which
@@ -66,6 +67,11 @@
           <div class="grid grid-cols-1 gap-1 sm:grid-cols-[auto_1fr] sm:gap-x-6">
             <span class="text-base-content/60">{{ _('Gaps') }}</span><span>{{ msg(data.quality.gaps) }}</span>
             <span class="text-base-content/60">{{ _('Counter resets') }}</span><span>{{ msg(data.quality.resets) }}</span>
+            {# The October clock change (§4.2a, §7.3 check 1). A row rather than an alert: the
+               file is sound and the run is usable, the reader is only being told which hour the
+               app had to make an assumption about. Unlike the two blocks above it is not gated on
+               presence — "none detected" is the informative answer, the same way Gaps is. #}
+            <span class="text-base-content/60">{{ _('Clock change') }}</span><span>{{ msg(data.quality.dst) }}</span>
             <span class="text-base-content/60">{{ _('Meter registers') }}</span><span>{{ msg(data.quality.registers) }}</span>
           </div>
 

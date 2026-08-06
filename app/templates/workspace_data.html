@@ -502,6 +502,15 @@
             <select id="drawer-csv-column" class="select select-bordered select-sm font-mono w-full"
                     aria-label="{{ _('Column') }}">
             </select>
+            {# Small print when the selected column never decreases across the file, so it may be a
+               cumulative meter reading rather than the amount per interval. It is a WARNING and
+               nothing more: Confirm stays enabled and the fetch succeeds. The detector cannot tell a
+               register from a monotonically rising per-interval column, and morning-only solar is
+               exactly that shape (csv_wide.py's residual-risk note) — blocking would have cost the
+               user valid data with no override, so this line is the whole enforcement. Filled by JS
+               from the upload's stored verdict; the class matches #drawer-csv-file-summary above
+               except for the colour, which is the warning tone. #}
+            <span id="drawer-csv-cumulative" class="hidden label-text-alt mt-1 text-warning"></span>
           </label>
           <fieldset>
             <legend class="label-text">{{ _('Unit') }}</legend>
@@ -667,7 +676,7 @@
       "csv_err_nonexistent_local_time": _("A timestamp names a local time that does not exist — the hour skipped when the clocks go forward in March. Check the timezone you chose."),
       "csv_err_non_numeric_value": _("A value is not a number. Values use a dot as the decimal separator, and an empty cell means a gap."),
       "csv_err_non_finite_value": _("A value is infinite or not a number."),
-      "csv_err_cumulative_column": _("That column looks like a cumulative meter reading rather than an amount per interval, so it was refused. This app reads every value as the amount during the interval that starts at its timestamp."),
+      "csv_cumulative_warning": _("This column never decreases, so it may be a meter reading (a running total) rather than the amount used in each interval. If it is, the results will be wrong. You can continue anyway — a column that only rises across the whole file, such as solar in a morning-only export, is flagged here too."),
       "csv_err_bad_unit": _("That unit is not one this app knows."),
       "csv_err_unknown_column": _("That column is not in the file."),
       "csv_err_too_large": _("That file is too large to upload.")

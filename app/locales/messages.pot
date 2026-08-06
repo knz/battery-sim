@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-06 12:51+0200\n"
+"POT-Creation-Date: 2026-08-06 13:35+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -46,6 +46,16 @@ msgstr[1] ""
 #, python-format
 msgid "%(dates)s   (%(n)s day)"
 msgid_plural "%(dates)s   (%(n)s days)"
+msgstr[0] ""
+msgstr[1] ""
+
+#, python-format
+msgid ""
+"%(days)s — the clock went back on this day, so one hour appears twice in "
+"your data and the run assumes the first (summer-time) one."
+msgid_plural ""
+"%(days)s — the clock went back on these days, so one hour appears twice "
+"in your data and the run assumes the first (summer-time) one."
 msgstr[0] ""
 msgstr[1] ""
 
@@ -393,6 +403,9 @@ msgid "Choose source…"
 msgstr ""
 
 msgid "Choose your data sources to get a result."
+msgstr ""
+
+msgid "Clock change"
 msgstr ""
 
 msgid "Close"
@@ -1179,12 +1192,6 @@ msgstr ""
 msgid "That column is not in the file."
 msgstr ""
 
-msgid ""
-"That column looks like a cumulative meter reading rather than an amount "
-"per interval, so it was refused. This app reads every value as the amount"
-" during the interval that starts at its timestamp."
-msgstr ""
-
 msgid "That file could not be uploaded."
 msgstr ""
 
@@ -1419,6 +1426,14 @@ msgid ""
 msgstr ""
 
 msgid "This cannot be undone."
+msgstr ""
+
+msgid ""
+"This column never decreases, so it may be a meter reading (a running "
+"total) rather than the amount used in each interval. If it is, the "
+"results will be wrong. You can continue anyway — a column that only rises"
+" across the whole file, such as solar in a morning-only export, is "
+"flagged here too."
 msgstr ""
 
 msgid "This control"

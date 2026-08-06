@@ -1845,6 +1845,15 @@ def _upload_json(upload, summary=None) -> dict:
     Step 6 should populate the selector by slicing (`columns.slice(1)`) and send the NAME back, never
     an index derived by searching this list.
 
+    `cumulative_columns` is on BOTH the POST and the LIST, and that is the whole reason it is a
+    stored column rather than a fresh-parse extra like the two fields below. The drawer fills its
+    file cache from the LIST route (`ha_fetch.js` `refreshCsvUploads`), so a verdict carried only by
+    the POST response would annotate the column picker right after an upload and then silently
+    disappear on the next page load — the worst shape for a warning, since its absence reads as "this
+    column is fine". `null` means the row predates the column and no verdict was ever computed; `[]`
+    means computed and nothing flagged. The client must keep those apart, because only the second
+    licenses "no warning".
+
     `summary` is passed only by the POST, which has just parsed the file and therefore holds two
     fields the ROW does not carry: `ambiguous_rows` (how many samples the October fold resolution
     touched — §7.3's data-quality box reports it) and `timestamp_name` (row 1's first cell, so the
@@ -1867,11 +1876,48 @@ def _upload_json(upload, summary=None) -> dict:
         "first_ts": upload.first_ts.isoformat() if upload.first_ts else None,
         "last_ts": upload.last_ts.isoformat() if upload.last_ts else None,
         "uploaded_at": upload.uploaded_at.isoformat(),
+        "cumulative_columns": (
+            None
+            if upload.cumulative_columns is None
+            else list(upload.cumulative_columns)
+        ),
     }
     if summary is not None:
         payload["ambiguous_rows"] = summary.ambiguous_rows
         payload["timestamp_name"] = summary.timestamp_name
     return payload
+
+
+def _cumulative_columns(wide) -> list[str]:
+    """The value columns of a parsed wide CSV that look like cumulative meter registers.
+
+    Run once at upload and stored on the row (`uploads.Upload.cumulative_columns`), so the drawer can
+    print small print beside its column picker on any later page load without re-parsing the file.
+    The verdict is `csv_wide._looks_cumulative`'s and is deliberately not re-derived here — this
+    function only decides WHICH columns to ask about and how to handle the ones it cannot ask about.
+
+    **A column that does not parse as numbers is skipped, not reported and not raised on.** §4.2a
+    puts the numeric check at SELECTION, not at upload: a file with one text column and five good
+    ones is a legitimate upload whose other columns must stay bindable, and the whole reason
+    `WideCsv` keeps cells as strings is that no single column may invalidate the file. So a
+    `CsvFormatError` here means "no verdict for this column", which is the same answer as "not
+    flagged" from the picker's point of view — the user selecting that column gets the non-numeric
+    rejection at fetch time, which is the message that actually helps them.
+
+    Cost: one float parse per cell of every value column, on top of the parse that just ran. On the
+    expected shape (a year of quarter-hourly readings across ten columns) that is the same order of
+    work as the timestamp parsing already done, and it happens once per upload rather than per fetch.
+    Called from a worker thread for that reason.
+    """
+    flagged: list[str] = []
+    for column in wide.columns:
+        try:
+            values = csv_wide.parse_column_values(wide, column)
+        except csv_wide.CsvFormatError:
+            continue
+        if csv_wide._looks_cumulative(values):
+            flagged.append(column)
+    return flagged
 
 
 async def _read_capped_body(request: Request, limit: int) -> bytes:
@@ -2003,7 +2049,9 @@ async def create_upload(
     both require that a rejected upload leaves no row and no file, and `uploads.create` cannot
     provide that — it never looks inside a file, so it cannot reject one. So every check runs
     strictly above the `uploads.create` call: size, then decode, then the declared zone, then the
-    full parse. Only a file that has already yielded a summary is written.
+    full parse. Only a file that has already yielded a summary is written. `_cumulative_columns`
+    also runs above the write, and is not a check — it can only produce a verdict, never a
+    rejection.
 
     Statuses, following the convention at `load_slot` above (404 unknown, 400 bad input, 502 load
     failure), plus one this path adds:
@@ -2107,7 +2155,7 @@ async def create_upload(
         ) from exc
 
     try:
-        _wide, summary = await asyncio.to_thread(csv_wide.parse_and_summarise, text, tz)
+        wide, summary = await asyncio.to_thread(csv_wide.parse_and_summarise, text, tz)
     except csv_wide.CsvFormatError as exc:
         raise HTTPException(
             status_code=400,
@@ -2136,6 +2184,12 @@ async def create_upload(
             },
         ) from exc
 
+    # The per-column cumulative verdict, computed here because this is where the file is already
+    # parsed. It cannot fail the upload — `_cumulative_columns` swallows the per-column rejections
+    # for exactly the reason §4.2a defers them to selection — so it stays above the write with
+    # everything else and adds no failure mode of its own.
+    cumulative = await asyncio.to_thread(_cumulative_columns, wide)
+
     # Nothing above this line wrote anything. Everything the store needs is now a parsed fact.
     upload = await asyncio.to_thread(
         uploads.create,
@@ -2148,6 +2202,7 @@ async def create_upload(
         resolution_s=summary.resolution_s,
         first_ts=summary.first_ts,
         last_ts=summary.last_ts,
+        cumulative_columns=cumulative,
     )
     return JSONResponse({"upload": _upload_json(upload, summary)}, status_code=201)
 

@@ -119,17 +119,26 @@ modal answer at all. `infer_resolution_s` is reused, not reimplemented.
 
 ## Warnings
 
-`column_frame` returns `CSV_GAP_CELLS` and `CSV_DST_AMBIGUOUS_HOUR` warnings, and §7.3's
-data-quality box wants both — the second by day. But `DataSource.load` returns a frame and nothing
+`column_frame` returns `CSV_GAP_CELLS`, `CSV_DST_AMBIGUOUS_HOUR` and `CSV_CUMULATIVE_COLUMN`
+warnings, and §7.3's data-quality box wants the first two — the second by day. But
+`DataSource.load` returns a frame and nothing
 else, so there are two entry points: `load` satisfies the protocol and drops them, and
 `load_with_warnings` returns `(frame, warnings)` for the caller that reports them. Both of
 `app/main.py`'s backend-load paths call the latter as of step 5, and `_load_backend_frame` returns
 `(frame, warnings)` for exactly that reason — a bare-frame return there would have dropped every
 CSV warning before the quality box could see it, silently and for every fetch.
 
-The warnings are **recomputed for the slice**, not passed through: a gap in March is not a warning
-about a load of July, and the ambiguous-hour day list must name the days actually inside the
-window or the quality box points the user at a date their run does not cover.
+The per-sample warnings are **recomputed for the slice**, not passed through: a gap in March is not
+a warning about a load of July, and the ambiguous-hour day list must name the days actually inside
+the window or the quality box points the user at a date their run does not cover.
+
+`CSV_CUMULATIVE_COLUMN` is the one warning that is passed THROUGH instead, because it is not a
+per-sample fact and cannot be recounted: it says the whole column looks like a meter register
+rather than per-interval amounts (`csv_wide._looks_cumulative`), which no window makes more or less
+true and no quality bit records. It is non-blocking — the load succeeds and the frame is returned
+as read — and the drawer's column picker carries the user-facing small print off the persisted
+per-column verdict, so this warning is the fetch path's copy of the same fact rather than its only
+appearance.
 
 Main items:
     CsvBinding                            the per-slot binding: upload_id, column, unit.
@@ -496,10 +505,16 @@ class CsvSource:
         text = uploads.read_text(workspace_id, binding.upload_id)
 
         wide = csv_wide.parse_wide_csv(text, upload.tz)
-        frame, _file_warnings = csv_wide.column_frame(
+        frame, file_warnings = csv_wide.column_frame(
             wide, binding.column, slot.name, binding.unit
         )
-        # `_file_warnings` describes the whole file and is discarded on purpose: the caller asked
-        # about a window, and `_warnings_for_slice` recounts against it (module comment).
+        # The per-SAMPLE warnings in `file_warnings` (gaps, ambiguous hours) are discarded on
+        # purpose: the caller asked about a window, and `_warnings_for_slice` recounts them against
+        # it (module comment). `CSV_CUMULATIVE_COLUMN` is the exception, and is carried through
+        # rather than recounted, because it is not a per-sample fact at all — it is a claim about
+        # the whole column, so there is nothing in the slice's quality bits to recount it from and
+        # no window in which it stops being true. Dropping it would mean the one warning that says
+        # the numbers may be wrong never reaches a fetch.
         sliced = slice_to_window(frame, window)
-        return sliced, _warnings_for_slice(binding.column, frame, sliced)
+        carried = [w for w in file_warnings if w.get("code") == "CSV_CUMULATIVE_COLUMN"]
+        return sliced, carried + _warnings_for_slice(binding.column, frame, sliced)

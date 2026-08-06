@@ -2314,6 +2314,64 @@ def test_the_column_selector_skips_the_timestamp_and_offers_names(browser, base_
     context.close()
 
 
+def test_a_cumulative_column_gets_small_print_and_confirm_stays_enabled(browser, base_url):
+    """The whole behaviour change, from the user's side: a warning, not a block.
+
+    A non-decreasing column used to fail the fetch with a rejection. It now gets one line of small
+    print beside the column picker and nothing else — because the detector cannot tell a meter
+    register from a column that merely rises throughout the file, and a morning-only solar export is
+    exactly that shape (csv_wide.py's note at MONOTONIC_MIN_SAMPLES). Blocking cost a user with valid
+    data their whole binding and gave them no way round it.
+
+    Four claims, and the third is the one that would silently regress: the line appears for the
+    suspect column, it does NOT appear for the ordinary column in the same file, Confirm is ENABLED
+    while the line is showing, and switching between the two columns clears and re-shows it (so it is
+    driven by the selection rather than latched on the first suspect column seen).
+    """
+    url = _workspace_url(base_url)
+    workspace_id = url.rstrip("/").split("/")[-2]
+    # `Meterstand` rises for 24 hours; `Verbruik` saws. 24 rows clears MONOTONIC_MIN_SAMPLES (12).
+    _upload_csv(base_url, workspace_id, filename="meterstand.csv", text=(
+        "Tijdstip,Meterstand,Verbruik\n"
+        + "".join(
+            f"01-01-2025 {i:02d}:00:00,{14200 + i * 0.5:.1f},{0.3 + 0.1 * (i % 3):.1f}\n"
+            for i in range(24)
+        )
+    ))
+
+    context = browser.new_context()
+    context.add_cookies([{"name": "lang", "value": "en", "url": base_url}])
+    pg = context.new_page()
+    _open_csv_drawer(pg, base_url, workspace_id)
+    expect(pg.locator("#drawer-csv-file")).to_contain_text("meterstand.csv", timeout=5000)
+
+    warning = pg.locator("#drawer-csv-cumulative")
+    # Nothing selected yet, so nothing to warn about.
+    expect(warning).to_be_hidden()
+
+    pg.locator("#drawer-csv-column").select_option("Meterstand")
+    expect(warning).to_be_visible()
+    expect(warning).to_contain_text("never decreases")
+    # The point of the change: the user can proceed.
+    expect(pg.locator("#drawer-confirm")).to_be_enabled()
+
+    # The ordinary column in the same file gets no line — the verdict is per column, not per file.
+    pg.locator("#drawer-csv-column").select_option("Verbruik")
+    expect(warning).to_be_hidden()
+    expect(pg.locator("#drawer-confirm")).to_be_enabled()
+
+    # And back, so the line is recomputed from the selection rather than shown once and latched.
+    pg.locator("#drawer-csv-column").select_option("Meterstand")
+    expect(warning).to_be_visible()
+
+    # Confirm really does commit, warning and all — the binding reaches the store.
+    pg.locator("#drawer-confirm").click()
+    pg.wait_for_timeout(150)
+    stored = pg.evaluate(f"localStorage.getItem('ha.slots.{workspace_id}')")
+    assert "Meterstand" in (stored or ""), stored
+    context.close()
+
+
 def test_confirm_stages_the_binding_into_localstorage_and_labels_the_row(browser, base_url):
     """The whole drawer flow: pick, choose, Confirm — then the store and the row label.
 

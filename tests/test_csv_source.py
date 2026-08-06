@@ -577,21 +577,42 @@ def test_unknown_column_is_rejected(store):
     assert exc.value.code == "unknown_column"
 
 
-def test_cumulative_column_is_rejected_not_differenced(store):
-    # D-KIND: a non-decreasing column is a meter register and is refused on selection. 14 rows,
-    # rising throughout, clears MONOTONIC_MIN_SAMPLES.
+def test_cumulative_column_warns_and_is_neither_rejected_nor_differenced(store):
+    # D-KIND: a non-decreasing column reads as a meter register. It is WARNED about and loaded as
+    # read — not refused, and not differenced. 14 rows, rising throughout, clears
+    # MONOTONIC_MIN_SAMPLES.
     lines = ["Tijdstip,Meter"]
     for i in range(14):
         lines.append(f"01-01-2025 {i:02d}:00:00,{100 + i * 0.5:.1f}")
     up = _upload(store, "\n".join(lines) + "\n")
-    with pytest.raises(csv_wide.CsvFormatError) as exc:
-        _load(
-            store,
-            up,
-            (datetime(2025, 1, 1, tzinfo=UTC), datetime(2025, 1, 2, tzinfo=UTC)),
-            column="Meter",
-        )
-    assert exc.value.code == "cumulative_column"
+    frame, warnings = _load(
+        store,
+        up,
+        (datetime(2025, 1, 1, tzinfo=UTC), datetime(2025, 1, 2, tzinfo=UTC)),
+        column="Meter",
+    )
+    # Undifferenced: the running total is read as the amount in each interval. That is the wrong
+    # answer for a genuine register, and it is the accepted cost of not blocking the false positive.
+    assert np.allclose(frame.values, [100 + i * 0.5 for i in range(14)])
+    assert warnings == [{"code": "CSV_CUMULATIVE_COLUMN", "column": "Meter"}]
+
+
+def test_the_cumulative_warning_survives_a_window_that_slices_the_column(store):
+    # The one warning that is CARRIED rather than recounted from the slice's quality bits: it is a
+    # claim about the whole column, and no window makes it more or less true. A load of six hours
+    # out of fourteen must still carry it — recounting from the slice could not produce it at all.
+    lines = ["Tijdstip,Meter"]
+    for i in range(14):
+        lines.append(f"01-01-2025 {i:02d}:00:00,{100 + i * 0.5:.1f}")
+    up = _upload(store, "\n".join(lines) + "\n")
+    frame, warnings = _load(
+        store,
+        up,
+        (datetime(2025, 1, 1, 2, tzinfo=UTC), datetime(2025, 1, 1, 8, tzinfo=UTC)),
+        column="Meter",
+    )
+    assert len(frame.values) == 6
+    assert warnings == [{"code": "CSV_CUMULATIVE_COLUMN", "column": "Meter"}]
 
 
 def test_single_row_file_has_no_inferrable_resolution(store):

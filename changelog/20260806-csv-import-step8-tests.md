@@ -200,10 +200,69 @@ found where they need to diverge, and nothing here argues for splitting them. Re
 coupling is easy to miss when editing either caller, and because it is why a delete-path test can
 be killed by a load-path regression — which makes such a kill a poor signal about the cascade.
 
+## Both open decisions RESOLVED by the user (2026-08-06)
+
+The user answered both, and the second **reverses** the recommendation above. Recorded here in full
+because the reversal is a deliberate product decision, not a correction of an error.
+
+### 1. DST flag — add it to the data-quality panel
+
+"let's add a note in the 'data quality' results like for the other things." Straightforward: the
+mechanism exists, only the display step is missing.
+
+### 2. Cumulative column — WARN, DO NOT ENFORCE
+
+"I'm ok with a warning in small letters that warns the user the data may be cumulative, but don't
+enforce and let the user proceed anyway."
+
+This is a change of behaviour, not a change of message. Today `column_frame` **raises**
+`CsvFormatError("cumulative_column")` and the fetch fails. It must become a non-blocking warning.
+
+**Why this dissolves the gap rather than deferring it.** My recorded recommendation was to keep the
+hard refusal and close the "reject at selection" gap as will-not-fix, on the grounds that annotating
+the picker would surface the detector's known false positives (partial-day PV). That argument does
+not survive the change: once the warning is non-blocking, a false positive costs the user a line of
+small print they can ignore, not a blocked column of valid data. Warning at selection time becomes
+the *right* place precisely because it no longer enforces anything.
+
+**The cost the user accepted, stated plainly.** A user who proceeds with a genuine meter-register
+column gets a confidently wrong simulation — the app reads "meter now at 12,847 kWh" as "used
+12,847 kWh this hour". §4.2a's original rationale for rejecting was exactly this. The mitigation is
+that the figures are absurd rather than subtly off, plus the recorded warning below. Flagged to the
+user before implementing; they confirmed.
+
+### Design settled before delegating
+
+**The warning is per column, not per interval, so it is NOT a new `QualityFlags` bit.** Every bit in
+`QualityFlags` (`app/domain/frames.py:32-57`) answers "what happened to *this reading*". "This column
+looks cumulative" is a property of the whole column. Adding a bit would be a category error and
+would also have to be set on every interval to be legible. It travels as a `list[dict]` warning
+instead, the shape the pipeline already carries.
+
+**The verdicts must be PERSISTED, not computed on the POST.** The drawer's file cache is filled from
+the **LIST** route (`ha_fetch.js:1250`), not from the POST response. A verdict returned only by the
+POST would show a warning immediately after upload and then silently vanish on the next page load —
+worse than not having it. And `_upload_json`'s own docstring records that the GET list "reads rows
+and never opens a file", so re-parsing every file on every list is against the grain of that route.
+
+Approach: a new **nullable** column on `uploads`, holding the JSON list of column names that look
+cumulative. `NULL` means "not computed" (rows written before this change), which needs no backfill
+and no migration of existing data — an old upload simply shows no annotation until re-uploaded.
+Deliberately NOT stored inside `columns_json`: that field has a documented public contract as a
+plain `list[str]` (`app/uploads.py:136-142`), and overloading it would break the `_row_to_upload`
+positional read for a saving of nothing.
+
+**Trap the implementer must not fall into:** `app/uploads.py:355` `_COLUMNS` is a shared SELECT list
+read **positionally** by `_row_to_upload`, and its docstring says outright that this "is the one
+thing that silently breaks when a column is added to only some of the queries".
+
 ## Current status
 
 The three binding-survival tests are done and mutation-checked, by the author and again
-independently. `tests/test_smoke.py` is 57 passing (54 before). No product code was modified.
+independently. `tests/test_smoke.py` is 57 passing (54 before). No product code was modified by that
+work — committed as `49a68f5`.
+
+Now in progress: the two resolved decisions above, as product changes.
 
 Still open, unchanged from the audit above: the `DST_AMBIGUOUS` data-quality surfacing (fixture 22a's
 second half, a feature change) and the cumulative-column gap (recommendation: close as "will not fix

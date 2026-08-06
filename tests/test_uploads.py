@@ -104,6 +104,90 @@ def test_nullable_summary_fields_round_trip_as_none(mods):
     assert (read.resolution_s, read.first_ts, read.last_ts) == (None, None, None)
 
 
+def test_the_cumulative_verdict_round_trips(mods):
+    """The per-column cumulative verdict survives storage, which is the whole reason it is a column.
+
+    The drawer fills its file cache from the LIST route, not from the upload POST's response, so a
+    verdict that did not persist would annotate the column picker once and then vanish on reload.
+    Asserted on `get` and on `list_for`, because `_COLUMNS` is read POSITIONALLY by `_row_to_upload`
+    and a column added to only some of the queries fails silently.
+    """
+    uploads = mods["uploads"]
+    made = _create(uploads, cumulative_columns=["Meterstand", "Teruglevering"])
+    assert made.cumulative_columns == ["Meterstand", "Teruglevering"]
+
+    read = uploads.get("ws1", made.id)
+    assert read.cumulative_columns == ["Meterstand", "Teruglevering"]
+    assert uploads.list_for("ws1")[0].cumulative_columns == ["Meterstand", "Teruglevering"]
+
+
+def test_an_empty_verdict_is_not_the_same_as_no_verdict(mods):
+    """`[]` (computed, nothing flagged) and None (never computed) must stay distinguishable.
+
+    Only `[]` licenses a reader to say "this file has no suspect columns". Collapsing None to `[]`
+    would make a row written before the column existed claim a check that never ran.
+    """
+    uploads = mods["uploads"]
+    checked = _create(uploads, cumulative_columns=[])
+    unchecked = _create(uploads, cumulative_columns=None)
+
+    assert uploads.get("ws1", checked.id).cumulative_columns == []
+    assert uploads.get("ws1", unchecked.id).cumulative_columns is None
+    # And the default is the "unknown" one: a caller that does not compute a verdict must not be
+    # recorded as having found nothing.
+    assert _create(uploads).cumulative_columns is None
+
+
+def test_an_older_table_without_the_verdict_column_is_migrated(mods):
+    """A database created before `cumulative_columns_json` existed keeps working.
+
+    Reproduced rather than asserted about: the pre-change table is created by hand, a row is written
+    into it, and then the module's own `connect` must grow the table so every `_COLUMNS`-based SELECT
+    still resolves. Without the migration this fails with "no such column", which is what an existing
+    local installation would have hit on its first read.
+
+    The pre-existing row reads back with `cumulative_columns is None` — the migration adds the column
+    NULL and deliberately does not backfill, since backfilling would mean re-parsing every stored
+    file to answer a question the picker can simply not answer for that row.
+    """
+    uploads = mods["uploads"]
+    from app import db
+
+    old_schema = """
+    CREATE TABLE uploads (
+        id           TEXT    NOT NULL PRIMARY KEY,
+        workspace_id TEXT    NOT NULL,
+        filename     TEXT    NOT NULL,
+        tz           TEXT    NOT NULL,
+        columns_json TEXT    NOT NULL,
+        rows         INTEGER NOT NULL,
+        resolution_s INTEGER,
+        first_ts     TEXT,
+        last_ts      TEXT,
+        uploaded_at  TEXT    NOT NULL
+    );
+    """
+    conn = db.connect()
+    conn.executescript(old_schema)
+    conn.execute(
+        "INSERT INTO uploads (id, workspace_id, filename, tz, columns_json, rows, "
+        "resolution_s, first_ts, last_ts, uploaded_at) "
+        "VALUES (?, 'ws1', 'oud.csv', 'UTC', '[\"Tijdstip\", \"Verbruik\"]', 2, "
+        "3600, NULL, NULL, '2026-01-01T00:00:00+00:00')",
+        ("a" * 32,),
+    )
+    conn.close()
+
+    old = uploads.get("ws1", "a" * 32)
+    assert old is not None, "an existing row must still be readable after the migration"
+    assert old.filename == "oud.csv"
+    assert old.cumulative_columns is None
+
+    # And a new row written against the migrated table carries its verdict.
+    made = _create(uploads, cumulative_columns=["Verbruik"])
+    assert uploads.get("ws1", made.id).cumulative_columns == ["Verbruik"]
+
+
 def test_read_text_returns_the_stored_bytes(mods):
     uploads = mods["uploads"]
     made = _create(uploads)
