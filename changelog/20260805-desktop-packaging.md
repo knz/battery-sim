@@ -1203,7 +1203,9 @@ last recorded figure (§11.6) remains stale and this phase does not update it.
 
 - **Portability to any other machine.** The single biggest gap, and the direct consequence of D12.
   Built against glibc 2.39; will not run on anything older. Untested on any distribution but this
-  one. The container build is the follow-up.
+  one. The container build is the follow-up. **(2026-08-06: the container build was not done. The
+  2.39 floor was accepted instead — see `changelog/20260806-glibc-floor-accepted.md`. The
+  untested-on-other-distributions part of this gap is unaffected and still stands.)**
 - **Anything but a bar chart, on anything but the monthly-grid-import tab.** Risk B is answered for
   the chart that is drawn on page load. The `SoC + price` and `Energy flows` tabs were not opened.
 - **A full simulation run inside the AppImage.** The results screen renders and prices off the
@@ -1229,9 +1231,11 @@ route, and shuts down cleanly on window close. Changes are left **unstaged and u
 
 Open, with no recommendation attached:
 
-- **The container build for portability** (D12). Now the cheapest it will ever be, because the
+- ~~**The container build for portability** (D12). Now the cheapest it will ever be, because the
   renderer questions are answered and a container build only has to reproduce a known-good result
-  against an older glibc.
+  against an older glibc.~~ **Not pursued. Closed 2026-08-06:** the glibc 2.39 floor was accepted
+  as satisfactory, so there is no floor to lower. See
+  `changelog/20260806-glibc-floor-accepted.md`.
 - **Phase 5 (packaged HA verification)** — R1 from inside this window, at the launcher's own port,
   and the plain-HTTP LAN case. The window now exists to test it in.
 - **The remaining chart tabs**, if Risk B is to be considered fully closed rather than closed for
