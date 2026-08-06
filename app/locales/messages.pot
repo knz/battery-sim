@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-06 16:09+0200\n"
+"POT-Creation-Date: 2026-08-06 17:12+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -442,6 +442,9 @@ msgstr ""
 msgid "Data quality"
 msgstr ""
 
+msgid "Day"
+msgstr ""
+
 msgid "Day/night window"
 msgstr ""
 
@@ -499,6 +502,11 @@ msgid ""
 msgstr ""
 
 msgid "EQUIVALENT FULL CYCLES"
+msgstr ""
+
+msgid ""
+"Each cell is one simulated interval, in Dutch local time. Blank cells are"
+" intervals with no data."
 msgstr ""
 
 msgid "Economic guard: never discharge at a loss"
@@ -1053,9 +1061,6 @@ msgstr ""
 msgid "SoC + price"
 msgstr ""
 
-msgid "SoC + price chart"
-msgstr ""
-
 msgid "Solar"
 msgstr ""
 
@@ -1338,6 +1343,9 @@ msgstr ""
 msgid "This cannot be undone."
 msgstr ""
 
+msgid "This chart is not built yet."
+msgstr ""
+
 msgid "This control"
 msgstr ""
 
@@ -1374,6 +1382,9 @@ msgid ""
 "for your particular purpose. The entire risk as to its quality and "
 "performance is yours. If it turns out to be defective, you bear the cost "
 "of any servicing, repair or correction."
+msgstr ""
+
+msgid "Time of day"
 msgstr ""
 
 msgid "Title"
@@ -1431,7 +1442,13 @@ msgstr ""
 msgid "What \"no warranty\" means"
 msgstr ""
 
+msgid "What did power cost at the time?"
+msgstr ""
+
 msgid "What does an average day look like?"
+msgstr ""
+
+msgid "When is the battery full?"
 msgstr ""
 
 msgid "Where did the household's energy come from?"

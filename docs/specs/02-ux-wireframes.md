@@ -1292,9 +1292,33 @@ Notes on the two sections:
   offers kWh and shows it by default; with cost simulation on it gains a *Monthly savings
   (€)* option beside it. The two are separate views, not a dual axis — a euro series moves
   with tariff structure as well as with kWh, and overlaying them invites exactly the
-  reading this panel's two-section split exists to prevent. *SoC + price* keeps the bare
-  spot price on its secondary axis in both modes, since the spot series is present either
-  way. *Energy flows* is unaffected.
+  reading this panel's two-section split exists to prevent. *Energy flows* is unaffected.
+  *SoC + price* is likewise unaffected by the cost toggle, since its first chart is pure SoC
+  and its second is not built (see below).
+- **The *SoC + price* tab is a day × time-of-day HEATMAP of state of charge**, not the
+  time-series against a spot-price secondary axis this section described until
+  `changelog/20260806-soc-price-chart-tab.md`. Columns are Europe/Amsterdam calendar days,
+  rows are local time-of-day at the simulation grid's own resolution (96 rows on 15-minute
+  data, 24 on hourly), and each cell is ONE INTERVAL's SoC — nothing is averaged. Colour runs
+  from transparent at the floor of the battery's operating window to opaque at its ceiling,
+  normalised against `soc_min_kwh`/`soc_max_kwh` rather than nameplate capacity so that a
+  battery with a reserve floor still reaches both ends of its own ramp.
+
+  The change of chart type is a change of QUESTION: a line against price reads dispatch at an
+  instant, while the grid reads daily and seasonal rhythm — when the battery is full, and how
+  that moves across the year. It also settles what the old form left open (whether the chart
+  covered the whole range or a zoomable window): a year is 365 columns rather than ~35k
+  points, so the whole range fits.
+
+  The **second chart**, the price half the tab's name promises, is **not specified and not
+  built**. It renders as a heading saying so, inside the working tab — deliberately not as a
+  pending affordance with a [?], since there is no control to click; the tab itself works.
+
+  Payload note, because it constrains the data shape: the cells travel as one byte each,
+  base64'd, inline with the rest of the panel. Per-interval floats would be ~200 KB on a year
+  of 15-minute data riding on every recompute, against ~47 KB quantised. A lazy endpoint like
+  §6.12's benchmark box was considered and rejected — the SoC array is already computed, so a
+  route would re-run the whole simulation on each tab open to save transfer.
 - **Caveats are shown in both modes**, with the kWh ones identical across the toggle. The
   caveats that qualify a euro figure — price bracketing, the feed-in floor, tiered
   terugleverkosten — appear only with cost simulation on, because there is no euro figure to

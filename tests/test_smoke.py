@@ -640,11 +640,15 @@ def test_new_pending_controls_marked(page, data_page_en):
     assert page.locator("#cost-blocked-info").count() == 1
     assert page.locator("#setup-simulate-cost [data-pending-name]").count() == 0
 
-    # Of the two chart tabs that were pending, one still is: "SoC + price" is unbuilt and its
-    # affordance is on the page unconditionally. "Energy flows" is built (changelog
-    # 20260806-energy-flows-chart-tab.md), so its key is retired in app/features.py and nothing
-    # renders a pending affordance for it — the tab is a real control now.
-    assert page.locator("[data-feature-key=chart_soc_price]").count() >= 1
+    # Both chart tabs that were once pending are built now — "Energy flows" (changelog
+    # 20260806-energy-flows-chart-tab.md) and "SoC + price" (20260806-soc-price-chart-tab.md) — so
+    # both keys are retired in app/features.py and NEITHER renders a pending affordance. Every tab
+    # in the Charts strip is a real control.
+    #
+    # The SoC tab's second chart is still unbuilt, and deliberately does NOT resurrect a key here:
+    # a placeholder inside a working tab is not a pending CONTROL — there is no button to click
+    # and no dialog to open — so it is a heading that says so in words instead.
+    assert page.locator("[data-feature-key=chart_soc_price]").count() == 0
     assert page.locator("[data-feature-key=chart_energy_flows]").count() == 0
 
 
@@ -3461,4 +3465,68 @@ def test_a_swap_that_removes_the_selected_tab_falls_back_to_the_default(browser,
     assert pg.locator("#monthly-chart").is_visible()
     assert pg.locator("#monthly-chart svg").count() > 0, "the fallback tab was not drawn"
     assert errors == [], f"restoring an absent tab raised: {errors}"
+    context.close()
+
+
+
+def test_the_soc_heatmap_tab_draws_and_survives_a_recompute(browser, base_url):
+    """The *SoC + price* tab is a real tab now: it opens, it draws, and it stays selected.
+
+    A browser test because none of that is visible server-side. The panel's markup is the same
+    whichever tab is showing — `hidden` on the containers is a class the server always renders the
+    same way — so which chart the reader is looking at, and whether Plotly actually put marks on
+    the screen, exist only in the browser.
+
+    The heatmap in particular cannot be asserted from the markup at all: its cells arrive as one
+    base64 string and become an `<image>` element only after `atob` + reshape + a Plotly draw. A
+    server-side test can prove the payload decodes; only this can prove it renders.
+    """
+    url = _workspace_url(base_url)
+    workspace_id = url.rstrip("/").split("/")[-2]
+    # Without a dataset there is no `soc_heatmap` in the view-model and hence no tab, so the test
+    # would pass vacuously.
+    _seed_reconstructable_dataset(workspace_id)
+
+    context = browser.new_context()
+    context.add_cookies([{"name": "lang", "value": "en", "url": base_url}])
+    pg = context.new_page()
+    errors = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{base_url}/w/{workspace_id}/results", wait_until="networkidle")
+
+    tab = pg.locator('[data-chart-tab="socprice"]')
+    assert tab.count() == 1, "the tab under test is not on the screen"
+    # It is a REAL tab, not the pending affordance it replaced: no dialog trigger, no [?].
+    assert pg.locator("[data-feature-key=chart_soc_price]").count() == 0
+    assert tab.get_attribute("data-pending-name") is None
+    # The precondition: the panel opens on monthly, so the assertion below is not a tautology.
+    assert not pg.locator("#socprice-charts").is_visible()
+
+    tab.click()
+    pg.wait_for_timeout(1200)
+
+    assert pg.locator("#socprice-charts").is_visible()
+    assert not pg.locator("#monthly-chart").is_visible(), "two chart containers are showing at once"
+    # Plotly draws a heatmap as an <image> inside the svg. Asserting on it rather than on the svg
+    # alone is what separates "the frame was created" from "the cells were rendered".
+    assert pg.locator("#socprice-heatmap svg").count() > 0, "the heatmap frame was never drawn"
+    assert pg.locator("#socprice-heatmap image").count() > 0, "the frame is empty — no cells drawn"
+    # Drawn at the container's real width, which is the failure mode a draw inside `hidden` has:
+    # Plotly measures 0 and produces a plot no wider than its margins.
+    box = pg.locator("#socprice-heatmap").bounding_box()
+    assert box is not None and box["width"] > 200, f"drawn at a collapsed size: {box}"
+
+    # The second chart is a heading-only placeholder, not an empty frame that reads as a failure.
+    assert pg.locator("#socprice-charts").get_by_text("This chart is not built yet.").count() == 1
+
+    # And it survives a recompute, by the same mechanism the other tabs use.
+    pg.locator("[data-period='last_1_week']").click()
+    pg.wait_for_timeout(1800)
+    assert pg.locator("#socprice-charts").is_visible(), "the recompute dropped the reader off the tab"
+    assert pg.locator("#socprice-heatmap image").count() > 0, "redrawn frame has no cells"
+    active = pg.locator("[data-chart-tab].btn-active")
+    assert active.count() == 1
+    assert active.first.get_attribute("data-chart-tab") == "socprice"
+
+    assert errors == [], f"drawing the heatmap raised: {errors}"
     context.close()

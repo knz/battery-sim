@@ -254,15 +254,15 @@
              (see changelog/20260724-panel3-battery-simulation.md), and labelling this one
              "Monthly savings" made the bars read as ~11× the actual saving (3,923 kWh of import
              beside a 341 kWh saving on the 1-year window).
-             *Energy flows* is a real tab since changelog/20260806-energy-flows-chart-tab.md; only
-             *SoC + price* draws nothing, so it alone carries the §2.1 pending affordance rather
-             than looking like a working button beside working ones. #}
-          {# The pending tab carries its [?] INLINE and stays enabled, matching the "⤓ export CSV
-             [?]" button beside it: a `disabled` button swallows its own clicks, so the dialog
-             opener has to remain clickable. `opacity-60` is the look-disabled styling without the
-             attribute, which is exactly the pending idiom — the control does nothing but says why
-             when asked. A tab that WORKS must carry neither `data-pending-name` (the dialog
-             handler in _pending_dialog.html keys off it) nor `opacity-60`. #}
+             *Energy flows* is a real tab since changelog/20260806-energy-flows-chart-tab.md, and
+             *SoC + price* since changelog/20260806-soc-price-chart-tab.md — so every tab in this
+             strip now draws something, and none of them carries the §2.1 pending affordance. The
+             "⤓ export CSV [?]" button beside the strip still does.
+             The rule if a pending tab is ever added back: it carries `data-pending-name` (the
+             dialog handler in _pending_dialog.html keys off it) plus `opacity-60`, and NOT
+             `data-chart-tab`; a tab that works must carry the opposite. It stays enabled and shows
+             its [?] inline, because a `disabled` button swallows its own clicks and the dialog
+             opener has to remain clickable. #}
           {# §2.4: "The Charts box gains options rather than swapping them." The kWh view is
              always offered and shown by default; the euro view appears BESIDE it only when there
              is a euro series, and the two are separate views rather than a dual axis (see the
@@ -279,7 +279,9 @@
             {% if results.monthly_saved_eur %}
             <button type="button" class="btn btn-xs join-item" data-chart-tab="monthly" data-chart-view="eur">{{ _('Monthly savings (€)') }}</button>
             {% endif %}
-            <button type="button" class="btn btn-xs join-item opacity-60" data-pending-name="{{ _('SoC + price chart') }}" data-feature-key="chart_soc_price">{{ _('SoC + price') }} [?]</button>
+            {% if results.soc_heatmap %}
+            <button type="button" class="btn btn-xs join-item" data-chart-tab="socprice">{{ _('SoC + price') }}</button>
+            {% endif %}
             {% if results.energy_flows %}
             <button type="button" class="btn btn-xs join-item" data-chart-tab="flows">{{ _('Energy flows') }}</button>
             {% endif %}
@@ -393,6 +395,32 @@
                chart taller than the ones it sits under instead of shorter. Verified in a browser.
                A shorter frame here would mean rebuilding and re-committing the CSS. #}
             <div id="flows-soc" class="h-64 w-full"></div>
+          </div>
+        </div>
+        {% endif %}
+        {# ── The *SoC + price* tab ────────────────────────────────────────────────────────────
+           Chart 1 is the SoC heatmap: one cell per SIMULATION INTERVAL, days across and local
+           time-of-day down, coloured from transparent (the floor of the operating window) to
+           opaque (the top). It answers a question no other tab does — WHEN the battery is full,
+           daily and seasonally — where the flows tab's average day collapses every day into one
+           and hides how much days differ from each other.
+
+           Chart 2 is not specified yet, and is a heading-only placeholder rather than an empty
+           frame: an empty `h-64` div would read as a chart that failed to draw. The tab's NAME
+           already promises a price half, which is why the placeholder says so in words instead of
+           leaving the reader to wonder whether something is missing. #}
+        {% if results.soc_heatmap %}
+        <div id="socprice-charts" class="hidden flex-col gap-4">
+          <div>
+            <h4 class="text-sm font-semibold">{{ _('When is the battery full?') }}</h4>
+            <div id="socprice-heatmap" class="h-64 w-full"></div>
+            <p class="text-xs text-base-content/70">
+              {{ _('Each cell is one simulated interval, in Dutch local time. Blank cells are intervals with no data.') }}
+            </p>
+          </div>
+          <div>
+            <h4 class="text-sm font-semibold">{{ _('What did power cost at the time?') }}</h4>
+            <p class="text-xs text-base-content/70">{{ _('This chart is not built yet.') }}</p>
           </div>
         </div>
         {% endif %}
@@ -684,6 +712,36 @@
           "curtailed": _('Solar curtailed'),
           "net_grid": _('Net grid (import − export)')
         }} | tojson }}
+  </script>
+  {% endif %}
+
+  {# The *SoC + price* tab's data, on the same contract as #flows-data above: a JSON node inside
+     the swappable fragment, read fresh by the draw function after every swap, and every
+     user-visible string translated HERE rather than in JavaScript.
+
+     `cells` is a base64 string of ONE BYTE PER CELL, not an array of numbers — see `_soc_heatmap`
+     in results_view.py. A year of 15-minute intervals is ~35k cells; as JSON floats that is
+     ~200 KB riding on every recompute whether or not this tab is opened, against ~47 KB here. The
+     de-quantisation constants travel with it (`levels`, `soc_min_kwh`, `soc_max_kwh`) so the
+     browser can put kWh back on the hover, and `absent` is the sentinel for a cell with no
+     simulated value.
+
+     The same editor's note as above applies: no Jinja comment may go INSIDE the expression. #}
+  {% if results.soc_heatmap %}
+  <script id="socprice-data" type="application/json">
+    {{ {"rows": results.soc_heatmap.rows,
+        "cols": results.soc_heatmap.cols,
+        "days": results.soc_heatmap.days,
+        "grid_s": results.soc_heatmap.grid_s,
+        "absent": results.soc_heatmap.absent,
+        "levels": results.soc_heatmap.levels,
+        "soc_min_kwh": results.soc_heatmap.soc_min_kwh,
+        "soc_max_kwh": results.soc_heatmap.soc_max_kwh,
+        "cells": results.soc_heatmap.cells,
+        "unit": _('kWh'),
+        "legend_title": _('State of charge'),
+        "day_title": _('Day'),
+        "time_title": _('Time of day')} | tojson }}
   </script>
   {% endif %}
 </section>

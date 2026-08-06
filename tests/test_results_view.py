@@ -3434,3 +3434,205 @@ def test_the_average_day_is_the_same_profile_at_hourly_and_15_minute_resolution(
 
     # SoC: a stock, so the WINDOW mean is the invariant, not the per-bucket value.
     assert np.mean(hourly["soc"]) == pytest.approx(np.mean(quarterly["soc"]), abs=0.01)
+
+
+# ── The SoC heatmap (§2.4's *SoC + price* tab, first chart) ────────────────────────────────────
+
+
+def _decode_heatmap(h):
+    """The browser's decode, in numpy: base64 -> bytes -> z[row][col]."""
+    import base64
+
+    cells = np.frombuffer(base64.b64decode(h["cells"]), dtype=np.uint8)
+    assert len(cells) == h["rows"] * h["cols"], "the payload does not fill the declared grid"
+    return cells.reshape(h["rows"], h["cols"])
+
+
+def test_the_soc_heatmap_keeps_the_data_s_own_resolution_rather_than_bucketing():
+    """One cell per SIMULATION INTERVAL, so a finer grid gives more ROWS, not finer averages.
+
+    This is the property that distinguishes this chart from every other aggregation in the module.
+    `_energy_flows` has to choose between a per-day and a per-interval mean and defend the choice
+    (`_hourly_flow` vs `_hourly_stock`); here there is no choice to make, because nothing is
+    averaged — the cell IS an interval. So the same physical window drawn at 3600 s and at 900 s
+    must differ ONLY in row count, and the underlying trajectory must be the same.
+
+    The column count is asserted equal across the two: days are days whatever the sampling rate,
+    and a column count that moved with resolution would mean the local-day bucketing was reading
+    interval indices rather than wall-clock dates.
+    """
+    days = 60
+    win = (_COV_START, _COV_START + timedelta(days=days))
+    got = {}
+    for grid_s in (3600, 900):
+        r = results_from(_flows_dataset(days, grid_s), win)
+        assert r is not None and r["soc_heatmap"] is not None
+        got[grid_s] = r["soc_heatmap"]
+
+    assert got[3600]["rows"] == 24
+    assert got[900]["rows"] == 96
+    assert got[3600]["grid_s"] == 3600 and got[900]["grid_s"] == 900
+    # Same window, same days: the calendar axis does not move with the sampling rate.
+    assert got[3600]["cols"] == got[900]["cols"]
+    assert got[3600]["days"] == got[900]["days"]
+    # Same battery, so the same operating window is what the colour ramp spans in both.
+    assert got[3600]["soc_min_kwh"] == got[900]["soc_min_kwh"]
+    assert got[3600]["soc_max_kwh"] == got[900]["soc_max_kwh"]
+
+    # The same physical trajectory: the 15-minute run samples it four times per hour rather than
+    # once, so cell-for-cell equality is not the claim — the MEAN over real cells is, to within
+    # quantisation. (Both are levels on one shared ramp, so they are directly comparable.)
+    z_h, z_q = _decode_heatmap(got[3600]), _decode_heatmap(got[900])
+    absent = got[3600]["absent"]
+    mean_h = z_h[z_h != absent].mean()
+    mean_q = z_q[z_q != absent].mean()
+    assert abs(float(mean_h) - float(mean_q)) < 2.0, (mean_h, mean_q)
+
+
+def test_the_soc_heatmap_spans_the_operating_window_not_nameplate_capacity():
+    """0 is the floor of the battery's operating window and `levels` is its ceiling.
+
+    The ramp has to span exactly the range the SoC can occupy, or the chart never reaches one of
+    its own ends. A battery with a 10% reserve floor and a 90% ceiling normalised against
+    `usable_capacity_kwh` would top out at 90% opacity and bottom out at 10% — so "full" would not
+    look full, and the reader would have no way to know the top of the ramp was unreachable.
+
+    Asserted against a config with a DELIBERATELY asymmetric window (20%..80%), so a normalisation
+    against nameplate would be visible as a range that stops well short of both ends.
+    """
+    days = 20
+    win = (_COV_START, _COV_START + timedelta(days=days))
+    from app.domain.simconfig import SimulationConfig
+
+    cfg = SimulationConfig()
+    cfg.battery.usable_capacity_kwh = 10.0
+    cfg.battery.min_soc_pct = 20.0
+    cfg.battery.max_soc_pct = 80.0
+
+    r = results_from(_flows_dataset(days, 3600), win, cfg=cfg)
+    h = r["soc_heatmap"]
+    # The published ends are the operating window in kWh, which is what the colourbar labels.
+    assert h["soc_min_kwh"] == 2.0
+    assert h["soc_max_kwh"] == 8.0
+
+    z = _decode_heatmap(h)
+    real = z[z != h["absent"]]
+    assert real.min() >= 0
+    assert real.max() <= h["levels"]
+    # This fixture cycles the battery hard enough to reach both ends of its window. That is what
+    # makes the assertion meaningful: it shows the ramp is REACHABLE at both extremes, which is
+    # exactly what nameplate normalisation would break.
+    assert real.min() == 0, "the empty end of the ramp is never reached"
+    assert real.max() == h["levels"], "the full end of the ramp is never reached"
+
+
+def test_the_soc_heatmap_marks_absent_cells_distinctly_from_an_empty_battery():
+    """A cell with no data must not be drawable as a cell at the bottom of the ramp.
+
+    `soc` is carried forward through gap intervals (`simulate.Flows`) so the average-day TRACE
+    stays continuous — right for a line, wrong for a cell: a filled cell during a data gap asserts
+    a charge level the simulation explicitly declined to claim. So gaps become the sentinel, and
+    the sentinel cannot be 0 because 0 is a real reading meaning "at the floor of the window".
+
+    The window here starts at 00:00 UTC, which is 01:00 Amsterdam, so local hour 0 of the first
+    day falls outside it — an absent cell that arises from the local-time axis itself, with no gap
+    in the data at all. That is the cheapest reachable case; it is the same sentinel either way.
+    """
+    days = 10
+    win = (_COV_START, _COV_START + timedelta(days=days))
+    r = results_from(_flows_dataset(days, 3600), win)
+    h = r["soc_heatmap"]
+
+    assert h["absent"] != 0, "the sentinel collides with a real reading at the floor"
+    assert h["absent"] > h["levels"], "the sentinel is inside the ramp"
+
+    z = _decode_heatmap(h)
+    # First local day, hour 00:00 — before the window opens.
+    assert z[0][0] == h["absent"]
+    # And the rest of that first column is real data, so this is a hole rather than a missing day.
+    assert (z[1:, 0] != h["absent"]).all()
+
+
+def test_the_soc_heatmap_columns_are_local_days_including_across_dst():
+    """Columns are Europe/Amsterdam calendar days, which is why one column a year is 23 hours.
+
+    The axis exists to be compared against what the reader sees on their own inverter app or Home
+    Assistant dashboard, both of which plot Dutch local time (the same argument `_energy_flows`
+    makes for its average day). §4.4 holds the pipeline in UTC, so the conversion happens per
+    interval — and on the spring-forward day local 02:00 never occurs.
+
+    29 March 2026 is that day. Exactly one cell of its column has no interval, and it is the 02:00
+    row; every other cell of that column is real. A constant UTC offset would put the hole on the
+    wrong row or lose it entirely, and bucketing by `i % rows` would smear every day after it.
+    """
+    days = 120  # 1 Jan + 120 days spans 29 March
+    win = (_COV_START, _COV_START + timedelta(days=days))
+    r = results_from(_flows_dataset(days, 3600), win)
+    h = r["soc_heatmap"]
+
+    assert "2026-03-29" in h["days"], "the fixture does not reach the DST transition"
+    col = h["days"].index("2026-03-29")
+    z = _decode_heatmap(h)
+    holes = [row for row in range(h["rows"]) if z[row][col] == h["absent"]]
+    assert holes == [2], f"expected one hole at local 02:00, got rows {holes}"
+
+
+
+def test_the_soc_heatmap_blanks_a_data_gap_rather_than_carrying_charge_into_it(monkeypatch):
+    """The rule the sentinel exists FOR: a gap cell is blank, not a plateau of carried charge.
+
+    `simulate` carries the SoC forward across a gap deliberately — the battery physically still
+    held its charge through a sensor outage, and the average-day TRACE would otherwise break into
+    segments. But a heatmap cell is a claim about one interval, and drawing carried-forward charge
+    in it asserts a reading the simulation explicitly declined to make (`run_all` marks the
+    interval `gap` and puts NaN in every flow). A reader cannot tell a plateau of real charge from
+    a plateau of no-data, and when the battery is full is this chart's entire subject.
+
+    **The frame is patched, because this path cannot be reached from a dataset** — followup C11.
+    `_soc_heatmap` reads `Flows.gap`, which §6.9 sets from `isnan(frame.load) | isnan(frame.pv)`,
+    but `reconcile._resample_sum` fills every hole with 0.0 (`nan_to_num`, `reconcile.py:93`), so
+    `simulation_frame` cannot emit a NaN load. Verified while writing this test: NaN written into
+    the source frames arrives as `isnan(frame.load).sum() == 0` and `gap.sum() == 0`. Patching is
+    the only way to exercise the rule, and it is the same approach
+    `test_the_partial_month_footnote_appears_only_when_a_month_is_flagged` takes for the same
+    reason. If a coverage mask ever propagates NaN instead of zero-filling, this test keeps working
+    unchanged and the patch simply becomes redundant.
+
+    The sibling test above reaches the sentinel through a window EDGE, which exercises the encoding
+    but not this rule — its SoC array is gap-free, so removing the gap mask leaves it passing.
+    This is the test that fails if the mask goes.
+    """
+    days = 10
+    win = (_COV_START, _COV_START + timedelta(days=days))
+
+    from app.domain import simframe
+
+    original = simframe.simulation_frame
+    hole = slice(4 * 24 + 6, 4 * 24 + 12)  # six hours inside day index 4
+
+    def holed(dataset, window):
+        frame = original(dataset, window)
+        if frame is not None and frame.intervals > hole.stop:
+            load = np.array(frame.load, dtype=np.float64)
+            load[hole] = np.nan
+            frame.load = load
+        return frame
+
+    monkeypatch.setattr("app.results_view.simulation_frame", holed)
+
+    r = results_from(_flows_dataset(days, 3600), win)
+    h = r["soc_heatmap"]
+    z = _decode_heatmap(h)
+
+    # January is UTC+1, so UTC hours 6..11 of day index 4 are local hours 7..12 of 5 January.
+    col = h["days"].index("2026-01-05")
+    rows = [rr for rr in range(h["rows"]) if z[rr][col] == h["absent"]]
+    assert rows == list(range(7, 13)), f"expected local hours 7..12 blank, got {rows}"
+
+    # And ONLY there: a mask that blanked more than the gap would be as wrong as one that blanked
+    # less. Every other cell of that column is a real reading, including the hours either side.
+    assert z[6][col] != h["absent"] and z[13][col] != h["absent"]
+    # The neighbouring days are untouched — the gap is not smeared across the calendar axis.
+    for other in ("2026-01-04", "2026-01-06"):
+        oc = h["days"].index(other)
+        assert (z[:, oc] != h["absent"]).all(), f"{other} lost cells to a gap on another day"

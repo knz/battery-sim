@@ -184,6 +184,7 @@ Main items:
 
 from __future__ import annotations
 
+import base64
 import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -1359,6 +1360,142 @@ def _energy_flows(runs, rec: ReconciledGrid, frame, cfg: SimulationConfig) -> di
     }
 
 
+# The quantisation ceiling for the SoC heatmap: 254 is full charge, 0 is the floor of the operating
+# window. See `_soc_heatmap` for why the payload is bytes rather than floats.
+#
+# 254 and not 255 because a byte has to carry the ABSENT sentinel as well as the ramp, and the two
+# must not collide — a cell with no data and a cell at the bottom of the window are different
+# statements that both draw as blank. Giving up one of 256 levels costs 0.4% of colour resolution
+# on a ramp the eye reads to maybe 30 steps; giving up the distinction would mean a data gap
+# rendered as a flat empty battery.
+SOC_HEATMAP_LEVELS = 254
+
+# The sentinel byte for a cell with no simulated SoC — a gap interval, or a local time-of-day slot
+# that does not exist on the spring-forward DST day.
+SOC_HEATMAP_ABSENT = 255
+
+
+def _soc_heatmap(runs, rec: ReconciledGrid, frame, cfg: SimulationConfig) -> dict | None:
+    """The §2.4 *SoC + price* tab's first chart: run C's state of charge as a day × time-of-day grid.
+
+    One cell per SIMULATION INTERVAL, at the data's own resolution — 96 rows on a 15-minute grid,
+    24 on an hourly one. Deliberately NOT bucketed to the hour. Every other aggregation in this
+    module has to decide between a per-day and a per-interval mean (`_hourly_flow` vs
+    `_hourly_stock`, and the resolution-invariance argument in `_energy_flows`' docstring); this
+    one does not, because a cell IS an interval and no averaging happens. What the data has, the
+    chart shows.
+
+    **A departure from the specification, made deliberately.** §2.4 and followup C2 describe this
+    tab as SoC against bare `spot_eur_kwh` on a secondary axis — a dispatch diagnostic reading
+    left to right in time. This is a heatmap of the same series against a two-dimensional calendar
+    axis, which answers a different question: daily and seasonal RHYTHM rather than instantaneous
+    dispatch. It also settles C2's open "whole range or zoomable window" question, since a year of
+    15-minute intervals is ~35k points as a line and 365 columns as a grid. The spec text is
+    updated to match rather than left describing a chart that is not there.
+
+    **The payload is BYTES, base64'd, not floats.** A year of 15-minute cells is ~35k values; as
+    JSON numbers that is ~200 KB on every recompute, whether or not the tab is ever opened. The
+    cell's only job is to pick a colour off a ramp, so it only ever needs a display value: SoC is
+    quantised to one byte, which is ~47 KB of base64 for the same window.
+    The alternative considered and rejected was a lazy endpoint like the benchmark box's
+    (`app/main.py`'s `results_benchmark`): that route buys back SECONDS of §6.12 DP, whereas
+    nothing here is expensive — the SoC array is already in hand — so a lazy route would re-run
+    `run_all` on every tab open, with no cache to amortise it, to save the transfer. Quantising
+    saves most of the transfer and costs neither a route nor a second simulation.
+
+    The accepted cost is that the payload carries DISPLAY values rather than kWh. A hover in kWh
+    reconstructs from the published `soc_min_kwh`/`soc_max_kwh`, to within half a level — ~0.02 kWh
+    over a 10 kWh window, finer than a cell can be drawn or a reader can distinguish.
+
+    **Normalised against the OPERATING window, not nameplate capacity.** `cfg.soc_max_kwh` and
+    `cfg.soc_min_kwh` are the bounds `battery_step` actually asserts against, so the ramp spans
+    exactly the range the SoC can occupy and full charge is genuinely opaque. Dividing by
+    `usable_capacity_kwh` instead would make a battery with a 10% reserve floor and a 90% ceiling
+    top out at 90% opacity and never reach either end of its own colour ramp. Config check 11
+    guarantees `soc_min < soc_max`, so the denominator cannot be zero on a valid config.
+
+    **Columns are LOCAL calendar days and rows are LOCAL time-of-day** (`i18n.DISPLAY_TZ`), the
+    same convention and for the same reason as `_energy_flows`' average day: the whole use of a
+    time-of-day axis is comparison against what the reader sees on their own inverter app or Home
+    Assistant dashboard, both of which plot Dutch local time. §4.4 holds the pipeline in UTC, so
+    each interval's own instant is converted here, per interval — Amsterdam is UTC+1 in winter and
+    UTC+2 in summer, and a constant shift would be wrong for half of any year-long window.
+
+    **Two kinds of cell have no value, and both are `SOC_HEATMAP_ABSENT`.** A DST day is 23 or 25
+    hours long, so on the spring-forward day one row of that column is never reached, and on the
+    autumn day two intervals fall in the same local slot (the second wins — the grid has one cell
+    for them, and the alternative would be to widen every column for one day a year). And a GAP
+    interval carries SoC forward (`simulate.Flows`) so that the average-day trace stays continuous,
+    which is right for a line but wrong for a cell: a filled cell during a data gap asserts a
+    charge level the simulation explicitly declined to claim. Both render as blank, which is also
+    what an empty cell looks like at the bottom of the ramp — so the SENTINEL is what separates
+    "no data" from "empty battery", and it must not be 0.
+
+    Returns None when the operating window is degenerate, which a valid config cannot produce; the
+    guard is here so a future config path that widened the validation cannot divide by zero.
+    """
+    soc = np.asarray(runs.c.soc, dtype=np.float64)
+    gap = np.asarray(runs.c.gap, dtype=bool)
+    n = len(soc)
+
+    lo = float(cfg.soc_min_kwh)
+    hi = float(cfg.soc_max_kwh)
+    if not (hi > lo):
+        return None
+
+    # Rows per column. `grid_s` divides the day for every grid the reconciler chooses (§6.2's
+    # ladder is 300/900/3600 s), so this is exact; `max(1, ...)` guards a hypothetical grid coarser
+    # than a day rather than describing a reachable case.
+    rows = max(1, 86400 // rec.grid_s)
+
+    # Quantise once, over the whole array — `np.clip` handles the SOC_COMPARE_EPS_KWH slack that
+    # `battery_step` allows on both bounds, which can put a value a hair outside [lo, hi].
+    frac = (soc - lo) / (hi - lo)
+    q = np.rint(np.clip(frac, 0.0, 1.0) * SOC_HEATMAP_LEVELS).astype(np.int64)
+    # Gaps first, so a carried-forward SoC cannot survive as a real-looking cell.
+    q = np.where(gap | np.isnan(soc), SOC_HEATMAP_ABSENT, q)
+
+    # Per-interval local date and slot-within-day. The same explicit loop as `_energy_flows`' —
+    # `zoneinfo` has no numpy equivalent — and O(n) alongside it.
+    win_start_utc = _as_utc(rec.window[0])
+    col_of = np.empty(n, dtype=np.int64)
+    row_of = np.empty(n, dtype=np.int64)
+    day_ids: dict[tuple[int, int, int], int] = {}
+    day_labels: list[str] = []
+    for i in range(n):
+        local = (win_start_utc + timedelta(seconds=i * rec.grid_s)).astimezone(DISPLAY_TZ)
+        key = (local.year, local.month, local.day)
+        d = day_ids.get(key)
+        if d is None:
+            d = day_ids[key] = len(day_ids)
+            day_labels.append(f"{local.year:04d}-{local.month:02d}-{local.day:02d}")
+        col_of[i] = d
+        # Seconds since local midnight, floored onto the grid. Derived from the wall clock rather
+        # than from `i % rows` so that a DST transition shifts the rows of that one day instead of
+        # skewing every day after it.
+        row_of[i] = ((local.hour * 3600 + local.minute * 60 + local.second) // rec.grid_s) % rows
+
+    n_cols = len(day_labels)
+    # Row-major by ROW (time-of-day), so the browser's decode reshapes straight into Plotly's
+    # `z[row][col]` without a transpose: z[r] is one time-of-day across every day.
+    cells = np.full(rows * n_cols, SOC_HEATMAP_ABSENT, dtype=np.uint8)
+    cells[row_of * n_cols + col_of] = q.astype(np.uint8)
+
+    return {
+        "rows": rows,
+        "cols": n_cols,
+        "days": day_labels,
+        # Seconds per row, so the browser can label the time axis without re-deriving the grid.
+        "grid_s": int(rec.grid_s),
+        "absent": SOC_HEATMAP_ABSENT,
+        "levels": SOC_HEATMAP_LEVELS,
+        # The two ends of the ramp in kWh, for the hover readout and the legend.
+        "soc_min_kwh": round(lo, 2),
+        "soc_max_kwh": round(hi, 2),
+        "cells": base64.b64encode(cells.tobytes()).decode("ascii"),
+    }
+
+
 # ── §2.4's COST SAVINGS section ──────────────────────────────────────────────────────────────
 #
 # Everything below runs only under `cfg.simulate_cost`. §4.5 is explicit that `cost` is null
@@ -2120,6 +2257,7 @@ def results_from(
     monthly_saved_eur: list[float] | None = None
     price_bracket: PriceBracket | None = None
     energy_flows: dict | None = None
+    soc_heatmap: dict | None = None
     if frame is not None and frame.intervals > 0:
         # `rec` and `frame` come from the same reconcile_grid over the same window, so `pv_mask`
         # (built against `rec`) indexes `frame`'s arrays too — same length, same interval starts.
@@ -2130,6 +2268,9 @@ def results_from(
         # equivalence is untouched. Absent (not an empty object) when there is no frame to run,
         # matching how `cost` and `benchmark` are handled: the template branches on the one key.
         energy_flows = _energy_flows(runs, rec, frame, cfg)
+        # §2.4's *SoC + price* tab, first chart. Reads the SoC array `run_all` already produced —
+        # no extra simulation, same as the flows above.
+        soc_heatmap = _soc_heatmap(runs, rec, frame, cfg)
         # ── §6.5 + §6.10: the euro side, ONLY under `cfg.simulate_cost` (§4.5, §6.12's table) ──
         #
         # Everything here runs AFTER `run_all` and feeds nothing back into it, which is what makes
@@ -2769,6 +2910,12 @@ def results_from(
         # computed for the tiles above, so a separate route would re-run `run_all` (nothing is
         # cached) to save a few KB of JSON. None when there was no frame to simulate.
         "energy_flows": energy_flows,
+        # §2.4's *SoC + price* tab — run C's SoC as a day × time-of-day grid. Inline like the flows
+        # beside it and for the same reason (the array is already in hand, so a lazy route would
+        # re-run `run_all` to save transfer), but QUANTISED to a byte per cell: this one is
+        # per-interval rather than per-month, so the float payload would be ~200 KB on a year of
+        # 15-minute data against ~47 KB base64. See `_soc_heatmap`.
+        "soc_heatmap": soc_heatmap,
         "caveats": caveats,
         # The window request the lazy benchmark fetch should re-send, as a JSON string the template
         # drops straight into a data-* attribute. It is the EFFECTIVE window (what was actually

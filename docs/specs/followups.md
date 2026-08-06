@@ -176,17 +176,31 @@ calendar month — now honestly relabelled "Monthly grid import". Building the r
 running the A/B/C simulation and bucketing `saved_kwh` per month.
 *Origin:* `20260724-panel3-battery-simulation.md` (Phase 7).
 
-**C2. The "SoC + price" chart tab is a pending affordance, not an implementation.** — **HALF DONE**
-(`chart_energy_flows` built, `chart_soc_price` still pending). "Energy flows" shipped in
-`20260806-energy-flows-chart-tab.md` as three kWh charts — monthly load sourcing, monthly PV
-allocation, and an hour-of-day average day — so its key moved to `RETIRED_KEYS` in
-`app/features.py`. "SoC + price" keeps the §2.1 pending affordance under `chart_soc_price`; that
-changelog also records what the tab was meant to show (SoC against bare `spot_eur_kwh` on a
-secondary axis, as a dispatch diagnostic) and two questions the spec never settles: whether the
-chart covers the whole range or a zoomable window, and whether the SoC series is run C alone or
-overlaid with the perfect-foresight benchmark.
+**C2. The "SoC + price" chart tab is a pending affordance, not an implementation.** — **DONE**
+for the tab; its SECOND chart is carried as C2a below. "Energy flows" shipped in
+`20260806-energy-flows-chart-tab.md` as three kWh charts; "SoC + price" shipped in
+`20260806-soc-price-chart-tab.md`, so both keys are now in `RETIRED_KEYS` and no chart tab
+carries a pending affordance.
+
+The tab did NOT ship in the form this followup described. Instead of SoC against bare
+`spot_eur_kwh` on a secondary axis, its first chart is a day × time-of-day heatmap of run C's
+SoC, one cell per simulation interval. That answers rhythm rather than instantaneous dispatch,
+and it resolves the first of the two questions recorded here — whole range or zoomable window —
+by being a grid: a year is 365 columns, not ~35k points. See §2.4 for the specification as built.
+
+The second question is untouched and still open: the heatmap draws **run C alone**, and whether
+an overlay against the perfect-foresight benchmark would be worth having is undecided. On a
+heatmap that would mean a second grid or a difference grid rather than a second line.
+
+**C2a. The "SoC + price" tab's price chart is not built.** The tab ships with one chart and a
+heading-only placeholder where the price half its name promises should be. Deliberately not a
+pending affordance: there is no control to click, the tab itself works, and a [?] would offer to
+register interest in something already half-delivered. What that chart should show is unspecified
+— the obvious candidate is the spot series over the same calendar axis, so the two grids read as
+a pair, but that is a hypothesis and not a decision.
 *Origin:* `20260724-panel3-battery-simulation.md` (Phase 7),
-`20260725-spec-corrections-from-implementation.md`, `20260806-energy-flows-chart-tab.md`.
+`20260725-spec-corrections-from-implementation.md`, `20260806-energy-flows-chart-tab.md`,
+`20260806-soc-price-chart-tab.md`.
 
 **C3. Run E / the cost DP, and any euro figure, are not built.** — **DONE** (cost-simulation
 increment, Phases 2–4). §6.5's price curves, §6.10's cost accounting and waterfall, and run E with

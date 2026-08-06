@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-06 16:09+0200\n"
+"POT-Creation-Date: 2026-08-06 17:12+0200\n"
 "PO-Revision-Date: 2026-07-23 20:30+0200\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: nl\n"
@@ -486,6 +486,9 @@ msgstr ""
 msgid "Data quality"
 msgstr "Datakwaliteit"
 
+msgid "Day"
+msgstr "Dag"
+
 msgid "Day/night window"
 msgstr "Dal/normaal-venster"
 
@@ -549,6 +552,13 @@ msgstr ""
 
 msgid "EQUIVALENT FULL CYCLES"
 msgstr "EQUIVALENTE VOLLEDIGE CYCLI"
+
+msgid ""
+"Each cell is one simulated interval, in Dutch local time. Blank cells are"
+" intervals with no data."
+msgstr ""
+"Elke cel is één gesimuleerd interval, in Nederlandse lokale tijd. Lege"
+" cellen zijn intervallen zonder gegevens."
 
 msgid "Economic guard: never discharge at a loss"
 msgstr "Economische bewaking: nooit met verlies ontladen"
@@ -1178,9 +1188,6 @@ msgstr "Simulatieraster"
 msgid "SoC + price"
 msgstr "Laadtoestand + prijs"
 
-msgid "SoC + price chart"
-msgstr "Grafiek laadtoestand + prijs"
-
 msgid "Solar"
 msgstr "Zon"
 
@@ -1580,6 +1587,9 @@ msgstr ""
 msgid "This cannot be undone."
 msgstr "Dit kan niet ongedaan worden gemaakt."
 
+msgid "This chart is not built yet."
+msgstr "Deze grafiek is nog niet gebouwd."
+
 msgid "This control"
 msgstr "Dit onderdeel"
 
@@ -1639,6 +1649,9 @@ msgstr ""
 "volledige risico voor de kwaliteit en de werking ligt bij jou. Blijkt het"
 " gebrekkig te zijn, dan draag je zelf de kosten van elk onderhoud, "
 "herstel of correctie."
+
+msgid "Time of day"
+msgstr "Tijdstip van de dag"
 
 msgid "Title"
 msgstr "Titel"
@@ -1704,8 +1717,14 @@ msgstr "Wil je weten wat dit in euro's waard is?"
 msgid "What \"no warranty\" means"
 msgstr "Wat “geen garantie” betekent"
 
+msgid "What did power cost at the time?"
+msgstr "Wat kostte stroom op dat moment?"
+
 msgid "What does an average day look like?"
 msgstr "Hoe ziet een gemiddelde dag eruit?"
+
+msgid "When is the battery full?"
+msgstr "Wanneer is de batterij vol?"
 
 msgid "Where did the household's energy come from?"
 msgstr "Waar kwam de energie van het huishouden vandaan?"
@@ -2963,4 +2982,7 @@ msgstr "👍 Ik wil dit"
 
 #~ msgid "Solar exported"
 #~ msgstr "Zon teruggeleverd"
+
+#~ msgid "SoC + price chart"
+#~ msgstr "Grafiek laadtoestand + prijs"
 

@@ -549,13 +549,114 @@
       }
       window.drawEnergyFlows = drawEnergyFlows;
 
+      // ── The *SoC + price* tab's first chart: state of charge as a day × time-of-day grid ─────
+      //
+      // Same contract as the two draw functions above — reads the node the last render injected,
+      // so a swap needs a re-call and never a re-bind, and is a no-op when the node is absent.
+      //
+      // The payload is BYTES, not numbers: one per cell, base64'd. A year of 15-minute intervals
+      // is ~35k cells, which as JSON floats would be ~200 KB on every recompute against ~47 KB
+      // here. See `_soc_heatmap` in results_view.py for why this is quantised inline rather than
+      // fetched lazily like the benchmark box. `d.absent` marks a cell with no simulated value —
+      // a gap interval, or local 02:00 on the spring-forward day — and becomes `null`, which
+      // Plotly draws as a hole rather than as a zero.
+      function drawSocHeatmap() {
+        if (typeof Plotly === 'undefined') return;
+        var node = document.getElementById('socprice-data');
+        if (!node) return;
+        if (!document.getElementById('socprice-heatmap')) return;
+        var d = JSON.parse(node.textContent);
+
+        // base64 → bytes. `atob` yields a binary string; charCodeAt is the standard way across it.
+        var bin = atob(d.cells);
+        var n = bin.length;
+        var span = d.soc_max_kwh - d.soc_min_kwh;
+
+        // Reshape into Plotly's z[row][col]. The server wrote row-major by ROW (time-of-day), so
+        // this is a straight slice per row with no transpose — z[r] is one time-of-day across
+        // every day in the window.
+        //
+        // `kwh` carries the SAME grid de-quantised, for the hover readout: the cell value itself
+        // is a colour level, and a reader hovering wants kWh. Reconstructed to within half a
+        // level (~0.02 kWh over a 10 kWh window), which is finer than the chart can draw.
+        var z = [];
+        var kwh = [];
+        for (var r = 0; r < d.rows; r++) {
+          var zrow = new Array(d.cols);
+          var krow = new Array(d.cols);
+          for (var c = 0; c < d.cols; c++) {
+            var i = r * d.cols + c;
+            var v = i < n ? bin.charCodeAt(i) : d.absent;
+            if (v === d.absent) {
+              zrow[c] = null;
+              krow[c] = null;
+            } else {
+              zrow[c] = v;
+              krow[c] = (d.soc_min_kwh + (v / d.levels) * span).toFixed(2);
+            }
+          }
+          z.push(zrow);
+          kwh.push(krow);
+        }
+
+        // Row labels as local wall-clock times, built from the grid spacing the payload carries.
+        // Every 15-minute row labelled would be 96 unreadable ticks, so the labels are the full
+        // set (Plotly needs one per row) and `dtick` below thins which are DRAWN — thinning the
+        // labels themselves would mislabel the rows.
+        var ylab = [];
+        for (var rr = 0; rr < d.rows; rr++) {
+          var mins = (rr * d.grid_s / 60) | 0;
+          var hh = (mins / 60) | 0;
+          var mm = mins % 60;
+          ylab.push((hh < 10 ? '0' : '') + hh + ':' + (mm < 10 ? '0' : '') + mm);
+        }
+        // One tick every 3 hours whatever the resolution, so the axis reads the same on 15-minute
+        // and hourly data.
+        var ytick = Math.max(1, (3 * 3600 / d.grid_s) | 0);
+
+        Plotly.newPlot('socprice-heatmap', [{
+          type: 'heatmap',
+          z: z, x: d.days, y: ylab,
+          customdata: kwh,
+          zmin: 0, zmax: d.levels,
+          // Transparent at the floor of the operating window to opaque at the top, in the panel's
+          // existing battery violet. A ramp from blank rather than from a second colour: the
+          // quantity is "how full", which has a natural empty end, and a two-colour scale would
+          // invent a midpoint the data does not have.
+          colorscale: [[0, 'rgba(87, 13, 248, 0)'], [1, 'rgba(87, 13, 248, 1)']],
+          showscale: true,
+          colorbar: {
+            title: { text: d.legend_title, side: 'right' },
+            // The bar is labelled in kWh, so its ticks map the quantised levels back onto the
+            // operating window the ramp actually spans.
+            tickmode: 'array',
+            tickvals: [0, d.levels / 2, d.levels],
+            ticktext: [d.soc_min_kwh.toFixed(1), (d.soc_min_kwh + span / 2).toFixed(1),
+                       d.soc_max_kwh.toFixed(1)],
+            thickness: 12
+          },
+          // `hoverongaps: false` keeps the tooltip off cells with no data — without it Plotly
+          // reports a hole as if it were a reading.
+          hoverongaps: false,
+          hovertemplate: '%{x} %{y}<br>%{customdata} ' + d.unit + '<extra></extra>'
+        }], {
+          margin: { t: 10, r: 10, b: 40, l: 52 },
+          xaxis: { title: d.day_title, type: 'category', nticks: 12 },
+          // Reversed so 00:00 sits at the top and the day reads downward, like a calendar column.
+          yaxis: { title: d.time_title, type: 'category', dtick: ytick, autorange: 'reversed' },
+          paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+          font: { size: 11 }
+        }, { displayModeBar: false, responsive: true });
+      }
+      window.drawSocHeatmap = drawSocHeatmap;
+
       // The view tabs. DELEGATED from `document` for the same reason every other panel-③ control
       // is: the buttons live inside the swapped fragment, so a handler bound to them directly
       // would stop working after the first range change.
       //
-      // TWO attributes, because the Charts box now holds two CONTAINERS:
-      //   `data-chart-tab`  — which container is shown (`monthly` | `flows`). Every real tab
-      //                       button carries it.
+      // TWO attributes, because the Charts box holds several CONTAINERS:
+      //   `data-chart-tab`  — which container is shown (`monthly` | `flows` | `socprice`). Every
+      //                       real tab button carries it.
       //   `data-chart-view` — which series #monthly-chart draws (`kwh` | `eur`). Only the two
       //                       monthly buttons carry it, and they carry `data-chart-tab="monthly"`
       //                       as well, so picking € from the flows tab both switches back and
@@ -571,34 +672,52 @@
       // Selecting a tab is four coupled steps (highlight, toggle both containers, set the view,
       // draw), and the restore path needs the same four — so they live in one function that both
       // callers use rather than in two copies that can drift apart.
+      // The tabs, as DATA rather than as a chain of ifs: one entry per container, giving the id to
+      // show and the draw to run once it is visible. Adding a tab is adding a row here plus its
+      // markup — the toggle loop below does not grow, so the `hidden`/`flex` pairing stays in one
+      // place however many tabs the box ends up with.
+      //
+      // `flex` rides alongside `hidden` because the multi-chart containers stack their plots with
+      // `flex-col gap-4`; #monthly-chart is a single plot and needs no flex, so its entry says so
+      // rather than the toggle special-casing it.
+      var CHART_TABS = {
+        monthly:  { id: 'monthly-chart',   flex: false, draw: function () { drawMonthlyChart(); } },
+        flows:    { id: 'flows-charts',    flex: true,  draw: function () { drawEnergyFlows(); } },
+        socprice: { id: 'socprice-charts', flex: true,  draw: function () { drawSocHeatmap(); } }
+      };
+
       function selectChartTab(btn) {
-        var chart = document.getElementById('monthly-chart');
-        var flows = document.getElementById('flows-charts');
-        if (!chart) return;
         var tab = btn.getAttribute('data-chart-tab');
+        if (!CHART_TABS[tab]) return;
 
         // Highlight exactly one button in the strip. Scoped to the clicked button's own group and
-        // matching every tab button in it, so the pending [?] tab beside them is left alone.
+        // matching every tab button in it, so a pending [?] tab beside them is left alone.
         var group = btn.parentNode;
         Array.prototype.forEach.call(group.querySelectorAll('[data-chart-tab]'), function (b) {
           b.classList.toggle('btn-active', b === btn);
         });
 
-        chart.classList.toggle('hidden', tab !== 'monthly');
-        if (flows) {
-          flows.classList.toggle('hidden', tab !== 'flows');
-          flows.classList.toggle('flex', tab === 'flows');
+        // Every container is toggled, not just the two involved in this click, so no path can
+        // leave a previously-shown container visible underneath the new one.
+        Object.keys(CHART_TABS).forEach(function (k) {
+          var spec = CHART_TABS[k];
+          var el = document.getElementById(spec.id);
+          if (!el) return;   // conditionally rendered: absent when its data was not produced
+          el.classList.toggle('hidden', k !== tab);
+          if (spec.flex) el.classList.toggle('flex', k === tab);
+        });
+
+        // The view attribute is set BEFORE the draw, since drawMonthlyChart reads it off the
+        // container. Only the monthly buttons carry one.
+        var view = btn.getAttribute('data-chart-view');
+        if (view) {
+          var chart = document.getElementById(CHART_TABS.monthly.id);
+          if (chart) chart.setAttribute('data-chart-view', view);
         }
 
-        if (tab === 'flows') {
-          // Plotly sizes a plot from its container, and a container inside `hidden` measures 0 —
-          // so the three plots must be drawn (or resized) AFTER the class flip, not before.
-          drawEnergyFlows();
-          return;
-        }
-        var view = btn.getAttribute('data-chart-view');
-        if (view) chart.setAttribute('data-chart-view', view);
-        drawMonthlyChart();
+        // Plotly sizes a plot from its container, and a container inside `hidden` measures 0 — so
+        // the draw runs AFTER the class flip above, never before.
+        CHART_TABS[tab].draw();
       }
 
       // What the user last picked, as the PAIR of attributes rather than two independent values:
@@ -796,9 +915,10 @@
             // are re-drawn from the new node rather than left showing the old window's.
             drawMonthlyChart();
             drawEnergyFlows();
+            drawSocHeatmap();
             // The swap brought the panel back on its default tab. Put the reader back on the one
-            // they were looking at — after both draws above, since restoring `flows` re-draws it
-            // at the size it has once visible (Plotly cannot size a plot inside `hidden`).
+            // they were looking at — after the draws above, since restoring a hidden tab re-draws
+            // it at the size it has once visible (Plotly cannot size a plot inside `hidden`).
             restoreChartTab();
             // The fresh period card brings an empty hint span (the server cannot fill it in).
             applyDateFormatHint();
@@ -1049,6 +1169,11 @@
         // is picked rather than one frame later. Plotly cannot size a plot inside a `hidden`
         // container, so the tab handler draws again on show — this call is the eager half.
         drawEnergyFlows();
+        // The SoC heatmap is deliberately NOT drawn eagerly beside the flows. It is the one plot
+        // here whose cost scales with the WINDOW rather than with a fixed bucket count — up to
+        // ~35k cells on a year of 15-minute data — and it would be paid on every page load for a
+        // tab most readers never open. The tab handler draws it on show, which is the frame the
+        // eager call above exists to save and is not worth buying at this size.
         loadBenchmark();
         applyDateFormatHint();
       }

@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-06 16:09+0200\n"
+"POT-Creation-Date: 2026-08-06 17:12+0200\n"
 "PO-Revision-Date: 2026-07-23 20:40+0200\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: en\n"
@@ -479,6 +479,9 @@ msgstr ""
 msgid "Data quality"
 msgstr "Data quality"
 
+msgid "Day"
+msgstr ""
+
 msgid "Day/night window"
 msgstr "Day/night window"
 
@@ -542,6 +545,11 @@ msgstr ""
 
 msgid "EQUIVALENT FULL CYCLES"
 msgstr "EQUIVALENT FULL CYCLES"
+
+msgid ""
+"Each cell is one simulated interval, in Dutch local time. Blank cells are"
+" intervals with no data."
+msgstr ""
 
 msgid "Economic guard: never discharge at a loss"
 msgstr "Economic guard: never discharge at a loss"
@@ -1150,9 +1158,6 @@ msgstr "Simulation grid"
 msgid "SoC + price"
 msgstr "SoC + price"
 
-msgid "SoC + price chart"
-msgstr "SoC + price chart"
-
 msgid "Solar"
 msgstr "Solar"
 
@@ -1509,6 +1514,9 @@ msgstr ""
 msgid "This cannot be undone."
 msgstr "This cannot be undone."
 
+msgid "This chart is not built yet."
+msgstr ""
+
 msgid "This control"
 msgstr "This control"
 
@@ -1561,6 +1569,9 @@ msgstr ""
 "for your particular purpose. The entire risk as to its quality and "
 "performance is yours. If it turns out to be defective, you bear the cost "
 "of any servicing, repair or correction."
+
+msgid "Time of day"
+msgstr ""
 
 msgid "Title"
 msgstr ""
@@ -1622,8 +1633,14 @@ msgstr "Want to know what this is worth in euros?"
 msgid "What \"no warranty\" means"
 msgstr "What \"no warranty\" means"
 
+msgid "What did power cost at the time?"
+msgstr ""
+
 msgid "What does an average day look like?"
 msgstr "What does an average day look like?"
+
+msgid "When is the battery full?"
+msgstr ""
 
 msgid "Where did the household's energy come from?"
 msgstr "Where did the household's energy come from?"
@@ -2811,4 +2828,7 @@ msgstr "👍 I want this"
 
 #~ msgid "Solar exported"
 #~ msgstr "Solar exported"
+
+#~ msgid "SoC + price chart"
+#~ msgstr "SoC + price chart"
 
