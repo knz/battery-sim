@@ -335,9 +335,18 @@ def test_the_appimage_serves_over_http(tmp_path):
         assert served, "the AppImage did not answer within 40s"
 
         data_dir = xdg / "battery-sim"
-        assert (data_dir / "config.toml").is_file(), (
+        # `desktop.lock`, not `config.toml`. The latter was written by an import-time
+        # `config.load()` that went with the feature-interest telemetry, leaving the app writing
+        # no config file at all — so the old assertion tested for a file nothing produces.
+        # `tests/test_packaged.py` moved to the lock for this reason; this test was missed.
+        assert (data_dir / "desktop.lock").is_file(), (
             f"the AppImage did not write its state to {data_dir}"
         )
+
+        # The assertion with teeth: state must land in the per-user directory and NOT inside the
+        # AppImage mount, which is read-only. A pass above only shows a location was chosen.
+        stray = list(APPIMAGE.parent.rglob("desktop.lock"))
+        assert not stray, f"the AppImage wrote state into the bundle: {stray}"
     finally:
         # By this process's own handle. A pattern kill would be actively wrong: whoever runs these
         # tests very likely has their own copy of the app running on this machine.
