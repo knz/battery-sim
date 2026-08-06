@@ -184,14 +184,33 @@ Both move to the drawer, per slot ([§2.2](02-ux-wireframes.md#the-csv-source)):
   starting at its timestamp — the `delta` semantics of §4.2, and the same shape as
   `SeriesFrame.values` ([§4.4](07-internal-representation.md#44-internal-normalised-representation)).
 
-**Cumulative meter registers are rejected, not differenced.** A column whose values never
-decrease is refused on selection with an explanation. This preserves §4.2's principle that a
-register misread as per-interval amounts (or the reverse) produces a plausible and completely
-wrong answer, by removing the ambiguity rather than guessing at it. Note the cost, since it is
-not small: a Dutch P1 export of cumulative registers — a common shape for this app's target
-household, and what §4.1's table calls "cumulative/delta" — cannot be used until that increment
-lands. The differencing machinery it would need already exists
-([§6.1](09-ingest-algorithms.md#61-cumulative-meter-register--interval-deltas)).
+**Cumulative meter registers are warned about, not differenced and not refused.** A column whose
+values never decrease is **flagged on selection** with an explanation, and the user may proceed
+anyway. Nothing is ever differenced here, which preserves §4.2's principle that a register
+misread as per-interval amounts (or the reverse) produces a plausible and completely wrong
+answer: the app does not guess at the ambiguity, it reports it and lets the user resolve it.
+
+This started as a refusal, on the argument that a loud panel-local failure beats a silent wrong
+number. That is sound about a genuine register and wrong about the detector, which cannot
+distinguish one: monotonicity is a property of the *window*, not of the data's kind. Partial-day
+data rises monotonically throughout — morning-only solar, or any window ending near solar noon —
+so refusing cost a user with valid data their whole binding and offered no override. Flagging
+costs a false positive one line of small print.
+
+The cost of the trade is real and is accepted deliberately: a user who proceeds with a genuine
+register gets a confidently wrong simulation, and the warning is the only signal they will get.
+In practice the magnitudes differ by orders of magnitude — a register read as an hourly amount
+yields thousands of kWh in an hour — so the error is usually self-evident in the result. The
+suspect column is also named in §7.3's data-quality box, so the reason survives the run rather
+than being a warning that was dismissed and forgotten.
+
+A Dutch P1 export of cumulative registers — a common shape for this app's target household, and
+what §4.1's table calls "cumulative/delta" — therefore still cannot be *correctly* used by this
+format, and the flag is what says so. Differencing it is a natural later increment, and the
+machinery already exists
+([§6.1](09-ingest-algorithms.md#61-cumulative-meter-register--interval-deltas)). A better
+discriminator than monotonicity would compare the column's total against the window length; that
+is unbuilt.
 
 ### Resolution
 

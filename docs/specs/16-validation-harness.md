@@ -189,11 +189,15 @@ Conservation and closure identities are asserted to `CLOSURE_TOL` (a module cons
     the first file is still listed and still bound wherever it was bound, that the session state
     is unchanged, and that no `LOAD_FAILED` is emitted.
 
-    *At column selection:* bind a monotonic non-decreasing column to an energy slot. Assert it
-    is rejected in the drawer as a cumulative register, that the slot keeps whatever binding it
-    had, and that `SOURCE_CONFIGURED` has not fired. Then bind a valid per-interval column from
-    the same file and assert it is accepted, that `SOURCE_CONFIGURED` fires once every required
-    slot is bound, and that the run completes normally.
+    *At column selection:* bind a monotonic non-decreasing column to an energy slot. Assert the
+    drawer shows the cumulative-register warning, and — because it warns rather than refuses —
+    that Confirm stays enabled, that the binding is accepted, that `SOURCE_CONFIGURED` fires once
+    every required slot is bound, that the run completes, and that the flagged column is named in
+    the data-quality box. Assert also that the values are passed through **undifferenced**: the
+    series must carry the register's own readings, since silently differencing them is the one
+    thing this format never does. Then select a non-monotonic column from the same file and assert
+    no warning is shown. A non-numeric column, by contrast, still *is* rejected on selection —
+    assert that separately, and that the slot keeps whatever binding it had.
 
     *Reuse and replacement:* bind two different slots to two different columns of the **same**
     upload and assert both series load with the right values — one file feeding many slots is

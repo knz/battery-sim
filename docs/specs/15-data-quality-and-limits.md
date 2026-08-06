@@ -110,15 +110,25 @@ places the user acts ([§4.2a](05-data-formats.md#42a-the-wide-multi-series-file
   in this box, naming the affected day. On the narrow format
   ([§4.2](05-data-formats.md#42-the-per-series-file-format)) the original rule stands: no
   offset, no file.
-- **Check 2 on column selection.** A monotonic non-decreasing column is a cumulative register,
-  which the wide format does not accept; it is rejected in the drawer when the column is picked,
-  and the user chooses a different column. Check 2's reset-handling applies to the Home Assistant
-  path, which does ingest registers.
+- **Check 2 on column selection.** A monotonic non-decreasing column may be a cumulative
+  register, which the wide format does not accept. It is **flagged, not rejected**: the drawer
+  shows small print when the column is picked, the user may proceed, and the flagged column is
+  reported in this box afterwards. The check is a suspicion rather than a verdict — monotonicity
+  is a property of the window, so partial-day solar trips it — which is exactly why it does not
+  block; [§4.2a](05-data-formats.md#42a-the-wide-multi-series-file-format) records the trade and
+  its accepted cost. Check 2's reset-handling applies to the Home Assistant path, which does
+  ingest registers.
 
-A failure in either place is reported where it happened, the other slots and any other uploaded
-file keep their contents, the session does not enter an error state, and the run is not
-attempted. Everything from check 3 onward runs once against the assembled dataset, so those
-checks see a complete set of validated series whichever source path produced them.
+A failure in either place — an unreadable file at check 1, a non-numeric column at check 2 — is
+reported where it happened, the other slots and any other uploaded file keep their contents, the
+session does not enter an error state, and the run is not attempted. The two *non-blocking*
+outcomes above behave differently by design: the October ambiguous hour and a suspected
+cumulative column both let the run proceed and are reported in this box instead, because neither
+is a defect the user can fix by picking something else. One is an irreducible ambiguity in a
+format that carries no offset; the other is a suspicion the app cannot confirm.
+
+Everything from check 3 onward runs once against the assembled dataset, so those checks see a
+complete set of validated series whichever source path produced them.
 
 Checks marked *PV only* are **skipped** when `has_pv = false`, and those marked *cost only*
 are skipped when `simulate_cost = false`. In both cases they are reported as **skipped

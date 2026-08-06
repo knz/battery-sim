@@ -649,10 +649,19 @@ is an ordinary event, not a run-fatal one
 
 **Values are per-interval amounts, never meter registers.** A column is read as the amount
 consumed or produced **during the interval starting at** its timestamp. A column whose values
-only ever increase looks like a cumulative meter register, and is **rejected** on selection
-rather than differenced — the two readings differ by orders of magnitude, and misreading one as
-the other yields a plausible, completely wrong answer. The user is told what was detected and
-why it was refused. Accepting registers by differencing them is a natural later increment
+only ever increase looks like a cumulative meter register, and is **flagged** on selection —
+small print under the column picker, saying the data may be a running total and that the results
+will be wrong if it is. It is never differenced, and it does not block: Confirm stays enabled and
+the run proceeds. The warning also says why a false alarm is possible, so a user with valid
+monotonic data (morning-only solar) knows they can ignore it.
+
+This is a warning rather than a refusal because the detector cannot tell a register from a
+column that merely rises across the whole file, so refusing would have blocked valid data with no
+override. The accepted cost: proceeding with a genuine register gives a confidently wrong answer
+— usually obvious, since the numbers come out orders of magnitude too large. The flagged column
+is named again in the data-quality box
+([§7.3](15-data-quality-and-limits.md#73-data-quality-checks-in-execution-order)) so the caveat outlives the
+drawer. Accepting registers properly, by differencing them, is a natural later increment
 (the machinery in [§6.1](09-ingest-algorithms.md#61-cumulative-meter-register--interval-deltas)
 already exists for the Home Assistant path); it is deliberately not in this one.
 

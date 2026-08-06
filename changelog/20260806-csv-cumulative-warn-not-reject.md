@@ -108,8 +108,79 @@ Both restored with `cp` from the scratchpad; `grep -rn MUTATION app/ tests/` emp
 - `tests/test_smoke.py`: 58 passed (was 57).
 - Whole suite minus smoke and the parallel agent's `test_data_summary.py`: 1613 passed, 25 skipped.
 
+## Independent verification (orchestrator, not the author)
+
+Reviewer ≠ author, so the central claim was re-mutated rather than taken from the report above.
+The mutation chosen was sharper than the author's: instead of stopping the verdict from reaching
+the row, `_upload_json` was made to emit `cumulative_columns` **only when `summary is not None`**
+— i.e. POST-only, which is precisely the failure mode decision 2 exists to prevent. Exactly one
+test failed, `test_the_list_route_reports_the_verdict_too`, with `[None] == [['Meterstand']]`.
+That is the LIST-route assertion doing its job. Restored with `cp`; no `MUTATION` markers remain.
+
+Also checked, because the two agents ran `pybabel` concurrently over each other's edits: a fresh
+`pybabel extract` reproduces `messages.pot` byte-for-byte apart from the `POT-Creation-Date`
+header, so the shared-catalog merge is clean rather than one run having clobbered the other. Both
+new msgids are present with non-fuzzy Dutch, and the obsolete rejection message moved to a `#~`
+block as expected.
+
+Combined-tree results after both changes landed: 631 targeted backend tests pass (ten suites) and
+58 Playwright smoke tests pass. The `test_i18n.py` failure the DST agent reported as a possible
+flake passes here — it was reading the tree while the other agent was mid-edit on the drawer
+strings, which is the likely explanation, though that was not proven.
+
+Committed as `a844c46` together with the DST data-quality note
+([20260806-dst-ambiguous-quality-note.md](20260806-dst-ambiguous-quality-note.md)).
+
+## Specification amended (follow-up, 2026-08-06)
+
+The user's prompt, verbatim:
+
+> amend the spec
+
+Raised as an open item after the code landed: "rejected on selection" no longer described the
+intended behaviour, so the specs contradicted the shipped code. Four sites in `docs/specs/`
+carried the stale claim, and all four were corrected. Per `docs/specs/AGENTS.md`, the user's
+original prompts are recorded here.
+
+1. **`05-data-formats.md` §4.2a** — the normative statement. "Cumulative meter registers are
+   rejected, not differenced" → "warned about, not differenced and not refused". Records why the
+   refusal was wrong (monotonicity is a property of the *window*, not of the data's kind, so
+   partial-day data trips it), states the accepted cost, and notes that the P1-register shape
+   still cannot be used *correctly* — the flag is what says so. Also names the better
+   discriminator that remains unbuilt: total-against-window-length.
+2. **`02-ux-wireframes.md`** — the user-facing description. "**rejected** on selection" →
+   "**flagged**", plus what the user actually sees (small print, Confirm stays enabled) and that
+   the warning explains its own false-alarm case so a user with valid monotonic data knows to
+   ignore it.
+3. **`15-data-quality-and-limits.md` §7.3 check 2** — "it is rejected in the drawer" → flagged,
+   not rejected, and reported in the box afterwards. Describes the check as a *suspicion rather
+   than a verdict*.
+4. **`15-data-quality-and-limits.md`, the paragraph after the checks** — a second-order
+   correction found while editing check 2, not in the original list. It said "A failure in either
+   place … the run is not attempted", which check 2 no longer satisfies. Now distinguishes the
+   blocking failures (unreadable file, non-numeric column) from the two non-blocking outcomes
+   (October ambiguous hour, suspected cumulative column), with the reason they differ: neither is
+   a defect the user can fix by picking something else.
+5. **`16-validation-harness.md` fixture 22** — the most consequential, since its assertions are
+   what a future test encodes. Was: assert the column "is rejected in the drawer" and
+   `SOURCE_CONFIGURED` has not fired. Now: assert the warning shows, Confirm stays enabled, the
+   binding is accepted, the run completes, and the flagged column is named in the data-quality
+   box. Two assertions were **added** rather than merely inverted: that the values pass through
+   **undifferenced** (silently differencing them is the one thing this format must never do, and
+   nothing else in the harness pins that down), and that the non-numeric column *still is*
+   rejected — so relaxing one check cannot quietly relax the other.
+
+§7.3 check 1's existing claim that the October flag "is reported here, in this box, naming the
+affected day" needed no edit: it was aspirational when written and is now accurate, which is what
+the DST note in the same commit implemented.
+
 ## Current status
 
-Complete, not committed. Note for a reviewer: `_looks_cumulative` is called from `app/main.py`
-despite the leading underscore, which its docstring now records. If that bothers anyone the fix is
-to rename it, not to duplicate the threshold.
+Code and specs complete and committed. Note for a reviewer: `_looks_cumulative` is called from
+`app/main.py` despite the leading underscore, which its docstring now records. If that bothers
+anyone the fix is to rename it, not to duplicate the threshold.
+
+Not scheduled, and worth a decision rather than a default: fixture 22's new undifferenced-values
+assertion is specified but no test implements it yet. The existing Playwright test covers the
+warning appearing and Confirm staying enabled; the pass-through-undifferenced claim is currently
+pinned only at the domain layer (`test_csv_wide.py`), not end-to-end.
