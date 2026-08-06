@@ -11,6 +11,12 @@ the edge spellings, and — paired in one test that must never be split — that
 `"0,412"` does not license accepting a bare `0,412`, which is still a `row_length_mismatch`.
 `tests/fixtures/wide_mixed_decimal_separators.csv` is the real export that motivated the rule.
 
+And the per-FILE field delimiter (§4.2a, harness fixture 22): each of the three declarable
+separators parses its own file, an omitted argument means comma, a file read under the wrong
+separator is rejected as `too_few_columns` rather than mis-read, an unknown name is
+`bad_delimiter`, a quoted delimiter does not split its cell under any of the three, and a
+semicolon file's bare `1,9` reads as 1.9 — the shape the option mainly exists for.
+
     uv run pytest tests/test_csv_wide.py
 """
 
@@ -709,6 +715,124 @@ def test_the_real_mixed_separator_export_loads(voorbeeld_csv):
     opwek = csv_wide.parse_column_values(wide, "Opwek")
     assert opwek[44] == pytest.approx(0.55)   # row 46, quoted "0,55"
     assert opwek[45] == pytest.approx(0.45)   # row 47, bare 0.45 — the next row, same column
+
+
+# --- the field delimiter (§4.2a; answered at upload, never sniffed) --------------------------
+
+def _delimited(sep, header, *rows):
+    """The same wide file, written with `sep` between its fields."""
+    lines = [sep.join(header)]
+    lines += [sep.join(str(cell) for cell in row) for row in rows]
+    return "\n".join(lines) + "\n"
+
+
+_ROWS = (
+    ("01-01-2025 00:00:00", 0.412, 0.0),
+    ("01-01-2025 01:00:00", 0.388, 0.0),
+)
+_HEADER = ("Tijdstip", "Verbruik", "Zon")
+
+SEMICOLON_FILE = _delimited(";", _HEADER, *_ROWS)
+TAB_FILE = _delimited("\t", _HEADER, *_ROWS)
+COMMA_FILE = _delimited(",", _HEADER, *_ROWS)
+
+
+def test_a_semicolon_file_parses_when_the_semicolon_is_declared():
+    wide = csv_wide.parse_wide_csv(SEMICOLON_FILE, UTC_TZ, "semicolon")
+    assert wide.timestamp_name == "Tijdstip"
+    assert wide.columns == ("Verbruik", "Zon")
+    assert wide.rows == 2
+    assert csv_wide.parse_column_values(wide, "Verbruik")[0] == pytest.approx(0.412)
+
+
+def test_a_tab_file_parses_when_the_tab_is_declared():
+    wide = csv_wide.parse_wide_csv(TAB_FILE, UTC_TZ, "tab")
+    assert wide.columns == ("Verbruik", "Zon")
+    assert csv_wide.parse_column_values(wide, "Verbruik")[0] == pytest.approx(0.412)
+
+
+def test_omitting_the_delimiter_is_the_same_as_declaring_comma():
+    # The back-compat default: every call site and every file that predates the option means comma.
+    omitted = csv_wide.parse_wide_csv(COMMA_FILE, UTC_TZ)
+    explicit = csv_wide.parse_wide_csv(COMMA_FILE, UTC_TZ, "comma")
+    assert omitted.columns == explicit.columns
+    assert omitted.delimiter == explicit.delimiter == "comma"
+    assert csv_wide.DEFAULT_DELIMITER == "comma"
+
+
+def test_a_semicolon_file_read_as_comma_is_rejected_as_one_column():
+    # The negative half of the pair that proves the declared answer is USED and not sniffed
+    # (harness fixture 22): under the comma separator each row is a single field, so the header
+    # names one column and the two-column minimum fails.
+    with pytest.raises(CsvFormatError) as exc:
+        csv_wide.parse_wide_csv(SEMICOLON_FILE, UTC_TZ, "comma")
+    assert exc.value.code == "too_few_columns"
+
+
+def test_a_comma_file_read_as_semicolon_is_rejected_as_one_column():
+    with pytest.raises(CsvFormatError) as exc:
+        csv_wide.parse_wide_csv(COMMA_FILE, UTC_TZ, "semicolon")
+    assert exc.value.code == "too_few_columns"
+
+
+def test_an_unknown_delimiter_is_rejected_naming_the_known_ones():
+    with pytest.raises(CsvFormatError) as exc:
+        csv_wide.parse_wide_csv(COMMA_FILE, UTC_TZ, "pipe")
+    assert exc.value.code == "bad_delimiter"
+    assert "semicolon" in str(exc.value)
+
+
+def test_a_raw_delimiter_character_is_not_the_vocabulary():
+    # The wire vocabulary is NAMES. Sending the character itself is a client bug, not a shorthand.
+    with pytest.raises(CsvFormatError) as exc:
+        csv_wide.parse_wide_csv(SEMICOLON_FILE, UTC_TZ, ";")
+    assert exc.value.code == "bad_delimiter"
+
+
+def test_the_parsed_file_and_its_summary_echo_the_delimiter():
+    # Recorded on both for the same reason `tz` is: the upload row stores it, and the fetch path
+    # re-parses the same bytes with it.
+    wide, summary = csv_wide.parse_and_summarise(SEMICOLON_FILE, UTC_TZ, "semicolon")
+    assert wide.delimiter == "semicolon"
+    assert summary.delimiter == "semicolon"
+    assert csv_wide.parse_and_summarise(COMMA_FILE, UTC_TZ)[1].delimiter == "comma"
+
+
+# --- quoting under each delimiter (RFC 4180; the user's requirement 2) -----------------------
+
+def test_a_quoted_comma_does_not_split_a_cell_under_the_comma_delimiter():
+    text = 'Tijdstip,A,B\n01-01-2025 00:00:00,"a,b",0.4\n'
+    wide = csv_wide.parse_wide_csv(text, UTC_TZ, "comma")
+    assert wide.columns == ("A", "B")
+    assert wide.cells["A"] == ["a,b"]
+
+
+def test_a_quoted_semicolon_does_not_split_a_cell_under_the_semicolon_delimiter():
+    text = 'Tijdstip;A;B\n01-01-2025 00:00:00;"x;y";0.4\n'
+    wide = csv_wide.parse_wide_csv(text, UTC_TZ, "semicolon")
+    assert wide.columns == ("A", "B")
+    assert wide.cells["A"] == ["x;y"]
+
+
+def test_a_quoted_tab_does_not_split_a_cell_under_the_tab_delimiter():
+    text = 'Tijdstip\tA\tB\n01-01-2025 00:00:00\t"p\tq"\t0.4\n'
+    wide = csv_wide.parse_wide_csv(text, UTC_TZ, "tab")
+    assert wide.columns == ("A", "B")
+    assert wide.cells["A"] == ["p\tq"]
+
+
+def test_a_bare_decimal_comma_needs_no_quoting_under_the_semicolon_delimiter():
+    # The commonest European CSV shape, and the practical point of the whole delimiter option: a
+    # semicolon-separated export writes its decimals with commas and quotes nothing, because the
+    # comma is not special there. Under comma this same file is unreadable; under semicolon the
+    # comma reaches the cell intact and per-cell detection reads it as a decimal.
+    text = "Tijdstip;Verbruik;Zon\n01-01-2025 00:00:00;1,9;0,55\n01-01-2025 01:00:00;0,412;0\n"
+    wide = csv_wide.parse_wide_csv(text, UTC_TZ, "semicolon")
+    assert wide.columns == ("Verbruik", "Zon")
+    verbruik = csv_wide.parse_column_values(wide, "Verbruik")
+    assert verbruik[0] == pytest.approx(1.9)
+    assert verbruik[1] == pytest.approx(0.412)
+    assert csv_wide.parse_column_values(wide, "Zon")[0] == pytest.approx(0.55)
 
 
 def test_unknown_column_is_rejected_listing_the_available_ones():

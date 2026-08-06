@@ -504,7 +504,15 @@ class CsvSource:
         # report (`uploads.read_text`).
         text = uploads.read_text(workspace_id, binding.upload_id)
 
-        wide = csv_wide.parse_wide_csv(text, upload.tz)
+        # The zone AND the separator come off the stored row, so this second parse is held to the
+        # answers the upload parse used. That equivalence is the whole reason the delimiter is
+        # persisted: re-tokenizing a semicolon file with the comma default would find one column and
+        # fail, and no amount of care at upload would prevent it. `or DEFAULT_DELIMITER` covers a row
+        # whose column predates this field — `uploads._row_to_upload` already normalises NULL to
+        # comma, so this is belt-and-braces against a hand-written row, not a live case.
+        wide = csv_wide.parse_wide_csv(
+            text, upload.tz, upload.delimiter or csv_wide.DEFAULT_DELIMITER
+        )
         frame, file_warnings = csv_wide.column_frame(
             wide, binding.column, slot.name, binding.unit
         )

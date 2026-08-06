@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-06 15:27+0200\n"
+"POT-Creation-Date: 2026-08-06 15:40+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -431,6 +431,9 @@ msgstr ""
 msgid "Column"
 msgstr ""
 
+msgid "Columns are separated by"
+msgstr ""
+
 #, python-format
 msgid ""
 "Computed for the battery configured in the parameters panel — "
@@ -631,7 +634,11 @@ msgid ""
 "figures are recalculated from the new rates."
 msgstr ""
 
-msgid "Every other column holds values. Fractional values are fine."
+msgid ""
+"Every other column holds values. Fractional values are fine, written with"
+" either a dot (0.412) or a comma (0,412) — but a value written with a "
+"comma must be put in double quotes if the comma is also the field "
+"separator you choose below."
 msgstr ""
 
 msgid "Export CSV"
@@ -1207,6 +1214,9 @@ msgid "Test connection"
 msgstr ""
 
 msgid "That column is not in the file."
+msgstr ""
+
+msgid "That field separator is not one this app knows."
 msgstr ""
 
 msgid "That file could not be uploaded."
@@ -1807,6 +1817,15 @@ msgid ""
 msgstr ""
 
 msgid "Your supplier bills"
+msgstr ""
+
+msgid "a comma (,)"
+msgstr ""
+
+msgid "a semicolon (;)"
+msgstr ""
+
+msgid "a tab"
 msgstr ""
 
 msgid "as your meter recorded them"

@@ -1921,7 +1921,8 @@ _WIDE_CSV = (
 
 
 def _upload_csv(base_url: str, workspace_id: str, *, filename: str = "meterstanden_2025.csv",
-                text: str = _WIDE_CSV, tz: str = "Europe/Amsterdam") -> dict:
+                text: str = _WIDE_CSV, tz: str = "Europe/Amsterdam",
+                delimiter: str | None = None) -> dict:
     """Upload one wide CSV through the real route and return its `_upload_json` dict.
 
     Done over HTTP rather than by writing the store row directly, because the id the drawer binds to
@@ -1934,14 +1935,27 @@ def _upload_csv(base_url: str, workspace_id: str, *, filename: str = "meterstand
     `requests`. `Sec-Fetch-Site` is sent because the route is same-site checked (`app/csrf.py`) —
     urllib sends neither that nor `Origin`, which the check deliberately lets through, but sending
     the header a browser would send keeps the test honest about what it is exercising.
+
+    `delimiter=None` OMITS the part rather than sending `comma`, which is deliberate: it means every
+    existing caller here exercises the route's absent-field default end to end over real HTTP, which
+    is the shape an older client sends. Pass a name to send the part.
     """
     boundary = "----smokeboundary1234567890"
+    delimiter_part = (
+        ""
+        if delimiter is None
+        else (
+            f"--{boundary}\r\n"
+            f'Content-Disposition: form-data; name="delimiter"\r\n\r\n{delimiter}\r\n'
+        )
+    )
     body = (
         f"--{boundary}\r\n"
         f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'
         f"Content-Type: text/csv\r\n\r\n{text}\r\n"
         f"--{boundary}\r\n"
         f'Content-Disposition: form-data; name="tz"\r\n\r\n{tz}\r\n'
+        f"{delimiter_part}"
         f"--{boundary}--\r\n"
     ).encode("utf-8")
     req = Request(
@@ -2562,6 +2576,47 @@ def test_a_rejected_upload_is_reported_in_the_dialog_and_is_recoverable(browser,
     })
     expect(pg.locator("#csv-upload-status")).to_contain_text("Uploaded", timeout=5000)
     expect(pg.locator("#csv-upload-list")).to_contain_text("goed.csv")
+    context.close()
+
+
+def test_the_delimiter_radio_is_offered_and_its_answer_reaches_the_upload(browser, base_url):
+    """§2.2: the field separator is answered per file, in the dialog, beside the zone.
+
+    The whole path in one pass: the three radios exist with comma pre-checked, picking semicolon and
+    choosing a semicolon-separated file uploads successfully, and the stored file is the tokenized
+    one — two value columns, not none. That last assertion distinguishes "the answer was sent" from
+    "the answer was ignored": read as comma, this file's header names a single column and the route
+    would have refused it as `too_few_columns`.
+    """
+    url = _workspace_url(base_url)
+    workspace_id = url.rstrip("/").split("/")[-2]
+
+    context = browser.new_context()
+    context.add_cookies([{"name": "lang", "value": "en", "url": base_url}])
+    pg = context.new_page()
+    _open_csv_drawer(pg, base_url, workspace_id)
+    pg.locator("#drawer-csv-upload-btn").click()
+    expect(pg.locator("#csv-upload-dialog")).to_be_visible()
+
+    radios = pg.locator("input[name=csv-upload-delimiter]")
+    expect(radios).to_have_count(3)
+    # Comma is pre-checked: the commonest export, and what a file uploaded before this option
+    # existed was read as.
+    expect(pg.locator("input[name=csv-upload-delimiter][value=comma]")).to_be_checked()
+    for value in ("semicolon", "tab"):
+        expect(pg.locator(f"input[name=csv-upload-delimiter][value={value}]")).to_have_count(1)
+
+    pg.locator("input[name=csv-upload-delimiter][value=semicolon]").check()
+    semicolon_csv = _WIDE_CSV.replace(",", ";")
+    pg.locator("#csv-upload-input").set_input_files({
+        "name": "puntkomma.csv", "mimeType": "text/csv",
+        "buffer": semicolon_csv.encode("utf-8"),
+    })
+    expect(pg.locator("#csv-upload-status")).to_contain_text("Uploaded", timeout=5000)
+    expect(pg.locator("#csv-upload-list")).to_contain_text("puntkomma.csv")
+    # Tokenized under the declared separator: the list counts VALUE columns, so a file whose header
+    # split into three fields shows 2. Read as comma it would have been refused outright.
+    expect(pg.locator("#csv-upload-list")).to_contain_text("2 columns")
     context.close()
 
 

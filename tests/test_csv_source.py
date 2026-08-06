@@ -60,14 +60,23 @@ def store(tmp_path, monkeypatch):
     return uploads
 
 
-def _upload(uploads, text: str, *, tz: str = "UTC", workspace_id: str = "ws1"):
+def _upload(
+    uploads,
+    text: str,
+    *,
+    tz: str = "UTC",
+    workspace_id: str = "ws1",
+    delimiter: str = "comma",
+):
     """Store `text` as an upload, with the summary its own parse yields (as step 3's route will)."""
-    wide, summary = csv_wide.parse_and_summarise(text, tz)
+    wide, summary = csv_wide.parse_and_summarise(text, tz, delimiter)
     return uploads.create(
         workspace_id,
         filename="export.csv",
         tz=tz,
         content=text,
+        # From the SUMMARY, like the route: the row records what the parse actually used.
+        delimiter=summary.delimiter,
         # The store keeps the timestamp column at index 0 (uploads.Upload.columns).
         columns=[wide.timestamp_name, *wide.columns],
         rows=summary.rows,
@@ -540,6 +549,47 @@ def test_upload_tz_is_not_re_applied(store):
     )
     assert str(frame.index[0]) == "2024-12-31T23:00:00"
     assert up.first_ts == datetime(2024, 12, 31, 23, tzinfo=UTC)
+
+
+def test_a_semicolon_upload_is_re_parsed_with_its_stored_delimiter(store):
+    """The invariant that makes the stored value load-bearing: both parses use the same answer.
+
+    Without it this second parse would fall back to the comma default, find one field per row, and
+    reject the file as `too_few_columns` — a bound slot failing on bytes the dialog accepted.
+    The bare `1,9` is the point: under the semicolon separator the comma is not special, so a
+    European export needs no quoting and per-cell detection reads it as 1.9.
+    """
+    text = (
+        "Tijdstip;Verbruik\n"
+        "01-01-2025 00:00:00;1,9\n"
+        "01-01-2025 01:00:00;0.56\n"
+        "01-01-2025 02:00:00;0,412\n"
+    )
+    up = _upload(store, text, delimiter="semicolon")
+    assert up.delimiter == "semicolon"
+    frame, _ = _load(
+        store, up, (datetime(2025, 1, 1, tzinfo=UTC), datetime(2025, 1, 2, tzinfo=UTC))
+    )
+    assert frame.values == pytest.approx([1.9, 0.56, 0.412])
+
+
+def test_a_row_with_a_null_delimiter_is_re_parsed_as_comma(store):
+    """A legacy row, fabricated by raw SQL: the pre-existing case the migration produces.
+
+    Its file was uploaded and accepted under the comma default, so reading it back as comma is the
+    only answer that keeps the slot working. `uploads._row_to_upload` normalises the NULL, and
+    `CsvSource` additionally falls back, so this passes for two independent reasons.
+    """
+    up = _upload(store, _hourly_csv(3))
+    with store.connect() as conn:
+        conn.execute("UPDATE uploads SET delimiter = NULL WHERE id = ?", (up.id,))
+
+    reread = store.get("ws1", up.id)
+    assert reread.delimiter == "comma"
+    frame, _ = _load(
+        store, reread, (datetime(2025, 1, 1, tzinfo=UTC), datetime(2025, 1, 2, tzinfo=UTC))
+    )
+    assert frame.values == pytest.approx([0.0, 0.1, 0.2])
 
 
 # ── Error paths ──────────────────────────────────────────────────────────────────────────────

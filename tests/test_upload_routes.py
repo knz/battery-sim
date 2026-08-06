@@ -109,18 +109,33 @@ def client(tmp_path, monkeypatch):
     return TestClient(main.app), uploads, tmp_path
 
 
-def _post(client, text=_CSV, *, tz="Europe/Amsterdam", filename="export.csv", path=None):
+def _post(
+    client,
+    text=_CSV,
+    *,
+    tz="Europe/Amsterdam",
+    delimiter=None,
+    filename="export.csv",
+    path=None,
+):
     """POST one file as multipart, the way the dialog's `FormData` will.
 
     `Sec-Fetch-Site: same-origin` on every call: the route is same-site checked, and while
     `app/csrf.py` allows a request carrying NEITHER header (a test client, `curl`), sending the
     header explicitly means these tests exercise the accepting branch that a browser will take
     rather than the unlabelled-request hole.
+
+    `delimiter=None` OMITS the field rather than sending an empty one, which is what makes the
+    route's back-compat default (absent means comma) the shape every other test in this file
+    exercises without saying so.
     """
+    data = {"tz": tz}
+    if delimiter is not None:
+        data["delimiter"] = delimiter
     return client.post(
         path or w("/data/uploads"),
         files={"file": (filename, text.encode("utf-8"), "text/csv")},
-        data={"tz": tz},
+        data=data,
         headers={"Sec-Fetch-Site": "same-origin"},
     )
 
@@ -541,6 +556,90 @@ def test_an_absent_tz_field_is_the_same_400_as_an_empty_one(client):
     assert detail["code"] == "bad_timezone"
     assert "''" in detail["message"]  # reported as empty, not as "None"
     assert uploads.list_for("local") == []
+
+
+# ── 3b. The declared field separator ────────────────────────────────────────────────────────
+
+_CSV_SEMICOLON = _CSV.replace(",", ";")
+
+
+def test_a_declared_semicolon_parses_and_is_echoed_and_stored(client):
+    """The separator is applied to the parse and recorded on the row, like `tz`.
+
+    Stored rather than merely used because the file is parsed a SECOND time on every fetch
+    (`app/sources/csv_source.py`), and the two parses must agree.
+    """
+    api, uploads, _tmp = client
+    r = _post(api, _CSV_SEMICOLON, tz="UTC", delimiter="semicolon")
+    assert r.status_code == 201, r.text
+    upload = r.json()["upload"]
+    assert upload["delimiter"] == "semicolon"
+    assert len(upload["columns"]) > 1  # actually tokenized, not read as one column
+    assert uploads.list_for("local")[0].delimiter == "semicolon"
+
+
+def test_the_same_semicolon_bytes_read_as_comma_are_rejected(client):
+    """The pair that proves the answer is USED and not sniffed (harness fixture 22).
+
+    A sniffer would accept both halves; this route accepts only the one the user declared. Under
+    the comma separator each row is a single field, so the header names one column.
+    """
+    api, uploads, tmp_path = client
+    r = _post(api, _CSV_SEMICOLON, tz="UTC", delimiter="comma")
+    assert r.status_code == 400
+    assert r.json()["detail"]["code"] == "too_few_columns"
+    assert uploads.list_for("local") == []
+    assert _csv_files(tmp_path) == []
+
+
+@pytest.mark.parametrize("delimiter", ["pipe", ";", "space", "COMMA"])
+def test_an_unknown_delimiter_is_a_400_and_writes_nothing(client, delimiter):
+    """Validated against `csv_wide.DELIMITER_KEYS`, above the decode, like the zone.
+
+    The vocabulary is NAMES: the raw `";"` a client might think is a shorthand is not one, and
+    `"COMMA"` is not case-folded into `"comma"`.
+    """
+    api, uploads, tmp_path = client
+    r = _post(api, tz="UTC", delimiter=delimiter)
+    assert r.status_code == 400
+    assert r.json()["detail"]["code"] == "bad_delimiter"
+    assert uploads.list_for("local") == []
+    assert _csv_files(tmp_path) == []
+
+
+def test_an_absent_delimiter_field_defaults_to_comma_rather_than_rejecting(client):
+    """The one place this field deliberately DIFFERS from `tz`, which rejects when absent.
+
+    There is no defensible default zone, but there is a known-correct historical separator: every
+    file this route accepted before the field existed was parsed with `csv.reader`'s comma default.
+    So an older client, a script, or a test posting only `file` and `tz` keeps working and stores
+    exactly the value it was already getting.
+    """
+    api, uploads, _tmp = client
+    r = _post(api, tz="UTC")  # `delimiter=None` omits the part entirely
+    assert r.status_code == 201, r.text
+    assert r.json()["upload"]["delimiter"] == "comma"
+    assert uploads.list_for("local")[0].delimiter == "comma"
+
+
+def test_an_empty_delimiter_field_also_defaults_to_comma(client):
+    """`delimiter=""` collapses to the default too — `form.get(...) or DEFAULT` sees both alike."""
+    api, _uploads, _tmp = client
+    r = _post(api, tz="UTC", delimiter="")
+    assert r.status_code == 201, r.text
+    assert r.json()["upload"]["delimiter"] == "comma"
+
+
+def test_the_list_route_reports_the_delimiter_too(client):
+    """It comes off the ROW in `_upload_json`, so it is on the LIST response as well as the POST.
+
+    Unlike `ambiguous_rows` and `timestamp_name`, which only the POST can report because only it
+    has a parse in hand.
+    """
+    api, _uploads, _tmp = client
+    _post(api, _CSV_SEMICOLON, tz="UTC", delimiter="semicolon")
+    listed = api.get(w("/data/uploads")).json()["uploads"]
+    assert [u["delimiter"] for u in listed] == ["semicolon"]
 
 
 # ── 4. The size cap ─────────────────────────────────────────────────────────────────────────

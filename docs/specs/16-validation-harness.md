@@ -183,11 +183,19 @@ Conservation and closure identities are asserted to `CLOSURE_TOL` (a module cons
     wide-CSV path ([§4.2a](05-data-formats.md#42a-the-wide-multi-series-file-format)) are the
     upload and the per-slot column choice, and neither may escalate.
 
-    *At upload:* upload a valid wide file, then upload a malformed one (no header row, or a
-    first column that does not parse). Assert the second is rejected in the dialog naming what
-    was expected and the offending row, that no `uploads` row or file is written for it, that
-    the first file is still listed and still bound wherever it was bound, that the session state
-    is unchanged, and that no `LOAD_FAILED` is emitted.
+    *At upload:* upload a valid wide file, then upload a malformed one (no header row, a first
+    column that does not parse, or a declared field separator this app does not know). Assert the
+    second is rejected in the dialog naming what was expected and the offending row, that no
+    `uploads` row or file is written for it, that the first file is still listed and still bound
+    wherever it was bound, that the session state is unchanged, and that no `LOAD_FAILED` is
+    emitted.
+
+    *The declared separator is used, not guessed:* upload a semicolon-separated file with the
+    semicolon radio selected and assert it parses — the right column count, the right values. Then
+    upload **the same bytes** with the comma radio selected and assert they are rejected with
+    `too_few_columns`: under the comma separator each row is a single field, so the header names
+    one column and the two-column minimum fails. The pair is what proves the answer is applied
+    rather than sniffed — a sniffer would accept both, and this format's rule is that it asks.
 
     *At column selection:* bind a monotonic non-decreasing column to an energy slot. Assert the
     drawer shows the cumulative-register warning, and — because it warns rather than refuses —

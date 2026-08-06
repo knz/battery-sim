@@ -359,7 +359,11 @@
         {# The example is spelled out because a 24-hour clock is the single most common way a
            hand-edited Dutch export goes wrong, and "24-hour" alone is read past. #}
         <li>{{ _('The first column holds the timestamp, written as DD-MM-YYYY HH:MM:SS, with hours on a 24-hour clock (so 6 in the evening is 18:00:00, not 06:00:00 PM).') }}</li>
-        <li>{{ _('Every other column holds values. Fractional values are fine.') }}</li>
+        {# The fractional-value clause names the quoting rule because it is the likeliest way a
+           correct-looking file is rejected: a bare 0,412 under a comma separator splits into two
+           cells and the row-length guard refuses the row (csv_wide's `row_length_mismatch`). The
+           user's two ways out are quoting the cell or choosing a different separator below. #}
+        <li>{{ _('Every other column holds values. Fractional values are fine, written with either a dot (0.412) or a comma (0,412) — but a value written with a comma must be put in double quotes if the comma is also the field separator you choose below.') }}</li>
         {# The fourth bullet states what §4.2a's format does NOT accept, which is the rejection the
            user is most likely to hit: D-KIND reads every value as a per-interval amount, and a
            column that only ever rises is refused rather than differenced. Saying so here turns a
@@ -381,6 +385,34 @@
           <label class="flex cursor-pointer items-center gap-2 text-sm">
             <input type="radio" name="csv-upload-tz" class="radio radio-sm" value="UTC" />
             <span>{{ _('UTC') }}</span>
+          </label>
+        </div>
+      </fieldset>
+
+      {# Field separator, per file, beside the zone and for the same reason: it cannot be read off
+         the file without guessing, and guessing wrong on a file whose cells may themselves contain
+         commas is the factor-of-a-thousand mistake. Comma is pre-checked as the commonest export
+         and as what every file uploaded before this option existed was read as. The value strings
+         are `csv_wide.DELIMITER_KEYS` verbatim — the wire vocabulary — and are posted as-is, so
+         they are NOT translated; only the labels are. Names rather than the characters themselves
+         because a literal tab in a `value=` attribute survives no reformatter. #}
+      <fieldset class="pt-2">
+        <legend class="text-sm font-medium">{{ _('Columns are separated by') }}</legend>
+        <div class="flex flex-wrap gap-4 pt-1">
+          <label class="flex cursor-pointer items-center gap-2 text-sm">
+            <input type="radio" name="csv-upload-delimiter" class="radio radio-sm"
+                   value="comma" checked />
+            <span>{{ _('a comma (,)') }}</span>
+          </label>
+          <label class="flex cursor-pointer items-center gap-2 text-sm">
+            <input type="radio" name="csv-upload-delimiter" class="radio radio-sm"
+                   value="semicolon" />
+            <span>{{ _('a semicolon (;)') }}</span>
+          </label>
+          <label class="flex cursor-pointer items-center gap-2 text-sm">
+            <input type="radio" name="csv-upload-delimiter" class="radio radio-sm"
+                   value="tab" />
+            <span>{{ _('a tab') }}</span>
           </label>
         </div>
       </fieldset>
@@ -664,6 +696,7 @@
       "csv_error_with_detail": _("%(message)s — %(detail)s"),
       "csv_err_no_file": _("No file was chosen."),
       "csv_err_bad_timezone": _("That timezone is not one this app knows."),
+      "csv_err_bad_delimiter": _("That field separator is not one this app knows."),
       "csv_err_bad_encoding": _("The file is not valid UTF-8 text. Save or export it as UTF-8 and try again."),
       "csv_err_unreadable_csv": _("The file could not be read as CSV. Check that it is really comma-separated text and not a spreadsheet or an archive."),
       "csv_err_bad_upload_id": _("That file reference is not valid."),

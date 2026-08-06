@@ -72,12 +72,20 @@
 │      params(workspace_id, json, updated_at)          -- current config    │
 │      runs(id, workspace_id, run_id, config_hash, result_json, created_at) │
 │      uploads(id, workspace_id, filename, tz, columns_json, rows,          │
-│              resolution_s, first_ts, last_ts, uploaded_at)                │
+│              resolution_s, first_ts, last_ts, uploaded_at,                │
+│              cumulative_columns_json, delimiter)                          │
 │              -- one CSV file (§4.2a). `columns_json` is the parsed header │
 │              -- as a JSON array (named for its encoding; a bare `columns` │
 │              -- reads as a count), `tz` the zone the user declared at     │
 │              -- upload. A slot's binding to one of these is in `params`,  │
 │              -- since it is configuration, not data.                      │
+│              -- `delimiter` is the field separator the user chose at      │
+│              -- upload, by NAME: 'comma', 'semicolon' or 'tab'. Unlike    │
+│              -- the display fields it is acted on -- the fetch path       │
+│              -- re-parses the stored bytes and must use it. NULLABLE,     │
+│              -- and NULL reads as 'comma': a row written before the       │
+│              -- column existed was parsed with the comma default and      │
+│              -- accepted under it, so the value is known, not unknown.    │
 │              -- resolution_s / first_ts / last_ts are NULLABLE: a file    │
 │              -- too irregular for a modal resolution is still a valid     │
 │              -- upload, and the summary is for display, not validity.     │

@@ -93,6 +93,9 @@ def test_create_round_trips_every_field(mods):
     # Timestamps read back tz-aware, so a caller can compare them without a TypeError.
     assert read.uploaded_at.tzinfo is not None
     assert read.first_ts.tzinfo is not None
+    # The separator the file was read with. Defaulted here, since `_create` does not pass one.
+    assert read.delimiter == "comma"
+    assert read.cumulative_columns is None
 
 
 def test_nullable_summary_fields_round_trip_as_none(mods):
@@ -182,10 +185,60 @@ def test_an_older_table_without_the_verdict_column_is_migrated(mods):
     assert old is not None, "an existing row must still be readable after the migration"
     assert old.filename == "oud.csv"
     assert old.cumulative_columns is None
+    # `delimiter` is migrated in the same loop and behaves differently on read: NULL means comma,
+    # not "unknown". The row predates the column, but the file it names was parsed with the comma
+    # default and accepted under it, so the value is known rather than missing.
+    assert old.delimiter == "comma"
 
     # And a new row written against the migrated table carries its verdict.
     made = _create(uploads, cumulative_columns=["Verbruik"])
     assert uploads.get("ws1", made.id).cumulative_columns == ["Verbruik"]
+
+
+# ── The field separator ──────────────────────────────────────────────────────────────────────
+
+
+def test_the_delimiter_round_trips_through_get_and_list(mods):
+    """Stored because the file is parsed twice — at upload and on every fetch — and both must agree.
+
+    Asserted on `get` AND on `list_for`, like the cumulative verdict and for the same reason:
+    `_row_to_upload` reads the row POSITIONALLY, so a column added to only some of the queries
+    fails silently rather than loudly.
+    """
+    uploads = mods["uploads"]
+    made = _create(uploads, delimiter="semicolon")
+    assert made.delimiter == "semicolon"
+    assert uploads.get("ws1", made.id).delimiter == "semicolon"
+    assert uploads.list_for("ws1")[0].delimiter == "semicolon"
+
+
+def test_creating_without_a_delimiter_stores_comma(mods):
+    """The default is the back-compat one and is stored explicitly, not left NULL."""
+    uploads = mods["uploads"]
+    made = _create(uploads)
+    assert made.delimiter == "comma"
+    assert uploads.get("ws1", made.id).delimiter == "comma"
+
+
+def test_a_row_whose_delimiter_is_explicitly_null_reads_back_as_comma(mods):
+    """A legacy row, fabricated by raw SQL the way the migration test fabricates its old table.
+
+    This is the case the migration produces on an existing installation: `ALTER TABLE … ADD COLUMN`
+    fills every pre-existing row with NULL and nothing backfills. NULL is normalised to `"comma"` in
+    `_row_to_upload` — the OPPOSITE of `cumulative_columns_json`, whose NULL stays None because it
+    genuinely means "not computed". Here nothing is unknown: every such row was parsed with
+    `csv.reader`'s comma default, so `Upload.delimiter` is `str` and never None, and no downstream
+    caller has to hold a third state that does not exist.
+    """
+    uploads = mods["uploads"]
+    made = _create(uploads, delimiter="semicolon")
+
+    with uploads.connect() as conn:
+        conn.execute("UPDATE uploads SET delimiter = NULL WHERE id = ?", (made.id,))
+
+    read = uploads.get("ws1", made.id)
+    assert read.delimiter == "comma"
+    assert uploads.list_for("ws1")[0].delimiter == "comma"
 
 
 def test_read_text_returns_the_stored_bytes(mods):

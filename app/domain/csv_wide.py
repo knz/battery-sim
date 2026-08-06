@@ -125,6 +125,8 @@ all-zero unused register, an all-constant column, a very short file) are not fla
 
 Main items:
     TIMESTAMP_FORMAT, AMSTERDAM_TZ, UTC_TZ    the format string and the two declarable zones.
+    DELIMITER_KEYS/_CHARS/DEFAULT_DELIMITER   the three declarable field separators, by NAME, and
+                                              the one place a name becomes a character.
     UNIT_FACTORS                              kWh (identity) and Wh (÷1000).
     MONOTONIC_MIN_SAMPLES/_MIN_RISE/_NOISE    the register-DETECTION threshold (open item 2),
                                               with its measured residual risk both ways. What it
@@ -136,10 +138,10 @@ Main items:
     WideCsv                                   parsed file: columns, UTC index, string cells,
                                               resolution, and the DST-ambiguity mask.
     WideCsvSummary                             what the upload dialog displays.
-    parse_wide_csv(text, tz)                  file-level parse (§4.2a upload checks).
+    parse_wide_csv(text, tz, delimiter)       file-level parse (§4.2a upload checks).
     summarise(wide)                           WideCsv → WideCsvSummary.
     column_frame(wide, column, name, unit)    column-level parse → (SeriesFrame, warnings).
-    parse_and_summarise(text, tz)             convenience for the upload route.
+    parse_and_summarise(text, tz, delimiter)  convenience for the upload route.
 """
 
 from __future__ import annotations
@@ -170,6 +172,31 @@ TIMESTAMP_FORMAT = "%d-%m-%Y %H:%M:%S"
 AMSTERDAM_TZ = "Europe/Amsterdam"
 UTC_TZ = "UTC"
 TZ_KEYS: tuple[str, ...] = (AMSTERDAM_TZ, UTC_TZ)
+
+# The three field delimiters the upload dialog offers, answered per file at upload alongside the
+# zone. Carried on the wire, in the form and in the `uploads` row as a NAME (`"semicolon"`) rather
+# than as the character it stands for, for two reasons:
+#
+#   * a literal tab is not a value an HTML `value=` attribute, a multipart field or a source file
+#     can carry robustly — it survives no reformatter, no linter and no careless editor, and it is
+#     invisible in a diff. A name is text under every one of those.
+#   * `tz` set the precedent one field over: it stores `Europe/Amsterdam`, an identifier the parser
+#     resolves, not the offset it stands for. The vocabulary is the interface; the payload is an
+#     implementation detail this module owns.
+#
+# `DELIMITER_CHARS` is the single place the name becomes a character, and only `parse_wide_csv`
+# reads it. `DEFAULT_DELIMITER` is comma because that is what every file stored before this option
+# existed was read as — see `uploads.Upload.delimiter` on why a NULL row is comma and not unknown.
+COMMA_DELIMITER = "comma"
+SEMICOLON_DELIMITER = "semicolon"
+TAB_DELIMITER = "tab"
+DELIMITER_KEYS: tuple[str, ...] = (COMMA_DELIMITER, SEMICOLON_DELIMITER, TAB_DELIMITER)
+DELIMITER_CHARS: dict[str, str] = {
+    COMMA_DELIMITER: ",",
+    SEMICOLON_DELIMITER: ";",
+    TAB_DELIMITER: "\t",
+}
+DEFAULT_DELIMITER = COMMA_DELIMITER
 
 # Per-binding unit (§4.2a "Units and kind are not in the file"). Energy slots only, so the whole
 # vocabulary is the two energy units the drawer's radio offers; §4.2's MWh and price units do not
@@ -315,6 +342,9 @@ class WideCsv:
         cells          column name → the row-aligned raw strings for that column.
         resolution_s   modal spacing, or None if irregular (`infer_resolution_s`).
         tz             the zone the user declared, as passed in.
+        delimiter      the field-separator NAME the file was tokenized with, as passed in. Kept
+                       for the same reason `tz` is: a record of how the file was read, so a later
+                       re-parse of the same bytes can be held to the same answer.
         ambiguous      bool mask, row-aligned: True where a local timestamp fell in the repeated
                        October hour and was resolved to its CEST occurrence (D-DST). All False
                        for a UTC-declared file.
@@ -332,6 +362,7 @@ class WideCsv:
     cells: dict[str, list[str]]
     resolution_s: int | None
     tz: str
+    delimiter: str
     ambiguous: np.ndarray
     line_numbers: tuple[int, ...]
 
@@ -358,6 +389,10 @@ class WideCsvSummary:
     first_ts: datetime | None
     last_ts: datetime | None
     tz: str
+    # The field-separator name the file was read with. Carried for the same reason `tz` is: the
+    # upload route persists it on the row, so a later re-parse of the stored bytes uses the answer
+    # the user gave rather than a default that may not match. Not displayed anywhere.
+    delimiter: str
     ambiguous_rows: int
 
 
@@ -431,8 +466,8 @@ def _parse_timestamp(raw: str, tz: str, row: int) -> tuple[np.datetime64, bool]:
 
 # --- file-level parse (§4.2a checks at upload) ----------------------------------------------
 
-def parse_wide_csv(text: str, tz: str) -> WideCsv:
-    """Parse a whole wide CSV, applying the declared zone. Raises `CsvFormatError`.
+def parse_wide_csv(text: str, tz: str, delimiter: str = DEFAULT_DELIMITER) -> WideCsv:
+    """Parse a whole wide CSV, applying the declared zone and field delimiter. Raises `CsvFormatError`.
 
     Performs exactly the file-level checks §4.2a puts at upload: a header row must be present,
     there must be at least two columns (one timestamp plus one value), there must be at least one
@@ -442,6 +477,14 @@ def parse_wide_csv(text: str, tz: str) -> WideCsv:
     `tz` must be one of `TZ_KEYS`; anything else is a programming error in the caller (a route
     validates the submitted form value), so it is rejected here as a plain rejection rather than
     silently defaulting to one of the two.
+
+    `delimiter` is one of `DELIMITER_KEYS` — a NAME, not the character (see the constants above) —
+    and is validated the same way. It has a DEFAULT where `tz` has none, and the asymmetry is
+    deliberate: there is no defensible default zone (a file read in the wrong one produces
+    plausible timestamps shifted by an hour or two, silently), whereas comma is not a guess but a
+    fact about every file this app parsed before the option existed. The delimiter is also never
+    sniffed. A file whose cells may legitimately contain commas cannot be sniffed reliably, and
+    guessing wrong is the factor-of-a-thousand error the row-length guard below exists to prevent.
 
     Rows are sorted by resolved UTC instant with a **stable** sort, so the October pair — two
     rows that legitimately share a UTC instant after fold resolution — keeps its file order.
@@ -454,10 +497,19 @@ def parse_wide_csv(text: str, tz: str) -> WideCsv:
             f"Unknown timezone {tz!r}. Expected one of: {', '.join(TZ_KEYS)}.",
         )
 
-    # `csv.reader` handles quoted names with embedded commas or semicolons, which supplier
-    # exports do produce in header rows. Newline handling is left to `io.StringIO`'s universal
-    # newlines so CRLF files (the Windows-exported common case) need no pre-processing.
-    reader = csv.reader(io.StringIO(text, newline=""))
+    if delimiter not in DELIMITER_KEYS:
+        raise CsvFormatError(
+            "bad_delimiter",
+            f"Unknown field separator {delimiter!r}. Expected one of: "
+            f"{', '.join(DELIMITER_KEYS)}.",
+        )
+
+    # `csv.reader` is an RFC 4180 tokenizer: it honours double quotes, so a delimiter INSIDE a
+    # quoted cell does not split it, under whichever delimiter is in force. That is what lets a
+    # comma-delimited file carry a quoted `"1,9"` and a semicolon-delimited one carry a bare `1,9`.
+    # Newline handling is left to `io.StringIO`'s universal newlines so CRLF files (the
+    # Windows-exported common case) need no pre-processing.
+    reader = csv.reader(io.StringIO(text, newline=""), delimiter=DELIMITER_CHARS[delimiter])
     try:
         header = next(reader)
     except StopIteration:
@@ -565,6 +617,7 @@ def parse_wide_csv(text: str, tz: str) -> WideCsv:
         cells=cells,
         resolution_s=infer_resolution_s(index),
         tz=tz,
+        delimiter=delimiter,
         ambiguous=amb_mask,
         line_numbers=line_numbers,
     )
@@ -628,13 +681,16 @@ def summarise(wide: WideCsv) -> WideCsvSummary:
         first_ts=first,
         last_ts=last,
         tz=wide.tz,
+        delimiter=wide.delimiter,
         ambiguous_rows=int(wide.ambiguous.sum()),
     )
 
 
-def parse_and_summarise(text: str, tz: str) -> tuple[WideCsv, WideCsvSummary]:
+def parse_and_summarise(
+    text: str, tz: str, delimiter: str = DEFAULT_DELIMITER
+) -> tuple[WideCsv, WideCsvSummary]:
     """Parse and summarise in one call — what the upload route wants (step 3 of the brief)."""
-    wide = parse_wide_csv(text, tz)
+    wide = parse_wide_csv(text, tz, delimiter)
     return wide, summarise(wide)
 
 

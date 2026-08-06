@@ -601,10 +601,17 @@ is never required to contain them.
   │   • The first column holds the timestamp, written as                   │
   │     DD-MM-YYYY HH:MM:SS, with hours on a 24-hour clock                 │
   │     (so 6 in the evening is 18:00:00, not 06:00:00 PM).                │
-  │   • Every other column holds values. Fractional values are fine.       │
+  │   • Every other column holds values. Fractional values are fine,       │
+  │     written with either a dot (0.412) or a comma (0,412) — but a       │
+  │     value written with a comma must be put in double quotes if the     │
+  │     comma is also the field separator you choose below.                │
   │                                                                        │
   │  Timestamps are   ( • ) Amsterdam local time                           │
   │                   (   ) UTC                                            │
+  │                                                                        │
+  │  Columns are      ( • ) a comma (,)                                    │
+  │  separated by     (   ) a semicolon (;)                                │
+  │                   (   ) a tab                                          │
   │                                                                        │
   │  [ Choose file… ]                                                      │
   │                                                                        │
@@ -640,8 +647,24 @@ silently wrong for a file with gaps across the boundary, which is the failure mo
 project's timestamp rules exist to prevent. Under **UTC** no hour is ambiguous and no flag
 arises.
 
+**The field separator is answered per file too, and is not sniffed.** Dutch exports are split
+roughly between comma- and semicolon-separated, and a semicolon export very often writes its
+decimals with commas — so the character that separates fields and the character inside a value can
+be the same one, depending on the file. Detecting the separator by counting characters gets that
+file exactly backwards: it would find more commas than semicolons and split every value into two
+integers, a result that looks like data and is wrong by a factor of a thousand. So the dialog asks,
+comma pre-selected as the commonest case, and the answer is recorded with the file. The related
+trap is called out in the layout bullets rather than left to the rejection message: under the comma
+separator, a value written `0,412` must be quoted, or the row is refused for having one field too
+many.
+
+Neither radio is reset between two uploads in the same dialog session; the second file inherits the
+answers given for the first, because files uploaded back to back nearly always come from one
+exporter.
+
 **Validation happens at upload and is recoverable.** A file that cannot be read — no header
-row, an unparseable first column, fewer than two columns, no data rows — is rejected in the
+row, an unparseable first column, fewer than two columns, no data rows — or that declares a
+separator this app does not know, is rejected in the
 dialog, naming what was expected, what was found, and the row it was found on. Nothing is
 stored and no slot is affected. This is a panel-local condition: downloading the wrong export
 is an ordinary event, not a run-fatal one

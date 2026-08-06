@@ -15,9 +15,11 @@ This module is the persistence half of that. It owns two things, and nothing els
     they declared at upload — `Europe/Amsterdam` or `UTC` — which the parser has already applied,
     so it is a record of what was done rather than an instruction for later. The remaining fields
     are the parse summary the upload dialog and the drawer's file selector show: the header, the
-    row count, the inferred resolution and the coverage. One later addition rides along:
+    row count, the inferred resolution and the coverage. Two later additions ride along:
     `cumulative_columns_json`, the names of the value columns that looked like meter registers at
-    upload, so the drawer can annotate its column picker without re-parsing the file.
+    upload, so the drawer can annotate its column picker without re-parsing the file; and
+    `delimiter`, the field separator the user chose at upload (`comma`, `semicolon` or `tab`), which
+    unlike the rest is not for display — the fetch path re-parses the stored bytes and must use it.
   * **The file** at `<data_dir>/<workspace_id>/uploads/<upload_id>.csv`, beside the `series/`
     directory the dataset writes, under the same workspace directory and behind the same
     traversal-rejecting helper — so a workspace stays one directory on disk.
@@ -98,8 +100,8 @@ There is no `owner_id` column, for the same reason `datasets` has none: ownershi
 must not do is answer a query that is not workspace-scoped, and it has no such function.
 
 Main items:
-    Upload                          one row: id, filename, tz, header, parse summary, and the
-                                    per-column cumulative verdict.
+    Upload                          one row: id, filename, tz, delimiter, header, parse summary,
+                                    and the per-column cumulative verdict.
     _ADDED_COLUMNS / _migrate       the forward migration for an older local table.
     _COLUMNS                        the canonical column order; `_COLUMNS_SQL` and `_PLACEHOLDERS`
                                     derive from it, so the INSERT's `?` count cannot drift.
@@ -136,7 +138,8 @@ CREATE TABLE IF NOT EXISTS uploads (
     first_ts     TEXT,
     last_ts      TEXT,
     uploaded_at  TEXT    NOT NULL,
-    cumulative_columns_json TEXT
+    cumulative_columns_json TEXT,
+    delimiter    TEXT
 );
 CREATE INDEX IF NOT EXISTS uploads_workspace ON uploads (workspace_id);
 """
@@ -159,7 +162,24 @@ written before the column existed — which is distinct from `[]`, "computed, no
 distinction is what makes the migration below need no backfill: a NULL row simply shows no
 annotation, which is what it showed before.
 
-It is deliberately NOT folded into `columns_json`. That field's contract is a plain `list[str]` and
+`delimiter` is the newest field: the field-separator NAME (`comma`, `semicolon` or `tab` —
+`csv_wide.DELIMITER_KEYS`) the user chose at upload and the parser tokenized the file with. It is
+persisted for the same reason `tz` is, and with more force: the file is parsed TWICE, once at
+upload and again on every fetch (`app/sources/csv_source.py`), and the two parses must agree or a
+bound slot reads different numbers than the dialog showed. A name rather than the character, per
+`csv_wide`'s constants — a literal tab in a TEXT column is legible to nothing.
+
+**It is NULLABLE, and NULL means `comma`, with no backfill.** That deliberately differs from
+`cumulative_columns_json` above, where NULL is a meaningful third state ("not computed") that no
+reader may collapse. Here NULL is not unknown at all: `csv.reader`'s comma default was the only
+tokenizer this module's files ever saw, so every row written before this column existed was parsed
+as comma AND accepted as comma — the value is known, it simply predates the column that would have
+recorded it. Reading it back as `comma` therefore states a fact rather than guessing a default, and
+`_row_to_upload` normalises it so no caller downstream ever has to hold the distinction. The
+alternative — a backfill UPDATE — would write the same value into every existing row and change
+nothing about what any of them means.
+
+`cumulative_columns_json` is deliberately NOT folded into `columns_json`. That field's contract is a plain `list[str]` and
 the public API exposes it as one; putting a second kind of thing in there would make every reader of
 `Upload.columns` responsible for knowing which entries are names and which are verdicts.
 
@@ -179,12 +199,15 @@ is in the WHERE clause of every non-key read, which is the shape an index exists
 """
 
 _ADDED_COLUMNS = (
-    # The per-column cumulative verdict (see the `_SCHEMA` docstring). `CREATE TABLE IF NOT EXISTS`
-    # never alters an existing table, so a database created before this column existed needs it
-    # added here or every SELECT built from `_COLUMNS_SQL` fails with "no such column". Each entry is
-    # (column, type); adding one that is already there is skipped rather than swallowed as an error,
-    # so the migration is idempotent by inspection rather than by exception handling.
+    # Columns added after this table first shipped (see the `_SCHEMA` docstring for what each one
+    # holds). `CREATE TABLE IF NOT EXISTS` never alters an existing table, so a database created
+    # before one of these existed needs it added here or every SELECT built from `_COLUMNS_SQL`
+    # fails with "no such column". Each entry is (column, type); `_migrate` loops over all of them
+    # and skips one that is already present rather than swallowing an error, so the migration is
+    # idempotent by inspection rather than by exception handling. Both are added NULL and neither
+    # is backfilled — what a NULL means differs per column and the docstring above argues each.
     ("cumulative_columns_json", "TEXT"),
+    ("delimiter", "TEXT"),
 )
 
 
@@ -255,6 +278,19 @@ class Upload:
     It is a WARNING and not a gate: nothing refuses a binding on it (`csv_wide.column_frame` warns
     and returns the frame), and the drawer shows small print the user can ignore. The detector has a
     documented false positive on monotonically rising partial-day solar, which is why.
+
+    `delimiter` is the field separator the user chose at upload, by NAME — `comma`, `semicolon` or
+    `tab`, `csv_wide.DELIMITER_KEYS`. Like `tz` it is a record of how the file WAS read, but unlike
+    `tz` something still acts on it: the fetch path re-parses the stored bytes and must pass this
+    value back to the parser, or a semicolon file would be re-read as one column. It is never
+    displayed.
+
+    It is `str` and never None, defaulting to `"comma"` — the type has no unknown state, because
+    there is none. A stored NULL is a row written before the column existed, and every such row was
+    parsed with the comma default and accepted under it, so the value is known rather than missing.
+    `_row_to_upload` collapses NULL to `"comma"` on the way out and the `_SCHEMA` docstring argues
+    the point at length, including why this is not the inconsistency with `cumulative_columns`
+    (whose None IS meaningful) that it looks like at first glance.
     """
 
     id: str
@@ -268,6 +304,7 @@ class Upload:
     last_ts: datetime | None
     uploaded_at: datetime
     cumulative_columns: list[str] | None = None
+    delimiter: str = "comma"
 
 
 def _connect():
@@ -428,6 +465,14 @@ def _row_to_upload(row) -> Upload:
         # NULL stays None rather than becoming `[]`: the two mean different things (not computed vs
         # computed and empty) and only the caller can decide what to do with "unknown".
         cumulative_columns=None if row[10] is None else list(json.loads(row[10])),
+        # NULL becomes `"comma"` rather than staying None, which is the OPPOSITE of the line above
+        # and deliberately so: a NULL here is a row written before this column existed, and every
+        # such row was parsed with `csv.reader`'s comma default and accepted under it. The value is
+        # known, not unknown, so there is nothing for a caller to decide. (The literal is spelled
+        # out rather than imported: this module deliberately does not depend on `app.domain` — see
+        # the module comment on what is NOT here — so it names `csv_wide.DEFAULT_DELIMITER` in
+        # prose the way it already names `csv_wide` elsewhere.)
+        delimiter=row[11] or "comma",
     )
 
 
@@ -443,6 +488,7 @@ _COLUMNS: tuple[str, ...] = (
     "last_ts",
     "uploaded_at",
     "cumulative_columns_json",
+    "delimiter",
 )
 """The canonical column order this module reads and writes, in `_SCHEMA` order.
 
@@ -487,6 +533,7 @@ def create(
     first_ts: datetime | None = None,
     last_ts: datetime | None = None,
     cumulative_columns: list[str] | None = None,
+    delimiter: str = "comma",
 ) -> Upload:
     """Store `content` as a new upload for this workspace and record its summary. Returns the row.
 
@@ -496,7 +543,12 @@ def create(
     cannot reject a malformed file. That is the route's job, and it must parse BEFORE calling here,
     because a rejected upload must leave no row and no file. `cumulative_columns` is a judgement
     rather than a measurement, and this module does not make it either: `csv_wide._looks_cumulative`
-    does, per value column, and the route passes the result down.
+    does, per value column, and the route passes the result down. `delimiter` is likewise the
+    caller's, not this module's: it is the separator NAME the parse actually used, and it is stored
+    so the fetch path can hold its own re-parse to the same answer. It defaults to `"comma"` — not
+    a guess but the value every file predating the option was read with — and this module does not
+    validate it against `csv_wide.DELIMITER_KEYS`, for the reason it does not validate `tz` either:
+    the route checks the submitted form value, and this module takes what it is told.
 
     Keyword-only past `workspace_id`: most of the parameters are metadata of comparable type
     (three strings, three optionals) and a positional call would be unreadable and easy to
@@ -531,6 +583,10 @@ def create(
     cumulative_list = None if cumulative_columns is None else list(cumulative_columns)
     cumulative_json = None if cumulative_list is None else json.dumps(cumulative_list)
     row_count = int(rows)
+    # Coerced here with the rest, above the write, per the docstring's rule. `None` collapses to
+    # `"comma"` rather than being stored as NULL: a fresh row always states how its file was read,
+    # and only pre-existing rows carry the NULL that `_row_to_upload` reads as comma.
+    delimiter_name = str(delimiter or "comma")
     resolution = None if resolution_s is None else int(resolution_s)
     first_iso = first_ts.isoformat() if first_ts else None
     last_iso = last_ts.isoformat() if last_ts else None
@@ -555,6 +611,7 @@ def create(
                 last_iso,
                 uploaded_at.isoformat(),
                 cumulative_json,
+                delimiter_name,
             ),
         )
 
@@ -574,6 +631,7 @@ def create(
         last_ts=_to_utc(last_ts),
         uploaded_at=uploaded_at,
         cumulative_columns=cumulative_list,
+        delimiter=delimiter_name,
     )
 
 

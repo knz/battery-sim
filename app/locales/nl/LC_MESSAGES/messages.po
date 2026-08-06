@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-06 15:27+0200\n"
+"POT-Creation-Date: 2026-08-06 15:40+0200\n"
 "PO-Revision-Date: 2026-07-23 20:30+0200\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: nl\n"
@@ -317,8 +317,8 @@ msgid ""
 "A value contains both a dot and a comma, so it is unclear which is the "
 "decimal separator. Use one or the other, and no thousands separator."
 msgstr ""
-"Een waarde bevat zowel een punt als een komma, waardoor onduidelijk is welk "
-"teken het decimaalteken is. Gebruik het een of het ander, en geen "
+"Een waarde bevat zowel een punt als een komma, waardoor onduidelijk is "
+"welk teken het decimaalteken is. Gebruik het een of het ander, en geen "
 "duizendtalscheiding."
 
 msgid "A value is infinite or not a number."
@@ -329,7 +329,8 @@ msgid ""
 "decimal separator, but not both, and an empty cell means a gap."
 msgstr ""
 "Een waarde is geen getal. Een waarde mag een punt of een komma als "
-"decimaalteken gebruiken, maar niet allebei, en een lege cel betekent een gat."
+"decimaalteken gebruiken, maar niet allebei, en een lege cel betekent een "
+"gat."
 
 msgid "AC-coupled"
 msgstr "AC-gekoppeld"
@@ -486,6 +487,9 @@ msgstr "Sluiten"
 
 msgid "Column"
 msgstr "Kolom"
+
+msgid "Columns are separated by"
+msgstr "Kolommen zijn gescheiden door"
 
 #, python-format
 msgid ""
@@ -707,8 +711,16 @@ msgstr ""
 "bewerkscherm. Pas ze daar aan en kom terug: de bedragen worden opnieuw "
 "berekend met de nieuwe tarieven."
 
-msgid "Every other column holds values. Fractional values are fine."
-msgstr "Elke andere kolom bevat waarden. Waarden met decimalen zijn prima."
+msgid ""
+"Every other column holds values. Fractional values are fine, written with"
+" either a dot (0.412) or a comma (0,412) — but a value written with a "
+"comma must be put in double quotes if the comma is also the field "
+"separator you choose below."
+msgstr ""
+"Elke andere kolom bevat waarden. Waarden met decimalen zijn prima, "
+"geschreven met een punt (0.412) of met een komma (0,412) — maar een waarde "
+"met een komma moet tussen dubbele aanhalingstekens staan als de komma ook "
+"het veldscheidingsteken is dat je hieronder kiest."
 
 msgid "Export CSV"
 msgstr "CSV exporteren"
@@ -1368,6 +1380,9 @@ msgstr "Verbinding testen"
 
 msgid "That column is not in the file."
 msgstr "Die kolom staat niet in het bestand."
+
+msgid "That field separator is not one this app knows."
+msgstr "Dat veldscheidingsteken kent deze app niet."
 
 msgid "That file could not be uploaded."
 msgstr "Dat bestand kon niet geüpload worden."
@@ -2238,6 +2253,15 @@ msgstr ""
 
 msgid "Your supplier bills"
 msgstr "Je leverancier rekent af op basis van"
+
+msgid "a comma (,)"
+msgstr "een komma (,)"
+
+msgid "a semicolon (;)"
+msgstr "een puntkomma (;)"
+
+msgid "a tab"
+msgstr "een tab"
 
 msgid "as your meter recorded them"
 msgstr "zoals je meter ze heeft geregistreerd"
@@ -3161,4 +3185,7 @@ msgstr "👍 Ik wil dit"
 #~ "Een waarde is geen getal. Waarden "
 #~ "gebruiken een punt als decimaalteken, en"
 #~ " een lege cel betekent een gat."
+
+#~ msgid "Every other column holds values. Fractional values are fine."
+#~ msgstr "Elke andere kolom bevat waarden. Waarden met decimalen zijn prima."
 

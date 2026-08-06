@@ -1168,6 +1168,9 @@
   var CSV_ERROR_KEYS = {
     no_file: "csv_err_no_file",
     bad_timezone: "csv_err_bad_timezone",
+    // Not in CSV_ERROR_DETAILED below, for the same reason bad_timezone is not: its server message
+    // ("Unknown field separator 'pipe'. Expected one of: …") only restates the translated sentence.
+    bad_delimiter: "csv_err_bad_delimiter",
     bad_encoding: "csv_err_bad_encoding",
     unreadable_csv: "csv_err_unreadable_csv",
     bad_upload_id: "csv_err_bad_upload_id",
@@ -1403,8 +1406,10 @@
     return (btn && btn.getAttribute("data-slot-role")) || name;
   }
 
-  // Upload the chosen file with the chosen zone. Multipart with exactly the two fields the route
-  // reads: `file` and `tz` (D-TZ; the value strings are `csv_wide.TZ_KEYS` and are not translated).
+  // Upload the chosen file with the chosen zone and separator. Multipart with exactly the three
+  // fields the route reads: `file`, `tz` (D-TZ; the value strings are `csv_wide.TZ_KEYS`) and
+  // `delimiter` (`csv_wide.DELIMITER_KEYS` — names, not the characters). None of the value strings
+  // is translated; they are the wire vocabulary.
   //
   // Rejection is panel-local and RECOVERABLE (§3.2 — downloading the wrong export is an ordinary
   // event, not a run-fatal one): the message lands in the dialog, the dialog stays open, and nothing
@@ -1414,9 +1419,12 @@
     clearCsvError();
     var tzInput = document.querySelector("input[name=csv-upload-tz]:checked");
     var tz = (tzInput && tzInput.value) || "Europe/Amsterdam";
+    var delimInput = document.querySelector("input[name=csv-upload-delimiter]:checked");
+    var delim = (delimInput && delimInput.value) || "comma";
     var body = new FormData();
     body.append("file", file);
     body.append("tz", tz);
+    body.append("delimiter", delim);
     setStatus(csvUploadStatus, ti("csv_uploading", "Uploading %(name)s…", { name: file.name }),
               "text-base-content/60");
     if (csvUploadChooseBtn) csvUploadChooseBtn.disabled = true;
@@ -1448,6 +1456,12 @@
   // Open the shared upload modal, mirroring openHaConfig (including the `setAttribute` fallback for
   // a browser without showModal). The list is refreshed on every open rather than cached across
   // them: another tab in the same workspace may have uploaded or removed a file since.
+  //
+  // Neither radio group — zone or separator — is reset here, so a second file uploaded in the same
+  // dialog session inherits the answers given for the first. That is deliberate and applies to both
+  // equally: files uploaded back to back almost always come from the same exporter, so carrying the
+  // answers forward is right far more often than it is wrong. If it is ever changed it should be
+  // changed for both at once, which is why this is recorded rather than fixed for one of them.
   function openCsvUpload() {
     if (!csvUploadDialog) return;
     clearCsvError();

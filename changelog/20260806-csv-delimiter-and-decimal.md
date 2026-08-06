@@ -221,21 +221,181 @@ The decimal half of the task, landed independently of the delimiter half.
   unchanged. The rest of the `.pot` diff is the two intended strings plus
   `POT-Creation-Date`.
 
+### The field delimiter — implemented (requirements 1 and 2)
+
+The delimiter half, landed after the decimal half. Requirement 2 (quoting) needed
+no new code — `csv.reader` is an RFC 4180 tokenizer and honours double quotes
+under whichever delimiter it is given — so the work there was to pin it under
+each of the three, and to state it normatively in the spec where it had never
+been written down.
+
+#### Decisions taken during implementation
+
+**D-DELIM-VOCAB: the wire and DB vocabulary is names, not characters.**
+`comma` / `semicolon` / `tab`, with `csv_wide.DELIMITER_CHARS` the single place a
+name becomes a character. Two reasons. A literal tab in an HTML `value=`
+attribute, in a multipart field and in a source file survives no reformatter, no
+linter and no careless editor, and is invisible in a diff. And `tz` set the
+precedent one field over: it carries `Europe/Amsterdam`, an identifier the parser
+resolves, not the offset it stands for.
+
+**D-DELIM-NULL: a NULL `delimiter` column reads as `comma`, with no backfill.**
+This is the open question from the previous section, now ruled on. It
+deliberately differs from `cumulative_columns_json`, where NULL is a meaningful
+third state ("not computed") that no reader may collapse. Here NULL is not
+unknown at all: `csv.reader`'s comma default was the only tokenizer this app ever
+used, so every pre-existing row was parsed as comma *and accepted under it*. The
+value is known; it simply predates the column that would have recorded it.
+Reading it back as comma states a fact rather than guessing a default, so
+`Upload.delimiter` is `str` and never None and no downstream caller holds a third
+state that does not exist. A backfill `UPDATE` was declined: it would write the
+same value into every row and change nothing about what any of them means. The
+argument is written into `app/uploads.py`'s `_SCHEMA` docstring, because reading
+the file cold it looks like an inconsistency with the field directly above it.
+
+**D-DELIM-ABSENT: an upload request with no `delimiter` field defaults to comma
+rather than being rejected.** Again unlike `tz`, which rejects when absent. There
+is no defensible default zone — a file read in the wrong one produces plausible
+timestamps silently shifted by an hour or two — whereas comma is the same
+known-correct historical answer as above. Defaulting keeps an older client, a
+script, and every pre-existing test posting two fields working unchanged, and
+stores exactly the value those requests were already getting.
+
+**D-DELIM-NOSNIFF: the app does not sniff, and the spec now says why.** A file
+whose cells may themselves contain commas is genuinely ambiguous to a sniffer: a
+semicolon export full of decimal commas has more commas than semicolons, so
+character-counting reads it under the commoner character and splits every value
+into two integers — the same factor-of-a-thousand error the row-length guard
+(D-DELIM-GUARD) exists to prevent. Where an ambiguity yields a plausible wrong
+answer rather than a visible failure, this app asks.
+
+**The sticky radios were matched, not fixed.** `openCsvUpload` does not reset the
+tz radio between two uploads in one dialog session, so the second file inherits
+the first's answer; the delimiter radio now behaves identically. Deliberate —
+files uploaded back to back nearly always come from one exporter — and recorded
+in a comment there rather than fixed, because fixing it should cover both radios
+at once and is a separate change.
+
+#### Files modified
+
+- `app/domain/csv_wide.py` — `COMMA_DELIMITER` / `SEMICOLON_DELIMITER` /
+  `TAB_DELIMITER`, `DELIMITER_KEYS`, `DELIMITER_CHARS`, `DEFAULT_DELIMITER`
+  beside `TZ_KEYS`, with D-DELIM-VOCAB in a comment.
+  `parse_wide_csv(text, tz, delimiter=DEFAULT_DELIMITER)` and
+  `parse_and_summarise` likewise — keyword-with-default, so every existing call
+  site and test keeps working. Validation mirrors the `tz not in TZ_KEYS` block
+  and raises the new `bad_delimiter` code. `WideCsv` and `WideCsvSummary` each
+  gain a `delimiter` field, for the same reason `tz` is on them: a record of how
+  the file was read.
+- `app/uploads.py` — a `delimiter TEXT` column appended last (so a fresh table
+  matches a migrated one), an `_ADDED_COLUMNS` entry, the `Upload` field, the
+  `_COLUMNS` entry, the positional read, and `create`'s parameter / coercion /
+  INSERT value / returned object. The coercion sits in the up-front block above
+  `path.write_text`, per that function's own rule that no argument-shape error
+  may fire once the file exists. The module still imports nothing from
+  `app.domain`: the `"comma"` literal is spelled out with a comment pointing at
+  `csv_wide.DEFAULT_DELIMITER`, matching how the file already refers to
+  `csv_wide` in prose only.
+- `app/main.py` — the form read (absent → default, commented against the `tz`
+  case), the validation block after the tz one and above the decode, the parse
+  call, `delimiter=summary.delimiter` on the `uploads.create` call (from the
+  summary, so the row cannot record an answer the file was not read with), and
+  `"delimiter": upload.delimiter` in `_upload_json`, off the row like `tz` so it
+  appears on the LIST route too. Route docstring amended: two fields → three,
+  and the check ordering sentence now reads "size, then the declared zone and
+  separator, then the decode, then the full parse".
+- `app/sources/csv_source.py` — the fetch-path re-parse passes
+  `upload.delimiter or csv_wide.DEFAULT_DELIMITER`. This is the invariant that
+  makes the stored value load-bearing: both parses must agree.
+- `app/templates/workspace_data.html` — a second `<fieldset>` after the tz one,
+  `name="csv-upload-delimiter"`, values `comma` (pre-checked) / `semicolon` /
+  `tab` (the wire vocabulary, NOT translated; only the labels are). The layout
+  bullet on fractional values now names the dot/comma choice and the quoting rule
+  — that clause forecloses the likeliest user failure. New
+  `csv_err_bad_delimiter` string.
+- `app/static/ha_fetch.js` — `uploadCsvFile` reads the radio and appends the
+  third multipart field; header comment "two fields" → three.
+  `bad_delimiter` added to `CSV_ERROR_KEYS` but deliberately NOT to
+  `CSV_ERROR_DETAILED`, matching `bad_timezone`: its server message merely
+  restates the translated one, which is that list's stated criterion. A comment
+  in `openCsvUpload` records the sticky-radio decision.
+- `app/locales/*` — extract/update/compile, Dutch hand-written for all five new
+  strings.
+- `docs/specs/05-data-formats.md` — §4.2a's layout table gains a **Fields** row
+  stating the delimiter normatively for the first time, including that a
+  delimiter inside a double-quoted cell does not split the cell (requirement 2,
+  previously unstated even though it needs no code). New subsection "The field
+  separator is answered once, at upload — and never sniffed", paralleling the
+  timezone one. The file-level rejection list gains an unknown separator, with a
+  note that a wrong-separator file usually surfaces as `too_few_columns`.
+- `docs/specs/02-ux-wireframes.md` — the dialog ASCII art gains the radio group
+  and the amended values bullet; a rationale paragraph after the timezone one
+  covers D-DELIM-NOSNIFF and the sticky radios.
+- `docs/specs/08-architecture.md` — §5.1's `uploads` row gains `delimiter` (and
+  `cumulative_columns_json`, which had never been added to that list), with the
+  NULL-means-comma rule stated inline.
+- `docs/specs/16-validation-harness.md` — fixture 22's *At upload* paragraph
+  gains the unknown separator, plus a positive/negative pair: a semicolon file
+  with the semicolon radio parses, and THE SAME BYTES with the comma radio are
+  rejected as `too_few_columns`. That pair is what proves the answer is used
+  rather than sniffed — a sniffer would accept both halves.
+- `tests/test_csv_wide.py` — a delimiter section (each separator parses its own
+  file; omitted == explicit comma; each of the two cross-readings rejected as
+  `too_few_columns`; `"pipe"` and a raw `";"` both `bad_delimiter`; the echo on
+  `WideCsv` and `WideCsvSummary`) and a quoting section (one quoted-delimiter
+  case per separator, plus a semicolon file with bare `1,9` and `0,412` reading
+  as 1.9 and 0.412 — the commonest European shape and the practical point of the
+  whole option).
+- `tests/test_upload_routes.py` — `_post` gains an optional `delimiter` that
+  OMITS the part when None, so every pre-existing test in the file exercises the
+  absent-field default. New: semicolon accepted and echoed and stored, the same
+  bytes as comma rejected, four unknown spellings rejected (including `";"` and
+  `"COMMA"`, pinning that the vocabulary is names and is not case-folded),
+  absent and empty both defaulting to comma, and the LIST route carrying it.
+- `tests/test_uploads.py` — round-trip through `get` and `list_for`, the default,
+  and a legacy row with an explicitly NULL delimiter reading back as comma. The
+  NULL row is fabricated with raw SQL through the module's own `connect`, and the
+  existing migration test now also asserts the migrated legacy row reads comma.
+  `test_create_round_trips_every_field` extended.
+- `tests/test_csv_source.py` — `_upload` gains a delimiter parameter; a semicolon
+  upload re-parses with the stored value and yields 1.9 / 0.56 / 0.412, and a row
+  whose `delimiter` is NULL re-parses as comma.
+- `tests/test_smoke.py` — `_upload_csv` gains an optional `delimiter` part, kept
+  OPTIONAL so the route's absent-field default is exercised end to end over real
+  HTTP by every existing caller. One new Playwright case: three radios exist with
+  comma pre-checked, picking semicolon and uploading a semicolon file succeeds,
+  and the listed summary shows 2 value columns (read as comma the file would have
+  been refused outright).
+
+#### Obstacles
+
+- No positional `Upload(...)` or `WideCsv(...)` construction exists outside the
+  owning modules — grepped for; the new fields broke nothing.
+- The smoke list renders VALUE columns (header length minus the timestamp), so
+  the new Playwright assertion is "2 columns" for a three-field header.
+
 ## Current status
 
-Requirement 3 (the per-cell decimal separator) is implemented and tested.
-Requirements 1 and 2 (the delimiter radio and its persistence) are still to do;
-`app/uploads.py` has had its preparatory refactor.
-
-Verification for the decimal half: `tests/test_csv_wide.py
-tests/test_csv_source.py tests/test_upload_routes.py tests/test_i18n.py
-tests/test_no_english_leakage.py` → 398 passed. Changes are in the working
+All three requirements are implemented and tested. Changes are in the working
 tree, uncommitted.
+
+Verification: `tests/test_csv_wide.py tests/test_csv_source.py
+tests/test_upload_routes.py tests/test_uploads.py tests/test_csv_binding_reify.py
+tests/test_ingest_ws.py tests/test_i18n.py tests/test_no_english_leakage.py` →
+529 passed. `tests/test_slot_load.py` → 28 passed (it calls
+`parse_and_summarise` and was checked for the new argument).
+`tests/test_smoke.py` → 59 passed, including the new Playwright case. The full
+suite was not run — CI covers it.
+
+The `.pot` diff is the five intended new strings, the one re-worded bullet, and
+`POT-Creation-Date`; nothing else. Two unrelated Dutch strings were rewrapped by
+`pybabel update` with their content unchanged. Zero fuzzy.
 
 Open, not yet ruled on:
 
 - Whether the delimiter and decimal halves ship as one commit or two.
-- Whether existing upload rows with a NULL delimiter are read as comma or
-  re-derived.
+- Whether the sticky radios should reset between uploads in one dialog session.
+  Matched for the new radio and recorded in a comment rather than fixed; fixing
+  it should cover both radios at once.
 - The March spring-forward gap (carried over from earlier work, unrelated to
   this task, still never ruled on).

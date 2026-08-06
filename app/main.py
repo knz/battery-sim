@@ -1870,6 +1870,11 @@ def _upload_json(upload, summary=None) -> dict:
         "id": upload.id,
         "filename": upload.filename,
         "tz": upload.tz,
+        # Off the ROW, like `tz`, so it appears on the LIST route as well as on the POST — no
+        # `summary is not None` guard. Nothing renders it today (the dialog does not show the zone
+        # either); it is here because a client that has an upload's identity should be able to see
+        # how it was read, and adding it later would be a second decision about the same field.
+        "delimiter": upload.delimiter,
         "columns": list(upload.columns),
         "rows": upload.rows,
         "resolution_s": upload.resolution_s,
@@ -2040,16 +2045,21 @@ async def create_upload(
 ):
     """Upload one wide CSV: parse it, store it, and return the dialog's summary (§4.2a, §2.2).
 
-    Multipart form with two fields: `file` (the CSV) and `tz` (one of `csv_wide.TZ_KEYS` —
-    `Europe/Amsterdam` or `UTC`, decision D-TZ). The zone is asked per file because the format
-    carries no offset, and it is applied HERE, once: the parser converts to UTC and nothing
-    downstream of this route ever sees a naive timestamp.
+    Multipart form with three fields: `file` (the CSV), `tz` (one of `csv_wide.TZ_KEYS` —
+    `Europe/Amsterdam` or `UTC`, decision D-TZ) and `delimiter` (one of `csv_wide.DELIMITER_KEYS` —
+    `comma`, `semicolon` or `tab`). The zone is asked per file because the format carries no offset,
+    and it is applied HERE, once: the parser converts to UTC and nothing downstream of this route
+    ever sees a naive timestamp. The separator is asked for the same reason — it cannot be read off
+    the file without guessing — and is stored on the row, because the fetch path re-parses.
+
+    The two fields are NOT validated identically, and the difference is deliberate: an absent `tz`
+    is rejected, an absent `delimiter` defaults to comma. See the checks below for the argument.
 
     **The ordering is the contract, not an implementation detail.** §4.2a and harness fixture 22
     both require that a rejected upload leaves no row and no file, and `uploads.create` cannot
     provide that — it never looks inside a file, so it cannot reject one. So every check runs
-    strictly above the `uploads.create` call: size, then decode, then the declared zone, then the
-    full parse. Only a file that has already yielded a summary is written. `_cumulative_columns`
+    strictly above the `uploads.create` call: size, then the declared zone and separator, then the
+    decode, then the full parse. Only a file that has already yielded a summary is written. `_cumulative_columns`
     also runs above the write, and is not a check — it can only produce a verdict, never a
     rejection.
 
@@ -2057,7 +2067,8 @@ async def create_upload(
     failure), plus one this path adds:
 
       * **413** — over `uploads.MAX_UPLOAD_BYTES` (see `_read_capped_body`).
-      * **400** — a missing field, an undecodable file, an unknown zone, or any
+      * **400** — a missing field, an undecodable file, an unknown zone, an unknown field
+        separator, or any
         `CsvFormatError` from the file-level parse. The response body carries the parser's
         machine-readable `code` and its 1-based `row` alongside the English message, so the dialog
         can render its own translated wording and name the offending row (§4.2a: say what was
@@ -2074,7 +2085,7 @@ async def create_upload(
     **What step 6 can rely on, stated precisely, because an earlier version of this note overclaimed
     it.** Every 4xx these three routes RAISE THEMSELVES answers with
     `detail = {"code", "message", "row"}` — the parser's codes, plus `unreadable_csv`,
-    `bad_encoding`, `no_file`, `bad_timezone` and `bad_upload_id`. That is a
+    `bad_encoding`, `no_file`, `bad_timezone`, `bad_delimiter` and `bad_upload_id`. That is a
     guarantee about this module's own rejections and nothing more. It does **not** cover a 400 raised
     by the stack BEFORE this handler runs: python-multipart enforces its own field/part limits and
     answers with a bare string (`"Too many fields. Maximum number of fields is 1000."`, verified),
@@ -2095,6 +2106,14 @@ async def create_upload(
     # Multipart parsed from the buffered body (`_read_capped_body`'s docstring on `request._body`).
     form = await request.form()
     tz = str(form.get("tz") or "")
+    # An ABSENT `delimiter` defaults to comma rather than being rejected, which is the opposite of
+    # `tz` two lines up. The asymmetry is not an oversight: for the zone there is no correct answer
+    # to fall back on, but for the separator there is a known-correct HISTORICAL one — every file
+    # this route accepted before the field existed was parsed with `csv.reader`'s comma default, so
+    # comma is what an omitted field has always meant here. Defaulting keeps an older client, a
+    # script, and every pre-existing test posting the same two fields working unchanged, and stores
+    # exactly the value those requests were already getting.
+    delimiter = str(form.get("delimiter") or csv_wide.DEFAULT_DELIMITER)
     upload_file = form.get("file")
 
     # The `str` half of this check is not defensive padding: Starlette's multipart parser classifies
@@ -2134,6 +2153,24 @@ async def create_upload(
             },
         )
 
+    # The separator is checked against `DELIMITER_KEYS` the same way and in the same place, and for
+    # the same reason it sits ABOVE the decode: a mis-declared separator must be reported as what it
+    # is, not as an encoding problem. Only a value that was actually SENT can land here — an absent
+    # field became the comma default above — so this rejects a client sending something outside the
+    # vocabulary (a raw ";" instead of "semicolon", say), never a merely old one.
+    if delimiter not in csv_wide.DELIMITER_KEYS:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "bad_delimiter",
+                "message": (
+                    f"Unknown field separator {delimiter!r}. Expected one of: "
+                    f"{', '.join(csv_wide.DELIMITER_KEYS)}."
+                ),
+                "row": None,
+            },
+        )
+
     # Decoding is the ROUTE's job — `csv_wide.parse_and_summarise` takes `str`, and the parser
     # strips a UTF-8 BOM from the timestamp column name itself. A Dutch supplier export saved as
     # Latin-1 is a real possibility and raises here; answered as a 400 with its own code rather
@@ -2155,7 +2192,9 @@ async def create_upload(
         ) from exc
 
     try:
-        wide, summary = await asyncio.to_thread(csv_wide.parse_and_summarise, text, tz)
+        wide, summary = await asyncio.to_thread(
+            csv_wide.parse_and_summarise, text, tz, delimiter
+        )
     except csv_wide.CsvFormatError as exc:
         raise HTTPException(
             status_code=400,
@@ -2203,6 +2242,9 @@ async def create_upload(
         first_ts=summary.first_ts,
         last_ts=summary.last_ts,
         cumulative_columns=cumulative,
+        # From the SUMMARY rather than from the form value, like `tz` above: what is stored is what
+        # the parse actually used, so the row cannot record an answer the file was not read with.
+        delimiter=summary.delimiter,
     )
     return JSONResponse({"upload": _upload_json(upload, summary)}, status_code=201)
 

@@ -151,9 +151,28 @@ Tijdstip,Verbruik_T1,Verbruik_T2,Teruglevering_T1,Zon
 
 | Position | Rules |
 |---|---|
+| Fields | Separated by a **comma**, a **semicolon** or a **tab** — answered per file at upload (see below), never guessed. The file is tokenized per [RFC 4180](https://www.rfc-editor.org/rfc/rfc4180): a field may be wrapped in double quotes, and **a delimiter inside a double-quoted cell does not split the cell**, so `"1,9"` is one field under the comma separator. A doubled `""` inside a quoted cell is one literal quote. |
 | Row 1 | **Required.** Holds the column names. Names are shown to the user in the column picker and are otherwise **never interpreted** — a column called `Verbruik_T1` is not thereby the `grid_import_t1` series. |
 | Column 1 | The timestamp, `DD-MM-YYYY HH:MM:SS`, hours on a 24-hour clock. No offset (see below). |
 | Columns 2…N | Values, fractional supported. The decimal separator may be `.` **or** `,`, and it is detected **per cell**: a cell holding one of the two is read with that one, and a cell holding **both** is rejected. No thousands separator is accepted. The separator is deliberately **not** a property of the file or of a column, because real exports mix the two conventions row by row within a single column (typically quoting exactly the cells they comma-format). An empty cell is a **gap, not a zero**. At least one value column is required. |
+
+### The field separator is answered once, at upload — and never sniffed
+
+Beside the zone question, the upload dialog asks which character separates the fields: a comma, a
+semicolon or a tab. The answer applies to that file, is used for the parse, and is **recorded on
+the upload row** — the file is parsed a second time on every fetch, and both parses must use the
+same answer or a bound column would read different numbers than the dialog showed.
+
+The app does **not** sniff the separator, and that is a decision rather than an omission. A file
+whose cells may themselves contain commas is genuinely ambiguous to a sniffer: a semicolon-separated
+file full of decimal commas has more commas than semicolons, and reading it under the commoner
+character splits every value into two integers — the same factor-of-a-thousand error the layout
+rules above reject a both-separator cell to avoid. Where an ambiguity produces a plausible wrong
+answer rather than a visible failure, this app asks rather than guesses (the same argument the zone
+question makes one section down).
+
+A missing answer is read as a comma. That is not a guess either: it is what every file uploaded
+before the question existed was parsed with, and what that file's stored summary was computed under.
 
 ### Timestamps carry no offset — the zone is answered once, at upload
 
@@ -221,8 +240,11 @@ is accepted with `resolution_s = None`; reconciliation onto the simulation grid 
 
 ### Validation and failure
 
-File-level checks run **at upload** and reject the whole file: missing header row, fewer than
-two columns, no data rows, or a first column that does not parse. Column-level checks run **on
+File-level checks run **at upload** and reject the whole file: an unknown field separator, a
+missing header row, fewer than two columns, no data rows, or a first column that does not parse.
+(A file read under the wrong separator usually surfaces as one of the latter two: a
+semicolon-separated file tokenized as comma yields a single field per row, so its header names one
+column.) Column-level checks run **on
 selection** and reject only that binding: a non-numeric column, a column holding a cell that
 contains both a dot and a comma (so its decimal separator is ambiguous), or a monotonic one per
 the rule above. Either way the condition is panel-local and recoverable — the other slots and any other
