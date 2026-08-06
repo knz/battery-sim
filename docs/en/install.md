@@ -99,11 +99,11 @@ desktop session; it will not run on a headless server.
 `battery-sim-macos-arm64.zip` for Apple silicon, `battery-sim-macos-x86_64.zip` for Intel. If
 you are unsure which you have:  → About This Mac.
 
-**2. Unpack it.** Double-click the downloaded zip. You get a folder named `battery-sim`. Move
-it wherever you keep your applications; everything the app needs is inside that folder, so it
-can live anywhere and is removed by deleting it.
+**2. Unpack it.** Double-click the downloaded zip. You get **Home Battery Simulator.app**. Drag
+it to your **Applications** folder; everything the app needs is inside it, so it can live
+anywhere and is removed by dragging it to the Trash.
 
-**3. Open the app.** Inside the folder, open the `battery-sim` launcher.
+**3. Open the app.** Double-click **Home Battery Simulator**.
 
 macOS will refuse the first attempt, because the app is not signed. This is the expected
 first-run behaviour and the [security-warnings page](security-warnings.md) has the steps: in
@@ -155,7 +155,7 @@ without bundling a media library the app never uses; see
 
 ## Where the app keeps your data
 
-Your workspaces, your settings, and your Home Assistant token if you entered one:
+Your workspaces and your settings:
 
 | Platform | Location |
 | --- | --- |
@@ -165,9 +165,10 @@ Your workspaces, your settings, and your Home Assistant token if you entered one
 
 Your energy data never leaves your machine.
 
-The Home Assistant token is stored on disk, deliberately, so that you do not have to type it
-in again each time you open the app. If that is not what you want, delete that directory; the
-app recreates an empty one on the next start.
+**Your Home Assistant token is not in there.** If you entered one, your browser keeps it, and
+it is sent only to your own Home Assistant — it never reaches this app, which is why deleting
+the directory above does not remove it. To clear it, clear the site data for the app's address
+in your browser, the same way you would for any other site.
 
 ## Next
 

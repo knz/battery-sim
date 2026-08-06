@@ -58,8 +58,17 @@
 # that channel stays until the new fallback dialog (app/desktop.py::_show_fallback_dialog) has
 # been looked at on a real Windows machine.
 #
-# macOS is untouched by that work: still no `BUNDLE(...)` block, so what comes out is a raw
-# onedir directory rather than a double-clickable `.app`, and unsigned besides.
+# macOS has since been tightened too: the spec's `BUNDLE(...)` block wraps the COLLECT output as
+# `Home Battery Simulator.app`, with an icon, a bundle identifier and the version in its Info.plist,
+# so what ships is a double-clickable app rather than the raw onedir directory it used to be. The
+# archive step below zips the `.app` and not the bare directory beside it.
+#
+# What is still missing on macOS is SIGNING. Bundling and signing are independent, and only the
+# first is done: `codesign_identity=None`, so there is no Developer ID signature and no
+# notarization. PyInstaller applies an AD-HOC signature — which is what lets the binary run at all
+# on Apple silicon, since arm64 macOS refuses a completely unsigned one — but Gatekeeper still
+# quarantines the download, so the first-run refusal documented in docs/*/security-warnings.md is
+# expected. See the BUNDLE block in packaging/battery-sim.spec for the full reasoning.
 #
 # The intent is that this is temporary. Each platform should be tightened to blocking once it has
 # gone green once and its output has been looked at. A job that is allowed to stay amber
@@ -406,10 +415,13 @@ jobs:
       - name: List what was collected
         run: find artifacts -type f -printf '%p  (%s bytes)\n'
 
-      # Draft, deliberately. The macOS attachments are raw PyInstaller onedir trees rather than
-      # `.app` bundles, any of the continue-on-error platforms may be missing entirely, nothing
-      # here is code-signed, and the release notes need a human anyway. Publishing is a decision,
-      # not a side effect of pushing a tag.
+      # Draft, deliberately. Any of the continue-on-error platforms may be missing entirely — so a
+      # release can arrive with fewer downloads than the README promises, and nothing here checks
+      # that — nothing is code-signed, and the release notes need a human anyway. Publishing is a
+      # decision, not a side effect of pushing a tag.
+      #
+      # The macOS attachment is a zipped `Home Battery Simulator.app` (see the header), not the raw
+      # onedir tree it once was.
       #
       # ## What the assets look like, since it is asked every time
       #

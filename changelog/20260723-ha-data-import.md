@@ -5,7 +5,7 @@
 
 ## Task specification (original request)
 
-> "you have a home assistant instance at 192.168.2.8 and a token in ~/.homeassistant.
+> "you have a home assistant instance on the LAN and a token in a local file.
 > please run some checks regarding data import as per spec to verify feasibility, then do
 > the data import in the app implementation"
 
@@ -20,12 +20,12 @@ Probes run from `scratchpad/ha_probe*.py` (one-off, not committed). Findings:
 
 | Check | Result |
 |---|---|
-| Connectivity / auth | Instance is **HTTPS on :8123** (plain HTTP refused). REST `/api/` returns 200 with the long-lived token. HA version **2026.7.3**, tz Europe/Amsterdam, currency EUR. |
+| Connectivity / auth | Instance is **HTTPS on :8123** (plain HTTP refused). REST `/api/` returns 200 with the long-lived token. HA version **2026.7.x**, tz Europe/Amsterdam, currency EUR. |
 | TLS | Self-signed cert on the LAN — probes disabled verification. The app must allow the user to accept a self-signed/LAN cert (see risk below). |
 | WebSocket API | `wss://…/api/websocket` auth with the token succeeds (`auth_ok`). |
 | `recorder/list_statistic_ids` | 81 `sum` (energy) ids, 519 `mean` ids. The four P1 registers are present: `sensor.energy_consumed_tariff_1/_2`, `sensor.energy_produced_tariff_1/_2`. |
 | `statistics_during_period` (hour) | Returns `sum`, `state`, `change`, `last_reset` per row. `sum` present on energy stats as the spec requires (already reset-corrected). HA also returns `change` (per-interval delta) directly. |
-| Price sensor | `sensor.epex_spot_data_market_price` is `measurement` (`has_mean`), and an hourly row carries **mean, min, max** (e.g. mean 0.2955, min 0.2929, max 0.2982) — exactly what §4.3 needs for price bracketing. Tibber price also present (`sensor.tibber_elektriciteitsprijs`). |
+| Price sensor | `sensor.epex_spot_data_market_price` is `measurement` (`has_mean`), and an hourly row carries **mean, min, max** (e.g. mean 0.2955, min 0.2929, max 0.2982) — exactly what §4.3 needs for price bracketing. A second, supplier-provided price sensor was also present, so an instance may expose more than one price series. |
 | Retention | Monthly aggregation returns **26 months** back to 2024-06 — long-term stats confirmed never-purged. |
 | 5-minute (fine) window | `period: "5minute"` returns rows in the trailing window (24 rows in a 2 h probe) — supports the fine-copy / resolution-bias diagnostic. |
 
@@ -122,7 +122,7 @@ Modified:
 ## Current status
 
 **Phase 1 complete and green.** `pytest tests/ --ignore=tests/test_smoke.py`: 27 passed,
-2 skipped (live tests). Live HA round-trip passes against 192.168.2.8 (real P1 register →
+2 skipped (live tests). Live HA round-trip passes against the LAN instance (real P1 register →
 hourly frame with correct deltas; real EPEX price → frame with min/max bracket).
 
 Pre-existing, unrelated: `tests/test_smoke.py::test_new_pending_controls_marked` fails on the
@@ -154,7 +154,7 @@ Created / modified:
   on the data's coverage overlap; `dataset` persists/restores fine metadata with a forward
   column migration.
 
-Two real-data findings fixed (verified end-to-end against 192.168.2.8, ~90k rows/5 series):
+Two real-data findings fixed (verified end-to-end against the LAN instance, ~90k rows/5 series):
 1. **Two-resolution differencing.** Concatenating the hourly and 5-minute copies and
    differencing across them fabricated `AMBIGUOUS_REGISTER_DECREASE`s at the overlap (the
    5-minute register restarts lower than the hourly tail). Fix: keep the periods apart; the
