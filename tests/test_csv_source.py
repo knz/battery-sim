@@ -386,6 +386,24 @@ def test_wh_binding_converts_to_kwh(store):
     assert frame.values == pytest.approx([1.0, 2.5])
 
 
+def test_quoted_comma_decimals_survive_the_round_trip_through_storage(store):
+    # Per-cell decimal detection is the parser's (tests/test_csv_wide.py), but the adapter is the
+    # only place the bytes go to disk and come back, and the quoting is what carries the comma
+    # cells. A file mixing both conventions inside one column must load with each cell's own
+    # reading after that round trip.
+    text = (
+        "Tijdstip,Verbruik\n"
+        "01-01-2025 00:00:00,0.56\n"
+        '01-01-2025 01:00:00,"1,9"\n'
+        "01-01-2025 02:00:00,0.13\n"
+    )
+    up = _upload(store, text)
+    frame, _ = _load(
+        store, up, (datetime(2025, 1, 1, tzinfo=UTC), datetime(2025, 1, 2, tzinfo=UTC))
+    )
+    assert frame.values == pytest.approx([0.56, 1.9, 0.13])
+
+
 def test_bad_unit_is_rejected(store):
     up = _upload(store, _hourly_csv(6))
     with pytest.raises(csv_wide.CsvFormatError) as exc:

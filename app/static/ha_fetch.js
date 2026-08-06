@@ -1179,6 +1179,7 @@
     bad_timestamp: "csv_err_bad_timestamp",
     nonexistent_local_time: "csv_err_nonexistent_local_time",
     non_numeric_value: "csv_err_non_numeric_value",
+    mixed_decimal_separator: "csv_err_mixed_decimal_separator",
     non_finite_value: "csv_err_non_finite_value",
     // No `cumulative_column` entry: the server no longer rejects a non-decreasing column. It warns
     // and proceeds (`csv_wide.column_frame`), and the user-facing wording is the small print under
@@ -1192,6 +1193,8 @@
   var CSV_ERROR_DETAILED = {
     row_length_mismatch: true, empty_timestamp: true, bad_timestamp: true,
     nonexistent_local_time: true, non_numeric_value: true, non_finite_value: true,
+    // Its server message quotes the offending cell and its column, which is the criterion above.
+    mixed_decimal_separator: true,
     unknown_column: true, missing_header: true,
     too_few_columns: true, unreadable_csv: true
   };

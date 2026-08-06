@@ -221,3 +221,23 @@ Conservation and closure identities are asserted to `CLOSURE_TOL` (a module cons
     such flag.
     → [§4.2a](05-data-formats.md#timestamps-carry-no-offset--the-zone-is-answered-once-at-upload),
     [§7.3](15-data-quality-and-limits.md#73-data-quality-checks-in-execution-order)
+
+22b. **Decimal separators are read per cell** — a separate fixture from 22, whose subject is
+    recoverability; this one is a format claim ([§4.2a](05-data-formats.md#42a-the-wide-multi-series-file-format)).
+
+    Upload one comma-delimited wide file whose value cells mix the two conventions **within the
+    same column**, in the shape real exports produce: bare `0.56` on one row and quoted `"1,9"`
+    a few rows later in that column, and back to a bare dot cell after that. Assert every row
+    loads, that each value carries the number its own cell spells (`0.56` → 0.56 and `"1,9"` →
+    1.9, so neither a per-file nor a per-column rule could have produced the result), and that
+    the mixing raises **no warning at all** — it is ordinary valid data, not a suspicion.
+
+    The pinned negative, which must be asserted in the same fixture so the two cannot drift
+    apart: take the same file with the quotes removed and assert it is rejected **at upload**
+    with `row_length_mismatch`. An unquoted `1,9` is split into two fields by the tokenizer
+    before any cell is read, so it is one cell too long; reading it as `1` and `9` would be
+    wrong by a factor of a thousand. Accepting the quoted form must never license the bare one.
+
+    Assert also that a cell containing **both** a dot and a comma (`1.234,56`) is rejected on
+    column selection — panel-local, naming the column and the row — and not guessed at.
+    → [§4.2a](05-data-formats.md#42a-the-wide-multi-series-file-format)

@@ -13,10 +13,40 @@ summarise for the dialog, once at load to build one slot's frame) with no shared
 
 Row 1 is required and holds column names, which are **shown to the user and never interpreted** —
 a column called `Verbruik_T1` is not thereby the `grid_import_t1` series. Column 1 is a naive
-timestamp `DD-MM-YYYY HH:MM:SS` on a 24-hour clock. Columns 2..N are values with a `.` decimal
-separator; an empty cell is a **gap, not a zero**. Neither unit nor kind appears in the file:
+timestamp `DD-MM-YYYY HH:MM:SS` on a 24-hour clock. Columns 2..N are values whose decimal
+separator may be `.` or `,`, decided **per cell** (see below); an empty cell is a **gap, not a
+zero**. Neither unit nor kind appears in the file:
 unit is a per-binding radio (kWh default, or Wh) and kind does not exist — every value column is
 a per-interval amount for the interval starting at its timestamp.
+
+## The decimal separator is a per-CELL property (D-DELIM-SCOPE)
+
+Not per file, and not per column. That is not a generalisation for its own sake — it is what the
+data required. The example that forced it (`voorbeeld.csv`, 96 rows, header
+`DatumTijd,Import,Export,Opwek`) mixes both conventions row by row **inside a single column**:
+
+    25-08-2024 10:00:00,0.08,0.07,0
+    25-08-2024 10:15:00,"1,9",0,0
+    ...
+    25-08-2024 11:00:00,0.13,0.93,"0,55"
+
+Every dot-decimal cell is unquoted and every comma-decimal cell is quoted — the exporter quoted
+exactly those cells it comma-formatted. A per-file rule cannot read this file at all, and a
+per-column rule cannot either, because `Import` holds both `0.08` and `"1,9"` four rows apart.
+So each cell is decided on its own characters, with no state carried between cells.
+
+What makes that cheap is the reject-if-both rule: a cell containing one separator is
+unambiguous, so there is no thousands-separator inference, no ordering dependency and no
+file-wide accumulator. A cell containing both (`1.234,56`, `1,234.56`) is refused rather than
+guessed — the two readings differ by a factor of a thousand, and this format does not accept a
+thousands separator at all. `_decimal_normalised` is the whole implementation.
+
+This does **not** loosen the row-length guard, and the two are deliberately not connected. Per-
+cell reading only ever helps a comma cell that arrived as ONE field, which in practice means a
+quoted one. A bare `0,412` is split by the tokenizer into two fields before this module ever
+looks at a cell, so it is still rejected by the length check in `parse_wide_csv` — reading it
+would be wrong by a factor of a thousand. Accepting `"1,9"` therefore never licenses accepting
+`1,9`, and a paired regression test pins both halves together.
 
 ## Two-stage parsing, mirroring where the user acts
 
@@ -100,6 +130,8 @@ Main items:
                                               with its measured residual risk both ways. What it
                                               triggers is a warning, not a rejection.
     GAP_TOKENS                                cell spellings that mean "gap, not zero".
+    _decimal_normalised(text, column, row)    one cell's `.`/`,` decision; rejects a cell holding
+                                              both (D-DELIM-SCOPE).
     CsvFormatError                            one error type, carrying a machine-readable `code`.
     WideCsv                                   parsed file: columns, UTC index, string cells,
                                               resolution, and the DST-ambiguity mask.
@@ -150,6 +182,44 @@ UNIT_FACTORS: dict[str, float] = {"kWh": 1.0, "Wh": 0.001}
 # `-` is included because spreadsheet exports use it for a blank; a lone minus sign is not a
 # number under any reading, so nothing numeric is lost by claiming the spelling.
 GAP_TOKENS: frozenset[str] = frozenset({"", "nan", "na", "n/a", "null", "none", "-"})
+
+
+def _decimal_normalised(text: str, column: str, row: int) -> str:
+    """One stripped, non-gap cell → the same text with `,` read as a decimal point.
+
+    The decimal separator is a property of the **cell**, not of the file and not of the column
+    (D-DELIM-SCOPE; see the module docstring for the observed export that forces this). So this
+    decides on the cell's own two characters and carries no state between calls:
+
+      * neither `,` nor `.` — unchanged;
+      * `.` only — unchanged, byte for byte. This is the pre-existing path and must stay exactly
+        what `float()` saw before, so no already-working file can change value;
+      * `,` only — every `,` becomes `.`;
+      * both — **rejected** here, before `float()` is tried. A cell holding both is almost always
+        a thousands separator (`1.234,56` or `1,234.56`), where either reading is a factor of a
+        thousand away from the other. Rejecting explicitly, rather than letting `float()` fail
+        with the generic `non_numeric_value`, is what lets the message name the actual problem.
+
+    Only the two characters are examined; the rest is left to `float()`. So `1,234,567` is not
+    special-cased and falls through to `non_numeric_value` — there is no "multiple commas" code,
+    because "not a number" already says it. `1,5e3` becomes `1.5e3` = 1500.0 as a consequence of
+    the substitution; it is accepted rather than fought, not promised as a feature. (`float()`
+    also accepts `1_000` per PEP 515. That quirk pre-dates this function and is untouched by it.)
+
+    `column` and `row` are only there to build the error message.
+    """
+    has_comma = "," in text
+    if not has_comma:
+        return text
+    if "." in text:
+        raise CsvFormatError(
+            "mixed_decimal_separator",
+            f"Column {column!r}: {text!r} on row {row} contains both a dot and a comma, so it "
+            f"is unclear which one is the decimal separator. Each value must use one or the "
+            f"other — 1234.56 or 1234,56 — and no thousands separator.",
+            row=row,
+        )
+    return text.replace(",", ".")
 
 # --- register detection threshold (implementation brief, open item 2) -----------------------
 #
@@ -452,8 +522,9 @@ def parse_wide_csv(text: str, tz: str) -> WideCsv:
                 "row_length_mismatch",
                 f"Row {row_no} has {len(record)} values but the header names {len(header)} "
                 f"columns. Every row must carry exactly one cell per column; leave a cell empty "
-                f"to mark a gap. A row with too many cells usually means the file uses a comma "
-                f"as the decimal separator, which this format does not accept — it needs a dot.",
+                f"to mark a gap. A row with too many cells usually means a value uses a comma as "
+                f"the decimal separator without being quoted, so it was split into two cells. "
+                f"Either quote such values, or choose a different field separator.",
                 row=row_no,
             )
 
@@ -582,6 +653,12 @@ def parse_column_values(wide: WideCsv, column: str) -> np.ndarray:
     exactly this for a spacing gap (`ingest.py`) — so both ingest paths agree and every sum
     excludes the interval rather than counting it as nothing happening.
 
+    The decimal separator is read per cell by `_decimal_normalised`: `.` or `,`, and a cell
+    holding both is rejected. The **timestamp column needs no exemption and must not be given
+    one**: `parse_wide_csv` sends `record[0]` to `_parse_timestamp` and stores only `record[1:]`
+    in `wide.cells`, so a timestamp never reaches this function. Adding an exemption here would
+    be dead code that implies a coupling that does not exist.
+
     Infinities are **rejected**, not treated as gaps. `float()` accepts `inf`, `-infinity` and
     anything that overflows (`1e400`), and NaN is the only non-finite value the pipeline handles:
     `reconcile._resample_sum` neutralises NaN with `np.nan_to_num(..., nan=0.0)` and leaves an
@@ -604,14 +681,18 @@ def parse_column_values(wide: WideCsv, column: str) -> np.ndarray:
         if text.casefold() in GAP_TOKENS:
             out[i] = np.nan
             continue
+        # Per-cell decimal separator, AFTER the gap check (so `-`, a gap token, is never
+        # reinterpreted) and BEFORE `float()`. A substitution can neither create nor remove an
+        # infinity, so the `np.isinf` check below is unaffected by it.
+        normalised = _decimal_normalised(text, column, wide.line_numbers[i])
         try:
-            value = float(text)
+            value = float(normalised)
         except ValueError:
             raise CsvFormatError(
                 "non_numeric_value",
                 f"Column {column!r}: {text!r} on row {wide.line_numbers[i]} is not a number. "
-                f"Values must use a dot as the decimal separator, for example 0.412. Leave a "
-                f"cell empty to mark a gap.",
+                f"A value may use a dot or a comma as the decimal separator — 0.412 or 0,412 — "
+                f"but not both in the same value. Leave a cell empty to mark a gap.",
                 row=wide.line_numbers[i],
             ) from None
         if np.isinf(value):

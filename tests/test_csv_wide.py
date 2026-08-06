@@ -5,10 +5,17 @@ changelog/20260805-csv-import-implementation-brief.md: both declarable zones, th
 repeated hour, a March nonexistent time, Wh and kWh, empty cells, a cumulative column, a flat
 column, irregular spacing, a malformed header, a bad timestamp, and a non-numeric value.
 
+They also pin the per-CELL decimal separator (§4.2a, D-DELIM-SCOPE, harness fixture 22b): `.` and
+`,` cells alternating inside one column, a cell holding both rejected as `mixed_decimal_separator`,
+the edge spellings, and — paired in one test that must never be split — that accepting a quoted
+`"0,412"` does not license accepting a bare `0,412`, which is still a `row_length_mismatch`.
+`tests/fixtures/wide_mixed_decimal_separators.csv` is the real export that motivated the rule.
+
     uv run pytest tests/test_csv_wide.py
 """
 
 from datetime import datetime, timezone
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -535,14 +542,173 @@ def test_non_numeric_row_number_survives_sorting_and_is_the_original_line():
     assert "row 3" in str(exc.value)
 
 
-def test_decimal_comma_is_rejected_with_the_dot_rule_named():
-    # Quoted, because an unquoted decimal comma is not even one cell.
-    text = 'Tijdstip,A\n01-01-2025 00:00:00,"0,412"\n'
+# --- the decimal separator is read per CELL (§4.2a, D-DELIM-SCOPE, harness fixture 22b) ------
+
+def _values(text, column="A", tz=UTC_TZ):
+    """Parse `text` and return one column as floats."""
+    return csv_wide.parse_column_values(csv_wide.parse_wide_csv(text, tz), column)
+
+
+def _one_cell(cell):
+    """A one-row, one-column file whose only value cell is `cell`, written already quoted."""
+    return f'Tijdstip,A\n01-01-2025 00:00:00,"{cell}"\n'
+
+
+def test_a_quoted_decimal_comma_cell_is_read_as_a_decimal():
+    assert _values(_one_cell("1,9"))[0] == pytest.approx(1.9)
+
+
+def test_a_dot_decimal_cell_is_unchanged():
+    # The pre-existing path: it must stay bit-identical to what float() produced before.
+    assert _values(_one_cell("0.56"))[0] == 0.56
+
+
+def test_dot_and_comma_cells_alternate_in_one_column():
+    # Requirement 3, and the shape of the real file: the separator is not a per-FILE property.
+    text = _csv(
+        ("Tijdstip", "A"),
+        ("01-01-2025 00:00:00", "0.56"),
+        ("01-01-2025 01:00:00", '"1,9"'),
+        ("01-01-2025 02:00:00", "0.13"),
+        ("01-01-2025 03:00:00", '"0,55"'),
+    )
+    assert _values(text) == pytest.approx([0.56, 1.9, 0.13, 0.55])
+
+
+def test_detection_is_not_per_column_either():
+    # Two columns, each of which alone would suggest a different column-wide rule, and each of
+    # which internally contradicts it: a comma cell on one row and a dot cell on the next, in the
+    # same column. No column-wide rule can produce this answer.
+    text = _csv(
+        ("Tijdstip", "A", "B"),
+        ("01-01-2025 00:00:00", '"1,25"', "2.5"),
+        ("01-01-2025 01:00:00", "3.75", '"4,5"'),
+    )
+    wide = csv_wide.parse_wide_csv(text, UTC_TZ)
+    assert csv_wide.parse_column_values(wide, "A") == pytest.approx([1.25, 3.75])
+    assert csv_wide.parse_column_values(wide, "B") == pytest.approx([2.5, 4.5])
+
+
+@pytest.mark.parametrize("cell", ["1.234,56", "1,234.56"])
+def test_a_cell_with_both_separators_is_rejected_naming_the_row(cell):
+    # Overwhelmingly a thousands separator, where the two readings differ by 1000x. Refused
+    # rather than guessed, and refused with its own code so the message can say why.
+    text = _csv(
+        ("Tijdstip", "A"),
+        ("01-01-2025 00:00:00", "0.4"),
+        ("01-01-2025 01:00:00", f'"{cell}"'),
+    )
     wide = csv_wide.parse_wide_csv(text, UTC_TZ)
     with pytest.raises(CsvFormatError) as exc:
         csv_wide.column_frame(wide, "A", "grid_import_t1", "kWh")
+    assert exc.value.code == "mixed_decimal_separator"
+    assert exc.value.row == 3
+    assert "row 3" in str(exc.value) and cell in str(exc.value)
+    assert "thousands separator" in str(exc.value)
+
+
+def test_two_commas_fall_through_to_the_existing_non_numeric_code():
+    # Deliberately NOT its own code: "not a number" already says it.
+    with pytest.raises(CsvFormatError) as exc:
+        _values(_one_cell("1,234,567"))
     assert exc.value.code == "non_numeric_value"
-    assert "decimal separator" in str(exc.value)
+
+
+@pytest.mark.parametrize(
+    "cell,expected",
+    [
+        (",5", 0.5),      # consistent with `.5`, which float() already accepts
+        ("5,", 5.0),      # consistent with `5.`
+        ("-1,5", -1.5),
+        ("+1,5", 1.5),
+        ("1,5e3", 1500.0),  # a free consequence of substitution; accepted, not a promised feature
+        ("1e-3", 0.001),    # unchanged: no comma, nothing to do
+    ],
+)
+def test_decimal_comma_edge_cases(cell, expected):
+    assert _values(_one_cell(cell))[0] == pytest.approx(expected)
+
+
+def test_gap_tokens_are_still_gaps_beside_a_comma_decimal_cell():
+    # Normalisation runs AFTER the gap check, so `-` is never reinterpreted as a number.
+    text = _csv(
+        ("Tijdstip", "A"),
+        ("01-01-2025 00:00:00", '"1,9"'),
+        ("01-01-2025 01:00:00", ""),
+        ("01-01-2025 02:00:00", "-"),
+        ("01-01-2025 03:00:00", "0.5"),
+    )
+    values = _values(text)
+    assert values[0] == pytest.approx(1.9)
+    assert np.isnan(values[1]) and np.isnan(values[2])
+    assert values[3] == 0.5
+
+
+def test_infinity_is_still_rejected_in_a_column_holding_comma_decimals():
+    # A substitution can neither create nor remove an infinity, so this check is unmoved.
+    text = _csv(
+        ("Tijdstip", "A"),
+        ("01-01-2025 00:00:00", '"1,9"'),
+        ("01-01-2025 01:00:00", "inf"),
+    )
+    with pytest.raises(CsvFormatError) as exc:
+        _values(text)
+    assert exc.value.code == "non_finite_value"
+
+
+def test_a_comma_in_the_timestamp_column_is_still_a_bad_timestamp():
+    # The timestamp needs no exemption because it never reaches parse_column_values: it goes to
+    # _parse_timestamp from record[0], and only record[1:] becomes cells.
+    text = 'Tijdstip,A\n"01-01-2025 00:00:00,5",0.4\n'
+    with pytest.raises(CsvFormatError) as exc:
+        csv_wide.parse_wide_csv(text, UTC_TZ)
+    assert exc.value.code == "bad_timestamp"
+
+
+def test_quoted_decimal_comma_is_accepted_but_unquoted_is_still_a_row_length_error():
+    # THE TWO HALVES OF THIS TEST MUST NEVER BE SPLIT APART. They are the same logical data,
+    # and the whole point of per-cell detection is that accepting the first does not license
+    # accepting the second: an unquoted `0,412` is split into two fields by the tokenizer, so
+    # every row is one cell too long, and reading it would be wrong by a factor of a thousand.
+    # The row-length guard runs during tokenization in parse_wide_csv; normalisation runs at
+    # column selection in parse_column_values. There is no code path between them.
+    quoted = 'Tijdstip,A\n01-01-2025 00:00:00,"0,412"\n'
+    assert _values(quoted)[0] == pytest.approx(0.412)
+
+    unquoted = "Tijdstip,A\n01-01-2025 00:00:00,0,412\n"
+    with pytest.raises(CsvFormatError) as exc:
+        csv_wide.parse_wide_csv(unquoted, UTC_TZ)
+    assert exc.value.code == "row_length_mismatch"
+
+
+@pytest.fixture()
+def voorbeeld_csv():
+    """The real supplier export that motivated per-cell detection, kept verbatim as a fixture.
+
+    Copied unmodified from a user's own file: rewriting it by hand would lose exactly the
+    property under test — which cells the exporter chose to quote.
+    """
+    path = Path(__file__).resolve().parent / "fixtures" / "wide_mixed_decimal_separators.csv"
+    return path.read_text(encoding="utf-8")
+
+
+def test_the_real_mixed_separator_export_loads(voorbeeld_csv):
+    # The file that motivated per-cell detection: 96 quarter-hourly rows whose exporter quoted
+    # exactly the cells it comma-formatted, mixing conventions row by row inside one column.
+    wide = csv_wide.parse_wide_csv(voorbeeld_csv, UTC_TZ)
+    assert wide.rows == 96
+    assert wide.resolution_s == 900
+    assert wide.columns == ("Import", "Export", "Opwek")
+
+    imp = csv_wide.parse_column_values(wide, "Import")
+    # Row 2 is a bare dot cell and row 43 a quoted comma cell — same column, 41 rows apart.
+    assert imp[0] == 0.56
+    assert imp[41] == pytest.approx(1.9)
+    assert not np.isnan(imp).any()
+
+    opwek = csv_wide.parse_column_values(wide, "Opwek")
+    assert opwek[44] == pytest.approx(0.55)   # row 46, quoted "0,55"
+    assert opwek[45] == pytest.approx(0.45)   # row 47, bare 0.45 — the next row, same column
 
 
 def test_unknown_column_is_rejected_listing_the_available_ones():
