@@ -2674,3 +2674,291 @@ def test_the_unit_radios_show_the_drafts_unit_and_not_the_previous_slots(browser
     assert stored["slots"]["grid_import_t1"]["unit"] == "Wh", stored
     assert stored["slots"]["solar_production"]["uploadId"] == upload["id"], stored
     context.close()
+
+
+# --- bindings surviving a change to a NEIGHBOURING binding (step 8) ------------------------------
+#
+# Validation-harness fixture 22 (`docs/specs/16-validation-harness.md:182-210`) asserts three things
+# that all have the same shape: a change aimed at one file or one slot must leave the OTHER bindings
+# where they were. Every CSV test above binds exactly one slot, so none of them can see the
+# difference between "cleared the right slot" and "cleared everything" — the assertions pass either
+# way when there is only one slot to clear.
+#
+# These three bind TWO slots (or upload two files) and assert on both surfaces the binding shows on,
+# because they fail separately: the ROW LABEL is rendered from `slotState`, and `localStorage` is
+# what survives the next reload.
+
+
+def _bind_slot_via_drawer(pg, slot: str, column: str):
+    """Bind `slot` to `column` of the drawer's default file, through the real UI.
+
+    Deliberately NOT built on `_open_csv_drawer`, which makes the slot pristine first: the tests
+    below open the drawer on a slot that is already bound (to rebind it) and on a second slot in a
+    page where the first is bound, and `_make_slot_pristine` reloads the page after rewriting the
+    store — which would erase the very binding under test.
+    """
+    pg.locator(f"#slot-roster .slot-source-btn[data-slot='{slot}']").click()
+    pg.locator("#source-drawer input[name='drawer-source'][value='csv_upload']").check()
+    expect(pg.locator("#drawer-csv-binding")).to_be_visible()
+    # The column select is filled from the LIST route, so wait for the option to exist rather than
+    # racing `select_option` against the fetch.
+    expect(pg.locator(f"#drawer-csv-column option[value='{column}']")).to_have_count(1, timeout=5000)
+    pg.locator("#drawer-csv-column").select_option(column)
+    expect(pg.locator("#drawer-confirm")).to_be_enabled()
+    pg.locator("#drawer-confirm").click()
+    pg.wait_for_timeout(150)
+
+
+def test_a_rejected_upload_leaves_an_existing_binding_intact(browser, base_url):
+    """Fixture 22, *At upload*: after a rejection the earlier file "is still listed and still bound".
+
+    `tests/test_upload_routes.py:287` covers the server half — a rejected POST writes no row, so the
+    earlier upload is still listed. It cannot cover the other half of that sentence: under D-BIND the
+    BINDING lives in browser `localStorage`, so whether it survived is only visible here.
+
+    The regression this catches is an error path that resets shared CSV state on the way out. The
+    mutation is one line in `uploadCsvFile`'s `.catch` — `csvUploads = []; pruneStaleCsvBindings();`
+    — and it reads plausible for the same reason the `refreshCsvUploads` version did (the cache may
+    be inconsistent after a failure, so clear it). Its symptom is severe and silent: a user who
+    picks the wrong file by mistake loses every CSV binding in the workspace, with the dialog showing
+    only the parse error and nothing about the bindings. No other test can see it, because every
+    other test that drives a rejected upload (`test_a_rejected_upload_is_reported_in_the_dialog_and_
+    is_recoverable`) has no binding in place when the rejection happens.
+
+    The rejection driven here is a 12-hour clock, the same one that test uses — it is refused by
+    `parse_and_summarise`, so the POST comes back non-2xx and the client takes the `.catch`.
+
+    Both surfaces are asserted, and additionally that the file is still OFFERED in the drawer's file
+    select: "still listed" is the clause's own wording, and a cleared cache would empty that select
+    while `localStorage` still held the id.
+    """
+    url = _workspace_url(base_url)
+    workspace_id = url.rstrip("/").split("/")[-2]
+    upload = _upload_csv(base_url, workspace_id)
+
+    context = browser.new_context()
+    context.add_cookies([{"name": "lang", "value": "en", "url": base_url}])
+    pg = context.new_page()
+
+    _open_csv_drawer(pg, base_url, workspace_id)
+    pg.locator("#drawer-csv-column").select_option("Verbruik_T1")
+    pg.locator("#drawer-confirm").click()
+    pg.wait_for_timeout(150)
+
+    label = pg.locator(
+        "#slot-roster .slot-source-btn[data-slot='grid_import_t1'] .slot-source-label"
+    )
+    expected_label = f"Upload CSV · {upload['filename']} · Verbruik_T1"
+    expect(label).to_have_text(expected_label)
+    before = pg.evaluate(f"localStorage.getItem('ha.slots.{workspace_id}')")
+    assert upload["id"] in (before or ""), before
+
+    # Now attempt a MALFORMED upload from the dialog and let it be rejected.
+    pg.locator("#slot-roster .slot-source-btn[data-slot='grid_import_t1']").click()
+    pg.locator("#source-drawer input[name='drawer-source'][value='csv_upload']").check()
+    pg.locator("#drawer-csv-upload-btn").click()
+    twelve_hour = (
+        "Tijdstip,Verbruik\n"
+        "01-01-2025 00:00:00,0.4\n"
+        "01-01-2025 06:00:00 PM,0.3\n"
+    )
+    pg.locator("#csv-upload-input").set_input_files({
+        "name": "fout.csv", "mimeType": "text/csv", "buffer": twelve_hour.encode("utf-8"),
+    })
+    err = pg.locator("#csv-upload-error")
+    expect(err).to_be_visible(timeout=5000)
+    # The rejection actually happened. Without this the rest would pass vacuously on an upload that
+    # quietly succeeded.
+    expect(err).to_contain_text("A timestamp could not be read")
+
+    # "still listed": the good file is still in the dialog's list, and the bad one is not.
+    expect(pg.locator("#csv-upload-list")).to_contain_text(upload["filename"])
+    assert "fout.csv" not in pg.locator("#csv-upload-list").text_content()
+
+    pg.evaluate("() => document.getElementById('csv-upload-dialog').close()")
+    pg.locator("#drawer-cancel").click()
+
+    # "still bound wherever it was bound", on both surfaces.
+    expect(label).to_have_text(expected_label)
+    after = pg.evaluate(f"localStorage.getItem('ha.slots.{workspace_id}')")
+    assert after == before, (
+        "a REJECTED upload must not rewrite the slot store — the binding it never touched is at "
+        f"stake.\nbefore: {before}\nafter:  {after}"
+    )
+
+    # And the file is still offered for binding, which is what "listed" means from the drawer's side.
+    pg.locator("#slot-roster .slot-source-btn[data-slot='grid_import_t1']").click()
+    pg.locator("#source-drawer input[name='drawer-source'][value='csv_upload']").check()
+    expect(pg.locator("#drawer-csv-file")).to_contain_text(upload["filename"], timeout=5000)
+    context.close()
+
+
+def test_rebinding_one_slot_leaves_the_other_slots_binding_alone(browser, base_url):
+    """Fixture 22, *Reuse and replacement*: a rebind "touches no other slot".
+
+    Two slots are bound to two different columns of the SAME upload — which is the reuse half of that
+    clause, since one file legitimately feeds several series — and then the first is rebound to a
+    third column. What must hold afterwards is that the second slot reads exactly what it read
+    before.
+
+    The regression this catches is a commit path that writes the draft to more than its own slot. The
+    mutation is inside `confirmDraft`: assigning the new state to every CSV-bound slot rather than to
+    `draft.slot`. Nothing above notices, because each of those tests has at most one CSV slot to
+    overwrite, so a broadcast write and a targeted one produce the same store. The symptom is that
+    correcting one series' column silently repoints every other series at it, and the fetch then
+    succeeds — it is a wrong-numbers bug, not an error.
+
+    `solar_production` is the second slot: every energy slot except `power_grid` offers `csv_upload`,
+    and this one is untouched by the roster's household gating in the empty state.
+    """
+    url = _workspace_url(base_url)
+    workspace_id = url.rstrip("/").split("/")[-2]
+    # A THREE-column file: `_WIDE_CSV` has only two value columns, and this test needs a third to
+    # rebind to that is neither slot's current column.
+    upload = _upload_csv(base_url, workspace_id, filename="drie_kolommen.csv", text=(
+        "Tijdstip,Verbruik_T1,Verbruik_T2,Zon\n"
+        "01-01-2025 00:00:00,0.412,0.221,0.0\n"
+        "01-01-2025 01:00:00,0.388,0.244,0.0\n"
+        "01-01-2025 02:00:00,0.401,0.198,0.0\n"
+        "01-01-2025 03:00:00,0.377,0.233,0.0\n"
+    ))
+
+    context = browser.new_context()
+    context.add_cookies([{"name": "lang", "value": "en", "url": base_url}])
+    pg = context.new_page()
+
+    # Slot A → Verbruik_T1, slot B → Zon, same file.
+    _open_csv_drawer(pg, base_url, workspace_id, slot="grid_import_t1")
+    pg.locator("#drawer-csv-column").select_option("Verbruik_T1")
+    pg.locator("#drawer-confirm").click()
+    pg.wait_for_timeout(150)
+    _bind_slot_via_drawer(pg, "solar_production", "Zon")
+
+    a_label = pg.locator(
+        "#slot-roster .slot-source-btn[data-slot='grid_import_t1'] .slot-source-label"
+    )
+    b_label = pg.locator(
+        "#slot-roster .slot-source-btn[data-slot='solar_production'] .slot-source-label"
+    )
+    expect(a_label).to_have_text(f"Upload CSV · {upload['filename']} · Verbruik_T1")
+    expect(b_label).to_have_text(f"Upload CSV · {upload['filename']} · Zon")
+
+    # Rebind slot A to a THIRD column. The slot is not made pristine — the point is that a rebind
+    # replaces a live binding, and clearing it first would test the fresh-bind path again.
+    _bind_slot_via_drawer(pg, "grid_import_t1", "Verbruik_T2")
+
+    # Slot A now reads the new column; slot B is exactly where it was.
+    expect(a_label).to_have_text(f"Upload CSV · {upload['filename']} · Verbruik_T2")
+    expect(b_label).to_have_text(f"Upload CSV · {upload['filename']} · Zon")
+
+    stored = json.loads(pg.evaluate(f"localStorage.getItem('ha.slots.{workspace_id}')"))
+    assert stored["slots"]["grid_import_t1"]["column"] == "Verbruik_T2", stored
+    assert stored["slots"]["solar_production"] == {
+        "source": "csv_upload", "statId": "", "uploadId": upload["id"],
+        "column": "Zon", "unit": "kWh",
+    }, (
+        "rebinding grid_import_t1 must leave solar_production's binding untouched, field for "
+        f"field: {stored}"
+    )
+    context.close()
+
+
+def test_deleting_a_referenced_upload_leaves_the_other_files_bindings_intact(browser, base_url):
+    """Fixture 22: deleting a referenced upload "clears that slot's binding and leaves the others".
+
+    `test_removing_a_file_clears_the_slots_bound_to_it_and_says_which` covers the first half and the
+    report, but it binds ONE slot to ONE file, so "leaves the others intact" is unasserted: with a
+    single binding in the store, a cascade that clears only the matching slot and one that clears
+    every CSV slot are indistinguishable.
+
+    Here two DIFFERENT files are uploaded and a slot is bound to each. Deleting file 1 must clear
+    slot A and leave slot B bound to file 2.
+
+    The regression this catches is a cascade that decides on the SOURCE rather than on the upload id
+    — `pruneStaleCsvBindings` dropping the `csvUploadById(st.uploadId)` early return, which is one
+    line. That is a live risk rather than a hypothetical one, because the same function is called on
+    every successful list (`refreshCsvUploads`), so the broadened version would clear every CSV
+    binding in the workspace on an ordinary page load, not only on a delete.
+
+    The report is also asserted to name only slot A's role label: telling the user that a series they
+    did not touch went back to "Choose source…" would be wrong even if the store were right.
+    """
+    url = _workspace_url(base_url)
+    workspace_id = url.rstrip("/").split("/")[-2]
+    upload1 = _upload_csv(base_url, workspace_id, filename="verbruik_2025.csv")
+    upload2 = _upload_csv(base_url, workspace_id, filename="zonnepanelen_2025.csv")
+
+    context = browser.new_context()
+    context.add_cookies([{"name": "lang", "value": "en", "url": base_url}])
+    pg = context.new_page()
+    pg.on("dialog", lambda d: d.accept())   # the [ remove ] confirmation
+
+    # Slot A → file 1, slot B → file 2. The file select must be set explicitly here: it defaults to
+    # one of the two, and which one is not what this test is about.
+    _open_csv_drawer(pg, base_url, workspace_id, slot="grid_import_t1")
+    expect(pg.locator(f"#drawer-csv-file option[value='{upload1['id']}']")).to_have_count(
+        1, timeout=5000)
+    pg.locator("#drawer-csv-file").select_option(upload1["id"])
+    pg.locator("#drawer-csv-column").select_option("Verbruik_T1")
+    pg.locator("#drawer-confirm").click()
+    pg.wait_for_timeout(150)
+
+    pg.locator("#slot-roster .slot-source-btn[data-slot='solar_production']").click()
+    pg.locator("#source-drawer input[name='drawer-source'][value='csv_upload']").check()
+    expect(pg.locator(f"#drawer-csv-file option[value='{upload2['id']}']")).to_have_count(
+        1, timeout=5000)
+    pg.locator("#drawer-csv-file").select_option(upload2["id"])
+    pg.locator("#drawer-csv-column").select_option("Zon")
+    pg.locator("#drawer-confirm").click()
+    pg.wait_for_timeout(150)
+
+    a_label = pg.locator(
+        "#slot-roster .slot-source-btn[data-slot='grid_import_t1'] .slot-source-label"
+    )
+    b_label = pg.locator(
+        "#slot-roster .slot-source-btn[data-slot='solar_production'] .slot-source-label"
+    )
+    expect(a_label).to_have_text(f"Upload CSV · {upload1['filename']} · Verbruik_T1")
+    expect(b_label).to_have_text(f"Upload CSV · {upload2['filename']} · Zon")
+
+    # Remove file 1 from the dialog. The row is located by its upload id rather than by position:
+    # the list's order is the server's and this test depends on which file goes.
+    pg.locator("#slot-roster .slot-source-btn[data-slot='grid_import_t1']").click()
+    pg.locator("#source-drawer input[name='drawer-source'][value='csv_upload']").check()
+    pg.locator("#drawer-csv-upload-btn").click()
+    expect(pg.locator("#csv-upload-list")).to_contain_text(upload1["filename"])
+    pg.locator(f"#csv-upload-list [data-upload-id='{upload1['id']}'] button").click()
+
+    status = pg.locator("#csv-upload-status")
+    expect(status).to_contain_text("Removed", timeout=5000)
+    expect(status).to_contain_text("Grid import T1")
+    # Only slot A is reported. Naming the untouched series would be wrong even with a correct store.
+    assert "Solar" not in status.text_content(), (
+        f"the removal report must name only the series it cleared: {status.text_content()!r}"
+    )
+    # File 2 survives the removal of file 1 on the server side too.
+    expect(pg.locator("#csv-upload-list")).to_contain_text(upload2["filename"])
+
+    pg.evaluate("() => document.getElementById('csv-upload-dialog').close()")
+    pg.locator("#drawer-cancel").click()
+
+    # Slot A is cleared whole; slot B is untouched.
+    expect(a_label).to_have_text("Choose source…")
+    expect(b_label).to_have_text(f"Upload CSV · {upload2['filename']} · Zon")
+
+    stored = json.loads(pg.evaluate(f"localStorage.getItem('ha.slots.{workspace_id}')"))
+    assert upload1["id"] not in json.dumps(stored), stored
+    assert stored["slots"]["solar_production"] == {
+        "source": "csv_upload", "statId": "", "uploadId": upload2["id"],
+        "column": "Zon", "unit": "kWh",
+    }, (
+        "deleting one upload must leave a slot bound to a DIFFERENT upload completely alone, field "
+        f"for field: {stored}"
+    )
+
+    # And it survives the reload, which is the store's whole purpose: the eager list-on-load runs
+    # `pruneStaleCsvBindings` again against a list that no longer has file 1, so a cascade keyed on
+    # the source rather than the id would clear slot B here even if it spared it above.
+    pg.reload(wait_until="networkidle")
+    expect(b_label).to_have_text(f"Upload CSV · {upload2['filename']} · Zon", timeout=5000)
+    context.close()

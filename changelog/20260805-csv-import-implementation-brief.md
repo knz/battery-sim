@@ -778,7 +778,13 @@ closed in step 6 because each needs a fixture step 6 does not have:
    fetched slot, which means a real dataset, which is harness territory rather than a smoke fixture.
    Widening the predicate's scope to every source would break `_make_slot_pristine` and nothing else
    would notice.
-2. **The 413 branch of `csvErrorText` is untested.** It is the one status with no error envelope of
+2. **The 413 branch of `csvErrorText` is untested.** Read precisely: it is the JS function's branch
+   that is untested, NOT the 413 response. The *route* side is well covered and mutation-hardened —
+   `tests/test_upload_routes.py:480` (Content-Length branch, chosen so the streaming check cannot
+   also answer it), `:511` (streaming branch), `:532` (a lying Content-Length), `:554` (a body
+   exactly at the cap). What has no test is the browser rendering `csv_err_too_large`
+   (`app/templates/workspace_data.html:673`). Do not read this item as "413 is untested".
+   It is the one status with no error envelope of
    ours (`_read_capped_body` raises a plain string, and python-multipart's own part limits are enforced
    by Starlette before our handler runs), so it is a genuinely different path from the `detail.code`
    table. Driving it needs an upload over the size cap, which a Playwright test can only do by pushing
