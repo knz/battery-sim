@@ -7,8 +7,8 @@ ingest the WS endpoint uses, asserting real HA data becomes valid SeriesFrames. 
 feasibility check from changelog/20260723-ha-data-import.md, pinned as a test.
 
 Enable by pointing at an instance:
-    HA_URL=wss://192.168.2.8:8123/api/websocket \
-    HA_TOKEN_FILE=~/.homeassistant \
+    HA_URL=wss://homeassistant.local:8123/api/websocket \
+    HA_TOKEN_FILE=~/.ha-token \
     HA_INSECURE=1 \
     uv run pytest tests/test_ha_live.py -v
 

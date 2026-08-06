@@ -1,8 +1,10 @@
 # CI for pull requests and pushes to master: run the whole test suite, and check that the
-# committed Tailwind output still matches its sources.
+# committed generated files — Tailwind output and THIRD-PARTY-NOTICES.md — still match their
+# sources.
 #
 # Jobs:
-#     tests          `uv sync` + Playwright Chromium + `uv run pytest`, the entire suite.
+#     tests          `uv sync` + Playwright Chromium + `uv run pytest`, the entire suite, plus a
+#                    freshness check on THIRD-PARTY-NOTICES.md (it needs the same uv environment).
 #     css-freshness  `npm ci` + `npm run build:css`, then fail if app/static/app.css changed.
 #
 # ## Why the whole suite, with no splitting and no markers
@@ -43,6 +45,37 @@
 # sources that generate it. Regenerating it here and diffing is what makes the drift visible. The
 # job does not commit the result — CI writing to the branch would hide the drift instead of
 # reporting it — so the failure message spells out the two commands to run.
+#
+# ## Why the notices freshness check is a step in `tests` rather than its own job
+#
+# Same reasoning as the "no splitting" note above, applied to cost. The check is
+# `scripts/generate_third_party_notices.py --check`, which needs the resolved Python environment
+# (it reads installed distribution metadata through `importlib.metadata`) — exactly what the
+# `tests` job has already paid for with `uv sync`. A separate job would have to repeat that sync
+# to run a check that takes about a second. That buys an isolated failure signal, which is worth
+# something on a long job, but this is a one-line command whose failure names itself in the step
+# title and in an `::error file=` annotation, so the signal is not actually ambiguous. Reusing the
+# environment wins. css-freshness stays separate for the opposite reason: it needs Node, which the
+# `tests` job otherwise has no use for.
+#
+# The step runs BEFORE pytest, so drift is reported in seconds rather than after the suite.
+#
+# ## What the notices gate does NOT cover
+#
+# THIRD-PARTY-NOTICES.md has three sections and only two of them are verified here. Sections 1 and
+# 2 (vendored browser assets, Python runtime dependencies) are regenerated from the repository —
+# uv.lock, pyproject.toml, package-lock.json, the vendored bundles — so drift in those is real
+# drift and this gate catches it.
+#
+# Section 3 (the system libraries copied into the Linux AppImage) is NOT re-derived. It is a
+# snapshot of an Ubuntu 24.04 build host, produced by `--refresh-system-libs` there and committed
+# as packaging/appimage-system-libraries.json. Enumerating it needs a built dist/AppDir plus
+# `dpkg -S` and /usr/share/doc/*/copyright, none of which exist on this runner. Plain `--check`
+# renders that committed JSON into the document; it verifies the RENDERING, not the snapshot. So a
+# green run means "the committed file matches what the repo plus the committed snapshot produce",
+# not "every statement in the document is currently true of a real AppImage". If the build host's
+# library set changes, this gate stays green and the notice goes stale — refreshing it is a manual
+# step on the build host, and nothing in CI can prompt for it.
 #
 # ## Action versions
 #
@@ -101,6 +134,38 @@ jobs:
       # libraries Chromium needs on the runner image.
       - name: Install Playwright Chromium
         run: uv run playwright install --with-deps chromium
+
+      # THIRD-PARTY-NOTICES.md is generated but committed, so it can drift from the dependency
+      # set the same way app.css drifts from its Tailwind sources. `--check` regenerates and
+      # compares; it exits 1 with the differing section named. It reuses this job's uv environment
+      # because it reads installed distribution metadata (see the header note on why this is a
+      # step and not a job). Run before pytest so drift fails in seconds.
+      #
+      # Scope limit, deliberately: this validates sections 1 and 2 (vendored browser assets,
+      # Python dependencies) and the RENDERING of section 3. It does NOT validate section 3's
+      # contents — those come from packaging/appimage-system-libraries.json, a committed snapshot
+      # of an Ubuntu 24.04 build host that only `--refresh-system-libs` on that host can update.
+      # Drift between that JSON and the real build host is invisible here.
+      - name: Check THIRD-PARTY-NOTICES.md is up to date
+        run: |
+          if ! uv run python scripts/generate_third_party_notices.py --check; then
+            echo ""
+            echo "::error file=THIRD-PARTY-NOTICES.md::THIRD-PARTY-NOTICES.md is out of date with its sources."
+            echo "THIRD-PARTY-NOTICES.md is generated from the vendored browser assets, the"
+            echo "dependency set in pyproject.toml resolved through uv.lock, and the committed"
+            echo "snapshot in packaging/appimage-system-libraries.json. The generated file is"
+            echo "committed, so it has to be regenerated whenever any of those change."
+            echo ""
+            echo "To fix, run these two commands and include the result in this branch:"
+            echo ""
+            echo "    uv run python scripts/generate_third_party_notices.py"
+            echo "    git add THIRD-PARTY-NOTICES.md && git commit -m 'Regenerate THIRD-PARTY-NOTICES.md'"
+            echo ""
+            echo "Note: this does NOT refresh the AppImage system-library section. That needs"
+            echo "--refresh-system-libs on an Ubuntu 24.04 build host with a built dist/AppDir."
+            echo ""
+            exit 1
+          fi
 
       - name: Run the test suite
         run: uv run pytest

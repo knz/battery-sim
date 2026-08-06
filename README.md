@@ -40,6 +40,13 @@ The AGPL's distinguishing clause is §13: if you run a modified version and let 
 it over a network, those users are entitled to the source of your modified version. Running the
 app on your own machine for yourself — which is what it is designed for — triggers nothing.
 
+That covers this project's own code. The app is built on other people's, and the downloadable
+builds carry it: the browser libraries served by the app, the Python packages inside every
+bundle, and — in the Linux AppImage — the GTK and WebKit libraries it brings with it, which are
+LGPL. Who wrote what, under which licence, and where to get its source is set out in
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md); the licence texts it refers to are in
+[licenses/](licenses/).
+
 ## Supporting the project
 
 The desktop builds are unsigned, which is why macOS and Windows warn about them. What signing

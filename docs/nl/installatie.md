@@ -102,11 +102,11 @@ X11- of Wayland-sessie nodig; op een server zonder beeldscherm draait hij niet.
 `battery-sim-macos-arm64.zip` voor Apple silicon, `battery-sim-macos-x86_64.zip` voor Intel.
 Weet je niet welke je hebt:  → Over deze Mac.
 
-**2. Pak hem uit.** Dubbelklik op de gedownloade zip. Je krijgt een map `battery-sim`. Zet die
-neer waar je je programma's bewaart; alles wat de app nodig heeft zit in die map, dus hij kan
-overal staan en je verwijdert de app door de map weg te gooien.
+**2. Pak hem uit.** Dubbelklik op de gedownloade zip. Je krijgt **Home Battery Simulator.app**.
+Sleep die naar je map **Programma's** (Applications); alles wat de app nodig heeft zit erin,
+dus hij kan overal staan en je verwijdert de app door hem naar de prullenmand te slepen.
 
-**3. Open de app.** Start in die map het programma `battery-sim`.
+**3. Open de app.** Dubbelklik op **Home Battery Simulator**.
 
 macOS weigert de eerste poging, omdat de app niet ondertekend is. Dat hoort bij de eerste keer
 opstarten; de stappen staan op de pagina over
@@ -160,7 +160,7 @@ de details staan in `changelog/20260805-desktop-packaging.md` §16.
 
 ## Waar de app je gegevens bewaart
 
-Je workspaces, je instellingen, en je Home Assistant-token als je dat hebt ingevuld:
+Je workspaces en je instellingen:
 
 | Platform | Locatie |
 | --- | --- |
@@ -170,8 +170,10 @@ Je workspaces, je instellingen, en je Home Assistant-token als je dat hebt ingev
 
 Je energiegegevens verlaten je machine niet.
 
-Dat token staat bewust op schijf, zodat je het niet elke keer opnieuw hoeft in te typen. Wil je
-dat niet, gooi die map dan weg; de app maakt bij de volgende start een lege aan.
+**Je Home Assistant-token staat daar niet bij.** Als je er een hebt ingevuld, bewaart je
+browser dat, en het gaat alleen naar je eigen Home Assistant — het bereikt deze app nooit.
+Daarom haal je het ook niet weg door de map hierboven te verwijderen. Wil je het wissen, wis
+dan in je browser de sitegegevens van het adres van de app, net als bij elke andere site.
 
 ## Verder lezen
 
