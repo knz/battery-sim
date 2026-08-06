@@ -549,7 +549,7 @@
       }
       window.drawEnergyFlows = drawEnergyFlows;
 
-      // ── The *SoC + price* tab's first chart: state of charge as a day × time-of-day grid ─────
+      // ── The *Battery rhythm* tab's first chart: state of charge as a day × time-of-day grid ──
       //
       // Same contract as the two draw functions above — reads the node the last render injected,
       // so a swap needs a re-call and never a re-bind, and is a no-op when the node is absent.
@@ -650,6 +650,130 @@
       }
       window.drawSocHeatmap = drawSocHeatmap;
 
+      // ── The *Battery rhythm* tab's euro heatmaps: one drawing routine, two charts ────────────
+      //
+      // The tab carries TWO euro grids below the SoC chart — gross battery earnings, and the
+      // whole-bill saving against the same household without a battery. They are different
+      // quantities but the same PICTURE: same day × time-of-day grid, same base64 float32 payload
+      // shape, same diverging scale, same axes. So the drawing lives here once and each chart is a
+      // few lines naming its own nodes; two copies of ~90 lines could be edited apart, and a scale
+      // or an axis that differed between them would silently make the two grids incomparable at a
+      // glance — which is exactly how a reader uses them.
+      //
+      // Parameterised on the two ids only. Everything the two charts differ in beyond that (legend
+      // title, axis titles) already travels in the payload, translated server-side, so no label
+      // needs passing in here.
+      //
+      // `clip` comes from each chart's OWN payload. That is deliberate and is the one thing that
+      // must not be shared: the two charts measure different things, and putting the saving on the
+      // earnings chart's scale would flatten or saturate it for no reason a reader could see.
+      //
+      // Gated on its OWN nodes: the server omits both payloads when cost simulation is off, so a
+      // call returns early while the SoC chart on the same tab still draws.
+      //
+      // The payload is base64 FLOAT32, not the SoC chart's quantised bytes — euros are signed and
+      // unbounded, so there is no ramp to quantise onto (see `_earnings_heatmap`). NaN is how the
+      // server says "no value here": a gap interval, or an interval whose spot price was missing.
+      // Both become `null` below, which Plotly draws as a hole; a NaN left in the array would be
+      // serialised as `null` anyway, but going through the check keeps the intent explicit and
+      // keeps this reading like drawSocHeatmap's `absent` branch.
+      function drawEuroHeatmap(dataId, plotId) {
+        if (typeof Plotly === 'undefined') return;
+        var node = document.getElementById(dataId);
+        if (!node) return;
+        if (!document.getElementById(plotId)) return;
+        var d = JSON.parse(node.textContent);
+
+        // base64 → bytes → float32. `atob` yields a binary string, so the bytes are copied into a
+        // Uint8Array and the SAME buffer is reinterpreted; a Float32Array cannot be built from the
+        // string directly. Little-endian, which is what `numpy.float32.tobytes()` writes on every
+        // platform this runs on and what Float32Array reads.
+        var bin = atob(d.cells);
+        var bytes = new Uint8Array(bin.length);
+        for (var b = 0; b < bin.length; b++) bytes[b] = bin.charCodeAt(b);
+        var vals = new Float32Array(bytes.buffer);
+
+        // Reshape into Plotly's z[row][col], row-major by ROW (time-of-day) exactly as the SoC
+        // grid is written, so cell (r, c) is the same interval in every chart on this tab.
+        var z = [];
+        for (var r = 0; r < d.rows; r++) {
+          var zrow = new Array(d.cols);
+          for (var c = 0; c < d.cols; c++) {
+            var i = r * d.cols + c;
+            var v = i < vals.length ? vals[i] : NaN;
+            zrow[c] = isNaN(v) ? null : v;
+          }
+          z.push(zrow);
+        }
+
+        // Row labels and tick thinning: identical to the SoC heatmap, and identical on purpose —
+        // the charts on this tab are read against each other, so a different y axis on one of
+        // them would make the comparison wrong rather than merely inconsistent.
+        var ylab = [];
+        for (var rr = 0; rr < d.rows; rr++) {
+          var mins = (rr * d.grid_s / 60) | 0;
+          var hh = (mins / 60) | 0;
+          var mm = mins % 60;
+          ylab.push((hh < 10 ? '0' : '') + hh + ':' + (mm < 10 ? '0' : '') + mm);
+        }
+        var ytick = Math.max(1, (3 * 3600 / d.grid_s) | 0);
+
+        Plotly.newPlot(plotId, [{
+          type: 'heatmap',
+          z: z, x: d.days, y: ylab,
+          // Symmetric about zero, so a green cell and a red cell of equal intensity are equal
+          // euros. `zmid` is set as well as the two ends: without it Plotly would place the
+          // scale's midpoint at the data's own middle, which on a window that earned more than it
+          // spent would colour a small LOSS as neutral.
+          zmin: -d.clip, zmax: d.clip, zmid: 0,
+          // Red below zero, transparent at zero, green above. Transparent rather than white in the
+          // middle because the panel renders on both light and dark themes, and a white midpoint
+          // would read as a bright band on the dark one. It also makes "the battery did nothing
+          // here" and "there is no data here" look alike, which is honest: neither moved money.
+          // Two coincident stops at the midpoint rather than one shared stop: Plotly interpolates
+          // RGB and alpha independently, so a single mid stop would carry each half's colour part
+          // of the way towards the other's before the alpha reached zero, tinting small losses
+          // green-ish and small gains red-ish. A pair keeps each half's ramp to its own hue.
+          colorscale: [
+            [0.0, 'rgba(220, 38, 38, 1)'],
+            [0.5, 'rgba(220, 38, 38, 0)'],
+            [0.5, 'rgba(22, 163, 74, 0)'],
+            [1.0, 'rgba(22, 163, 74, 1)']
+          ],
+          showscale: true,
+          colorbar: { title: { text: d.legend_title, side: 'right' }, thickness: 12 },
+          // As on the SoC chart: without this the tooltip reports a hole as if it were a reading.
+          hoverongaps: false,
+          hovertemplate: '%{x} %{y}<br>€ %{z:.3f}<extra></extra>'
+        }], {
+          margin: { t: 10, r: 10, b: 40, l: 52 },
+          xaxis: { title: d.day_title, type: 'category', nticks: 12 },
+          // Reversed for the same reason as the chart above: the day reads downward.
+          yaxis: { title: d.time_title, type: 'category', dtick: ytick, autorange: 'reversed' },
+          paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+          font: { size: 11 }
+        }, { displayModeBar: false, responsive: true });
+      }
+
+      // The two euro charts, as named functions rather than inline calls to the helper: these are
+      // the names the tab map and recompute()'s redraw path call, and they are what a stack trace
+      // or a console poke shows. Each one owns nothing but its pair of ids.
+      //
+      // Chart 2 — gross battery earnings: the euros the battery's own flows moved in the interval.
+      function drawEarningsHeatmap() {
+        drawEuroHeatmap('socprice-earnings-data', 'socprice-earnings');
+      }
+      window.drawEarningsHeatmap = drawEarningsHeatmap;
+
+      // Chart 3 — saved against no battery: the difference between this household's whole grid
+      // bill and the same household's bill with PV but no battery, per interval. A different
+      // quantity from chart 2 and not a rescaling of it: it counts effects with no battery flow at
+      // all, such as PV the battery stored that would otherwise have been curtailed.
+      function drawSavedHeatmap() {
+        drawEuroHeatmap('socprice-saved-data', 'socprice-saved');
+      }
+      window.drawSavedHeatmap = drawSavedHeatmap;
+
       // The view tabs. DELEGATED from `document` for the same reason every other panel-③ control
       // is: the buttons live inside the swapped fragment, so a handler bound to them directly
       // would stop working after the first range change.
@@ -683,7 +807,13 @@
       var CHART_TABS = {
         monthly:  { id: 'monthly-chart',   flex: false, draw: function () { drawMonthlyChart(); } },
         flows:    { id: 'flows-charts',    flex: true,  draw: function () { drawEnergyFlows(); } },
-        socprice: { id: 'socprice-charts', flex: true,  draw: function () { drawSocHeatmap(); } }
+        // Three draws, because this tab holds three charts. The two euro charts are each gated
+        // inside their own draw (their data nodes are absent with cost simulation off), so this
+        // entry stays unconditional and the tab keeps working with the SoC chart alone.
+        socprice: { id: 'socprice-charts', flex: true,
+                    draw: function () {
+                      drawSocHeatmap(); drawEarningsHeatmap(); drawSavedHeatmap();
+                    } }
       };
 
       function selectChartTab(btn) {
@@ -916,6 +1046,8 @@
             drawMonthlyChart();
             drawEnergyFlows();
             drawSocHeatmap();
+            drawEarningsHeatmap();
+            drawSavedHeatmap();
             // The swap brought the panel back on its default tab. Put the reader back on the one
             // they were looking at — after the draws above, since restoring a hidden tab re-draws
             // it at the size it has once visible (Plotly cannot size a plot inside `hidden`).

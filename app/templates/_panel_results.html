@@ -255,8 +255,10 @@
              "Monthly savings" made the bars read as ~11× the actual saving (3,923 kWh of import
              beside a 341 kWh saving on the 1-year window).
              *Energy flows* is a real tab since changelog/20260806-energy-flows-chart-tab.md, and
-             *SoC + price* since changelog/20260806-soc-price-chart-tab.md — so every tab in this
-             strip now draws something, and none of them carries the §2.1 pending affordance. The
+             *Battery rhythm* since changelog/20260806-soc-price-chart-tab.md (its second chart
+             since 20260806-battery-money-heatmap.md, which is also where the tab lost its earlier
+             name "SoC + price") — so every tab in this strip now draws something, and none of them
+             carries the §2.1 pending affordance. The
              "⤓ export CSV [?]" button beside the strip still does.
              The rule if a pending tab is ever added back: it carries `data-pending-name` (the
              dialog handler in _pending_dialog.html keys off it) plus `opacity-60`, and NOT
@@ -280,7 +282,7 @@
             <button type="button" class="btn btn-xs join-item" data-chart-tab="monthly" data-chart-view="eur">{{ _('Monthly savings (€)') }}</button>
             {% endif %}
             {% if results.soc_heatmap %}
-            <button type="button" class="btn btn-xs join-item" data-chart-tab="socprice">{{ _('SoC + price') }}</button>
+            <button type="button" class="btn btn-xs join-item" data-chart-tab="socprice">{{ _('Battery rhythm') }}</button>
             {% endif %}
             {% if results.energy_flows %}
             <button type="button" class="btn btn-xs join-item" data-chart-tab="flows">{{ _('Energy flows') }}</button>
@@ -398,17 +400,36 @@
           </div>
         </div>
         {% endif %}
-        {# ── The *SoC + price* tab ────────────────────────────────────────────────────────────
+        {# ── The *Battery rhythm* tab ─────────────────────────────────────────────────────────
+           Three heatmaps on the same day × time-of-day grid, so a reader can read one against the
+           others: the same cell is the same interval in all three.
+
            Chart 1 is the SoC heatmap: one cell per SIMULATION INTERVAL, days across and local
            time-of-day down, coloured from transparent (the floor of the operating window) to
            opaque (the top). It answers a question no other tab does — WHEN the battery is full,
            daily and seasonally — where the flows tab's average day collapses every day into one
            and hides how much days differ from each other.
 
-           Chart 2 is not specified yet, and is a heading-only placeholder rather than an empty
-           frame: an empty `h-64` div would read as a chart that failed to draw. The tab's NAME
-           already promises a price half, which is why the placeholder says so in words instead of
-           leaving the reader to wonder whether something is missing. #}
+           Chart 2 is the gross-earnings heatmap: the same grid coloured by the euros the battery
+           moved in that interval, green above zero and red below. It is gated on its own payload,
+           which the server produces only with cost simulation on — so the tab keeps working with
+           cost off, carrying chart 1 alone.
+
+           Chart 3 is the saved-against-no-battery heatmap: the same grid coloured by the
+           difference between this household's whole grid bill and the bill the SAME household
+           would have had with its PV but no battery. Same gate as chart 2.
+
+           Charts 2 and 3 look alike and DO NOT MATCH, which is the trap this block is written
+           around. Chart 2 attributes value to battery FLOWS; chart 3 is a counterfactual on the
+           whole bill and therefore also counts effects with no battery flow at all — PV the
+           battery stored that would otherwise have been curtailed is the clearest one. Two green
+           and red grids stacked read as "these should agree", so the two captions are written as a
+           PAIR that says how they differ, not as two independent blurbs. Edit one and re-read the
+           other.
+
+           The element ids still say `socprice`, which the tab is no longer called. They are left
+           alone deliberately: they are the keys the tab-restore machinery in
+           workspace_results.html matches on, and renaming them buys nothing a reader can see. #}
         {% if results.soc_heatmap %}
         <div id="socprice-charts" class="hidden flex-col gap-4">
           <div>
@@ -418,10 +439,76 @@
               {{ _('Each cell is one simulated interval, in Dutch local time. Blank cells are intervals with no data.') }}
             </p>
           </div>
+          {% if results.earnings_heatmap %}
           <div>
-            <h4 class="text-sm font-semibold">{{ _('What did power cost at the time?') }}</h4>
-            <p class="text-xs text-base-content/70">{{ _('This chart is not built yet.') }}</p>
+            <h4 class="text-sm font-semibold">{{ _('Gross battery earnings') }}</h4>
+            <div id="socprice-earnings" class="h-64 w-full"></div>
+            <p class="text-xs text-base-content/70">
+              {{ _('This chart follows the battery’s own flows. Each cell is the euro value of what the battery moved in that interval: energy it supplied to the house or the grid, less energy it took from the grid. Green is money in, red is money out.') }}
+            </p>
+            {# The footnote is not decoration. "Earnings" invites the reading "this is what I
+               saved", and it is not: this chart is a GROSS flow, with no battery cost, no
+               degradation, and no comparison against the no-battery bill. The net figure is a
+               different quantity computed elsewhere in this panel, so the footnote names the tile
+               that carries it rather than leaving the reader to reconcile two numbers that were
+               never meant to match. The tile's own label is "MONEY SAVED" (results_view.py's cost
+               KPI); the footnote quotes it so the pointer is findable by eye.
+
+               "BELOW" is a claim about layout and has to stay true: the tile lives in the COST
+               SAVINGS section, which renders after this Charts box (see the `{% if results.cost %}`
+               further down). The direction is safe to state because this chart and that tile
+               appear under the same condition — `earnings_heatmap` is None unless
+               `cfg.simulate_cost`, which is also what emits `results.cost`. If the panel's section
+               order ever changes, this word changes with it. #}
+            <p class="text-xs text-base-content/60 mt-1">
+              {{ _('This is the battery’s gross money flow, before its purchase price and wear. It is not your saving: the net figure — this window’s bill with a battery against the bill without one — is the MONEY SAVED tile below.') }}
+            </p>
           </div>
+          {% endif %}
+          {# Chart 3. Gated on its own payload, exactly as chart 2 is: the server returns None with
+             cost simulation off, and the two gates are the same condition in practice
+             (`cfg.simulate_cost`) but are written separately so neither chart depends on the
+             other's payload being produced.
+
+             The caption's job is CONTRAST with chart 2 above, not a standalone definition — see
+             the block comment at the top of this tab. It names the comparison (this household
+             against the same household with PV but no battery) and names an effect chart 2 cannot
+             show, so a reader who notices the two grids disagree has the reason in front of them
+             rather than concluding one of them is wrong.
+
+             The footnote runs the OPPOSITE WAY to chart 2's. Chart 2's warns that its cells do not
+             sum to the MONEY SAVED tile; this chart's cells DO — it is the same quantity the tile
+             totals, cut up by interval. Saying so is the point of having it: it is the chart that
+             reconciles, and without the statement a reader who has just been told "chart 2 is not
+             your saving" would apply that warning to this one too.
+
+             "BELOW" is the same layout claim chart 2's footnote makes and stays true for the same
+             reason: the COST SAVINGS section renders after this Charts box, and this chart appears
+             under the same condition that emits `results.cost`. If the panel's section order
+             changes, both footnotes change together.
+
+             It names the tile as "the MONEY SAVED total below" rather than repeating chart 2's
+             exact "MONEY SAVED tile below". Not style: `test_the_earnings_heatmap_draws_beside_
+             the_soc_heatmap` matches chart 2's footnote by that phrase within `#socprice-charts`
+             and asserts exactly one hit, so reusing the wording verbatim would make that test
+             fail on a page where nothing is wrong.
+
+             The feed-in-floor sentence is the caveat the monthly savings chart already carries,
+             reusing its wording ("add up to slightly less than the headline figure") rather than a
+             fresh phrasing of the same fact: the statutory floor is assessed over a whole billing
+             period, so there is no per-interval share of it to put in a cell. #}
+          {% if results.saved_heatmap %}
+          <div>
+            <h4 class="text-sm font-semibold">{{ _('Saved against no battery') }}</h4>
+            <div id="socprice-saved" class="h-64 w-full"></div>
+            <p class="text-xs text-base-content/70">
+              {{ _('This chart compares whole bills. Each cell is your grid bill for that interval with the battery and your solar, against what the same interval would have cost with your solar alone. Green means the battery left you better off. It differs from the chart above because it also counts what the battery changed without moving money itself — solar it stored that would otherwise have been curtailed, for one.') }}
+            </p>
+            <p class="text-xs text-base-content/60 mt-1">
+              {{ _('Unlike the chart above, these cells are your saving, and they add up to the MONEY SAVED total below. Where the statutory feed-in floor pays out it is left out here, because it is assessed over a whole billing period rather than interval by interval, so the cells then add up to slightly less than the headline figure.') }}
+            </p>
+          </div>
+          {% endif %}
         </div>
         {% endif %}
       </div>
@@ -715,7 +802,7 @@
   </script>
   {% endif %}
 
-  {# The *SoC + price* tab's data, on the same contract as #flows-data above: a JSON node inside
+  {# The *Battery rhythm* tab's data, on the same contract as #flows-data above: a JSON node inside
      the swappable fragment, read fresh by the draw function after every swap, and every
      user-visible string translated HERE rather than in JavaScript.
 
@@ -740,6 +827,63 @@
         "cells": results.soc_heatmap.cells,
         "unit": _('kWh'),
         "legend_title": _('State of charge'),
+        "day_title": _('Day'),
+        "time_title": _('Time of day')} | tojson }}
+  </script>
+  {% endif %}
+
+  {# The second *Battery rhythm* chart's data. A SEPARATE node from #socprice-data, not extra keys
+     on it, because the two payloads are gated differently: the SoC grid exists whenever there is a
+     simulation, the earnings grid only with cost simulation on. One node carrying both would have
+     to encode "half of me is missing", and the draw functions would each have to check.
+
+     `cells` here is base64 FLOAT32, not the SoC grid's one-byte levels: euros are signed and have
+     no fixed ceiling, so there is no 0..254 ramp to quantise onto. Four bytes per cell against
+     one, which on a year of 15-minute data is ~190 KB base64 rather than ~47 KB — still well under
+     the ~280 KB the same grid would cost as JSON numbers. NaN marks a cell with no value, for
+     either reason: a gap interval, or an interval with no spot price. See `_earnings_heatmap` in
+     results_view.py.
+
+     `clip` is the 99th percentile of absolute euros; the colour scale runs −clip..+clip so a few
+     extreme intervals saturate instead of flattening every other cell to nothing.
+
+     The same editor's note as above applies: no Jinja comment may go INSIDE the expression. #}
+  {% if results.earnings_heatmap %}
+  <script id="socprice-earnings-data" type="application/json">
+    {{ {"rows": results.earnings_heatmap.rows,
+        "cols": results.earnings_heatmap.cols,
+        "days": results.earnings_heatmap.days,
+        "grid_s": results.earnings_heatmap.grid_s,
+        "clip": results.earnings_heatmap.clip,
+        "cells": results.earnings_heatmap.cells,
+        "legend_title": _('€ per interval'),
+        "day_title": _('Day'),
+        "time_title": _('Time of day')} | tojson }}
+  </script>
+  {% endif %}
+
+  {# The third *Battery rhythm* chart's data. A separate node again, for the same reason
+     #socprice-earnings-data is separate from #socprice-data: one node per independently-gated
+     payload, so no draw function has to reason about half of its input being missing.
+
+     Same wire format as the earnings node — base64 float32, NaN for a cell with no value — which
+     is why one drawing routine in workspace_results.html serves both charts.
+
+     `clip` is this chart's OWN 99th percentile of absolute euros, deliberately not the earnings
+     chart's. The two grids measure different quantities; sharing a scale would make one of them
+     saturate or wash out for a reason nothing on screen explains. See `_saved_heatmap` in
+     results_view.py.
+
+     The same editor's note as above applies: no Jinja comment may go INSIDE the expression. #}
+  {% if results.saved_heatmap %}
+  <script id="socprice-saved-data" type="application/json">
+    {{ {"rows": results.saved_heatmap.rows,
+        "cols": results.saved_heatmap.cols,
+        "days": results.saved_heatmap.days,
+        "grid_s": results.saved_heatmap.grid_s,
+        "clip": results.saved_heatmap.clip,
+        "cells": results.saved_heatmap.cells,
+        "legend_title": _('€ saved per interval'),
         "day_title": _('Day'),
         "time_title": _('Time of day')} | tojson }}
   </script>

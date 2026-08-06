@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-06 17:12+0200\n"
+"POT-Creation-Date: 2026-08-06 18:03+0200\n"
 "PO-Revision-Date: 2026-07-23 20:40+0200\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: en\n"
@@ -304,6 +304,9 @@ msgstr "Battery charge"
 
 msgid "Battery discharge"
 msgstr "Battery discharge"
+
+msgid "Battery rhythm"
+msgstr "Battery rhythm"
 
 msgid "Battery → grid"
 msgstr "Battery → grid"
@@ -730,6 +733,9 @@ msgstr "Grid → house"
 msgid "Grid-coupled battery"
 msgstr "Grid-coupled battery"
 
+msgid "Gross battery earnings"
+msgstr "Gross battery earnings"
+
 msgid "HA error"
 msgstr "HA error"
 
@@ -1091,6 +1097,9 @@ msgstr "SELF-SUFFICIENCY"
 msgid "Save"
 msgstr ""
 
+msgid "Saved against no battery"
+msgstr ""
+
 msgid "Secondary metrics"
 msgstr "Secondary metrics"
 
@@ -1154,9 +1163,6 @@ msgstr ""
 
 msgid "Simulation grid"
 msgstr "Simulation grid"
-
-msgid "SoC + price"
-msgstr "SoC + price"
 
 msgid "Solar"
 msgstr "Solar"
@@ -1514,7 +1520,20 @@ msgstr ""
 msgid "This cannot be undone."
 msgstr "This cannot be undone."
 
-msgid "This chart is not built yet."
+msgid ""
+"This chart compares whole bills. Each cell is your grid bill for that "
+"interval with the battery and your solar, against what the same interval "
+"would have cost with your solar alone. Green means the battery left you "
+"better off. It differs from the chart above because it also counts what "
+"the battery changed without moving money itself — solar it stored that "
+"would otherwise have been curtailed, for one."
+msgstr ""
+
+msgid ""
+"This chart follows the battery’s own flows. Each cell is the euro value "
+"of what the battery moved in that interval: energy it supplied to the "
+"house or the grid, less energy it took from the grid. Green is money in, "
+"red is money out."
 msgstr ""
 
 msgid "This control"
@@ -1533,6 +1552,12 @@ msgid ""
 "terugleverkosten rate in particular is a placeholder — so the euro "
 "figures move with the contract you entered in the parameters panel and "
 "should be read as a scenario rather than as a quotation."
+msgstr ""
+
+msgid ""
+"This is the battery’s gross money flow, before its purchase price and "
+"wear. It is not your saving: the net figure — this window’s bill with a "
+"battery against the bill without one — is the MONEY SAVED tile below."
 msgstr ""
 
 msgid ""
@@ -1602,6 +1627,14 @@ msgstr "Two conversions PV→battery"
 msgid "Type"
 msgstr ""
 
+msgid ""
+"Unlike the chart above, these cells are your saving, and they add up to "
+"the MONEY SAVED total below. Where the statutory feed-in floor pays out "
+"it is left out here, because it is assessed over a whole billing period "
+"rather than interval by interval, so the cells then add up to slightly "
+"less than the headline figure."
+msgstr ""
+
 msgid "Update your data →"
 msgstr ""
 
@@ -1632,9 +1665,6 @@ msgstr "Want to know what this is worth in euros?"
 
 msgid "What \"no warranty\" means"
 msgstr "What \"no warranty\" means"
-
-msgid "What did power cost at the time?"
-msgstr ""
 
 msgid "What does an average day look like?"
 msgstr "What does an average day look like?"
@@ -2178,6 +2208,12 @@ msgid "…if export allowed"
 msgstr "…if export allowed"
 
 msgid "€"
+msgstr ""
+
+msgid "€ per interval"
+msgstr "€ per interval"
+
+msgid "€ saved per interval"
 msgstr ""
 
 msgid "← Previous"
@@ -2831,4 +2867,45 @@ msgstr "👍 I want this"
 
 #~ msgid "SoC + price chart"
 #~ msgstr "SoC + price chart"
+
+#~ msgid "SoC + price"
+#~ msgstr "SoC + price"
+
+#~ msgid "This chart is not built yet."
+#~ msgstr ""
+
+#~ msgid "What did power cost at the time?"
+#~ msgstr ""
+
+#~ msgid ""
+#~ "Each cell is the euro value of "
+#~ "what the battery moved in that "
+#~ "interval: energy it supplied to the "
+#~ "house or the grid, less energy it"
+#~ " took from the grid. Green is "
+#~ "money in, red is money out."
+#~ msgstr ""
+
+#~ msgid ""
+#~ "This is the battery’s gross money "
+#~ "flow, before its purchase price and "
+#~ "wear. It is not your saving: the"
+#~ " net figure — this window’s bill "
+#~ "with a battery against the bill "
+#~ "without one — is the MONEY SAVED"
+#~ " tile above."
+#~ msgstr ""
+
+#~ msgid ""
+#~ "Unlike the chart above, these cells "
+#~ "are your saving, and they add up"
+#~ " to the MONEY SAVED tile below. "
+#~ "Where the statutory feed-in floor "
+#~ "pays out it is left out here, "
+#~ "because it is assessed over a "
+#~ "whole billing period rather than "
+#~ "interval by interval, so the cells "
+#~ "then add up to slightly less than"
+#~ " the headline figure."
+#~ msgstr ""
 

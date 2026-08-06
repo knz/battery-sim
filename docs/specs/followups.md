@@ -188,19 +188,43 @@ SoC, one cell per simulation interval. That answers rhythm rather than instantan
 and it resolves the first of the two questions recorded here — whole range or zoomable window —
 by being a grid: a year is 365 columns, not ~35k points. See §2.4 for the specification as built.
 
-The second question is untouched and still open: the heatmap draws **run C alone**, and whether
+The second question is untouched and still open: the SoC heatmap draws **run C alone**, and whether
 an overlay against the perfect-foresight benchmark would be worth having is undecided. On a
-heatmap that would mean a second grid or a difference grid rather than a second line.
+heatmap that would mean a second grid or a difference grid rather than a second line. Note that the
+tab has since gained two further grids and been renamed "Battery rhythm" (C2a), so a fourth would
+now need to earn its place against a screen that already stacks three.
 
-**C2a. The "SoC + price" tab's price chart is not built.** The tab ships with one chart and a
-heading-only placeholder where the price half its name promises should be. Deliberately not a
-pending affordance: there is no control to click, the tab itself works, and a [?] would offer to
-register interest in something already half-delivered. What that chart should show is unspecified
-— the obvious candidate is the spot series over the same calendar axis, so the two grids read as
-a pair, but that is a hypothesis and not a decision.
+**C2a. The "SoC + price" tab's price chart is not built.** — **DONE**, and not as a price chart.
+The placeholder is gone; the tab is renamed **"Battery rhythm"** and ships THREE heatmaps sharing
+one day × time-of-day axis (`results_view._heatmap_axes`).
+
+This entry's hypothesis — the spot series over the same calendar axis, so the two grids read as a
+pair — was **not** what got built, and was never adopted. A price grid would have shown what the
+market did, which is a fact about the Netherlands rather than about this household's battery. What
+shipped instead answers what the battery did in MONEY:
+
+- **Chart 2, "Gross battery earnings"**: per interval,
+  `dis_home·p_import + dis_grid·p_export_net − chg_grid·p_import`. Attributes value to battery
+  FLOWS. Its cells sum to nothing on the panel — a self-consumed PV kWh that never touched the
+  battery is worth the same under both runs and appears in neither.
+- **Chart 3, "Saved against no battery"**: per interval, `bill(A) − bill(C)` where
+  `bill = imp·p_import − exp·p_export_net`. The COUNTERFACTUAL whole-bill difference, which DOES
+  reconcile with the MONEY SAVED tile, and which includes effects with no battery flow at all
+  (e.g. PV the battery stored that would otherwise have been curtailed).
+
+Both are gated on `cfg.simulate_cost` and are absent — not empty — without it, so chart 1 can ship
+alone. Each carries its own symmetric 99th-percentile colour range: they are different quantities,
+and a shared range would imply a cell-for-cell comparability that does not hold.
+
+**The pricing asymmetry is the reason chart 2 is not plotted at bare spot**, which was the original
+request. §6.5 gives import energy tax and VAT and gives feed-in neither, and `pricing.py:194-198`
+notes the export net goes negative below roughly 8 ct/kWh bare — so a spot-priced grid would have
+coloured loss-making exports green. Charts 2 and 3 will visibly disagree; that is expected, and
+their captions carry the distinction rather than leaving a reader to reconcile two green/red grids.
+
 *Origin:* `20260724-panel3-battery-simulation.md` (Phase 7),
 `20260725-spec-corrections-from-implementation.md`, `20260806-energy-flows-chart-tab.md`,
-`20260806-soc-price-chart-tab.md`.
+`20260806-soc-price-chart-tab.md`, `20260806-battery-money-heatmap.md`.
 
 **C3. Run E / the cost DP, and any euro figure, are not built.** — **DONE** (cost-simulation
 increment, Phases 2–4). §6.5's price curves, §6.10's cost accounting and waterfall, and run E with

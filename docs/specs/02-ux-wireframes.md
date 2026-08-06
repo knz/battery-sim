@@ -1199,7 +1199,7 @@ tariffs.
 │  └────────────────────────────────────────────────────────────────────────┘  │
 │                                                                              │
 │  ┌─ Charts ───────────────────────────────────────────── [ ⤓ export CSV ] ┐  │
-│  │  ( • ) Monthly savings   (   ) SoC + price   (   ) Energy flows        │  │
+│  │  ( • ) Monthly savings   (   ) Battery rhythm   (   ) Energy flows     │  │
 │  │                                                                        │  │
 │  │   kWh                                                                  │  │
 │  │ 200│                        ▄▄  ▄▄  ▄▄                                 │  │
@@ -1293,9 +1293,11 @@ Notes on the two sections:
   (€)* option beside it. The two are separate views, not a dual axis — a euro series moves
   with tariff structure as well as with kWh, and overlaying them invites exactly the
   reading this panel's two-section split exists to prevent. *Energy flows* is unaffected.
-  *SoC + price* is likewise unaffected by the cost toggle, since its first chart is pure SoC
-  and its second is not built (see below).
-- **The *SoC + price* tab is a day × time-of-day HEATMAP of state of charge**, not the
+  *Battery rhythm* is the one tab the toggle DOES change: its SoC grid is pure kWh and shows in
+  both modes, while its two euro grids are absent without cost simulation (see below).
+- **The *Battery rhythm* tab (named *SoC + price* until
+  `changelog/20260806-battery-money-heatmap.md`) leads with a day × time-of-day HEATMAP of state
+  of charge**, not the
   time-series against a spot-price secondary axis this section described until
   `changelog/20260806-soc-price-chart-tab.md`. Columns are Europe/Amsterdam calendar days,
   rows are local time-of-day at the simulation grid's own resolution (96 rows on 15-minute
@@ -1310,15 +1312,48 @@ Notes on the two sections:
   covered the whole range or a zoomable window): a year is 365 columns rather than ~35k
   points, so the whole range fits.
 
-  The **second chart**, the price half the tab's name promises, is **not specified and not
-  built**. It renders as a heading saying so, inside the working tab — deliberately not as a
-  pending affordance with a [?], since there is no control to click; the tab itself works.
+  The tab carries **two further heatmaps, both in euros**, on the SAME day × time-of-day axis as
+  the SoC grid — one construction (`results_view._heatmap_axes`) shared by all three, so the
+  grids on one tab cannot drift apart under later edits. Both are gated on `simulate_cost` and
+  are ABSENT rather than empty without it, so the SoC chart ships alone in an energy-only run.
 
-  Payload note, because it constrains the data shape: the cells travel as one byte each,
-  base64'd, inline with the rest of the panel. Per-interval floats would be ~200 KB on a year
-  of 15-minute data riding on every recompute, against ~47 KB quantised. A lazy endpoint like
-  §6.12's benchmark box was considered and rejected — the SoC array is already computed, so a
-  route would re-run the whole simulation on each tab open to save transfer.
+  - **"Gross battery earnings"** — per interval,
+    `dis_home·p_import + dis_grid·p_export_net − chg_grid·p_import`. What the battery's own
+    movements were worth: energy it supplied to the house or the grid, less energy it took from
+    the grid. **Not priced at bare spot**, which is the tempting simplification and is wrong
+    here: §6.5 gives import energy tax and VAT and gives feed-in neither, and the export net goes
+    negative below roughly 8 ct/kWh bare, so a spot-priced grid would colour loss-making exports
+    green. Its cells sum to nothing on the panel — a self-consumed PV kWh that never touched the
+    battery is worth the same with or without a battery and appears in neither run's difference.
+  - **"Saved against no battery"** — per interval, `bill(A) − bill(C)` where
+    `bill = imp·p_import − exp·p_export_net`. The counterfactual: what the household's whole grid
+    bill did, run A being the same household with PV and no battery
+    ([§6.9](11-policies-and-battery.md)). This is the grid that RECONCILES — its cells sum to the
+    MONEY SAVED tile, up to the feed-in floor top-up, which is a period-level scalar with no
+    per-interval allocation and is excluded rather than smeared (the same caveat the monthly euro
+    bars carry). It also catches effects with no battery flow at all, such as PV the battery
+    stored that would otherwise have been curtailed.
+
+  The two are **deliberately different questions**, and will visibly disagree: one attributes
+  value to battery flows, the other differences two whole bills. Their captions carry that
+  distinction, because two stacked green/red grids otherwise invite the reading that they should
+  match. Each computes its **own** symmetric colour range (the 99th percentile of absolute value,
+  so one extreme interval cannot flatten a year); a shared range would imply a cell-for-cell
+  comparability that does not hold.
+
+  Sign convention on both: **green is money in the household's pocket.** For the counterfactual
+  that means `A − C` rather than the more literal `C − A`, since a cost that went down is a
+  saving, and rendering a saving as red would invert the one thing the colour is for.
+
+  Payload note, because it constrains the data shape: all three grids travel inline, base64'd,
+  with the rest of the panel. The SoC cells are one byte each — ~47 KB for a year of 15-minute
+  data against ~200 KB as JSON floats — which works only because SoC is bounded by the operating
+  window, giving a fixed range to quantise onto and a spare code for the absent sentinel. The two
+  euro grids are signed and unbounded, so they ship as little-endian float32 (`<f4`) with NaN
+  carrying absence natively; their values are NOT clipped in the payload, so a hover reads the
+  real euro figure while the colour saturates. A lazy endpoint like §6.12's benchmark box was
+  considered and rejected for all three — the arrays are already computed, so a route would
+  re-run the whole simulation on each tab open to save transfer.
 - **Caveats are shown in both modes**, with the kWh ones identical across the toggle. The
   caveats that qualify a euro figure — price bracketing, the feed-in floor, tiered
   terugleverkosten — appear only with cost simulation on, because there is no euro figure to

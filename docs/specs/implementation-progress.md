@@ -114,7 +114,7 @@ control it was about.
 | `simulate_cost` | "Simulate cost savings?" choice in the setup band | the cost-simulation increment — the band's radios now POST to `/params` and panel ② draws the whole Pricing box behind the answer |
 | `data_source_csv` | "Upload CSV" data source | the CSV-import increment — a real source radio in the per-slot drawer, with an upload dialog and File/Column/Unit controls behind it |
 | `chart_energy_flows` | "Energy flows" chart tab in panel ③ | [changelog 20260806-energy-flows-chart-tab](../../changelog/20260806-energy-flows-chart-tab.md) — the tab now draws monthly load sourcing, monthly PV allocation and an average-day profile from `results_view._energy_flows` |
-| `chart_soc_price` | "SoC + price" chart tab in panel ③ | [changelog 20260806-soc-price-chart-tab](../../changelog/20260806-soc-price-chart-tab.md) — the tab now draws a day × time-of-day heatmap of run C's SoC from `results_view._soc_heatmap`. Its second chart (the price half) is unbuilt and shows a heading-only placeholder, which is NOT a pending control: see followup C2a |
+| `chart_soc_price` | "Battery rhythm" chart tab in panel ③ (named "SoC + price" when the key was retired) | [changelog 20260806-soc-price-chart-tab](../../changelog/20260806-soc-price-chart-tab.md), then [20260806-battery-money-heatmap](../../changelog/20260806-battery-money-heatmap.md) — the tab draws THREE heatmaps on one shared day × time-of-day axis (`results_view._heatmap_axes`): run C's SoC, "Gross battery earnings" and "Saved against no battery". The latter two are euros and are absent without `simulate_cost`. The placeholder is gone; followup C2a is closed |
 
 ## How to add a pending control
 
