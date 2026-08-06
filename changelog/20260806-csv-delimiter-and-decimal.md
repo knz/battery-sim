@@ -637,10 +637,17 @@ pending key to a live radio. The conflict therefore recurred three times, and
 each time the resolution was the same: keep master's signature, call site and
 preset branch, keep this branch's comment.
 
-The branch's own final version of that function had dropped `slotName`
-altogether — replaying it unresolved would have silently reverted master's
-preset default while leaving every test green except master's own. That is the
-one substantive judgement in this rebase.
+To state the hazard precisely: this branch never had `slotName`. Master added it
+in `dadc8ab`, after the branch forked at `4a4fa10`, so the branch carried the
+older one-parameter form and only ever edited that function's comment. Nothing
+here removed anything.
+
+The risk was in the resolution, not in the branch. Git offered both whole
+versions of the function as a conflict, and taking the branch's side — which
+looks complete and self-consistent read on its own — would have written the
+one-parameter form back over master's, silently reverting `dadc8ab` while
+leaving every test green except master's own spot-price test. That is the one
+substantive judgement in this rebase.
 
 One clause in the carried-over comment was amended because the merge made it
 incomplete rather than wrong: it argued no CSV slot can be defaulted to
