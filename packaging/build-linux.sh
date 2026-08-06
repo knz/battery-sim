@@ -6,7 +6,7 @@
 #
 # Main steps:
 #   1. create a BUILD-ONLY virtualenv, separate from the repo's .venv;
-#   2. install the runtime dependencies without the dev group, plus PyInstaller;
+#   2. install the runtime dependencies without the dev group, plus a pinned PyInstaller;
 #   3. run `packaging/battery-sim.spec`;
 #   4. FAIL if the resulting directory exceeds MAX_SIZE_MB.
 #
@@ -37,6 +37,13 @@ set -euo pipefail
 
 MAX_SIZE_MB=150
 
+# Pinned so a release can be rebuilt from its tag: an unpinned `pyinstaller` resolves to
+# whatever is current on PyPI the day the build runs, which changes the bootstrap code and the
+# bundled runtime between two builds of identical source. Kept here rather than in
+# `pyproject.toml` for the reason given above — PyInstaller is a build tool, not a dependency of
+# the application. Override with PYINSTALLER_VERSION=... to test a newer release.
+PYINSTALLER_VERSION="${PYINSTALLER_VERSION:-6.21.0}"
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Outside the repo by default so a stray `uv sync` or a test collector never sees it. Override
 # with BUILD_VENV=... to keep it somewhere inspectable.
@@ -61,7 +68,8 @@ fi
 
 # `--no-dev` semantics without touching the repo's .venv: install this project (which pulls in
 # `[project.dependencies]` and nothing from `[dependency-groups]`) plus the build tool.
-VIRTUAL_ENV="$BUILD_VENV" uv pip install --python "$BUILD_VENV/bin/python" -e "$ROOT" pyinstaller
+VIRTUAL_ENV="$BUILD_VENV" uv pip install --python "$BUILD_VENV/bin/python" -e "$ROOT" \
+    "pyinstaller==$PYINSTALLER_VERSION"
 
 echo "==> cleaning previous output"
 rm -rf "$ROOT/build" "$DIST"
