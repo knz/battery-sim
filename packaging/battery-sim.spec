@@ -103,6 +103,20 @@ DATAS = [
     # `_internal/app/_build_info.py`, and a real build produced no such file — the lookup found
     # nothing every time and silently fell back to a version string with no SHA in it.
     (str(ROOT / "app" / "_build_info.py"), "app"),
+    # The third-party notices, at the top level of the bundle rather than under `app/` — nothing
+    # in the application reads them, they are there for the person holding the artifact.
+    #
+    # These bundles carry the Python dependency set (section 2 of the notice), all of which is
+    # permissive and therefore notice-only: MIT, BSD and Apache-2.0 each require the copyright
+    # notice travel with the redistributed binary, which is what this collects. They do NOT carry
+    # the LGPL GTK/WebKit stack — that is bundled only by the AppImage, whose own copy is made in
+    # `packaging/build-appimage.sh` and which is where the `licenses/*.txt` texts matter.
+    #
+    # A missing entry here is not caught by `app/desktop.py::check_assets` (it asserts the four
+    # asset directories above, not this file) and not caught by the notices CI gate, which
+    # compares the document against its generator and knows nothing about packaging. So if this
+    # line is removed, the omission is silent — the reason it is called out.
+    (str(ROOT / "THIRD-PARTY-NOTICES.md"), "."),
 ]
 
 

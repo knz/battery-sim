@@ -294,6 +294,33 @@ for theme in Adwaita hicolor; do
     fi
 done
 
+# ── third-party licence notices ───────────────────────────────────────────────
+#
+# This image carries ~119 shared libraries copied from the build host, of which the GTK/WebKit
+# stack is LGPL. LGPL-2.1 §6 and LGPL-3 §4 both require that a copy of the licence travel WITH
+# the binary — not merely that one exist somewhere upstream — and LGPL-3 §4(b) additionally
+# requires the GPL text, since LGPL-3 is written as a supplement to it. Hence four texts.
+#
+# THIRD-PARTY-NOTICES.md states that these ship inside the AppImage. That statement is only true
+# because of this step: without it the notice would assert something false, in a document whose
+# entire purpose is to be relied upon. Removing this copy means correcting that file too.
+#
+# Hard failure rather than a conditional copy, unlike the optional assets above: a missing icon
+# theme degrades appearance, whereas a missing licence text is a distribution-terms problem, and
+# an image that silently ships without one is the outcome worth preventing.
+echo "==> copying third-party licence notices"
+mkdir -p "$APPDIR/usr/share/doc/battery-sim"
+cp "$ROOT/THIRD-PARTY-NOTICES.md" "$APPDIR/usr/share/doc/battery-sim/THIRD-PARTY-NOTICES.md"
+cp -a "$ROOT/licenses" "$APPDIR/usr/share/doc/battery-sim/licenses"
+for t in LGPL-2.1 LGPL-3 GPL-2 GPL-3; do
+    [ -s "$APPDIR/usr/share/doc/battery-sim/licenses/$t.txt" ] || {
+        echo "FAIL: licenses/$t.txt is missing or empty." >&2
+        echo "The bundled GTK/WebKit libraries are LGPL; their licence text must ship with" >&2
+        echo "the image. Restore it from the repository before building." >&2
+        exit 1
+    }
+done
+
 # ── AppRun ────────────────────────────────────────────────────────────────────
 
 cat > "$APPDIR/AppRun" <<'APPRUN'
