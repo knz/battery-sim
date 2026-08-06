@@ -1,7 +1,7 @@
 <!--
-Maintainer documentation: the technology stack, how to run the app from source, and the
-repository layout. Styles and testing are in styles-and-testing.md; the bilingual UI is in
-i18n.md.
+Maintainer documentation: the technology stack, how to run the app from source (including
+scoping the auto-reload watcher), what the browser is served, and the repository layout.
+Styles and testing are in styles-and-testing.md; the bilingual UI is in i18n.md.
 -->
 
 # Development
@@ -19,6 +19,35 @@ v5 on Tailwind CSS v4**. No SPA framework and no client-side computation. Python
 uv sync                                   # create venv, install Python deps
 uv run uvicorn app.main:app --reload      # serve at http://127.0.0.1:8000
 ```
+
+### Scoping the reload watcher
+
+`--reload` watches the entire working directory, so unrelated directories beside `app/`
+(build outputs, caches, checked-out worktrees) can trigger spurious reloads. Restrict the
+watcher to the sources:
+
+```bash
+uv run uvicorn app.main:app --reload --reload-dir app
+```
+
+`app/` holds the Python sources, templates, static files and locales, so nothing that should
+trigger a reload lives outside it.
+
+To avoid passing the flag every time, set it in the environment instead — uvicorn has no
+config file of its own, but every CLI option has a `UVICORN_*` counterpart:
+
+```bash
+export UVICORN_RELOAD=true
+export UVICORN_RELOAD_DIRS=app
+```
+
+Note that `UVICORN_RELOAD_DIRS` takes **one** directory despite the plural name; a space- or
+comma-separated list is passed through verbatim and fails with `Path '...' does not exist`.
+Watching several directories requires repeating `--reload-dir` on the command line. These
+variables are read from the process environment only — uvicorn's `--env-file` does not apply
+to `UVICORN_*` settings.
+
+## Assets
 
 The browser receives plain HTML plus one committed stylesheet (`app/static/app.css`) and a
 locally-served Plotly bundle — **running the app needs no Node step**. Node is only needed to
