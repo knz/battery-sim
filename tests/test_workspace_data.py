@@ -316,6 +316,30 @@ def test_the_drawer_and_the_ha_modal_are_present_at_page_level(env):
         assert f'id="{node_id}"' in html, f"missing #{node_id}"
 
 
+def test_the_retired_csv_key_renders_nowhere_on_this_screen(env):
+    """`data_source_csv` was retired when the CSV-import work built the "Upload CSV" source.
+
+    This screen is where it matters: the disabled stub that used to carry the key lived in this
+    panel's source drawer, so a leftover would be here and nowhere else. Asserting only
+    `key not in FEATURE_KEYS` in the features tests would not catch that — a live `[?]` beside a
+    shipped control sends the user to an issue form for something they can already use.
+
+    The CSV feature's own markup must still be here, so the absence below is about the pending
+    affordance rather than about the feature having gone missing. What is checked is the binding
+    controls, not the source radio: `ha_fetch.js` builds the radio list at runtime from the
+    per-slot source vocabulary, so no `value="csv_upload"` is in the served HTML.
+    """
+    client, mod = env
+    _seed(mod)
+    html = client.get("/w/w1/data").text
+    assert 'id="drawer-csv-binding"' in html, "the CSV binding controls are missing"
+    assert "data_source_csv" not in html
+    assert 'data-feature-key="data_source_csv"' not in html
+    from app import features
+    assert "data_source_csv" not in features.FEATURE_KEYS
+    assert features.title_for("data_source_csv") == "Upload CSV"
+
+
 def test_an_empty_workspace_claims_no_entity_bindings(env):
     """The empty state must not hand the drawer the SAMPLE's entity mappings.
 

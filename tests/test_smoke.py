@@ -622,9 +622,9 @@ def test_new_pending_controls_marked(page, data_page_en):
     # "drawer-source", feature key data_source_csv — inside the source-picker drawer. Step 6 of the
     # CSV-import work built its file/column/unit controls and the upload dialog, so the stub was
     # deleted and this assertion went with it, exactly as its own comment said it would. What the
-    # radio does now is covered by the CSV drawer tests at the bottom of this file; step 7 retires
-    # the `data_source_csv` feature key, which is why the key is still in `app/features.py` and why
-    # nothing here looks for it.
+    # radio does now is covered by the CSV drawer tests at the bottom of this file. Step 7 then
+    # retired the `data_source_csv` key into `RETIRED_KEYS`, so nothing here looks for it; that
+    # retirement is pinned in tests/test_workspace_data.py and tests/test_params_route.py.
     #
     # "Simulate cost savings?" is NOT a pending control and never becomes one: the cost path is
     # built, the radios POST, and the key is retired in app/features.py.

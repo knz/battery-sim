@@ -819,11 +819,21 @@ def test_the_pending_pricing_keys_carry_an_issue_url(client):
         # substring of it.
         assert json.dumps(key) in html, key
         assert json.dumps(url).replace("&", "\\u0026") in html, key
-    # Retired keys are not in the pending vocabulary, so nothing renders them...
-    assert "simulate_cost" not in features.FEATURE_KEYS
-    assert 'data-feature-key="simulate_cost"' not in html
-    # ...but they keep a readable title, because issues filed under them are still open.
-    assert features.title_for("simulate_cost") == "Simulate cost savings"
+    # Retired keys are the mirror property, asserted as one loop so that retiring a fourth key is
+    # a one-line change here rather than a new test. `data_source_csv` joined this list when the
+    # CSV-import work built the "Upload CSV" source and deleted its disabled stub.
+    for key, title in (
+        ("simulate_cost", "Simulate cost savings"),
+        ("data_source_csv", "Upload CSV"),
+    ):
+        # Not in the pending vocabulary...
+        assert key not in features.FEATURE_KEYS, key
+        # ...and nothing renders it. The vocabulary check alone would pass while a template still
+        # carried the attribute, which is the state that matters: a live [?] on a shipped control
+        # sends the user to an issue form for something they can already use.
+        assert f'data-feature-key="{key}"' not in html, key
+        # But the title stays readable, because issues filed under the key are still open.
+        assert features.title_for(key) == title, key
 
 
 def test_the_contract_help_affordance_uses_the_shared_dialog(client):
