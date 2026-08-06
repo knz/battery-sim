@@ -242,13 +242,28 @@ def test_the_bundle_identifier_is_reverse_dns_and_looks_deliberate():
     assert " " not in bundle_id
 
 
-def test_the_console_is_off_on_macos_only():
-    """A .app with console=True opens a Terminal window beside itself on every launch.
+def test_the_console_is_off_on_every_platform():
+    """A double-clicked desktop app must not open a console window anywhere.
 
-    Windows and Linux keep their console — it is where the launcher's stderr messages go, and on
-    macOS those reach the unified log instead, which is why it can be dropped only there.
+    Was `console=sys.platform != "darwin"` until 2026-08-06, when Windows followed macOS. The
+    flag is a no-op on Linux (PyInstaller ignores it for ELF), so this asserts the two platforms
+    where it has an effect and documents the third.
     """
-    assert 'console=sys.platform != "darwin"' in SPEC_TEXT
+    assert "console=False" in SPEC_TEXT
+    assert 'console=sys.platform != "darwin"' not in SPEC_TEXT
+
+
+def test_turning_the_console_off_is_paired_with_writing_a_log_file():
+    """The console can only be dropped because the output goes somewhere else.
+
+    These two are one decision, not two: without `start_session_log` a windowed build discards
+    every message the launcher produces, and the fallback dialog and the URL notice — the things
+    a stuck user needs — become unreachable. If the logging is ever removed, `console=False`
+    stops being defensible and this test is the reminder.
+    """
+    desktop_source = (ROOT / "app" / "desktop.py").read_text()
+    assert "def start_session_log(" in desktop_source
+    assert "start_session_log(data_dir)" in desktop_source
 
 
 def test_the_icon_container_is_chosen_per_platform():

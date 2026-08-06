@@ -178,4 +178,5 @@ dan in je browser de sitegegevens van het adres van de app, net als bij elke and
 ## Verder lezen
 
 - [Beveiligingswaarschuwingen van je besturingssysteem](beveiligingswaarschuwingen.md)
+- [Als er iets misgaat](probleemoplossing.md) — het logbestand en het adres van de app vinden
 - [Het project steunen](sponsor.md) — onder meer wat deze waarschuwingen zou weghalen

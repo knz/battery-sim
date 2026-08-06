@@ -13,12 +13,14 @@ Deze documentatie bestaat in twee talen. / This documentation exists in two lang
 
 - [Installeren en starten](nl/installatie.md)
 - [Beveiligingswaarschuwingen van je besturingssysteem](nl/beveiligingswaarschuwingen.md)
+- [Als er iets misgaat](nl/probleemoplossing.md)
 - [Het project steunen](nl/sponsor.md)
 
 ## English
 
 - [Installing and running](en/install.md)
 - [The security warnings your operating system shows](en/security-warnings.md)
+- [When something goes wrong](en/troubleshooting.md)
 - [Supporting the project](en/sponsor.md)
 
 ---

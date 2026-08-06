@@ -109,7 +109,7 @@ in. Verified by execution to exit 1, not merely by reading the script.
 Bundles are deliberately broken to confirm the suite notices. This is what surfaced the locale
 gap: deleting the entire Dutch catalog left the suite green.
 
-## A9 — Phase 4 built natively rather than in Docker
+## A9 — Phase 4 built natively rather than in Docker — CLOSED 2026-08-06, floor accepted
 
 The plan called for building against an older glibc for portability. Docker was available,
 but the build was done natively anyway, to vary one thing at a time: the open question was
@@ -120,6 +120,19 @@ Consequence, stated rather than buried: the artifact is built against glibc 2.39
 not run on Debian 12 or older. **It is not yet shippable to arbitrary users.** Portability
 is the top follow-up, and now cheap to test, since a working reference build exists to
 compare against.
+
+**Closed 2026-08-06 as accepted, not as fixed.** The paragraph above is left standing as
+what was true when written. Nothing about the artifact has changed — it still requires
+glibc 2.39 and still excludes Debian 12 and older. What changed is that the user decided
+`ubuntu-24.04` and its 2.39 floor are satisfactory, so the floor is a deliberate product
+decision rather than an accident of where the build ran, and "top follow-up" no longer
+describes it. The exclusion of older distributions remains real and is documented in
+`docs/en/install.md` and `docs/nl/installatie.md`.
+
+Note for whoever reads this next: the obstacle was never glibc. It is the `_gi` ABI
+coupling between the bundle's pinned Python 3.12 and the host's system `python3-gi` — see
+[[U12]] and [[U14]]. That coupling is dormant rather than gone, and a runner-label bump
+re-triggers it in the opposite direction. See `changelog/20260806-glibc-floor-accepted.md`.
 
 ## A10 — A separate `tests/test_appimage.py`, rather than extending the packaged tests
 
@@ -279,7 +292,7 @@ shipped "was invisible to 823 passing non-browser tests and surfaced only from t
 drove a genuinely empty installation in a browser". Excluding it from CI would remove the tests
 with the best demonstrated catch rate.
 
-## U14 — The AppImage builds on `ubuntu-24.04`; the glibc 2.39 floor is accepted, A9 stays open
+## U14 — The AppImage builds on `ubuntu-24.04`; the glibc 2.39 floor is accepted (A9 since closed)
 
 Replaces [[U12]] after the ABI constraint above ruled `ubuntu-22.04` out. `ubuntu-24.04` matches
 the local working configuration exactly — system Python 3.12 and `_gi.cpython-312`, verified on
@@ -294,6 +307,12 @@ The way out, if the floor ever matters: stop copying the host's `python3-gi` and
 into the build venv, decoupling the bundle from the host's Python. That would free the runner
 choice and re-open older-glibc builds. It rewrites the part of the AppImage build phase 4 found
 most fragile, which is why it is not being attempted while merely standing up CI.
+
+**Update 2026-08-06:** the floor was judged not to matter. [[A9]] is closed as accepted, so this
+paragraph's "does not close A9" caveat no longer applies. The decoupling described above is not
+being done — but it is dormant rather than abandoned, because a future runner bump (24.04 → 26.04:
+glibc 2.43, newer system Python against the bundle's pinned 3.12) would trip the same ABI gate
+from the other side. See `changelog/20260806-glibc-floor-accepted.md`.
 
 Confirmed glibc by release: 22.04 → 2.35, **24.04 → 2.39**, 26.04 (resolute, LTS) → 2.43. From
 Ubuntu's archive; GitHub's runner readmes list no libc6 at all, so the release-to-image step is

@@ -222,6 +222,17 @@ EXCLUDES = [
 # went from 33,556,296 to 36,608,686 bytes across runs 31032747998 and 31036845955 — about 2.9MiB
 # compressed. The Linux bundle stayed at 89MB against build-linux.sh's 150MB gate. If that gate
 # ever fails after this change, the gate's limit is what to look at, not this decision.
+#
+# Un-excluding is NECESSARY BUT NOT SUFFICIENT, which cost this project a shipped feature.
+# PyInstaller bundles only what it can import at build time, and the Linux job had no tkinter
+# installed, so run 31094839305 logged "WARNING: tkinter installation is broken. It will be
+# excluded from the application" and every AppImage before 2026-08-06 shipped without the dialog —
+# silently, since the function's own ImportError branch is indistinguishable from the dialog being
+# declined. The Linux size figure above was therefore measuring a bundle that never contained it.
+#
+# Fixed on two fronts: `python3-tk` in the release workflow's apt list, and a warning in
+# build-linux.sh so a local build says so instead of producing a quietly lesser artifact. macOS
+# and Windows were unaffected — their logs show hook-_tkinter and pyi_rth__tkinter with no warning.
 
 a = Analysis(  # noqa: F821 - injected by PyInstaller
     [str(ROOT / "app" / "__main__.py")],
@@ -252,23 +263,31 @@ exe = EXE(  # noqa: F821 - injected by PyInstaller
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,  # UPX trades startup time for size and has a history of tripping AV heuristics.
-    # True everywhere EXCEPT macOS, where this build produces a .app (see the BUNDLE block).
+    # False everywhere, as of 2026-08-06. A double-clicked desktop application does not open a
+    # console window; one that does reads as a debug build. macOS was already False (a .app that
+    # opens a Terminal beside itself on every Finder launch), and Windows followed.
     #
-    # On Windows and Linux the console is where the launcher's six stderr messages go — the URL
-    # it is serving, the already-running notice, the fallback reason — and it stays.
+    # What replaced the console: `app/desktop.py::start_session_log` redirects stdout and stderr
+    # into `<data_dir>/logs/session-<timestamp>.log` as soon as the data directory is resolved, on
+    # every platform. The launcher's messages — the URL it is serving, the already-running notice,
+    # the fallback reason — are preserved and are now in a file a bug report can attach, rather
+    # than in a window that had to be open at the right moment. docs/en/troubleshooting.md is the
+    # user-facing half of this.
     #
-    # In a macOS .app it would mean a Terminal window opening beside the application on every
-    # launch from Finder, which reads as a debug build. `console=False` there does NOT discard
-    # that output: a bundle's stderr is inherited from launchd and goes to the unified log, so
-    # `log stream --predicate 'process == "battery-sim"'` and Console.app show it. That is the
-    # macOS equivalent of the console, not a loss of it.
+    # **This flag does nothing on Linux.** `console=` sets the PE subsystem on Windows and affects
+    # the .app wrapper on macOS; PyInstaller ignores it for ELF. An AppImage launched from a file
+    # manager has no terminal, and from a shell it inherits that shell's streams. So "the console
+    # is off on all three platforms" is true in the sense that matters to a user, but it is the
+    # log file, not this flag, that makes the three behave alike.
     #
-    # Note the asymmetry with Windows, where PyInstaller's own docs warn that windowed mode
-    # leaves `sys.stderr` as None. That warning is Windows-scoped (its CHANGES entry ties it to
-    # matching `pythonw.exe` behaviour), and Windows keeps console=True here anyway — but
-    # `app/desktop.py` guards for None regardless, because the cost of being wrong is an
-    # AttributeError at exactly the moments the launcher is trying to report a problem.
-    console=sys.platform != "darwin",
+    # PyInstaller's docs warn that windowed mode leaves `sys.stderr` as None (its CHANGES entry
+    # ties this to matching `pythonw.exe`). That warning was Windows-scoped insurance while this
+    # was True there; with the flip it describes a real shipping configuration.
+    # `app/desktop.py::_ensure_std_streams` handles it and runs before any write.
+    #
+    # NOT verified on a real Windows machine at the time of the flip — accepted deliberately, on
+    # the basis that output now reaches the log file regardless of whether a console exists.
+    console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
