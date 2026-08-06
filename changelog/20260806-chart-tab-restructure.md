@@ -211,10 +211,50 @@ agent's report:
   `#monthly-data` identifier survives in `app/` or `tests/` outside historical
   references in explanatory comments.
 
+## Rebase onto master (CSV-import increment)
+
+User request, verbatim: "rebase on master".
+
+Master had moved on by 17 commits — the CSV-import increment. Eight files
+overlapped, and the rebase was resolved commit by commit rather than with a
+blanket strategy:
+
+- **`app/features.py`** (twice) and **`docs/specs/implementation-progress.md`**
+  — both sides retired a different feature key (`data_source_csv` on master,
+  `chart_energy_flows` then `chart_soc_price` here). Union resolution: every
+  retirement belongs, and `_check_titles_cover_keys()` running at import is
+  what verifies the result rather than a reviewer's eye. Confirmed afterwards
+  that pending and retired do not overlap.
+- **`tests/test_smoke.py`** (three times) — both sides appended tests to the
+  same file, and git interleaved them because the boilerplate lines
+  (`context = browser.new_context()` and friends) match. For the two commits
+  whose change was a pure append, the added block was taken verbatim. For the
+  last commit, which also EDITS existing tests, master's version was taken as
+  the base and this commit's diff applied on top with `patch`; all seven hunks
+  applied at an offset with no fuzz and no rejects.
+- **The five generated locale files**, on every commit. Two are binary `.mo`
+  files, so hand-merging is not available. Resolved by taking the branch side
+  to keep the replay moving, then regenerating once at the end — see below.
+
+**The catalogs needed repair afterwards, and it was not optional.** Taking the
+branch side discarded master's CSV-import translations; re-extraction brought
+the msgids back but empty, leaving 67 untranslated Dutch strings. They were
+restored from master's own catalog by exact msgid match — copied, never
+retranslated, and only where master had a non-fuzzy string for the identical
+msgid. Dutch is complete again at 565 entries.
+
+English shows 151 entries with no string, which is NOT a regression: master's
+own `en` catalog has 140 of the same kind. English msgids fall through to
+themselves by existing convention.
+
+Verified from the compiled `.mo` files rather than the `.po` source, per G2,
+and by running the i18n suites (205 tests) plus the whole suite minus
+`test_benchmark.py`.
+
 ## Current status
 
-Complete, not committed. `app/results_view.py` and `app/sample_data.py` were
-deliberately not touched.
+Complete, and rebased onto master. `app/results_view.py` and
+`app/sample_data.py` were deliberately not touched.
 
 Carried, not done:
 
