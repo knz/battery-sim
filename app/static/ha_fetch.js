@@ -31,7 +31,13 @@
  *         (A POST /w/{id}/data/slot/{slot}/load route does exist, but the all-or-nothing reify
  *         model puts that work in the fetch instead — see "Staged-then-confirm" below. Nothing
  *         in this file calls that route; only the tests do.)
- *       * data_source_csv (pending)      → the shared "not built yet" dialog (#pending-dialog).
+ *       * csv_upload (backend_load)      → the drawer reveals the per-slot binding controls
+ *         (#drawer-csv-binding: File, Column, Unit), plus an "Upload…" button that opens the
+ *         shared upload modal (#csv-upload-dialog). The FILE is server state shared across slots
+ *         and an upload survives Cancel, exactly as a tested HA connection does; the BINDING is
+ *         per-slot, browser-local (D-BIND) and staged like everything else. Confirm is blocked
+ *         until the binding names both a file and a column, which is what stops a bindingless CSV
+ *         slot from failing an entire all-or-nothing fetch.
  *
  *     A row may also carry an ⓘ info affordance (SlotSpec.info, specs §4.1). A delegated click on
  *     any .slot-info-btn fills the shared #slot-info-dialog from the button's data-info-title/body
@@ -158,8 +164,9 @@
   //
   // The key is `CsvSource`'s (`app/sources/csv_source.py`) and is stable by contract — it is
   // persisted with a slot's chosen source (specs §2.2), so it can be compared as a literal here. It
-  // is spelled once, as a name, because three places need it: the store gate, the staged-binding
-  // builder, and the PENDING_SOURCE_KEYS filter step 6 removes.
+  // is spelled once, as a name, because several places need it: the store's two completeness gates,
+  // the staged-binding builder, the drawer's Upload button and binding controls, the Confirm gate,
+  // and the row label.
   //
   // `kWh` is the drawer's default radio and `CsvBinding`'s own default, so a stored entry without a
   // unit means kWh rather than "incomplete". Kept in agreement with `csv_wide.UNIT_FACTORS`, whose
@@ -330,6 +337,27 @@
   // authoritative state into the store and let it wrongly "win" as a pre-fetch customization.
   var locallyCustomized = {};
 
+  // Is this object's CSV binding complete enough to be worth anything? "A file AND a column" — and
+  // `unit` deliberately not, because it has a documented default (kWh: DEFAULT_CSV_UNIT, the
+  // drawer's pre-checked radio, and `CsvBinding`'s own), so an object without one is complete rather
+  // than partial.
+  //
+  // **One predicate, three callers**, and they are three genuinely different objects that happen to
+  // share these field names: the drawer's `draft` (is Confirm allowed?), a `slotState` entry (should
+  // `saveSlotStore` write it?), and a raw `localStorage` entry (should the seed loop restore it?).
+  // Written three times, they would drift — and the drift is not cosmetic. The three answers have to
+  // agree because they are the same question asked at three moments of one lifecycle: what Confirm
+  // permits must be exactly what the store persists, which must be exactly what a reload restores.
+  // A gate that let one of them through alone would either lose a binding the user made or restore
+  // one they could not have made, and an incomplete binding that reaches a fetch fails the WHOLE
+  // all-or-nothing reify, HA slots included.
+  //
+  // It takes the object rather than two arguments so a caller cannot silently pass the fields in the
+  // wrong order, and so adding a fourth required field is one edit here.
+  function csvBindingComplete(o) {
+    return !!(o && o.uploadId && o.column);
+  }
+
   // Persist the locally-customized slots, tagged with the generation the client currently sees.
   // This covers only PRE-FETCH customizations: once a slot has been fetched, its source AND entity
   // are persisted server-side (series_meta) and render from the dataset, so the store is not what
@@ -338,9 +366,8 @@
   // The gate per source kind is "would this entry be FETCHABLE if restored?", which is why the two
   // configurable sources are gated and the rest are not:
   //   * home_assistant → needs a chosen entity, so it is stored only once `statId` is set.
-  //   * csv_upload     → needs a file AND a column, so it is stored only once both are set. `unit`
-  //     is not part of the gate: it has a default (kWh, the drawer's default radio and
-  //     CsvBinding's), so an entry missing it is complete, not partial.
+  //   * csv_upload     → needs a complete binding: `csvBindingComplete` above, which is the same
+  //     predicate `usableStoreEntry` and the drawer's Confirm gate use.
   // Storing a partial entry would restore a slot that looks staged and then fails the next fetch —
   // and under the all-or-nothing reify contract that failure takes the whole fetch with it, HA slots
   // included, so a half-written binding is not a cosmetic problem.
@@ -352,7 +379,7 @@
       if (st.source === "home_assistant") {
         if (st.statId) slots[name] = { source: "home_assistant", statId: st.statId };
       } else if (st.source === CSV_SOURCE_KEY) {
-        if (st.uploadId && st.column) {
+        if (csvBindingComplete(st)) {
           slots[name] = {
             source: CSV_SOURCE_KEY,
             statId: "",
@@ -379,9 +406,9 @@
   // the robust place for it: everything downstream of the seed loop (slotState → stagedBackendSlots
   // → the backend_load frame) treats what it finds as already vetted.
   //
-  // The rule mirrors saveSlotStore's csv_upload branch: an entry for that source is usable only once
-  // it names BOTH a file and a column. `unit` is NOT part of it — it has a documented default (kWh,
-  // DEFAULT_CSV_UNIT and CsvBinding's own), so an entry without one is complete.
+  // The rule is `csvBindingComplete`, the one predicate this file's three completeness gates share
+  // (see its own comment for why they must agree): an entry for that source is usable only once it
+  // names BOTH a file and a column.
   //
   // Only csv_upload is gated here, deliberately, even though saveSlotStore also requires a statId
   // before writing a home_assistant entry. An entry with an empty or HA-without-entity source is
@@ -396,13 +423,13 @@
   // Keeping `source: "csv_upload"` with no binding was the alternative and is worse in both places
   // it shows up: the row would read as CSV-configured while `stagedBackendSlots` sent an empty
   // upload_id, which the server rejects and which, under the all-or-nothing reify contract, fails
-  // the ENTIRE fetch including every HA slot. The user's route out of that state also does not exist
-  // yet — the csv_upload radio is filtered out of the drawer until step 6 — so a slot left in it
-  // would be neither correctable nor visibly wrong. Dropping to the server's choice leaves the slot
-  // in exactly the state the drawer already knows how to show and the user already knows how to fix.
+  // the ENTIRE fetch including every HA slot. Dropping to the server's choice leaves the slot in
+  // exactly the state the drawer already knows how to show and the user already knows how to fix.
+  // (The drawer now offers a real csv_upload radio, so the user CAN correct such a slot by hand —
+  // but that is a reason to leave it correctable, not a reason to restore it half-bound.)
   function usableStoreEntry(entry) {
     if (!entry) return false;
-    if (entry.source === CSV_SOURCE_KEY) return !!(entry.uploadId && entry.column);
+    if (entry.source === CSV_SOURCE_KEY) return csvBindingComplete(entry);
     return true;
   }
 
@@ -1003,6 +1030,22 @@
   var drawerConfirmBtn = document.getElementById("drawer-confirm");
   var drawerCancelBtn = document.getElementById("drawer-cancel");
 
+  // The per-slot CSV binding controls (workspace_data.html #drawer-csv-binding) and the shared
+  // upload modal (#csv-upload-dialog). Looked up here with the rest of the drawer rather than
+  // lazily, so a template rename fails at load in one place instead of at first click.
+  var drawerCsvBinding = document.getElementById("drawer-csv-binding");
+  var drawerCsvFile = document.getElementById("drawer-csv-file");
+  var drawerCsvFileSummary = document.getElementById("drawer-csv-file-summary");
+  var drawerCsvColumn = document.getElementById("drawer-csv-column");
+  var drawerCsvNoFiles = document.getElementById("drawer-csv-no-files");
+  var csvUploadDialog = document.getElementById("csv-upload-dialog");
+  var csvUploadChooseBtn = document.getElementById("csv-upload-choose");
+  var csvUploadInput = document.getElementById("csv-upload-input");
+  var csvUploadStatus = document.getElementById("csv-upload-status");
+  var csvUploadError = document.getElementById("csv-upload-error");
+  var csvUploadList = document.getElementById("csv-upload-list");
+  var csvUploadEmpty = document.getElementById("csv-upload-empty");
+
   // The "Configure" button rendered beside the Home Assistant radio (created in renderSourceList).
   // Held here so testConnection / drawer opens can refresh its label to reflect the shared
   // connection state ("Configure…" vs "✓ Connected").
@@ -1013,10 +1056,9 @@
   // only on Confirm. `sources` holds the current slot's source descriptors (for Confirm to read
   // the selected source's kind). `loading` guards Confirm during a backend load.
   // `uploadId`/`column`/`unit` are the CSV binding (D-BIND), staged like everything else: the
-  // step-6 file/column/unit controls will write them here and nowhere else, and Confirm is what
-  // moves them into slotState. They are carried through the staging cycle NOW, before those controls
-  // exist, so that the reify path is complete and testable behind PENDING_SOURCE_KEYS rather than
-  // landing as one large untested change with the UI.
+  // file/column/unit controls (#drawer-csv-binding) write them here and nowhere else, and Confirm is
+  // what moves them into slotState. The UPLOADED FILE is not staged and is not in here — it is
+  // server state, shared across slots, and survives Cancel; only the mapping is transactional.
   var draft = { slot: null, source: null, statId: "", uploadId: "", column: "", unit: DEFAULT_CSV_UNIT };
   var drawerSources = [];
   var loading = false;
@@ -1027,6 +1069,539 @@
     drawerEntitySelect.addEventListener("change", function () {
       draft.statId = drawerEntitySelect.value || "";
       updateConfirmEnabled();
+    });
+  }
+
+  // -----------------------------------------------------------------------------------------
+  // Uploaded CSVs: the shared upload modal, and the per-slot (file, column, unit) binding
+  // controls (specs §2.2 "The CSV source" and "The upload dialog", §4.2a, decisions D-TZ/D-BIND).
+  //
+  // Two levels, and the split is the whole design:
+  //
+  //   * The FILE is server state, shared across every slot in this workspace, managed through
+  //     POST/GET/DELETE /w/{id}/data/uploads. Uploading and removing are immediate — they are not
+  //     staged, and an upload therefore SURVIVES the drawer's Cancel, exactly as a tested Home
+  //     Assistant connection does. One wide file (timestamp column + one column per measurement)
+  //     usually holds many series, so requiring one file per slot would make the user split their
+  //     export by hand.
+  //   * The BINDING — which file, which column, what unit — is per-slot, browser-local (D-BIND) and
+  //     transactional like every other drawer choice: it lives in `draft` until Confirm.
+  //
+  // `csvUploads` caches the LIST route's answer. It is not merely an optimisation: `slotState` holds
+  // an `uploadId` and never a filename (the id is what the server validates and what the binding
+  // means), so the row label "Upload CSV · <file> · <column>" needs an id→filename map, and this is
+  // it. It is refreshed whenever the list is fetched, and a binding whose id is not in it renders a
+  // placeholder rather than a blank — an upload can genuinely be gone (removed in another tab, or a
+  // workspace whose data was cleared), and a label that silently omits the file would read as
+  // "unbound" when the binding is in fact stale.
+  // -----------------------------------------------------------------------------------------
+  var csvUploads = [];          // the LIST route's rows, newest first
+  var csvUploadsLoaded = false; // has a list ever come back? (distinguishes "empty" from "unknown")
+
+  // The workspace-scoped uploads collection. Built from WORKSPACE_ID rather than written as a
+  // literal, the same rule the results screen's `wsPath` follows: these routes are `/w/{id}/…`
+  // (§5.1) and no route path is spelled out with the id inlined by hand.
+  function uploadsPath(suffix) {
+    return "/w/" + encodeURIComponent(WORKSPACE_ID) + "/data/uploads" + (suffix || "");
+  }
+
+  // One upload row by id, or null. Linear over a list a user curates by hand — a handful of files,
+  // not a data structure worth indexing.
+  function csvUploadById(id) {
+    if (!id) return null;
+    for (var i = 0; i < csvUploads.length; i++) {
+      if (csvUploads[i].id === id) return csvUploads[i];
+    }
+    return null;
+  }
+
+  // A human name for an inferred sample spacing. `resolution_s` is `infer_resolution_s`' modal
+  // spacing and is null when no spacing covered more than half the gaps — an irregular file, which
+  // says so rather than being rounded to a plausible-looking figure. The three named cases are the
+  // ones a Dutch meter or PV export actually produces; anything else falls back to a count.
+  function csvResolutionLabel(seconds) {
+    if (!seconds) return t("csv_res_irregular", "irregular spacing");
+    if (seconds === 3600) return t("csv_res_hourly", "hourly");
+    if (seconds === 900) return t("csv_res_15min", "15-minute");
+    if (seconds === 300) return t("csv_res_5min", "5-minute");
+    if (seconds % 60 === 0) return ti("csv_res_minutes", "%(n)s-minute", { n: seconds / 60 });
+    return ti("csv_res_seconds", "%(n)s-second", { n: seconds });
+  }
+
+  // A date for display, in the viewer's own locale. `toLocaleDateString` rather than a hand-built
+  // format: these are ISO-8601 strings with an explicit offset (`_upload_json`), the browser knows
+  // the user's conventions, and nothing here is parsed back. An unparseable value degrades to the
+  // raw string instead of "Invalid Date".
+  function csvShortDate(iso) {
+    if (!iso) return "";
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return String(iso);
+    try { return d.toLocaleDateString(); } catch (e) { return d.toISOString().slice(0, 10); }
+  }
+
+  // Row counts in the viewer's locale too ("8.760" in Dutch, "8,760" in English), matching the
+  // wireframe's thousands separator. Falls back to the bare number where Intl is unavailable.
+  function csvNumber(n) {
+    if (typeof n !== "number" || !isFinite(n)) return String(n);
+    try { return n.toLocaleString(); } catch (e) { return String(n); }
+  }
+
+  // Turn a rejected upload/delete response into one translated sentence.
+  //
+  // The server's `detail` is `dict | str` and both shapes are real (app/main.py `create_upload`):
+  // every 4xx the upload routes raise THEMSELVES carries `{code, message, row}`, but python-multipart
+  // enforces its own part limits BEFORE our handler runs and answers with a bare string that
+  // Starlette owns. So this keys off `detail.code` when it can and falls back otherwise; it never
+  // assumes the envelope.
+  //
+  // The server's English `message` is not shown in place of the translated wording — that would put
+  // an English sentence in a Dutch dialog — but it IS appended for the codes whose message carries
+  // the specific fact (which cell, which column, what was found), because re-deriving that here
+  // would mean parsing English prose. Those messages quote the user's own column names and cell
+  // values, which is why every write below is `textContent` and never `innerHTML`.
+  //
+  // A 413 has no envelope of ours either (it is raised with a plain string detail by
+  // `_read_capped_body`), so the status is consulted before the body shape.
+  var CSV_ERROR_KEYS = {
+    no_file: "csv_err_no_file",
+    bad_timezone: "csv_err_bad_timezone",
+    bad_encoding: "csv_err_bad_encoding",
+    unreadable_csv: "csv_err_unreadable_csv",
+    bad_upload_id: "csv_err_bad_upload_id",
+    missing_header: "csv_err_missing_header",
+    too_few_columns: "csv_err_too_few_columns",
+    no_data_rows: "csv_err_no_data_rows",
+    row_length_mismatch: "csv_err_row_length_mismatch",
+    empty_timestamp: "csv_err_empty_timestamp",
+    bad_timestamp: "csv_err_bad_timestamp",
+    nonexistent_local_time: "csv_err_nonexistent_local_time",
+    non_numeric_value: "csv_err_non_numeric_value",
+    non_finite_value: "csv_err_non_finite_value",
+    cumulative_column: "csv_err_cumulative_column",
+    bad_unit: "csv_err_bad_unit",
+    unknown_column: "csv_err_unknown_column"
+  };
+  // The codes whose server message names the specific offender and is worth appending verbatim.
+  // Listed rather than "everything with a message", because for a code like `bad_encoding` the
+  // English sentence merely restates the translated one and appending it reads as a stutter.
+  var CSV_ERROR_DETAILED = {
+    row_length_mismatch: true, empty_timestamp: true, bad_timestamp: true,
+    nonexistent_local_time: true, non_numeric_value: true, non_finite_value: true,
+    cumulative_column: true, unknown_column: true, missing_header: true,
+    too_few_columns: true, unreadable_csv: true
+  };
+
+  function csvErrorText(status, detail) {
+    if (status === 413) return t("csv_err_too_large", "That file is too large to upload.");
+    var generic = t("csv_error_generic", "That file could not be uploaded.");
+    if (!detail || typeof detail !== "object") return generic;
+    var key = CSV_ERROR_KEYS[detail.code];
+    var text = key ? t(key, generic) : generic;
+    if (CSV_ERROR_DETAILED[detail.code] && detail.message) {
+      text = ti("csv_error_with_detail", "%(message)s — %(detail)s",
+                { message: text, detail: detail.message });
+    }
+    // The row is 1-based and comes from the parser, which counts the header as row 1 — so it names
+    // the line the user sees in their editor. Appended separately from the message so it survives a
+    // code whose message is not shown.
+    if (detail.row !== null && detail.row !== undefined) {
+      text = ti("csv_error_at_row", "%(message)s (row %(row)s)", { message: text, row: detail.row });
+    }
+    return text;
+  }
+
+  // Read a fetch Response's error body into the same `(status, detail)` pair, tolerating a body
+  // that is not JSON at all (a proxy's HTML error page, or an empty 502).
+  function csvErrorFromResponse(resp) {
+    return resp.text().then(function (body) {
+      var detail = null;
+      try { detail = JSON.parse(body).detail; } catch (e) { detail = null; }
+      return csvErrorText(resp.status, detail);
+    }, function () {
+      return csvErrorText(resp.status, null);
+    });
+  }
+
+  function showCsvError(text) {
+    if (!csvUploadError) return;
+    csvUploadError.textContent = text;   // never innerHTML: this quotes the user's own file
+    csvUploadError.classList.remove("hidden");
+  }
+
+  function clearCsvError() {
+    if (!csvUploadError) return;
+    csvUploadError.textContent = "";
+    csvUploadError.classList.add("hidden");
+  }
+
+  // Fetch the workspace's uploads and refresh everything that displays them: the dialog's list, the
+  // drawer's File select, and every row label that names a file.
+  //
+  // It also discharges an obligation D-BIND left to this step: a binding whose upload is no longer
+  // listed is dropped here. Under candidate E the server cannot clear a binding when a file is
+  // removed — the binding is browser-local — so without this a stale binding would stay invisible
+  // until the next fetch failed on it. Doing it when the list arrives means the drawer is the place
+  // the staleness surfaces, which is also the place the user can fix it.
+  function refreshCsvUploads() {
+    return fetch(uploadsPath(), { headers: { "Accept": "application/json" } })
+      .then(function (resp) {
+        if (!resp.ok) return csvErrorFromResponse(resp).then(function (msg) { throw new Error(msg); });
+        return resp.json();
+      })
+      .then(function (data) {
+        csvUploads = (data && data.uploads) || [];
+        csvUploadsLoaded = true;
+        pruneStaleCsvBindings();
+        // Re-label every CSV-bound row that SURVIVED the prune. Until a list arrives, such a row
+        // renders the "(file no longer available)" placeholder — `updateSlotButton` has no filename
+        // to show — and this is what resolves it. The prune re-labels only the rows it cleared, so
+        // without this pass a restored binding would keep the placeholder for the whole session.
+        Object.keys(slotState).forEach(function (name) {
+          if (slotState[name] && slotState[name].source === CSV_SOURCE_KEY) updateSlotButton(name);
+        });
+        renderCsvUploadList();
+        fillCsvFileSelect();
+        return csvUploads;
+      })
+      .catch(function (err) {
+        // A failed list is reported in the dialog when it is open, and is otherwise silent: the
+        // drawer's own empty-state line already tells the user there is nothing to choose, and a
+        // second error in the drawer for a network blip would be noise. `csvUploadsLoaded` stays
+        // false, so a later open retries rather than trusting an empty cache.
+        showCsvError(ti("csv_list_failed", "Could not list the uploaded files: %(reason)s",
+                        { reason: err.message }));
+      });
+  }
+
+  // Drop committed bindings whose upload the server no longer lists, and refresh those rows.
+  //
+  // Only slots whose COMMITTED state names a missing upload are touched; the open drawer's `draft`
+  // is left alone, because the file select is rebuilt from the fresh list immediately afterwards and
+  // will drop a vanished id there by itself. Returns the slot names cleared, so a caller that
+  // removed a file on purpose can say which series it affected.
+  function pruneStaleCsvBindings() {
+    var cleared = [];
+    Object.keys(slotState).forEach(function (name) {
+      var st = slotState[name];
+      if (!st || st.source !== CSV_SOURCE_KEY || !st.uploadId) return;
+      if (csvUploadById(st.uploadId)) return;
+      // Cleared WHOLE, source included, so the row returns to "Choose source…" exactly as §2.2
+      // requires — rather than sitting as a CSV slot with no file, which is a state the fetch
+      // rejects and the label cannot describe.
+      slotState[name] = {
+        source: null, statId: "", uploadId: "", column: "", unit: DEFAULT_CSV_UNIT,
+        kind: st.kind || slotKind(name)
+      };
+      locallyCustomized[name] = true;
+      cleared.push(name);
+      updateSlotButton(name);
+    });
+    if (cleared.length) {
+      saveSlotStore();
+      updateFetchEnabled();
+    }
+    return cleared;
+  }
+
+  // The dialog's "Uploaded files" list: one row per upload with its summary and a [ remove ] link.
+  function renderCsvUploadList() {
+    if (!csvUploadList) return;
+    csvUploadList.textContent = "";
+    if (csvUploadEmpty) csvUploadEmpty.classList.toggle("hidden", csvUploads.length > 0);
+    csvUploads.forEach(function (u) {
+      var row = document.createElement("div");
+      row.className = "flex flex-wrap items-baseline justify-between gap-2 py-1";
+      row.setAttribute("data-upload-id", u.id);
+
+      var left = document.createElement("span");
+      left.className = "flex flex-wrap items-baseline gap-2";
+      var nameEl = document.createElement("span");
+      nameEl.className = "text-sm font-medium";
+      nameEl.textContent = u.filename;   // the user's own filename; textContent, never innerHTML
+      var sum = document.createElement("span");
+      sum.className = "text-xs text-base-content/60";
+      sum.textContent = ti("csv_list_summary", "%(rows)s rows · %(resolution)s · %(columns)s columns", {
+        rows: csvNumber(u.rows),
+        resolution: csvResolutionLabel(u.resolution_s),
+        // The stored `columns` includes the timestamp at index 0; the count the user cares about is
+        // of VALUE columns, which is what the drawer will offer them.
+        columns: Math.max(0, (u.columns || []).length - 1)
+      });
+      left.appendChild(nameEl); left.appendChild(sum);
+
+      var rm = document.createElement("button");
+      rm.type = "button";
+      rm.className = "btn btn-ghost btn-xs text-error";
+      rm.textContent = "[ " + t("csv_remove", "remove") + " ]";
+      rm.addEventListener("click", function () { removeCsvUpload(u); });
+
+      row.appendChild(left); row.appendChild(rm);
+      csvUploadList.appendChild(row);
+    });
+  }
+
+  // Remove one uploaded file, after confirming, and cascade to any slot bound to it.
+  //
+  // §2.2: "Removing a file that a slot still uses clears that slot's binding and returns it to
+  // 'Choose source…', reported when the removal is confirmed." Under D-BIND the SERVER cannot do
+  // that — it holds no binding — so the cascade runs here, in the client that does hold it, and the
+  // report is the status line below naming the slots it cleared.
+  //
+  // The cascade runs on any 2xx, not only when the server says the row `existed`. The DELETE is
+  // idempotent by design (a double-click on [ remove ] is harmless), so `existed: false` is exactly
+  // what a retry after a partial failure looks like — and a retry is the call that must still clear
+  // a binding left stranded by the first attempt. This mirrors the "unconditionally, not gated on
+  // `existed`" rule the brief recorded for a server-side cascade, applied where the cascade actually
+  // lives.
+  function removeCsvUpload(upload) {
+    var question = ti("csv_confirm_remove",
+      "Remove %(name)s? Any series that uses it will go back to “Choose source…”.",
+      { name: upload.filename });
+    if (!window.confirm(question)) return;
+    clearCsvError();
+    fetch(uploadsPath("/" + encodeURIComponent(upload.id)), { method: "DELETE" })
+      .then(function (resp) {
+        if (!resp.ok) return csvErrorFromResponse(resp).then(function (msg) { throw new Error(msg); });
+        // Drop it locally first so the cascade below sees the post-removal list: `refreshCsvUploads`
+        // re-fetches anyway, but doing the prune off a list we know is current keeps the report the
+        // user reads in the same turn as the click.
+        csvUploads = csvUploads.filter(function (u) { return u.id !== upload.id; });
+        var cleared = pruneStaleCsvBindings();
+        renderCsvUploadList();
+        fillCsvFileSelect();
+        if (cleared.length) {
+          setStatus(csvUploadStatus, ti("csv_removed_cleared",
+            "✓ Removed %(name)s. These series went back to “Choose source…”: %(slots)s",
+            { name: upload.filename, slots: cleared.map(slotRoleLabel).join(", ") }), "text-success");
+        } else {
+          setStatus(csvUploadStatus,
+            ti("csv_removed", "✓ Removed %(name)s", { name: upload.filename }), "text-success");
+        }
+        // Re-list anyway: another tab may have added or removed something since, and the authority
+        // on what exists is the server, not the row we just spliced out.
+        return refreshCsvUploads();
+      })
+      .catch(function (err) {
+        showCsvError(ti("csv_remove_failed", "Could not remove that file: %(reason)s",
+                        { reason: err.message }));
+      });
+  }
+
+  // The roster's own label for a slot ("Grid import T1"), for messages that name slots to the user.
+  // Read off the row button's data-slot-role, which the template renders already translated — the
+  // internal series name (`grid_import_t1`) is an identifier and is never shown (§4.1).
+  function slotRoleLabel(name) {
+    var btn = document.querySelector('.slot-source-btn[data-slot="' + cssEscape(name) + '"]');
+    return (btn && btn.getAttribute("data-slot-role")) || name;
+  }
+
+  // Upload the chosen file with the chosen zone. Multipart with exactly the two fields the route
+  // reads: `file` and `tz` (D-TZ; the value strings are `csv_wide.TZ_KEYS` and are not translated).
+  //
+  // Rejection is panel-local and RECOVERABLE (§3.2 — downloading the wrong export is an ordinary
+  // event, not a run-fatal one): the message lands in the dialog, the dialog stays open, and nothing
+  // was stored (the route parses before it writes, so a rejected upload leaves no row and no file).
+  function uploadCsvFile(file) {
+    if (!file) return;
+    clearCsvError();
+    var tzInput = document.querySelector("input[name=csv-upload-tz]:checked");
+    var tz = (tzInput && tzInput.value) || "Europe/Amsterdam";
+    var body = new FormData();
+    body.append("file", file);
+    body.append("tz", tz);
+    setStatus(csvUploadStatus, ti("csv_uploading", "Uploading %(name)s…", { name: file.name }),
+              "text-base-content/60");
+    if (csvUploadChooseBtn) csvUploadChooseBtn.disabled = true;
+    fetch(uploadsPath(), { method: "POST", body: body })
+      .then(function (resp) {
+        if (!resp.ok) return csvErrorFromResponse(resp).then(function (msg) { throw new Error(msg); });
+        return resp.json();
+      })
+      .then(function (data) {
+        var name = (data && data.upload && data.upload.filename) || file.name;
+        setStatus(csvUploadStatus, ti("csv_uploaded", "✓ Uploaded %(name)s", { name: name }),
+                  "text-success");
+        // The new file must reach the drawer's File select, which is what makes the sequence
+        // "no files → Upload… → choose column → Confirm" work without closing anything.
+        return refreshCsvUploads();
+      })
+      .catch(function (err) {
+        setStatus(csvUploadStatus, "", "text-base-content/60");
+        showCsvError(err.message);
+      })
+      .then(function () {
+        if (csvUploadChooseBtn) csvUploadChooseBtn.disabled = false;
+        // Clear the input so choosing the SAME file again still fires `change`. A user who fixed
+        // their export and re-picked it would otherwise see nothing happen.
+        if (csvUploadInput) csvUploadInput.value = "";
+      });
+  }
+
+  // Open the shared upload modal, mirroring openHaConfig (including the `setAttribute` fallback for
+  // a browser without showModal). The list is refreshed on every open rather than cached across
+  // them: another tab in the same workspace may have uploaded or removed a file since.
+  function openCsvUpload() {
+    if (!csvUploadDialog) return;
+    clearCsvError();
+    setStatus(csvUploadStatus, "", "text-base-content/60");
+    if (typeof csvUploadDialog.showModal === "function") csvUploadDialog.showModal();
+    else csvUploadDialog.setAttribute("open", "");
+    refreshCsvUploads();
+  }
+
+  // Populate the drawer's File select from the cached list and stage the resulting choice.
+  //
+  // Preselection follows the same rule as the HA entity select one level up: the DRAFT's chosen file
+  // wins when the workspace still offers it, and otherwise the newest upload is staged as a default
+  // (the list is newest-first, so `[0]`). Staging a default is what makes the common path — upload a
+  // file, pick a column, Confirm — need no extra click, and it is still only staging: nothing
+  // reaches slotState until Confirm.
+  //
+  // With no uploads at all the two selects are hidden behind an explanatory line, because two empty
+  // dropdowns give the user nothing to press and no reason why.
+  function fillCsvFileSelect() {
+    if (!drawerCsvFile) return;
+    var sel = drawerCsvFile;
+    while (sel.options.length) sel.remove(0);
+
+    var none = csvUploads.length === 0;
+    if (drawerCsvNoFiles) drawerCsvNoFiles.classList.toggle("hidden", !none);
+    sel.disabled = none;
+    if (drawerCsvColumn) drawerCsvColumn.disabled = none;
+    if (none) {
+      draft.uploadId = "";
+      draft.column = "";
+      if (drawerCsvFileSummary) drawerCsvFileSummary.textContent = "";
+      fillCsvColumnSelect();
+      updateConfirmEnabled();
+      return;
+    }
+
+    csvUploads.forEach(function (u) {
+      var opt = document.createElement("option");
+      opt.value = u.id;
+      opt.textContent = u.filename;
+      sel.appendChild(opt);
+    });
+    var offered = draft.uploadId && csvUploadById(draft.uploadId);
+    sel.value = offered ? draft.uploadId : csvUploads[0].id;
+    draft.uploadId = sel.value;
+    fillCsvColumnSelect();
+    updateConfirmEnabled();
+  }
+
+  // Populate the Column select from the staged file's header, and stage the resulting choice.
+  //
+  // **`columns[0]` is the timestamp and is deliberately excluded** — it is the one name `csv_wide`
+  // does NOT uniquify (a header `,A,B` stores `["", "A", "B"]`), so it can be empty or duplicate a
+  // value column. The value names ARE uniquified ("A (2)", "Column 4"), which is why the binding
+  // carries the NAME and never an index: `columns.indexOf(name)` can legitimately return 0, i.e. the
+  // timestamp, on a file whose first value column repeats the timestamp's name.
+  //
+  // A leading "— choose a column —" entry is offered rather than defaulting to the first column,
+  // and that asymmetry with the File select is on purpose: nothing about a column says which series
+  // it is (§4.1 — a header is shown to help the user choose and is never parsed for meaning), so a
+  // silently pre-picked column would be an arbitrary guess presented as an answer. A file, by
+  // contrast, has exactly one obvious default when there is only one.
+  function fillCsvColumnSelect() {
+    if (!drawerCsvColumn) return;
+    var sel = drawerCsvColumn;
+    while (sel.options.length) sel.remove(0);
+
+    var up = csvUploadById(draft.uploadId);
+    if (drawerCsvFileSummary) drawerCsvFileSummary.textContent = up ? csvFileSummary(up) : "";
+    if (!up) {
+      draft.column = "";
+      return;
+    }
+    var placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = t("csv_choose_column", "— choose a column —");
+    sel.appendChild(placeholder);
+    (up.columns || []).slice(1).forEach(function (name) {
+      var opt = document.createElement("option");
+      opt.value = name;
+      opt.textContent = name;
+      sel.appendChild(opt);
+    });
+    // Keep a chosen column across a re-render only when THIS file offers it: a column name is
+    // meaningful only within its own file, so carrying it to another file would bind a slot to a
+    // name that happens to collide.
+    var keep = draft.column && (up.columns || []).slice(1).indexOf(draft.column) !== -1;
+    sel.value = keep ? draft.column : "";
+    draft.column = sel.value;
+  }
+
+  // The chosen file's coverage line under the File select (§2.2's "uploaded 2026-08-05 · 8,760 rows
+  // · hourly / 2025-01-01 → 2025-12-31"). Two sentences joined here rather than one msgid, because
+  // the span is absent on a file whose timestamps could not be summarised and the "when/how much"
+  // half must still render.
+  function csvFileSummary(u) {
+    var head = ti("csv_file_summary", "uploaded %(date)s · %(rows)s rows · %(resolution)s", {
+      date: csvShortDate(u.uploaded_at),
+      rows: csvNumber(u.rows),
+      resolution: csvResolutionLabel(u.resolution_s)
+    });
+    if (!u.first_ts || !u.last_ts) return head;
+    return head + " · " + ti("csv_file_span", "%(first)s → %(last)s", {
+      first: csvShortDate(u.first_ts), last: csvShortDate(u.last_ts)
+    });
+  }
+
+  // The three binding controls stage into the draft and nowhere else, exactly like the entity
+  // <select> above. Changing the FILE re-populates the columns (and drops a column the new file does
+  // not have), which is why the file listener does not write `draft.column` itself.
+  if (drawerCsvFile) {
+    drawerCsvFile.addEventListener("change", function () {
+      draft.uploadId = drawerCsvFile.value || "";
+      fillCsvColumnSelect();
+      updateConfirmEnabled();
+    });
+  }
+  if (drawerCsvColumn) {
+    drawerCsvColumn.addEventListener("change", function () {
+      draft.column = drawerCsvColumn.value || "";
+      updateConfirmEnabled();
+    });
+  }
+  // Delegated, because the two unit radios are static template markup inside the drawer and there is
+  // no reason to bind each. The unit is not part of the Confirm gate — it has a default — so this
+  // only stages; `updateConfirmEnabled` is still called so the button's state is never computed from
+  // a draft it has not seen.
+  document.addEventListener("change", function (ev) {
+    var el = ev.target;
+    if (!el || el.name !== "drawer-csv-unit" || !el.checked) return;
+    draft.unit = el.value || DEFAULT_CSV_UNIT;
+    updateConfirmEnabled();
+  });
+
+  // Reflect the staged unit on the radios when the drawer opens or the CSV radio is picked. The
+  // radios are page-level markup shared by every slot, so they hold the LAST slot's answer until
+  // this runs — without it, opening a kWh slot after a Wh one would show Wh while the draft said
+  // kWh, the same show/draft mismatch `defaultSourceFor` exists to prevent one level up.
+  function syncCsvUnitRadios() {
+    var unit = draft.unit || DEFAULT_CSV_UNIT;
+    Array.prototype.slice.call(
+      document.querySelectorAll("input[name=drawer-csv-unit]")
+    ).forEach(function (el) { el.checked = (el.value === unit); });
+  }
+
+  // Show the CSV controls for this slot: list the workspace's uploads if that has not happened yet,
+  // then populate both selects from whatever is cached. The list is fetched at most once per page
+  // load here (each dialog open refreshes it separately), so re-picking the radio is instant.
+  function applyCsvChoice() {
+    syncCsvUnitRadios();
+    if (!csvUploadsLoaded) {
+      refreshCsvUploads();
+    } else {
+      fillCsvFileSelect();
+    }
+  }
+
+  if (csvUploadChooseBtn && csvUploadInput) {
+    csvUploadChooseBtn.addEventListener("click", function () { csvUploadInput.click(); });
+    csvUploadInput.addEventListener("change", function () {
+      uploadCsvFile(csvUploadInput.files && csvUploadInput.files[0]);
     });
   }
 
@@ -1061,6 +1636,9 @@
     // and for a slot with no source yet it stages a default first, so that path runs on a fresh
     // slot too rather than leaving every radio unchecked.
     if (drawerHaEntity) drawerHaEntity.classList.add("hidden");
+    // Likewise the CSV binding block: onSelectSource reveals it for the csv_upload radio and for no
+    // other source, including the other backend_load ones.
+    if (drawerCsvBinding) drawerCsvBinding.classList.add("hidden");
     drawerBackendStatus.textContent = "";
 
     // The heading is static ("Choose a source"); this subtitle names the slot's role.
@@ -1084,11 +1662,18 @@
     drawerBackendAction.classList.add("hidden");
     drawerHaNote.classList.add("hidden");
     if (drawerHaEntity) drawerHaEntity.classList.add("hidden");
+    if (drawerCsvBinding) drawerCsvBinding.classList.add("hidden");
     drawerBackendStatus.textContent = "";
     // Reset in full, binding included. `openDrawer` assigns all six fields unconditionally, so a
     // leftover binding could not actually leak into the next slot's draft today — this keeps the
     // "closed drawer holds nothing" invariant true of the whole object rather than of the fields
     // that happen to be re-seeded, which is what the next reader will assume of it.
+    //
+    // This is where §2.2's "uploads survive Cancel; the binding does not" is actually true rather
+    // than merely stated: the three CSV fields are dropped here, while `csvUploads` — and the files
+    // themselves, which are server state — are untouched. An upload made from inside the dialog is
+    // a side effect on state SHARED across slots, exactly as a tested Home Assistant connection is,
+    // and Cancel has never discarded those.
     draft = { slot: null, source: null, statId: "", uploadId: "", column: "", unit: DEFAULT_CSV_UNIT };
     loading = false;
     if (lastFocus) { try { lastFocus.focus(); } catch (e) { /* ignore */ } }
@@ -1111,9 +1696,22 @@
   // drawer still LOOKS like Home Assistant is chosen. That mismatch between what the drawer shows
   // and what the draft holds is what kept a successful "Test connection" from filling the select.
   //
-  // Must be called with the list AFTER pending keys are filtered out: staging a source whose radio
-  // is never rendered would recreate exactly the show/draft mismatch above, and staging
-  // `csv_upload` would stage a bindingless CSV slot (see PENDING_SOURCE_KEYS).
+  // Must be called with a list every member of which actually gets a radio: staging a source whose
+  // radio is never rendered would recreate exactly the show/draft mismatch above. Nothing is
+  // filtered out of the list any more (`renderSourceList`), so today that is the whole list.
+  //
+  // `csv_upload` is therefore stageable by this function in principle, and on a slot that offered no
+  // Home Assistant option it would be the staged default with an empty binding. Not reachable today:
+  // enumerated over all ten slots, every slot whose `sources_for` offers `csv_upload` also offers
+  // `home_assistant`, which sorts first in the registry and is what the browser_fetch loop below
+  // returns. The PRESET_DEFAULT_SOURCE branch above cannot preempt that for a CSV slot either: it
+  // fires only for `price_spot`, and D-PRICE means `price_spot` is never offered `csv_upload`. So
+  // this is a guard rather than a live path — the same shape as the ordering note in
+  // `renderSourceList`.
+  // It is guarded anyway, and safely: `updateConfirmEnabled` will not let an incomplete binding be
+  // committed, so the drawer would open on the CSV radio with its controls showing and Confirm greyed
+  // out, which is the correct thing to show a user whose only option is a file they have not chosen
+  // yet. Nothing here needs changing if a CSV-only slot is ever added.
   function defaultSourceFor(sources, slotName) {
     if (!sources || !sources.length) return null;
     var i;
@@ -1128,47 +1726,30 @@
     return sources[0];
   }
 
-  // The registry source key whose drawer controls are not built yet (step 6 of the CSV-import
-  // work). The backend registers it, so it arrives in `row.sources` for every energy slot — but
-  // there is no control here yet for choosing a file, a column and a unit, so selecting the radio
-  // would stage a `backend_load` slot with an EMPTY binding. `stagedBackendSlots` sends those to the
-  // ingest WS by KIND, and a bindingless CSV slot makes `CsvSource` raise, which
-  // `_load_backend_frame` turns into an IngestError, which fails the WHOLE all-or-nothing fetch —
-  // including the HA slots that had nothing wrong with them.
+  // Render the radio list for the current slot's sources.
   //
-  // **Step 5 changed the reason this filter is still here, so read it before removing it.** The
-  // binding now travels end to end: it is stored (saveSlotStore), restored (the seed loop), staged
-  // (draft), committed (confirmDraft), sent (stagedBackendSlots) and validated server-side. What is
-  // missing is only the UI that lets the user PRODUCE one. So the filter is no longer standing in for
-  // absent plumbing; it is standing in for an absent control, and step 6 removes it together with
-  // building that control plus a Confirm gate that requires a file and a column — the gate is what
-  // replaces the filter as the guard against the empty-binding fetch above.
-  //
-  // Filtering here rather than unregistering the source keeps the backend honest: `available_for`
-  // is the authority on which slots CSV *can* fill (and `tests/test_csv_source.py` pins it), and
-  // this is the UI declining to offer a control it cannot yet complete.
-  var PENDING_SOURCE_KEYS = {};
-  PENDING_SOURCE_KEYS[CSV_SOURCE_KEY] = true;
-
-  // Render the radio list for the current slot's sources, plus the pending "Upload CSV" option
-  // for the slots that will offer it.
+  // Which slots offer "Upload CSV" is the REGISTRY's decision, not this file's: `CsvSource`'s
+  // `available_for` allows every energy slot except `power_grid` and never `price_spot` (D-PRICE),
+  // and the descriptor list arrives here already filtered by it, so the radio simply appears where
+  // the backend says it can. This function no longer filters anything out. It used to: until step 6
+  // there was no file/column/unit control, so selecting a live CSV radio would have staged a
+  // `backend_load` slot with an EMPTY binding, which makes `CsvSource` raise and — under the
+  // all-or-nothing reify contract — fails the WHOLE fetch, HA slots included. What replaced that
+  // filter is `updateConfirmEnabled`'s CSV branch: Confirm stays disabled until a file AND a column
+  // are chosen, so an empty binding cannot be committed in the first place. The guard moved from
+  // "you may not choose this" to "you may not confirm this half-done", which is the guard the
+  // wireframe asks for.
   //
   // A slot with no committed source gets one STAGED here (defaultSourceFor) before the radios are
   // built, so the pre-checked radio and draft.source agree. This is staging only: slotState and the
-  // row label are still untouched until Confirm, exactly as for a user-clicked radio.
+  // row label are still untouched until Confirm, exactly as for a user-clicked radio. Note that
+  // `csv_upload` is now stageable that way — on a slot whose only offered source is CSV,
+  // `defaultSourceFor` returns it, and the drawer opens with an empty binding and Confirm disabled.
+  // That is the intended state, and it is the Confirm gate that makes it safe.
   function renderSourceList(sources) {
     drawerList.textContent = "";
     haConfigBtn = null;
 
-    // Does THIS slot offer CSV? Read off the registry list rather than assumed, so the stub
-    // follows `available_for` — every energy slot except power_grid, and never price_spot, where
-    // CSV is deliberately unavailable rather than pending (D-PRICE). Before this, the stub was
-    // appended unconditionally, which promised price_spot a source it is never getting.
-    var csvPending = sources.some(function (s) { return s.key === CSV_SOURCE_KEY; });
-    sources = sources.filter(function (s) { return !PENDING_SOURCE_KEYS[s.key]; });
-
-    // Stage the default from the FILTERED list — a pending key has no radio to check, so staging
-    // one would leave nothing selected while the drawer still shows a choice.
     if (!draft.source) {
       var def = defaultSourceFor(sources, draft.slot);
       if (def) draft.source = def.key;
@@ -1209,47 +1790,32 @@
         haConfigBtn = cfg;
         label.appendChild(cfg);
       }
+      // "Upload CSV" carries an "Upload…" button that opens the shared upload modal
+      // (#csv-upload-dialog), for the reason §2.2 gives for making it mirror HA's "Configure…":
+      // both manage a resource SHARED across slots, configured once and referenced many times. It
+      // is keyed on the source KEY rather than on the kind, because `energy_charts` is the same
+      // kind and has nothing to configure.
+      //
+      // Unlike HA's, this button's label never changes. There is no single "connected" state to
+      // reflect: a workspace can hold many uploads at once and none of them is the slot's, until
+      // the File select below says which.
+      if (s.key === CSV_SOURCE_KEY) {
+        var up = document.createElement("button");
+        up.type = "button";
+        up.className = "btn btn-outline btn-xs self-center shrink-0";
+        up.id = "drawer-csv-upload-btn";
+        up.textContent = t("upload_button", "Upload…");
+        up.addEventListener("click", function (ev) {
+          ev.preventDefault();   // the button sits inside the <label>; don't toggle the radio
+          ev.stopPropagation();
+          openCsvUpload();
+        });
+        label.appendChild(up);
+      }
       drawerList.appendChild(label);
       if (radio.checked) onSelectSource(s);
     });
     updateHaConfigButton();
-
-    // Pending "Upload CSV" option — disabled, with the [?] affordance that opens the shared
-    // pending dialog (workspace_data.html #pending-dialog, feature key data_source_csv). Shown
-    // only for the slots the registry actually offers CSV for; see `csvPending` above.
-    if (csvPending) drawerList.appendChild(csvPendingOption());
-  }
-
-  function csvPendingOption() {
-    var wrap = document.createElement("label");
-    wrap.className = "flex items-start gap-3 rounded-box border border-base-300 bg-base-100 "
-      + "p-3 opacity-60";
-    var radio = document.createElement("input");
-    radio.type = "radio";
-    radio.name = "drawer-source";
-    radio.className = "radio radio-sm mt-0.5";
-    radio.disabled = true;
-    var text = document.createElement("div");
-    text.className = "flex flex-col";
-    var row = document.createElement("span");
-    row.className = "flex items-center gap-2 font-medium";
-    var name = document.createElement("span");
-    name.textContent = t("upload_csv", "Upload CSV");
-    var help = document.createElement("button");
-    help.type = "button";
-    help.className = "btn btn-ghost btn-xs";
-    help.textContent = "[?]";
-    // The shared pending dialog (workspace_data.html) binds these attributes via a delegated click
-    // listener, so this dynamically-created button opens it with no wiring here (§2.1).
-    help.setAttribute("data-pending-name", t("upload_csv", "Upload CSV"));
-    help.setAttribute("data-feature-key", "data_source_csv");
-    row.appendChild(name); row.appendChild(help);
-    var blurb = document.createElement("span");
-    blurb.className = "text-xs text-base-content/60";
-    blurb.textContent = t("pending_hint", "Not built yet");
-    text.appendChild(row); text.appendChild(blurb);
-    wrap.appendChild(radio); wrap.appendChild(text);
-    return wrap;
   }
 
   // React to a source radio choice: stage it in the draft and show the HA entity picker / note or
@@ -1264,7 +1830,7 @@
     // sitting on an energy_charts slot is neither stored nor sent. What the clear buys is that
     // re-selecting csv_upload after a detour starts from an EMPTY binding rather than silently
     // reviving the one the user navigated away from, which is the same rule `statId` follows one line
-    // up and the one step 6's Confirm gate will read.
+    // up and the one the Confirm gate reads.
     if (s.key !== CSV_SOURCE_KEY) {
       draft.uploadId = "";
       draft.column = "";
@@ -1274,8 +1840,15 @@
 
     var isHa = s.kind === "browser_fetch";
     var isBackend = s.kind === "backend_load";
+    // The CSV binding block keys on the source KEY, not on the kind. `csv_upload` IS a backend_load
+    // source, so `isBackend` is true for it as well — and `energy_charts` shares that kind while
+    // having nothing to bind. `#drawer-backend-action` is only a status line, so showing it for a
+    // CSV slot too is harmless and deliberate; the binding controls are the part that must not
+    // appear for the other backend sources.
+    var isCsv = s.key === CSV_SOURCE_KEY;
     drawerHaNote.classList.toggle("hidden", !isHa);
     if (drawerHaEntity) drawerHaEntity.classList.toggle("hidden", !isHa);
+    if (drawerCsvBinding) drawerCsvBinding.classList.toggle("hidden", !isCsv);
     drawerBackendAction.classList.toggle("hidden", !isBackend);
     drawerBackendAction.classList.toggle("flex", isBackend);
     drawerBackendStatus.textContent = "";
@@ -1283,6 +1856,10 @@
     // Picking HA populates the entity <select> for this slot from the shared connection (or shows
     // the connect-first hint) and stages a default id into the draft. Nothing is committed.
     if (isHa) applyHaChoice(name);
+    // Picking CSV does the same one level over: list the workspace's uploads if they are not cached
+    // yet, populate the File and Column selects, and stage a default FILE (never a default column —
+    // see fillCsvColumnSelect). Also nothing committed.
+    if (isCsv) applyCsvChoice();
     updateConfirmEnabled();
   }
 
@@ -1315,10 +1892,18 @@
   // connection (haConnected) AND a chosen entity (draft.statId) — so every committed HA slot is
   // immediately fetchable. Until the connection is configured, the entity picker stays disabled
   // and Confirm is blocked; the Configure button beside the radio opens the connection modal.
+  //
+  // An uploaded CSV requires a complete binding, by the SAME predicate the store's two gates use
+  // (`csvBindingComplete`). This gate is what replaced the `PENDING_SOURCE_KEYS` filter that used to
+  // hide the radio outright: an empty binding staged into a `backend_load` slot makes `CsvSource`
+  // raise, and under the all-or-nothing reify contract that failure takes the whole fetch with it,
+  // HA slots included. Blocking the commit is the narrowest place to stop that, and it is what §2.2
+  // asks for — "Confirm is enabled once a file and a column are chosen".
   function updateConfirmEnabled() {
     if (!drawerConfirmBtn) return;
     var ok;
     if (draft.source === "home_assistant") ok = haConnected && !!draft.statId;
+    else if (draft.source === CSV_SOURCE_KEY) ok = csvBindingComplete(draft);
     else ok = !!draft.source;
     drawerConfirmBtn.disabled = loading || !ok;
   }
@@ -1333,8 +1918,9 @@
 
   // Update a slot's source-button label (and styling) on the main screen from slotState. The
   // .slot-source-label span carries the text: "Home Assistant · <entity>" (or "· choose entity…"
-  // when HA is chosen but no entity yet), the plain source label for other sources, or the
-  // "Choose source…" affordance when unchosen. The [change] hint is kept if present.
+  // when HA is chosen but no entity yet), "Upload CSV · <file> · <column>" for a bound CSV slot,
+  // the plain source label for other sources, or the "Choose source…" affordance when unchosen.
+  // The [change] hint is kept if present.
   function updateSlotButton(slotName) {
     var btn = document.querySelector('.slot-source-btn[data-slot="' + cssEscape(slotName) + '"]');
     if (!btn) return;
@@ -1348,6 +1934,24 @@
     if (st.source === "home_assistant") {
       var suffix = st.statId || t("choose_entity", "choose entity…");
       labelEl.textContent = t("ha_source", "Home Assistant") + " · " + suffix;
+    } else if (st.source === CSV_SOURCE_KEY && st.uploadId) {
+      // §2.2: "The roster row shows it back as Upload CSV · meterstanden_2025.csv · Verbruik_T1."
+      //
+      // `slotState` holds the upload ID, never the filename — the id is what the binding means and
+      // what the server validates, and a filename is not an identity (two exports may share one).
+      // So the name is looked up in the list `refreshCsvUploads` cached, and there are two ways that
+      // lookup legitimately misses: the page has not listed the uploads yet (no drawer opened, no
+      // dialog opened), or the file is genuinely gone. Both render the placeholder rather than a
+      // blank, because a label reading "Upload CSV ·  · Verbruik_T1" would look like a rendering bug
+      // rather than a fact about the binding. The first case self-corrects the moment a list arrives
+      // (`refreshCsvUploads` re-labels every row); the second is cleared outright by
+      // `pruneStaleCsvBindings`, which runs off the same list — so the placeholder is what the user
+      // sees only in the window before the workspace's uploads are known.
+      var up = csvUploadById(st.uploadId);
+      labelEl.textContent = ti("csv_row_label", "Upload CSV · %(file)s · %(column)s", {
+        file: up ? up.filename : t("csv_unknown_file", "(file no longer available)"),
+        column: st.column || ""
+      });
     } else {
       labelEl.textContent = sourceLabel(slotName, st.source);
     }
@@ -1382,9 +1986,12 @@
   //   * backend (backend_load): no statId; the fetch reifies it via a backend_load WS message. For
   //     csv_upload the staged (uploadId, column, unit) binding is committed too and rides along on
   //     that message — the drawer still writes nothing server-side.
-  // The pending CSV option's radio is disabled TODAY (PENDING_SOURCE_KEYS), so draft.source cannot
-  // be csv_upload here yet — the branch exists because step 6 lifts that filter, and it is exercised
-  // by the store/reify tests rather than by the UI.
+  // The CSV branch is reachable from the UI: the radio is live and `updateConfirmEnabled` will not
+  // let this run until `csvBindingComplete(draft)` holds, so the committed binding always names both
+  // a file and a column. That gate is the only thing standing between a half-filled drawer and a
+  // fetch that fails on every slot at once, which is why it lives in `updateConfirmEnabled` rather
+  // than as a re-check here — a disabled button is a state the user can see and act on, and a
+  // silently-ignored Confirm is not.
   function confirmDraft() {
     var s = selectedSource();
     if (!s || loading) return;
@@ -1427,6 +2034,20 @@
   // Seed the Fetch button from what is already staged (e.g. a staged backend slot restored from
   // localStorage, or a persisted HA slot), so a page load with a fetchable config enables it.
   updateFetchEnabled();
+
+  // List the uploads eagerly IF — and only if — some slot arrived bound to one. Two things depend on
+  // it and neither can wait for the user to open a drawer:
+  //   * the row label, which needs an id→filename map to read "Upload CSV · <file> · <column>"
+  //     rather than the "(file no longer available)" placeholder;
+  //   * `pruneStaleCsvBindings`, which is how a binding whose file was removed elsewhere surfaces
+  //     on this screen instead of at fetch time (the obligation D-BIND left to this step).
+  // Gated on there being such a slot so an ordinary page load costs no extra request: with nothing
+  // bound, nothing on screen names a file and the list is fetched on first drawer or dialog open.
+  if (Object.keys(slotState).some(function (name) {
+    return slotState[name] && slotState[name].source === CSV_SOURCE_KEY && slotState[name].uploadId;
+  })) {
+    refreshCsvUploads();
+  }
   // Cancel / ✕ / backdrop / Escape all DISCARD (closeDrawer commits nothing). Confirm commits.
   if (drawerClose) drawerClose.addEventListener("click", closeDrawer);
   if (drawerCancelBtn) drawerCancelBtn.addEventListener("click", closeDrawer);

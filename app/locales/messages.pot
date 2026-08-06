@@ -69,11 +69,23 @@ msgid ""
 msgstr ""
 
 #, python-format
+msgid "%(first)s → %(last)s"
+msgstr ""
+
+#, python-format
 msgid "%(full)s / %(empty)s"
 msgstr ""
 
 #, python-format
 msgid "%(kwh)s throughput"
+msgstr ""
+
+#, python-format
+msgid "%(message)s (row %(row)s)"
+msgstr ""
+
+#, python-format
+msgid "%(message)s — %(detail)s"
 msgstr ""
 
 #, python-format
@@ -107,6 +119,14 @@ msgid "%(n)s value overridden"
 msgid_plural "%(n)s values overridden"
 msgstr[0] ""
 msgstr[1] ""
+
+#, python-format
+msgid "%(n)s-minute"
+msgstr ""
+
+#, python-format
+msgid "%(n)s-second"
+msgstr ""
 
 #, python-format
 msgid "%(n)ss"
@@ -157,10 +177,17 @@ msgid "%(res)s, held"
 msgstr ""
 
 #, python-format
+msgid "%(rows)s rows · %(resolution)s · %(columns)s columns"
+msgstr ""
+
+#, python-format
 msgid "(%(res)s, %(n)s interval)"
 msgid_plural "(%(res)s, %(n)s intervals)"
 msgstr[0] ""
 msgstr[1] ""
+
+msgid "(file no longer available)"
+msgstr ""
 
 msgid "+ New analysis"
 msgstr ""
@@ -172,6 +199,9 @@ msgid "1-phase battery"
 msgstr ""
 
 msgid "15-min"
+msgstr ""
+
+msgid "15-minute"
 msgstr ""
 
 msgid "2027 tariffs are not yet published. These values are estimates."
@@ -189,10 +219,42 @@ msgstr ""
 msgid "5-min"
 msgstr ""
 
+msgid "5-minute"
+msgstr ""
+
+msgid ""
+"A file you upload: one timestamp column plus one column per measurement. "
+"One file can fill several slots — pick the column for this one."
+msgstr ""
+
+msgid "A row has a different number of fields than the header."
+msgstr ""
+
+msgid "A row has an empty timestamp."
+msgstr ""
+
 msgid ""
 "A solar sensor is mapped but reported almost no production over this "
 "period, so the Solar figures are hidden. It may not be wired up "
 "correctly."
+msgstr ""
+
+msgid ""
+"A timestamp could not be read. It must be written as DD-MM-YYYY HH:MM:SS,"
+" on a 24-hour clock."
+msgstr ""
+
+msgid ""
+"A timestamp names a local time that does not exist — the hour skipped "
+"when the clocks go forward in March. Check the timezone you chose."
+msgstr ""
+
+msgid "A value is infinite or not a number."
+msgstr ""
+
+msgid ""
+"A value is not a number. Values use a dot as the decimal separator, and "
+"an empty cell means a gap."
 msgstr ""
 
 msgid "AC-coupled"
@@ -221,6 +283,9 @@ msgid "Advanced"
 msgstr ""
 
 msgid "Allow export to grid during D2/D3"
+msgstr ""
+
+msgid "Amsterdam local time"
 msgstr ""
 
 msgid ""
@@ -321,6 +386,9 @@ msgstr ""
 msgid "Choose a source for at least one slot first."
 msgstr ""
 
+msgid "Choose file…"
+msgstr ""
+
 msgid "Choose source…"
 msgstr ""
 
@@ -328,6 +396,9 @@ msgid "Choose your data sources to get a result."
 msgstr ""
 
 msgid "Close"
+msgstr ""
+
+msgid "Column"
 msgstr ""
 
 #, python-format
@@ -386,6 +457,10 @@ msgstr ""
 msgid "Cost savings"
 msgstr ""
 
+#, python-format
+msgid "Could not list the uploaded files: %(reason)s"
+msgstr ""
+
 msgid "Could not load. Please try again."
 msgstr ""
 
@@ -394,6 +469,10 @@ msgid "Could not open a WebSocket to %(url)s."
 msgstr ""
 
 msgid "Could not reach the app's ingest endpoint."
+msgstr ""
+
+#, python-format
+msgid "Could not remove that file: %(reason)s"
 msgstr ""
 
 msgid "Counter resets"
@@ -522,6 +601,9 @@ msgid ""
 "figures are recalculated from the new rates."
 msgstr ""
 
+msgid "Every other column holds values. Fractional values are fine."
+msgstr ""
+
 msgid "Export CSV"
 msgstr ""
 
@@ -547,6 +629,9 @@ msgstr ""
 
 #, python-format
 msgid "Fetching %(slot)s (%(n)s/%(total)s)…"
+msgstr ""
+
+msgid "File"
 msgstr ""
 
 msgid "Fixed"
@@ -797,6 +882,15 @@ msgstr ""
 msgid "No data loaded yet."
 msgstr ""
 
+msgid "No file was chosen."
+msgstr ""
+
+msgid "No files uploaded yet — use the Upload… button above to add one."
+msgstr ""
+
+msgid "No files uploaded yet."
+msgstr ""
+
 msgid "Not built yet"
 msgstr ""
 
@@ -922,6 +1016,10 @@ msgstr ""
 msgid "Recorded at"
 msgstr ""
 
+#, python-format
+msgid "Remove %(name)s? Any series that uses it will go back to “Choose source…”."
+msgstr ""
+
 msgid "Req"
 msgstr ""
 
@@ -982,6 +1080,9 @@ msgid "Settlement"
 msgstr ""
 
 msgid "Shared across all slots that use Home Assistant"
+msgstr ""
+
+msgid "Shared across all slots that use an uploaded CSV"
 msgstr ""
 
 msgid "Simulate cost savings?"
@@ -1075,6 +1176,24 @@ msgstr ""
 msgid "Test connection"
 msgstr ""
 
+msgid "That column is not in the file."
+msgstr ""
+
+msgid ""
+"That column looks like a cumulative meter reading rather than an amount "
+"per interval, so it was refused. This app reads every value as the amount"
+" during the interval that starts at its timestamp."
+msgstr ""
+
+msgid "That file could not be uploaded."
+msgstr ""
+
+msgid "That file is too large to upload."
+msgstr ""
+
+msgid "That file reference is not valid."
+msgstr ""
+
 msgid ""
 "That matters here in one specific way. This simulator is a retrospective "
 "calculator: it estimates what a battery would have done over a past "
@@ -1082,6 +1201,12 @@ msgid ""
 "It does not predict what a battery will save you, and it is not financial"
 " advice. Check its assumptions against your own contract before spending "
 "money on the strength of a number it shows you."
+msgstr ""
+
+msgid "That timezone is not one this app knows."
+msgstr ""
+
+msgid "That unit is not one this app knows."
 msgstr ""
 
 #, python-format
@@ -1146,6 +1271,37 @@ msgid ""
 "because they do not change when a battery is installed and would cancel "
 "out of the comparison anyway. So these are not two invoice totals; they "
 "are the two halves of your bill a battery can move."
+msgstr ""
+
+msgid ""
+"The file could not be read as CSV. Check that it is really comma-"
+"separated text and not a spreadsheet or an archive."
+msgstr ""
+
+msgid "The file has a header but no data rows."
+msgstr ""
+
+msgid "The file has no header row naming the columns."
+msgstr ""
+
+msgid ""
+"The file is not valid UTF-8 text. Save or export it as UTF-8 and try "
+"again."
+msgstr ""
+
+msgid "The file must be laid out like this:"
+msgstr ""
+
+msgid "The file needs at least two columns: a timestamp and one value column."
+msgstr ""
+
+msgid ""
+"The first column holds the timestamp, written as DD-MM-YYYY HH:MM:SS, "
+"with hours on a 24-hour clock (so 6 in the evening is 18:00:00, not "
+"06:00:00 PM)."
+msgstr ""
+
+msgid "The first row holds the column names."
 msgstr ""
 
 msgid ""
@@ -1303,6 +1459,9 @@ msgid ""
 "of any servicing, repair or correction."
 msgstr ""
 
+msgid "Timestamps are"
+msgstr ""
+
 msgid "Title"
 msgstr ""
 
@@ -1329,10 +1488,35 @@ msgstr ""
 msgid "Type"
 msgstr ""
 
+msgid "UTC"
+msgstr ""
+
+msgid "Unit"
+msgstr ""
+
 msgid "Update your data →"
 msgstr ""
 
 msgid "Upload CSV"
+msgstr ""
+
+#, python-format
+msgid "Upload CSV · %(file)s · %(column)s"
+msgstr ""
+
+msgid ""
+"Upload your own data as a CSV file. One file can supply several series — "
+"you choose which column feeds which series afterwards."
+msgstr ""
+
+msgid "Uploaded files"
+msgstr ""
+
+#, python-format
+msgid "Uploading %(name)s…"
+msgstr ""
+
+msgid "Upload…"
 msgstr ""
 
 msgid "Usable capacity"
@@ -1349,10 +1533,18 @@ msgstr ""
 msgid "VAT"
 msgstr ""
 
+msgid ""
+"Values are amounts per interval, not meter readings. A column whose "
+"values only ever increase is refused."
+msgstr ""
+
 msgid "Variable"
 msgstr ""
 
 msgid "Want to know what this is worth in euros?"
+msgstr ""
+
+msgid "Wh"
 msgstr ""
 
 msgid "What \"no warranty\" means"
@@ -1672,6 +1864,9 @@ msgstr ""
 msgid "irregular"
 msgstr ""
 
+msgid "irregular spacing"
+msgstr ""
+
 msgid ""
 "is part of the plan for this simulator, but it is not built yet. The app "
 "is being written one feature at a time and this one has not been reached."
@@ -1749,6 +1944,9 @@ msgstr ""
 msgid "recalculating…"
 msgstr ""
 
+msgid "remove"
+msgstr ""
+
 msgid "required"
 msgstr ""
 
@@ -1786,6 +1984,10 @@ msgstr ""
 msgid "undefined"
 msgstr ""
 
+#, python-format
+msgid "uploaded %(date)s · %(rows)s rows · %(resolution)s"
+msgstr ""
+
 msgid "valid"
 msgstr ""
 
@@ -1793,6 +1995,9 @@ msgid "α"
 msgstr ""
 
 msgid "β"
+msgstr ""
+
+msgid "— choose a column —"
 msgstr ""
 
 msgid "— none —"
@@ -1838,6 +2043,18 @@ msgstr ""
 
 #, python-format
 msgid "✓ Imported %(count)s series. Reloading…"
+msgstr ""
+
+#, python-format
+msgid "✓ Removed %(name)s"
+msgstr ""
+
+#, python-format
+msgid "✓ Removed %(name)s. These series went back to “Choose source…”: %(slots)s"
+msgstr ""
+
+#, python-format
+msgid "✓ Uploaded %(name)s"
 msgstr ""
 
 #, python-format

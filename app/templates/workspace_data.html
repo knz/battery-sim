@@ -319,6 +319,106 @@
     <form method="dialog" class="modal-backdrop"><button>{{ _('close') }}</button></form>
   </dialog>
 
+  {# ── CSV upload modal (§2.2 "The upload dialog", §4.2a, CSV-import brief step 6). The ONE place a
+       wide CSV is uploaded, opened by the "Upload…" button beside the "Upload CSV" radio in the
+       source drawer — deliberately the same shape as #ha-config-dialog above, because the two do
+       the same job: both manage a resource SHARED across slots, configured once and referenced
+       many times. Everything below is driven by app/static/ha_fetch.js; keep every element id.
+
+       **Uploading a file and binding a column to a slot are two separate tasks**, which is why
+       this dialog holds no slot-specific control at all. A wide file (timestamp column + one
+       column per measurement) is uploaded once and is then offered to EVERY energy slot, each of
+       which picks its own column in the drawer. Requiring one file per series would make the user
+       split a supplier export by hand, once per slot.
+
+       **An upload is a side effect on shared state and therefore survives the drawer's Cancel**,
+       exactly as a tested Home Assistant connection does. That is not an exception to the drawer's
+       staged-then-confirm contract — the contract is about the per-slot BINDING, which is staged in
+       `draft` and reaches the slot only on Confirm. The file is not per-slot.
+
+       **The timezone is asked here, once per file, and applied at upload** (decision D-TZ). §4.2a's
+       format carries no UTC offset, so the app cannot know from the file alone which instant
+       `26-10-2025 02:30:00` names; the parser converts to UTC on the server and nothing downstream
+       ever sees a naive timestamp. The option is named "Amsterdam", not "the Netherlands", because
+       the Caribbean Netherlands (Bonaire, Saba, Sint Eustatius) are on AST and observe no DST, so
+       "Dutch local time" is not one zone. #}
+  <dialog id="csv-upload-dialog" class="modal">
+    <div class="modal-box max-w-2xl">
+      <div class="flex flex-wrap items-baseline justify-between gap-2">
+        <h3 class="text-lg font-bold">{{ _('Upload CSV') }}</h3>
+        <span class="text-xs text-base-content/50">{{ _('Shared across all slots that use an uploaded CSV') }}</span>
+      </div>
+
+      <p class="pt-3 text-sm text-base-content/80">
+        {{ _('Upload your own data as a CSV file. One file can supply several series — you choose which column feeds which series afterwards.') }}
+      </p>
+
+      <p class="pt-3 text-sm text-base-content/80">{{ _('The file must be laid out like this:') }}</p>
+      <ul class="list-disc pl-6 py-2 text-sm text-base-content/70 flex flex-col gap-1">
+        <li>{{ _('The first row holds the column names.') }}</li>
+        {# The example is spelled out because a 24-hour clock is the single most common way a
+           hand-edited Dutch export goes wrong, and "24-hour" alone is read past. #}
+        <li>{{ _('The first column holds the timestamp, written as DD-MM-YYYY HH:MM:SS, with hours on a 24-hour clock (so 6 in the evening is 18:00:00, not 06:00:00 PM).') }}</li>
+        <li>{{ _('Every other column holds values. Fractional values are fine.') }}</li>
+        {# The fourth bullet states what §4.2a's format does NOT accept, which is the rejection the
+           user is most likely to hit: D-KIND reads every value as a per-interval amount, and a
+           column that only ever rises is refused rather than differenced. Saying so here turns a
+           later rejection into an expected outcome instead of a surprise. #}
+        <li>{{ _('Values are amounts per interval, not meter readings. A column whose values only ever increase is refused.') }}</li>
+      </ul>
+
+      {# Timezone, per file (D-TZ). Amsterdam is pre-checked because it is what a Dutch household's
+         own export carries; the value strings are `csv_wide.TZ_KEYS` verbatim and are posted as-is,
+         so they are NOT translated. #}
+      <fieldset class="pt-2">
+        <legend class="text-sm font-medium">{{ _('Timestamps are') }}</legend>
+        <div class="flex flex-wrap gap-4 pt-1">
+          <label class="flex cursor-pointer items-center gap-2 text-sm">
+            <input type="radio" name="csv-upload-tz" class="radio radio-sm"
+                   value="Europe/Amsterdam" checked />
+            <span>{{ _('Amsterdam local time') }}</span>
+          </label>
+          <label class="flex cursor-pointer items-center gap-2 text-sm">
+            <input type="radio" name="csv-upload-tz" class="radio radio-sm" value="UTC" />
+            <span>{{ _('UTC') }}</span>
+          </label>
+        </div>
+      </fieldset>
+
+      {# The file chooser. The native <input type=file> is hidden behind a styled button because a
+         bare file input cannot be restyled and reads as a foreign control beside daisyUI's; the
+         button forwards its click. Uploading starts on `change`, so there is no second "upload"
+         press — choosing the file IS the action. #}
+      <div class="flex flex-wrap items-center gap-3 pt-4">
+        <button type="button" id="csv-upload-choose" class="btn btn-outline btn-sm">
+          {{ _('Choose file…') }}
+        </button>
+        <input type="file" id="csv-upload-input" accept=".csv,text/csv" class="hidden" />
+        <span id="csv-upload-status" class="text-sm text-base-content/60"></span>
+      </div>
+
+      {# Rejection is panel-local and RECOVERABLE (§3.2): a wrong export is an ordinary event, not a
+         run-fatal one. The message names what was expected, what was found and the offending row,
+         and the dialog stays open so the user can pick another file. Filled with textContent only —
+         the server's message quotes the user's own column names and cell values. #}
+      <p id="csv-upload-error" class="hidden text-sm text-error pt-2"></p>
+
+      <h4 class="pt-5 text-sm font-semibold">{{ _('Uploaded files') }}</h4>
+      <div class="divider my-1"></div>
+      {# Filled by ha_fetch.js from GET /w/{id}/data/uploads, newest first. The empty case renders
+         #csv-upload-empty instead of an empty box. #}
+      <div id="csv-upload-list" class="flex flex-col gap-1"></div>
+      <p id="csv-upload-empty" class="hidden text-sm text-base-content/50">
+        {{ _('No files uploaded yet.') }}
+      </p>
+
+      <div class="modal-action">
+        <form method="dialog"><button class="btn btn-ghost btn-sm">{{ _('close') }}</button></form>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>{{ _('close') }}</button></form>
+  </dialog>
+
   {# ── Source-picker drawer (§2.2 slot-first, §2′.5 "a right-side overlay over this screen").
        A single right-side panel, shared by every slot row's "Choose source…" button. Opened by
        ha_fetch.js, which fills #drawer-slot-title and #drawer-source-list for the clicked slot.
@@ -363,6 +463,67 @@
         <p id="drawer-ha-note" class="text-xs text-base-content/60 hidden">
           {{ _('Uses the shared Home Assistant connection — configure it once (the button above), then fetch history for all Home Assistant slots together.') }}
         </p>
+        {# ── The per-slot CSV binding (§2.2's "The CSV source", decision D-BIND). Shown by JS only
+             while the "Upload CSV" radio is selected, and hidden for every other source — including
+             the other backend_load sources, so the toggle keys on the SOURCE KEY (`csv_upload`) and
+             not on the kind, which `energy_charts` shares.
+
+             These three controls are the whole binding: which uploaded FILE, which COLUMN of it,
+             and what UNIT its numbers are in. They are per-slot, unlike the file itself, which is
+             shared — one upload feeds many slots, each picking its own column. They write only to
+             the drawer's `draft`, like every other in-drawer control, and reach the slot on Confirm.
+
+             **Nothing about a column says which series it is.** A header like `Verbruik_T1` is shown
+             to help the user choose and is never parsed for meaning; the SLOT supplies the series
+             identity (§4.1). That is why the column selector lists names verbatim and offers no
+             auto-mapping, unlike the Home Assistant entity picker above, whose ids come from a
+             vocabulary the app can guess against.
+
+             The unit lives here rather than in the upload dialog because §4.2a's format carries no
+             unit and one file's columns may not share one — a Wh export of PV beside a kWh grid
+             register is an ordinary shape. The values are `csv_wide.UNIT_FACTORS`' keys verbatim
+             (case-sensitive; the server rejects anything else by name), so they are NOT translated;
+             only the visible text is, and for these two symbols it is the same string in both
+             catalogs. kWh is pre-checked: it is the drawer's default, `CsvBinding`'s own, and what
+             a Dutch meter export is written in. #}
+        <div id="drawer-csv-binding" class="hidden flex-col gap-3">
+          <label class="form-control">
+            <span class="label-text mb-1">{{ _('File') }}</span>
+            <select id="drawer-csv-file" class="select select-bordered select-sm w-full"
+                    aria-label="{{ _('File') }}">
+            </select>
+            {# The chosen file's coverage: "uploaded … · 8,760 rows · hourly / 2025-01-01 →
+               2025-12-31". Filled by JS from the LIST route, so the user can tell two exports of the
+               same name apart by what is actually in them. #}
+            <span id="drawer-csv-file-summary" class="label-text-alt mt-1 text-base-content/50"></span>
+          </label>
+          <label class="form-control">
+            <span class="label-text mb-1">{{ _('Column') }}</span>
+            <select id="drawer-csv-column" class="select select-bordered select-sm font-mono w-full"
+                    aria-label="{{ _('Column') }}">
+            </select>
+          </label>
+          <fieldset>
+            <legend class="label-text">{{ _('Unit') }}</legend>
+            <div class="flex flex-wrap gap-4 pt-1">
+              <label class="flex cursor-pointer items-center gap-2 text-sm">
+                <input type="radio" name="drawer-csv-unit" class="radio radio-sm" value="kWh" checked />
+                <span>{{ _('kWh') }}</span>
+              </label>
+              <label class="flex cursor-pointer items-center gap-2 text-sm">
+                <input type="radio" name="drawer-csv-unit" class="radio radio-sm" value="Wh" />
+                <span>{{ _('Wh') }}</span>
+              </label>
+            </div>
+          </fieldset>
+          {# Shown when the workspace has no uploads at all, in place of two empty selects that would
+             leave the user with nothing to press. Uploads are per-workspace (§5.2), so analysing the
+             same household in a second workspace means uploading the file there too. #}
+          <p id="drawer-csv-no-files" class="hidden text-xs text-base-content/60">
+            {{ _('No files uploaded yet — use the Upload… button above to add one.') }}
+          </p>
+        </div>
+
         {# Backend-source status line (shown only for a backend_load source; carries the
            load-in-progress / error text). The action itself is the shared Confirm button below. #}
         <div id="drawer-backend-action" class="hidden flex-col gap-2">
@@ -394,13 +555,53 @@
   {# i18n strings the drawer's and fetcher's JS need at runtime (app/static/ha_fetch.js), rendered
      here so gettext extracts the msgids and the browser reads them already translated. Same set
      and the same reasoning the drawer's header gives for why runtime values
-     travel as %(name)s placeholders in one msgid rather than as concatenated fragments. #}
+     travel as %(name)s placeholders in one msgid rather than as concatenated fragments.
+
+     **Do not put a Jinja comment INSIDE the `set` block below.** Jinja parses the whole dict as one
+     expression, and a comment marker inside it is a syntax error — one that `pybabel extract` does
+     not report: it logs the file, extracts nothing from it, and the run "succeeds" with a smaller
+     catalog and no warning. (This comment cannot show the marker either, for the same reason: the
+     closing sequence would end the comment it appears in.) Every note about these keys lives here.
+
+     ## The `csv_*` keys (CSV-import brief step 6)
+
+     **Two summary lines, not one.** `csv_file_summary` (the drawer, under the File select) and
+     `csv_list_summary` (the dialog's file list) overlap but answer different questions: the drawer
+     names ONE chosen file in full — when it arrived, how much of it there is, over what span — while
+     the dialog compares several at a glance and has no room for the span.
+
+     **`csv_row_label` is one msgid, not three fragments.** §2.2 shows the roster row as
+     "Upload CSV · meterstanden_2025.csv · Verbruik_T1"; the separators and the order are part of the
+     sentence and a translator has to be able to move them.
+
+     **The `csv_res_*` keys name a resolution rather than printing `resolution_s`.** "hourly" is what
+     §2.2's wireframe shows and what a user recognises. A file whose spacing could not be inferred
+     (`resolution_s` is null — no modal spacing covered half the gaps) says "irregular spacing"
+     instead of being rounded to a plausible-looking figure.
+
+     **`csv_confirm_remove` / `csv_removed_cleared` are the delete cascade's report.** §2.2: removing
+     a file a slot still uses "clears that slot's binding and returns it to 'Choose source…',
+     reported when the removal is confirmed". Under D-BIND the binding is browser-local, so the
+     server cannot cascade and the client that holds the binding does it — these are how it says so.
+
+     **The `csv_err_*` table is the `code` → translated-string mapping the upload routes deferred to
+     this step** (app/main.py `create_upload`). Every 4xx those routes raise themselves answers with
+     `detail = {"code", "message", "row"}`; the code is machine-readable and stable, and these are
+     its wordings. The server's own English `message` is not shown in their place — that would be an
+     English sentence in a Dutch dialog — but `csvErrorText` appends it for the codes whose message
+     carries the specific fact (which row, which column, what was found), because re-deriving that
+     here would mean parsing English prose.
+
+     `csv_error_generic` is the fallback for two distinct cases and covers both honestly: a `detail`
+     that is a bare STRING (python-multipart enforces its own part limits before our handler runs and
+     Starlette owns that response), and a code this table does not know — which is what a
+     newly-added parser code looks like to a catalog that has not caught up. #}
 {%- set drawer_i18n = {
       "loading": _("Loading…"),
       "load_failed": _("Could not load. Please try again."),
       "loaded_ok": _("Loaded. Reloading…"),
-      "pending_hint": _("Not built yet"),
       "upload_csv": _("Upload CSV"),
+      "upload_button": _("Upload…"),
       "choose_entity": _("choose entity…"),
       "connect_first": _("Configure the connection first"),
       "ha_source": _("Home Assistant"),
@@ -424,7 +625,52 @@
       "imported_series": _("✓ Imported %(count)s series. Reloading…"),
       "ingest_unreachable": _("Could not reach the app's ingest endpoint."),
       "ingest_rejected": _("Ingest rejected: %(reason)s"),
-      "ingest_closed_early": _("Ingest connection closed early.")
+      "ingest_closed_early": _("Ingest connection closed early."),
+
+      "csv_uploading": _("Uploading %(name)s…"),
+      "csv_uploaded": _("✓ Uploaded %(name)s"),
+      "csv_file_summary": _("uploaded %(date)s · %(rows)s rows · %(resolution)s"),
+      "csv_file_span": _("%(first)s → %(last)s"),
+      "csv_list_summary": _("%(rows)s rows · %(resolution)s · %(columns)s columns"),
+      "csv_remove": _("remove"),
+      "csv_choose_column": _("— choose a column —"),
+      "csv_unknown_file": _("(file no longer available)"),
+      "csv_row_label": _("Upload CSV · %(file)s · %(column)s"),
+
+      "csv_res_hourly": _("hourly"),
+      "csv_res_15min": _("15-minute"),
+      "csv_res_5min": _("5-minute"),
+      "csv_res_minutes": _("%(n)s-minute"),
+      "csv_res_seconds": _("%(n)s-second"),
+      "csv_res_irregular": _("irregular spacing"),
+
+      "csv_confirm_remove": _("Remove %(name)s? Any series that uses it will go back to “Choose source…”."),
+      "csv_removed": _("✓ Removed %(name)s"),
+      "csv_removed_cleared": _("✓ Removed %(name)s. These series went back to “Choose source…”: %(slots)s"),
+      "csv_remove_failed": _("Could not remove that file: %(reason)s"),
+      "csv_list_failed": _("Could not list the uploaded files: %(reason)s"),
+
+      "csv_error_generic": _("That file could not be uploaded."),
+      "csv_error_at_row": _("%(message)s (row %(row)s)"),
+      "csv_error_with_detail": _("%(message)s — %(detail)s"),
+      "csv_err_no_file": _("No file was chosen."),
+      "csv_err_bad_timezone": _("That timezone is not one this app knows."),
+      "csv_err_bad_encoding": _("The file is not valid UTF-8 text. Save or export it as UTF-8 and try again."),
+      "csv_err_unreadable_csv": _("The file could not be read as CSV. Check that it is really comma-separated text and not a spreadsheet or an archive."),
+      "csv_err_bad_upload_id": _("That file reference is not valid."),
+      "csv_err_missing_header": _("The file has no header row naming the columns."),
+      "csv_err_too_few_columns": _("The file needs at least two columns: a timestamp and one value column."),
+      "csv_err_no_data_rows": _("The file has a header but no data rows."),
+      "csv_err_row_length_mismatch": _("A row has a different number of fields than the header."),
+      "csv_err_empty_timestamp": _("A row has an empty timestamp."),
+      "csv_err_bad_timestamp": _("A timestamp could not be read. It must be written as DD-MM-YYYY HH:MM:SS, on a 24-hour clock."),
+      "csv_err_nonexistent_local_time": _("A timestamp names a local time that does not exist — the hour skipped when the clocks go forward in March. Check the timezone you chose."),
+      "csv_err_non_numeric_value": _("A value is not a number. Values use a dot as the decimal separator, and an empty cell means a gap."),
+      "csv_err_non_finite_value": _("A value is infinite or not a number."),
+      "csv_err_cumulative_column": _("That column looks like a cumulative meter reading rather than an amount per interval, so it was refused. This app reads every value as the amount during the interval that starts at its timestamp."),
+      "csv_err_bad_unit": _("That unit is not one this app knows."),
+      "csv_err_unknown_column": _("That column is not in the file."),
+      "csv_err_too_large": _("That file is too large to upload.")
   } -%}
   <script id="drawer-i18n" type="application/json">{{ drawer_i18n | tojson }}</script>
 

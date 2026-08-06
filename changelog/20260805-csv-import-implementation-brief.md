@@ -106,10 +106,16 @@ Tijdstip,Verbruik_T1,Verbruik_T2,Teruglevering_T1,Zon
 - Ingest WS (`app/ingest_ws.py:1-58`) reifies a whole staged config at once: HA slots stream as
   `series`/`rows`, `backend_load` slots are declared by name+source+window and loaded
   server-side on `done`, then persisted as ONE dataset, all-or-nothing.
-- `ha_fetch.js:624-631` discovers backend slots **by descriptor kind**, so a new `backend_load`
-  source needs no JS change to be reified. But CSV **does** need JS for its drawer controls.
-- `ha_fetch.js:948-978` `csvPendingOption()` — the disabled placeholder to replace.
-  `ha_fetch.js:926-937` builds HA's `[ Configure… ]` button; `[ Upload… ]` mirrors it.
+- `ha_fetch.js`'s `stagedBackendSlots()` discovers backend slots **by descriptor kind**, so a new
+  `backend_load` source needs no JS change to be reified. But CSV **does** need JS for its drawer
+  controls.
+- `ha_fetch.js`'s `csvPendingOption()` — the disabled placeholder to replace (**deleted by step 6**;
+  the reference is historical). `renderSourceList`'s HA branch builds the `[ Configure… ]` button;
+  `[ Upload… ]` mirrors it.
+
+  *Line numbers in this section were written against the pre-step-6 file and are ~500 lines stale;
+  everything above is cited by NAME instead, which is what step 6's review asked for. Search by
+  symbol, not by line.*
 - `app/features.py:18-27` — the retirement rule: move the key to `RETIRED_KEYS`, **keep its
   title**, never rename or reuse a key.
 - Existing tests to mirror: `tests/test_sources.py`, `tests/test_slot_load.py`,
@@ -477,7 +483,9 @@ reason from one to the other.
 **Decision 1, as actually made (user, 2026-08-06): candidate E — `localStorage`, extending the
 existing pre-fetch slot store.** See "### D-BIND candidates" below for E and the two rejected
 server-side alternatives (B: `retained.slot_bindings` in `simconfig.json`; D: a new `slot_bindings`
-table). E was chosen because `app/static/ha_fetch.js:64-84` already documents pre-fetch
+table). E was chosen because the **"two things carry a source choice across a reload"** list in
+`app/static/ha_fetch.js`'s file header (find it by that phrase, not by line number — step 6 moved it
+by ~500 lines) already documents pre-fetch
 customizations as a category with a home and a reconciliation rule, and a CSV binding is one; it
 needs no new table, no new document key, no delete cascade, and no new architectural category.
 
@@ -503,8 +511,9 @@ than the section below was originally written to describe:**
   upload no longer exists, so a stale binding surfaces in the drawer rather than only at fetch time.
 
 **Decision 2 — transport: carry the binding in the WS `backend_load` message.** Confirmed by
-reading the code: `stagedBackendSlots()` (`app/static/ha_fetch.js:649-656`) sends only
-`{name, source}`, so it has no room for a binding and must be extended. The message gains a
+reading the code as it then stood: `stagedBackendSlots()` in `app/static/ha_fetch.js` sent only
+`{name, source}`, so it had no room for a binding and had to be extended (step 5 did; the line
+numbers this once cited are stale — search for the function). The message gains a
 `binding: {upload_id, column, unit}` object for CSV slots:
 
 ```json
@@ -517,8 +526,9 @@ This keeps the drawer a **pure staging surface** — Confirm still writes nothin
 matching how an HA slot carries its `statId` — and it is what makes step 6's rule work ("uploads
 survive Cancel; the binding does not"). Rejected alternative: look the binding up server-side from
 storage. It would need the binding persisted *before* the fetch, which forces the new table and
-makes Confirm a server write, breaking the staging contract the drawer documents at
-`ha_fetch.js:42-52`.
+makes Confirm a server write, breaking the staging contract the drawer documents in
+`ha_fetch.js`'s file header under **"Staged-then-confirm model (the crux)"** (cited by name: the
+header's line numbers moved with step 6).
 
 **Validate the binding server-side regardless of transport.** A client-supplied `upload_id` must be
 checked against `uploads.get(workspace_id, upload_id)` — a foreign or absent id must not load.
@@ -569,8 +579,10 @@ document" division `simconfig_store`'s module comment establishes; (iv) §5.5 in
 carries `workspace_id`) and the `workspaces.delete` cascade become new obligations.
 
 **Candidate E — `localStorage`, extending the existing pre-fetch slot store.** Surfaced last, and it
-is the one that matches the architecture already documented in `app/static/ha_fetch.js:64-84`, which
-states there are exactly **two** carriers of a source choice across a reload: (1) *fetched* slots,
+is the one that matches the architecture already documented in `app/static/ha_fetch.js`'s file header
+— the **"two things carry a source choice across a reload"** list, cited by that phrase because the
+line numbers it used to carry are now stale — which states there are exactly **two** carriers of a
+source choice across a reload: (1) *fetched* slots,
 server-side in `series_meta` — provenance; (2) *pre-fetch customizations*, in
 `localStorage ha.slots.<workspace>`, reconciled by the `source_generation` number. A CSV binding is
 a choice the user has made but **not yet fetched**, i.e. category 2 verbatim. The store already
@@ -641,12 +653,81 @@ provenance, and survives a reload.
 
 ## Step 6 — drawer UI
 
-**Status:** not started. **Depends on:** steps 3, 4, 5.
+**Status:** done and **reviewed (2026-08-06)**. `app/static/ha_fetch.js` +
+`app/templates/workspace_data.html` + 60 new msgids translated into Dutch, plus nine Playwright
+tests (`tests/test_smoke.py`: 45 → 54). The review found **no correctness defects** — the shipped
+behaviour is right — and five places where correct code was unpinned by any test. Three were closed
+here (a failed uploads LIST must not wipe bindings; `syncCsvUnitRadios`; and two store tests that
+passed for the wrong reason, because their synthetic upload id let the PRUNE remove the entry the
+completeness predicate was supposed to reject). Two were left to step 8 and are listed there.
+`csvPendingOption()` and `PENDING_SOURCE_KEYS` are **gone** —
+the guard against a bindingless CSV slot failing the whole all-or-nothing fetch moved from "you may
+not choose this radio" to `updateConfirmEnabled`'s "you may not confirm this half-done".
+
+Three things a later reader should know before touching this:
+
+- **The completeness rule is now ONE predicate, `csvBindingComplete(o)`**, backing all three gates
+  (`saveSlotStore`, `usableStoreEntry`, the Confirm gate). Step 5's review created the second copy;
+  this step factored rather than adding a third. `usableStoreEntry`'s scoping is unchanged — still
+  `csv_upload` only, because `_make_slot_pristine` writes an empty-source entry deliberately.
+- **The delete cascade runs CLIENT-SIDE**, in `pruneStaleCsvBindings`, because under D-BIND the
+  server holds no binding to clear. It runs on any 2xx (not gated on `existed` — the retry after a
+  partial failure is exactly the call where `existed` is false), clears the slot WHOLE so the row
+  returns to "Choose source…", and names the affected slots in the dialog's status line. It also runs
+  whenever the uploads are listed, which discharges D-BIND's "drop entries whose upload is gone"
+  obligation; the module lists eagerly on load only when some slot arrived CSV-bound.
+- **`detail` is handled as `dict | str`** in `csvErrorText(status, detail)`: 413 first (no envelope),
+  then `detail.code` against `CSV_ERROR_KEYS`, then a generic fallback that covers both a bare-string
+  detail and an unknown code. The server's English message is appended only for the codes that name a
+  specific offender, and every write is `textContent`.
+
+See [20260806-csv-import-step6-drawer-ui.md](20260806-csv-import-step6-drawer-ui.md).
+
+### Known gap — a cumulative column is refused at FETCH time, not at bind time
+
+Recorded properly rather than as a footnote, because D-KIND's wording invites a wrong reading.
+
+**The gap.** D-KIND says a cumulative-register column is "rejected on selection". The refusal is real
+but it lives in `column_frame`, which runs at LOAD time — so "selection" means the moment the loader
+selects the column, not the moment the user picks it in the drawer. The drawer has no way to ask:
+`_upload_json` reports `columns` (names only), and the values live server-side. A user can therefore
+bind a slot to a monotone column, press Confirm, and learn only when the fetch fails. The dialog's
+fourth format bullet states the per-interval rule, so the user is warned before they get there, which
+softens the surprise but does not remove it.
+
+**Why step 6 could not close it.** There is no per-column route, and adding server surface is out of
+this step's scope (the step's own constraint: no new routes). The client cannot decide monotonicity
+because it never sees a value.
+
+**Options, with what each costs.**
+
+1. **A new per-column inspection route** (`GET …/uploads/{id}/columns/{name}` returning a verdict).
+   Cleanest separation and the most room to say WHY a column was refused, but it is a whole new route
+   — auth, workspace scoping, its own tests — for one boolean, and it re-reads the file on demand.
+2. **A per-column `cumulative` flag in `_upload_json`, annotating the options in the column selector.**
+   No new route; one field on a response that already exists, computed where the file is already being
+   parsed, and the drawer greys or marks the affected options at the moment the user is choosing. This
+   is the **intended shape if the gap is taken up.**
+3. **Leave it as-is** — the format bullet plus a fetch-time error. Zero cost, and the failure is
+   panel-local rather than run-fatal, but the user has to have read the bullet.
+
+**Caveat to settle first, and it is a real precondition for option 2.** Step 2 recorded that the
+register heuristic **rejects monotone partial-day PV** — a legitimate per-interval column that happens
+never to decrease over a short file. Greying out a column the user is entitled to bind is a WORSE
+failure than a late rejection: a late error is recoverable and explains itself, whereas a disabled
+option looks like the app deciding the file is wrong. So option 2 should not ship until that
+false-positive question is settled (a threshold, a minimum span, or a user override) — and whatever
+surface carries the `cumulative` flag is also the natural place to carry the override.
+
+**Not implemented here, deliberately.** This section is the record, not a task.
+
+**Depends on:** steps 3, 4, 5.
 
 In `app/static/ha_fetch.js` and `app/templates/workspace_data.html`:
 
-- Replace `csvPendingOption()` (`ha_fetch.js:948`) with a real radio carrying an
-  `[ Upload… ]` button, mirroring HA's `[ Configure… ]` (`ha_fetch.js:926-937`).
+- Replace `csvPendingOption()` in `ha_fetch.js` with a real radio carrying an `[ Upload… ]` button,
+  mirroring HA's `[ Configure… ]` in `renderSourceList` (both cited by name: the line numbers this
+  once carried predate step 6 and are stale, and `csvPendingOption` no longer exists at all).
 - **Upload dialog** — a new `<dialog>` in `workspace_data.html` beside `#ha-config-dialog`.
   Contents per `02-ux-wireframes.md` §"The upload dialog": intro text, the four format bullets,
   the **Amsterdam local time | UTC** radio, a file chooser, and the list of already-uploaded
@@ -686,6 +767,28 @@ rename it. Remove the now-dead pending markup and the `data-feature-key` wiring.
   uploaded as Amsterdam vs UTC differs by the offset; October file flags the ambiguous hour; UTC
   file does not) from `docs/specs/16-validation-harness.md`.
 - Check `tests/test_no_english_leakage.py` and `tests/test_i18n.py` pass after any string change.
+
+**Inherited from step 6's review (2026-08-06) — two coverage gaps step 8 owns.** Both are correct
+code today with no test holding it in place; neither is a defect. They were left here rather than
+closed in step 6 because each needs a fixture step 6 does not have:
+
+1. **`usableStoreEntry`'s SCOPING is untested.** It gates `csv_upload` only, deliberately: a
+   `{source:'', statId:''}` entry is how a slot is cleared to pristine and must still restore. Pinning
+   that needs a slot with a **committed** source that is then cleared to pristine and reloaded — i.e. a
+   fetched slot, which means a real dataset, which is harness territory rather than a smoke fixture.
+   Widening the predicate's scope to every source would break `_make_slot_pristine` and nothing else
+   would notice.
+2. **The 413 branch of `csvErrorText` is untested.** It is the one status with no error envelope of
+   ours (`_read_capped_body` raises a plain string, and python-multipart's own part limits are enforced
+   by Starlette before our handler runs), so it is a genuinely different path from the `detail.code`
+   table. Driving it needs an upload over the size cap, which a Playwright test can only do by pushing
+   a multi-megabyte buffer through a file input.
+
+**Follow-up, not a gap:** `[ remove ]` in the upload dialog confirms with `window.confirm`. Its real
+cost is not styling — it is that the OK/Cancel labels come from the browser and are therefore
+**untranslated**, in an app where every other string goes through `_()`. Replacing it means nesting a
+second `<dialog>` inside the open one; the message is already a single msgid, so the move is cheap
+whenever it is judged worth doing. Deliberately not changed in step 6.
 
 ## Open items deliberately left to the implementer
 
