@@ -49,7 +49,8 @@
   exist to configure data and now live only on `workspace_data.html`.
 
   Kept unchanged: the pending-affordance dialog and its IIFE, and the whole panel-②/③ script block
-  below — the chart draw, the lazy benchmark fetch, `recompute()`, the `params-form` submit
+  below — the chart draws (`drawMonthlyChart`, and `drawEnergyFlows` for the three-chart *Energy
+  flows* tab added later), the lazy benchmark fetch, `recompute()`, the `params-form` submit
   interception, the `setup.`-prefixed change handler and the feed-in preset. Those were always this
   half's; 4.1 established as much and moved none of them.
 
@@ -303,19 +304,220 @@
       // Exposed so the fetch handler (and any future caller) can redraw after a swap.
       window.drawMonthlyChart = drawMonthlyChart;
 
+      // ── The *Energy flows* tab's three charts ───────────────────────────────────────────────
+      //
+      // Same contract as drawMonthlyChart above, and here for the same reason: it reads the
+      // #flows-data node the last render/swap injected, so a fragment swap needs only a re-call
+      // and never a re-bind. The node is absent when the view-model carried no `energy_flows`
+      // (no frame to simulate), in which case the tab button is absent too and this is a no-op.
+      //
+      // EVERY user-visible string comes off the payload (`d.labels`, `d.ytitle`, …), translated
+      // server-side — the same rule the monthly chart's `d.ytitle` established. Nothing below
+      // writes English into a chart.
+      //
+      // The three y-axes are INDEPENDENT (a recorded decision): load sourcing and PV allocation
+      // have genuinely different totals, and sharing an axis would squash the smaller of them.
+
+      // One categorical set, used consistently across the three charts so a term keeps its colour
+      // wherever it appears — `pv_to_home` in particular is a segment of BOTH stacks, and the
+      // charts are only comparable if it looks the same in each. '#570df8' is the monthly chart's
+      // existing series colour, kept here for the battery so the box reads as one family.
+      var FLOW_COLORS = {
+        dis_home: '#570df8',    // battery → home (violet, the panel's existing series colour)
+        imp_home: '#6b7280',    // grid → home (neutral grey: bought energy, not generated)
+        pv_to_home: '#f5a524',  // sun → home directly (amber)
+        chg_pv: '#0ea5e9',      // sun → battery (blue)
+        chg_grid: '#94a3b8',    // grid → battery
+        exp_from_pv: '#22c55e', // sun → grid (green)
+        curtailed: '#dc2626',   // sun thrown away (red: the only segment that is a loss)
+        household_load: '#1f2937',
+        // Total PV production, the average day's second reference line. A DEEPER amber than
+        // `pv_to_home`'s: it must read as the same family (both are solar, and the line bounds
+        // that segment from above) while staying separable from it and from the near-black load
+        // line beside it. A colour from elsewhere in the map would have implied a different
+        // quantity; reusing `pv_to_home`'s exactly would have made the gap between them the one
+        // thing on the chart that is hard to see.
+        pv_total: '#b45309',
+        soc: '#570df8'
+      };
+
+      // A month flagged `partial` is missing >5% of its intervals, so its bar is drawn from
+      // incomplete data and is SHORT for a reason that has nothing to do with usage. Hatching it
+      // (rather than only shortening it) is what stops it reading as "a quiet month"; the footnote
+      // under the bars says what the hatching means. Plotly takes the pattern per POINT, so this
+      // builds one array per trace rather than splitting the series into two traces.
+      function partialPattern(partial) {
+        return {
+          shape: partial.map(function (p) { return p ? '/' : ''; }),
+          solidity: 0.35,
+          size: 6
+        };
+      }
+
+      // One stacked-bar chart over the months, from a {key: series} object and an ordered key
+      // list. `extra` traces (the household-load reference line) are appended after the bars so
+      // they draw on top of them.
+      //
+      // `overrides` is a per-chart label map layered over the shared `d.labels`. It exists for
+      // ONE series on purpose: `pv_to_home` is a segment of both bar charts, and the two charts
+      // ask opposite questions — sources in chart 1 ("Directly from solar"), destinations in
+      // chart 2 ("Consumed directly"). Do not fold the two names back together; the mismatch a
+      // merge would reintroduce is a source name sitting in a list of sinks.
+      function stackedMonths(divId, d, source, keys, extra, overrides) {
+        var pattern = partialPattern(d.partial || []);
+        var names = overrides || {};
+        var traces = keys.map(function (k) {
+          return {
+            type: 'bar', name: names[k] || d.labels[k], x: d.months, y: source[k],
+            marker: { color: FLOW_COLORS[k], pattern: pattern }
+          };
+        });
+        if (extra) traces = traces.concat(extra);
+        Plotly.newPlot(divId, traces, {
+          barmode: 'stack',
+          margin: { t: 10, r: 10, b: 30, l: 40 },
+          yaxis: { title: d.ytitle },
+          legend: { orientation: 'h', y: -0.18 },
+          paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+          font: { size: 11 }
+        }, { displayModeBar: false, responsive: true });
+      }
+
+      function drawEnergyFlows() {
+        if (typeof Plotly === 'undefined') return;
+        var node = document.getElementById('flows-data');
+        if (!node) return;
+        if (!document.getElementById('flows-load')) return;
+        var d = JSON.parse(node.textContent);
+
+        // 1. Load sourcing. The three SOURCE segments only. `household_load` is a reference LINE
+        //    over the bars, never a stack segment: the segments sum to household load PLUS the
+        //    battery's standby draw, and standby is a SINK — stacking it would put the battery's
+        //    own consumption on the "where the energy came from" side of the balance. Drawn this
+        //    way, the gap between the line and the top of the stack IS the standby draw, which is
+        //    the one presentation that shows the term without misfiling it.
+        stackedMonths('flows-load', d, d.load_sourcing,
+          ['dis_home', 'imp_home', 'pv_to_home'],
+          [{
+            type: 'scatter', mode: 'lines+markers',
+            name: d.labels.household_load,
+            x: d.months, y: d.load_sourcing.household_load,
+            line: { color: FLOW_COLORS.household_load, width: 2 },
+            marker: { color: FLOW_COLORS.household_load, size: 5 }
+          }]);
+
+        // 2. PV allocation. Sums to PV generation — a different total from chart 1, which is why
+        //    each chart carries a heading stating its question. It also takes the label OVERRIDE
+        //    map: this chart's segments are DESTINATIONS, so `pv_to_home` reads "Consumed
+        //    directly" here and "Directly from solar" in chart 1. See the note on stackedMonths.
+        stackedMonths('flows-pv', d, d.pv_allocation,
+          ['chg_pv', 'pv_to_home', 'exp_from_pv', 'curtailed'],
+          null, d.labels_pv_allocation);
+
+        // 3. The average day: hour-of-day means, with SoC on a SECONDARY axis (kWh of stored
+        //    energy is not the same quantity as kWh moved per hour, so it cannot share the left
+        //    axis).
+        //
+        //    The bars are chart 1 over hours instead of months: the SAME THREE SOURCES, the same
+        //    colours, and the same `household_load` reference line, so the daily shape reads
+        //    against the monthly one. `chg_pv` is deliberately NOT on this stack — it is PV going
+        //    INTO the battery, a sink, and adding it to three load-side sources gives a bar total
+        //    that is no physical quantity at all, overstating consumption by the charging rate
+        //    right where the midday peak is. Same reason `standby` is off chart 1's stack.
+        var a = d.average_day;
+        var dayBars = ['dis_home', 'imp_home', 'pv_to_home'].map(function (k) {
+          return {
+            type: 'bar', name: d.labels[k], x: a.hours, y: a[k],
+            marker: { color: FLOW_COLORS[k] }
+          };
+        });
+        dayBars.push({
+          type: 'scatter', mode: 'lines', name: d.labels.household_load,
+          x: a.hours, y: a.household_load,
+          line: { color: FLOW_COLORS.household_load, width: 2 }
+        });
+        // TOTAL PV production, the second reference line — on the PRIMARY axis, because it is kWh
+        // moved per hour exactly like the bars are. The stack is the load-sourcing decomposition,
+        // in which solar appears only as `pv_to_home`; the PV that charged the battery, was
+        // exported or was curtailed is on none of the bars, and at midday that is routinely the
+        // larger part of production. The gap between this line and the `pv_to_home` segment is
+        // that PV. Suppressed entirely when the window generated none — an absent PV series is
+        // zero-filled upstream, so drawing it anyway would add a flat line on the axis and a
+        // legend entry to a household that has no panels. The note under the chart is gated on
+        // the same flag, in the template.
+        if (d.any_pv) {
+          dayBars.push({
+            type: 'scatter', mode: 'lines', name: d.labels.pv_total,
+            x: a.hours, y: a.pv_total,
+            // Wider than the other two reference lines, and dashed. The colour alone does not
+            // carry this trace: `pv_total` and `pv_to_home` are the same amber family on purpose
+            // (both are solar) and measure 2.46:1 against each other, under the 3:1 WCAG floor for
+            // non-text graphics — so where the line crosses the segment it bounds, contrast is the
+            // weakest cue on the chart. Width + dash are what keep it readable there.
+            line: { color: FLOW_COLORS.pv_total, width: 3, dash: 'dash' }
+          });
+        }
+        dayBars.push({
+          type: 'scatter', mode: 'lines', name: d.labels.soc,
+          x: a.hours, y: a.soc, yaxis: 'y2',
+          line: { color: FLOW_COLORS.soc, width: 2, dash: 'dot' }
+        });
+        Plotly.newPlot('flows-avgday', dayBars, {
+          barmode: 'stack',
+          margin: { t: 10, r: 40, b: 40, l: 40 },
+          xaxis: { title: d.hour_title, dtick: 3 },
+          yaxis: { title: d.ytitle },
+          yaxis2: { title: d.soc_title, overlaying: 'y', side: 'right', rangemode: 'tozero' },
+          legend: { orientation: 'h', y: -0.25 },
+          paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+          font: { size: 11 }
+        }, { displayModeBar: false, responsive: true });
+      }
+      window.drawEnergyFlows = drawEnergyFlows;
+
       // The view tabs. DELEGATED from `document` for the same reason every other panel-③ control
       // is: the buttons live inside the swapped fragment, so a handler bound to them directly
       // would stop working after the first range change.
+      //
+      // TWO attributes, because the Charts box now holds two CONTAINERS:
+      //   `data-chart-tab`  — which container is shown (`monthly` | `flows`). Every real tab
+      //                       button carries it.
+      //   `data-chart-view` — which series #monthly-chart draws (`kwh` | `eur`). Only the two
+      //                       monthly buttons carry it, and they carry `data-chart-tab="monthly"`
+      //                       as well, so picking € from the flows tab both switches back and
+      //                       selects the series in one click.
+      // The view is still held ON the chart container rather than in a variable, so a fragment
+      // swap resets it to the default — which is right: a swap means a new window, and the euro
+      // series may not exist for it. Container VISIBILITY resets the same way, back to monthly.
       document.addEventListener('click', function (ev) {
-        var btn = ev.target.closest ? ev.target.closest('[data-chart-view]') : null;
+        var btn = ev.target.closest ? ev.target.closest('[data-chart-tab]') : null;
         if (!btn || btn.tagName !== 'BUTTON') return;
         var chart = document.getElementById('monthly-chart');
+        var flows = document.getElementById('flows-charts');
         if (!chart) return;
-        chart.setAttribute('data-chart-view', btn.getAttribute('data-chart-view'));
+        var tab = btn.getAttribute('data-chart-tab');
+
+        // Highlight exactly one button in the strip. Scoped to the clicked button's own group and
+        // matching every tab button in it, so the pending [?] tab beside them is left alone.
         var group = btn.parentNode;
-        Array.prototype.forEach.call(group.querySelectorAll('[data-chart-view]'), function (b) {
+        Array.prototype.forEach.call(group.querySelectorAll('[data-chart-tab]'), function (b) {
           b.classList.toggle('btn-active', b === btn);
         });
+
+        chart.classList.toggle('hidden', tab !== 'monthly');
+        if (flows) {
+          flows.classList.toggle('hidden', tab !== 'flows');
+          flows.classList.toggle('flex', tab === 'flows');
+        }
+
+        if (tab === 'flows') {
+          // Plotly sizes a plot from its container, and a container inside `hidden` measures 0 —
+          // so the three plots must be drawn (or resized) AFTER the class flip, not before.
+          drawEnergyFlows();
+          return;
+        }
+        var view = btn.getAttribute('data-chart-view');
+        if (view) chart.setAttribute('data-chart-view', view);
         drawMonthlyChart();
       });
 
@@ -462,8 +664,11 @@
             }
             // Both roots keep their ids in the fresh markup, so the next swap targets them again.
             // The swapped-in <script id="monthly-data"> did not run, but its DATA is in the DOM;
-            // redraw from it. Delegated listeners need no re-binding.
+            // redraw from it. Delegated listeners need no re-binding. Same for #flows-data: the
+            // swap brought a fresh (hidden) #flows-charts for the new window, so the three plots
+            // are re-drawn from the new node rather than left showing the old window's.
             drawMonthlyChart();
+            drawEnergyFlows();
             // The fresh period card brings an empty hint span (the server cannot fill it in).
             applyDateFormatHint();
             // The benchmark box is INSIDE #panel-results, so the swap replaced it with a fresh
@@ -707,7 +912,15 @@
       window.applyDateFormatHint = applyDateFormatHint;
 
       // Initial draw once the page (and Plotly) are ready, plus the first benchmark fetch.
-      function initPanelResults() { drawMonthlyChart(); loadBenchmark(); applyDateFormatHint(); }
+      function initPanelResults() {
+        drawMonthlyChart();
+        // Drawn now even though #flows-charts is hidden, so the tab is populated the instant it
+        // is picked rather than one frame later. Plotly cannot size a plot inside a `hidden`
+        // container, so the tab handler draws again on show — this call is the eager half.
+        drawEnergyFlows();
+        loadBenchmark();
+        applyDateFormatHint();
+      }
       if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', initPanelResults);
       } else {

@@ -44,6 +44,11 @@
       reads the fresh data from the swapped-in #monthly-data <script> node. workspace_results.html calls it on
       initial load; the delegated fetch-handler calls it again after each swap. The inline draw is
       therefore gone from this template — only the data node and the chart container remain.
+    * The *Energy flows* tab follows the same pattern exactly, one layer up: a `#flows-charts`
+      container holding three plot divs, a `#flows-data` node beside `#monthly-data`, and
+      window.drawEnergyFlows() over there. The Charts box now holds TWO containers, so the tab
+      strip carries `data-chart-tab` (which container is visible) alongside the older
+      `data-chart-view` (which series the monthly container draws).
 
   UI chrome is wrapped in _() for translation; coverage strings and ISO dates stay literal.
   Labels/titles/caveats come pre-marked from the view-model and are translated here via _().
@@ -239,36 +244,135 @@
     <div class="card bg-base-200 border border-base-300">
       <div class="card-body gap-3 p-4">
         <div class="flex flex-wrap items-center justify-between gap-2">
-          {# The first tab is the only chart that exists. It plots `results.chart`, which is
-             _monthly_import() — the MEASURED monthly grid import over the window, not a saving,
-             so it is labelled for what it draws. §2.4's wireframe asks for a monthly-savings
-             chart; that series is not built (see changelog/20260724-panel3-battery-simulation.md),
-             and labelling this one "Monthly savings" made the bars read as ~11× the actual
-             saving (3,923 kWh of import beside a 341 kWh saving on the 1-year window).
-             The two sibling tabs draw nothing at all, so they carry the §2.1 pending affordance
-             (disabled + [?] + a feature key) rather than looking like working buttons beside a
-             working one. #}
-          {# The pending tabs carry their [?] INLINE and stay enabled, matching the "⤓ export CSV
-             [?]" button beside them: a `disabled` button swallows its own clicks, so the dialog
-             opener has to remain clickable. `btn-disabled` alone is the DaisyUI look-disabled
-             class without the attribute, which is exactly the pending idiom — the control does
-             nothing but says why when asked. #}
+          {# The first two tabs plot `results.chart`, which is _monthly_import() — the MEASURED
+             monthly grid import over the window, not a saving, so it is labelled for what it
+             draws. §2.4's wireframe asks for a monthly-savings chart; that series is not built
+             (see changelog/20260724-panel3-battery-simulation.md), and labelling this one
+             "Monthly savings" made the bars read as ~11× the actual saving (3,923 kWh of import
+             beside a 341 kWh saving on the 1-year window).
+             *Energy flows* is a real tab since changelog/20260806-energy-flows-chart-tab.md; only
+             *SoC + price* draws nothing, so it alone carries the §2.1 pending affordance rather
+             than looking like a working button beside working ones. #}
+          {# The pending tab carries its [?] INLINE and stays enabled, matching the "⤓ export CSV
+             [?]" button beside it: a `disabled` button swallows its own clicks, so the dialog
+             opener has to remain clickable. `opacity-60` is the look-disabled styling without the
+             attribute, which is exactly the pending idiom — the control does nothing but says why
+             when asked. A tab that WORKS must carry neither `data-pending-name` (the dialog
+             handler in _pending_dialog.html keys off it) nor `opacity-60`. #}
           {# §2.4: "The Charts box gains options rather than swapping them." The kWh view is
              always offered and shown by default; the euro view appears BESIDE it only when there
              is a euro series, and the two are separate views rather than a dual axis (see the
              draw function in workspace_results.html). The switching is delegated from `document` there, like
-             every other control in this swappable fragment. #}
+             every other control in this swappable fragment.
+
+             TWO attributes, two different jobs, because there are now two chart CONTAINERS:
+               `data-chart-tab`  — which container is visible (`monthly` | `flows`)
+               `data-chart-view` — which series the MONTHLY container draws (`kwh` | `eur`)
+             The first two buttons carry both: they select the monthly container AND its series,
+             so clicking € from the flows tab comes back to the right place. #}
           <div class="join">
-            <button type="button" class="btn btn-xs join-item btn-active" data-chart-view="kwh">{{ _('Monthly grid import') }}</button>
+            <button type="button" class="btn btn-xs join-item btn-active" data-chart-tab="monthly" data-chart-view="kwh">{{ _('Monthly grid import') }}</button>
             {% if results.monthly_saved_eur %}
-            <button type="button" class="btn btn-xs join-item" data-chart-view="eur">{{ _('Monthly savings (€)') }}</button>
+            <button type="button" class="btn btn-xs join-item" data-chart-tab="monthly" data-chart-view="eur">{{ _('Monthly savings (€)') }}</button>
             {% endif %}
             <button type="button" class="btn btn-xs join-item opacity-60" data-pending-name="{{ _('SoC + price chart') }}" data-feature-key="chart_soc_price">{{ _('SoC + price') }} [?]</button>
-            <button type="button" class="btn btn-xs join-item opacity-60" data-pending-name="{{ _('Energy flows chart') }}" data-feature-key="chart_energy_flows">{{ _('Energy flows') }} [?]</button>
+            {% if results.energy_flows %}
+            <button type="button" class="btn btn-xs join-item" data-chart-tab="flows">{{ _('Energy flows') }}</button>
+            {% endif %}
           </div>
           <button class="btn btn-ghost btn-xs" data-pending-name="{{ _('Export CSV') }}" data-feature-key="export_csv">⤓ {{ _('export CSV') }} [?]</button>
         </div>
         <div id="monthly-chart" class="h-64 w-full"></div>
+        {# ── The *Energy flows* tab: three kWh charts stacked, hidden until its tab is picked ──
+           Three charts in one scrolling tab rather than nested sub-tabs: they share a unit (kWh)
+           and answer adjacent questions, so scrolling beats clicking and allows cross-chart
+           comparison.
+
+           **The headings are load-bearing, not decoration.** Charts 1 and 2 have genuinely
+           different totals — one sums to the household's load, the other to PV generation — and
+           they share a term (`pv_to_home`). Without a line stating the QUESTION each answers, a
+           reader scrolling from the first to the second has no way to know why the bars changed
+           height. The y-axes are independent per chart for the same reason (a shared axis would
+           squash the smaller of the two). #}
+        {% if results.energy_flows %}
+        <div id="flows-charts" class="hidden flex-col gap-4">
+          <div>
+            <h4 class="text-sm font-semibold">{{ _('Where did the household\'s energy come from?') }}</h4>
+            <div id="flows-load" class="h-64 w-full"></div>
+            {# ── Why the stack is taller than the line ────────────────────────────────────
+               Charts 1 and 3 both draw three stacked SOURCE segments under a `household_load`
+               reference LINE, and the stack is systematically the taller of the two. That is
+               not an error: §6.9 hands the simulation a rebound load (`frame.load + standby`),
+               so the identity that closes is
+
+                   dis_home + imp_home + pv_to_home  =  household_load + standby
+
+               and the visible gap IS the battery's own draw. Nothing else on the screen says so.
+
+               Gated on `any_standby`, exactly as the partial-month footnote below is gated on
+               `any_partial` and for the same reason: `standby_w` may legitimately be 0 (only
+               negative values are rejected), and at 0 the stack sits exactly on the line, where
+               this note would be explaining a gap that is not there. The flag is computed
+               server-side from the CONFIGURED draw rather than from the rounded `standby`
+               series, which can be 0.0 in every month while the drawn gap is still visible.
+
+               The sentence is ONE short line by explicit instruction. A longer version naming the
+               mechanism was written first and cut; do not restore it. The same applies to the
+               total-solar note below — the partial-month footnote is the upper bound on length
+               for anything in this box. #}
+            {% if results.energy_flows.any_standby %}
+            <p class="text-xs text-base-content/70">
+              {{ _('The bars can be higher than house load because of battery standby power.') }}
+            </p>
+            {% endif %}
+          </div>
+          <div>
+            <h4 class="text-sm font-semibold">{{ _('Where did the solar generation go?') }}</h4>
+            <div id="flows-pv" class="h-64 w-full"></div>
+          </div>
+          {# The footnote belongs under the two BAR charts and above the average day, which is a
+             mean over intervals and carries no per-month bar to mark. Rendered only when some
+             month is actually flagged, so it never explains a mark that is not on the screen. #}
+          {% if results.energy_flows.any_partial %}
+          <p class="text-xs text-base-content/70">
+            {# Written "5 percent", not "5%": a bare `%` in a msgid makes `pybabel extract` mark
+               the entry `#, python-format`, after which a translator's stray `%` is a runtime
+               format error in a string that takes no arguments at all. #}
+            {{ _('Months drawn with a hatched pattern are missing more than 5 percent of their measurements, so their bars understate the real totals.') }}
+          </p>
+          {% endif %}
+          <div>
+            <h4 class="text-sm font-semibold">{{ _('What does an average day look like?') }}</h4>
+            <div id="flows-avgday" class="h-64 w-full"></div>
+            {# ── Why a total-solar line sits above the solar segment ──────────────────────
+               The bars on this chart are the LOAD-SOURCING decomposition, so solar appears only
+               as the share that fed the house directly. PV that charged the battery, was
+               exported, or was curtailed is on none of them — and around midday that is
+               routinely the larger part of production. The `pv_total` line restores it.
+
+               Gated on `any_pv` rather than on `any_standby`: a household with no panels is a
+               reachable case (`simulation_frame` zero-fills an absent PV series), and there the
+               line is flat on the axis with no gap to describe. The LINE itself is suppressed on
+               the same flag, in the draw code — a note without its line, or a flat line without
+               its note, would each be half an explanation. #}
+            {% if results.energy_flows.any_pv %}
+            <p class="text-xs text-base-content/70">
+              {{ _('The solar line is total production; the rest charged the battery or went to the grid.') }}
+            </p>
+            {% endif %}
+            {# Same note as under chart 1, and deliberately the SAME msgid: this chart draws the
+               same three source segments under the same reference line, so the same sentence
+               reads correctly here and it is one translation rather than two. It is repeated
+               rather than written once between the charts because chart 2 sits in between and
+               asks a different question — a single note there would appear to explain that one. #}
+            {% if results.energy_flows.any_standby %}
+            <p class="text-xs text-base-content/70">
+              {{ _('The bars can be higher than house load because of battery standby power.') }}
+            </p>
+            {% endif %}
+          </div>
+        </div>
+        {% endif %}
       </div>
     </div>
 
@@ -454,4 +558,78 @@
         "eur_values": results.monthly_saved_eur | default(none, true),
         "eur_ytitle": _('€')} | tojson }}
   </script>
+
+  {# The *Energy flows* tab's three series, on the same terms and for the same reasons as
+     #monthly-data above: embedded fresh on every (re)render, INSIDE #panel-results so a swap
+     replaces it, and read by window.drawEnergyFlows() (workspace_results.html) — which must live
+     on the never-swapped page because a swapped-in <script> re-inserts but does not re-execute.
+
+     `_energy_flows` emits MONTH NUMBERS, so the x-axis labels are made here by the locale-bound
+     `monthname` filter, exactly as the monthly node does: the charts are drawn client-side, so
+     this is the last point at which the server can put the reader's language on the axis. Every
+     other user-visible string in the three charts — series names, axis titles — is likewise
+     translated here and travels in the payload rather than being hardcoded in JS.
+
+     Absent entirely when there is no `energy_flows` (no frame to simulate), which is the same
+     condition that drops the tab button and the containers above.
+
+     **`labels` is the shared map; `labels_pv_allocation` OVERRIDES it for chart 2 only.** Do not
+     merge the two — one series deliberately carries two different names. `pv_to_home` is a segment
+     of both bar charts, and the charts ask opposite questions: chart 1 asks where the household's
+     energy CAME FROM, where "Directly from solar" names a source correctly; chart 2 asks where the
+     solar generation WENT, where every sibling label names a destination (into the battery /
+     exported / curtailed) and a source name would be the odd one out. Hence "Consumed directly"
+     there. `stackedMonths()` in workspace_results.html applies the override.
+
+     **`any_pv` rides in the DATA node, unlike `any_partial` and `any_standby`.** Those two gate
+     markup this template writes itself, so they are read straight off `results.energy_flows`. The
+     total-PV reference line on the average day is drawn client-side instead, and it has to be
+     suppressed on a household without panels — `simulation_frame` zero-fills an absent PV series,
+     so that case reaches the chart as a flat line on the axis plus a legend entry that answer no
+     question. The note under that chart is gated on the same flag, in the markup above.
+
+     `pv_total` is labelled "Total solar production", not "Solar", so it is separable at a glance
+     from the `pv_to_home` segment sitting in the same legend — the entire point of the line is
+     that the two are different quantities.
+
+     Note for editors: these rationale comments live OUTSIDE the expression below on purpose. A
+     Jinja comment placed INSIDE that expression is a syntax error, and the way it fails is quiet
+     — `pybabel extract` simply returns zero strings for this whole file, and the next `update`
+     then marks every msgid in it obsolete, with no error printed by either command. (Nor can the
+     comment delimiters be written out in prose here, for the same reason a quote cannot be
+     written unescaped inside a quoted string: the closing pair ends this comment where it
+     appears, and everything after it renders as page text.)
+
+     Only keys some chart actually draws are emitted. `standby` and `chg_grid` have no series in
+     any of the three charts (standby is a sink and is shown as the GAP under the household-load
+     line, never a segment; `chg_grid` is netted out of `imp_home` and is not a PV allocation), so
+     translating names for them would be dead msgids. #}
+  {% if results.energy_flows %}
+  {%- set flows_month_labels = results.energy_flows.months | map('monthname') | list -%}
+  <script id="flows-data" type="application/json">
+    {{ {"months": flows_month_labels,
+        "partial": results.energy_flows.partial,
+        "any_pv": results.energy_flows.any_pv,
+        "load_sourcing": results.energy_flows.load_sourcing,
+        "pv_allocation": results.energy_flows.pv_allocation,
+        "average_day": results.energy_flows.average_day,
+        "ytitle": _('kWh'),
+        "soc_title": _('State of charge (kWh)'),
+        "hour_title": _('Hour of day'),
+        "labels": {
+          "dis_home": _('From the battery'),
+          "imp_home": _('From the grid'),
+          "pv_to_home": _('Directly from solar'),
+          "household_load": _('Household load'),
+          "pv_total": _('Total solar production'),
+          "chg_pv": _('Into the battery'),
+          "exp_from_pv": _('Exported to the grid'),
+          "curtailed": _('Curtailed'),
+          "soc": _('State of charge')
+        },
+        "labels_pv_allocation": {
+          "pv_to_home": _('Consumed directly')
+        }} | tojson }}
+  </script>
+  {% endif %}
 </section>

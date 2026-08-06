@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-06 15:40+0200\n"
+"POT-Creation-Date: 2026-08-06 15:31+0200\n"
 "PO-Revision-Date: 2026-07-23 20:40+0200\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: en\n"
@@ -43,24 +43,6 @@ msgid "%(before)s → %(after)s"
 msgstr "%(before)s → %(after)s"
 
 #, python-format
-msgid ""
-"%(columns)s — the values in this column never go down, so it may be a "
-"cumulative meter reading rather than the amount used per interval. If it "
-"is, the results will be far too high."
-msgid_plural ""
-"%(columns)s — the values in these columns never go down, so they may be "
-"cumulative meter readings rather than the amount used per interval. If "
-"they are, the results will be far too high."
-msgstr[0] ""
-"%(columns)s — the values in this column never go down, so it may be a "
-"cumulative meter reading rather than the amount used per interval. If it "
-"is, the results will be far too high."
-msgstr[1] ""
-"%(columns)s — the values in these columns never go down, so they may be "
-"cumulative meter readings rather than the amount used per interval. If "
-"they are, the results will be far too high."
-
-#, python-format
 msgid "%(count)s interval · %(res)s"
 msgid_plural "%(count)s intervals · %(res)s"
 msgstr[0] "%(count)s interval · %(res)s"
@@ -74,20 +56,6 @@ msgstr[1] "%(dates)s   (%(n)s days)"
 
 #, python-format
 msgid ""
-"%(days)s — the clock went back on this day, so one hour appears twice in "
-"your data and the run assumes the first (summer-time) one."
-msgid_plural ""
-"%(days)s — the clock went back on these days, so one hour appears twice "
-"in your data and the run assumes the first (summer-time) one."
-msgstr[0] ""
-"%(days)s — the clock went back on this day, so one hour appears twice in "
-"your data and the run assumes the first (summer-time) one."
-msgstr[1] ""
-"%(days)s — the clock went back on these days, so one hour appears twice "
-"in your data and the run assumes the first (summer-time) one."
-
-#, python-format
-msgid ""
 "%(export)s was exported to the grid but your solar (and battery) data "
 "does not account for it, so the household consumption and self-"
 "sufficiency could not be reconstructed reliably and are hidden. This "
@@ -115,10 +83,6 @@ msgstr ""
 " house did not generate, so either you do have solar panels (answer "
 "\"yes\" above and map the sensor), or an existing battery is feeding the "
 "grid and is not mapped."
-
-#, python-format
-msgid "%(first)s → %(last)s"
-msgstr ""
 
 #, python-format
 msgid "%(full)s / %(empty)s"
@@ -127,14 +91,6 @@ msgstr "%(full)s / %(empty)s"
 #, python-format
 msgid "%(kwh)s throughput"
 msgstr "%(kwh)s throughput"
-
-#, python-format
-msgid "%(message)s (row %(row)s)"
-msgstr ""
-
-#, python-format
-msgid "%(message)s — %(detail)s"
-msgstr ""
 
 #, python-format
 msgid "%(n)s / day"
@@ -167,14 +123,6 @@ msgid "%(n)s value overridden"
 msgid_plural "%(n)s values overridden"
 msgstr[0] ""
 msgstr[1] ""
-
-#, python-format
-msgid "%(n)s-minute"
-msgstr ""
-
-#, python-format
-msgid "%(n)s-second"
-msgstr ""
 
 #, python-format
 msgid "%(n)ss"
@@ -225,17 +173,10 @@ msgid "%(res)s, held"
 msgstr "%(res)s, held"
 
 #, python-format
-msgid "%(rows)s rows · %(resolution)s · %(columns)s columns"
-msgstr ""
-
-#, python-format
 msgid "(%(res)s, %(n)s interval)"
 msgid_plural "(%(res)s, %(n)s intervals)"
 msgstr[0] "(%(res)s, %(n)s interval)"
 msgstr[1] "(%(res)s, %(n)s intervals)"
-
-msgid "(file no longer available)"
-msgstr ""
 
 msgid "+ New analysis"
 msgstr "+ New analysis"
@@ -248,9 +189,6 @@ msgstr "1-phase battery"
 
 msgid "15-min"
 msgstr "15-min"
-
-msgid "15-minute"
-msgstr ""
 
 msgid "2027 tariffs are not yet published. These values are estimates."
 msgstr "2027 tariffs are not yet published. These values are estimates."
@@ -267,22 +205,6 @@ msgstr "30-min"
 msgid "5-min"
 msgstr "5-min"
 
-msgid "5-minute"
-msgstr ""
-
-msgid ""
-"A file you upload: one timestamp column plus one column per measurement. "
-"One file can fill several slots — pick the column for this one."
-msgstr ""
-"A file you upload: one timestamp column plus one column per measurement. "
-"One file can fill several slots — pick the column for this one."
-
-msgid "A row has a different number of fields than the header."
-msgstr ""
-
-msgid "A row has an empty timestamp."
-msgstr ""
-
 msgid ""
 "A solar sensor is mapped but reported almost no production over this "
 "period, so the Solar figures are hidden. It may not be wired up "
@@ -291,29 +213,6 @@ msgstr ""
 "A solar sensor is mapped but reported almost no production over this "
 "period, so the Solar figures are hidden. It may not be wired up "
 "correctly."
-
-msgid ""
-"A timestamp could not be read. It must be written as DD-MM-YYYY HH:MM:SS,"
-" on a 24-hour clock."
-msgstr ""
-
-msgid ""
-"A timestamp names a local time that does not exist — the hour skipped "
-"when the clocks go forward in March. Check the timezone you chose."
-msgstr ""
-
-msgid ""
-"A value contains both a dot and a comma, so it is unclear which is the "
-"decimal separator. Use one or the other, and no thousands separator."
-msgstr ""
-
-msgid "A value is infinite or not a number."
-msgstr ""
-
-msgid ""
-"A value is not a number. A value may use either a dot or a comma as the "
-"decimal separator, but not both, and an empty cell means a gap."
-msgstr ""
 
 msgid "AC-coupled"
 msgstr "AC-coupled"
@@ -342,9 +241,6 @@ msgstr "Advanced"
 
 msgid "Allow export to grid during D2/D3"
 msgstr "Allow export to grid during D2/D3"
-
-msgid "Amsterdam local time"
-msgstr ""
 
 msgid ""
 "An analysis is one household and one question: your data, your contract, "
@@ -454,26 +350,14 @@ msgstr "Choose a source"
 msgid "Choose a source for at least one slot first."
 msgstr "Choose a source for at least one slot first."
 
-msgid "Choose file…"
-msgstr ""
-
 msgid "Choose source…"
 msgstr "Choose source…"
 
 msgid "Choose your data sources to get a result."
 msgstr "Choose your data sources to get a result."
 
-msgid "Clock change"
-msgstr "Clock change"
-
 msgid "Close"
 msgstr "Close"
-
-msgid "Column"
-msgstr ""
-
-msgid "Columns are separated by"
-msgstr ""
 
 #, python-format
 msgid ""
@@ -519,6 +403,9 @@ msgstr ""
 "Connection failed. Check the URL, and that your browser trusts the "
 "certificate (open %(url)s once to accept it)."
 
+msgid "Consumed directly"
+msgstr "Consumed directly"
+
 msgid "Consumption"
 msgstr "Consumption"
 
@@ -537,10 +424,6 @@ msgstr "Conversion losses"
 msgid "Cost savings"
 msgstr ""
 
-#, python-format
-msgid "Could not list the uploaded files: %(reason)s"
-msgstr ""
-
 msgid "Could not load. Please try again."
 msgstr "Could not load. Please try again."
 
@@ -551,10 +434,6 @@ msgstr "Could not open a WebSocket to %(url)s."
 msgid "Could not reach the app's ingest endpoint."
 msgstr "Could not reach the app's ingest endpoint."
 
-#, python-format
-msgid "Could not remove that file: %(reason)s"
-msgstr ""
-
 msgid "Counter resets"
 msgstr "Counter resets"
 
@@ -563,6 +442,9 @@ msgstr "Coupling"
 
 msgid "Coverage"
 msgstr "Coverage"
+
+msgid "Curtailed"
+msgstr "Curtailed"
 
 msgid "D"
 msgstr "D"
@@ -600,6 +482,9 @@ msgstr "Delete the loaded data?"
 
 msgid "Delete this analysis?"
 msgstr "Delete this analysis?"
+
+msgid "Directly from solar"
+msgstr "Directly from solar"
 
 msgid "Discard changes"
 msgstr ""
@@ -659,9 +544,6 @@ msgstr "Enable cost simulation"
 msgid "Energy flows"
 msgstr "Energy flows"
 
-msgid "Energy flows chart"
-msgstr "Energy flows chart"
-
 msgid "Energy savings"
 msgstr "Energy savings"
 
@@ -688,18 +570,14 @@ msgid ""
 "figures are recalculated from the new rates."
 msgstr ""
 
-msgid ""
-"Every other column holds values. Fractional values are fine, written with"
-" either a dot (0.412) or a comma (0,412) — but a value written with a "
-"comma must be put in double quotes if the comma is also the field "
-"separator you choose below."
-msgstr ""
-
 msgid "Export CSV"
 msgstr "Export CSV"
 
 msgid "Exported"
 msgstr "Exported"
+
+msgid "Exported to the grid"
+msgstr "Exported to the grid"
 
 msgid "Extra grid import"
 msgstr "Extra grid import"
@@ -723,9 +601,6 @@ msgstr ""
 #, python-format
 msgid "Fetching %(slot)s (%(n)s/%(total)s)…"
 msgstr "Fetching %(slot)s (%(n)s/%(total)s)…"
-
-msgid "File"
-msgstr ""
 
 msgid "Fixed"
 msgstr "Fixed"
@@ -751,6 +626,12 @@ msgstr ""
 
 msgid "From"
 msgstr "From"
+
+msgid "From the battery"
+msgstr "From the battery"
+
+msgid "From the grid"
+msgstr "From the grid"
 
 msgid "GNU AGPL v3"
 msgstr "GNU AGPL v3"
@@ -842,6 +723,9 @@ msgstr[1] "Home Assistant · %(n)s series · simulated %(res)s"
 msgid "Home Battery Simulator"
 msgstr "Home Battery Simulator"
 
+msgid "Hour of day"
+msgstr "Hour of day"
+
 msgid "Hourly average"
 msgstr "Hourly average"
 
@@ -850,6 +734,9 @@ msgstr "House load"
 
 msgid "Household"
 msgstr "Household"
+
+msgid "Household load"
+msgstr "Household load"
 
 msgid "How is your PV connected to the battery?"
 msgstr "How is your PV connected to the battery?"
@@ -884,6 +771,9 @@ msgstr ""
 
 msgid "Intervals battery was full / empty"
 msgstr "Intervals battery was full / empty"
+
+msgid "Into the battery"
+msgstr "Into the battery"
 
 msgid "Keep editing"
 msgstr ""
@@ -943,6 +833,13 @@ msgstr "Monthly grid import"
 msgid "Monthly savings (€)"
 msgstr ""
 
+msgid ""
+"Months drawn with a hatched pattern are missing more than 5 percent of "
+"their measurements, so their bars understate the real totals."
+msgstr ""
+"Months drawn with a hatched pattern are missing more than 5 percent of "
+"their measurements, so their bars understate the real totals."
+
 msgid "More settings"
 msgstr ""
 
@@ -991,15 +888,6 @@ msgstr "No battery"
 
 msgid "No data loaded yet."
 msgstr "No data loaded yet."
-
-msgid "No file was chosen."
-msgstr ""
-
-msgid "No files uploaded yet — use the Upload… button above to add one."
-msgstr ""
-
-msgid "No files uploaded yet."
-msgstr ""
 
 msgid "Not built yet"
 msgstr "Not built yet"
@@ -1151,10 +1039,6 @@ msgstr ""
 msgid "Recorded at"
 msgstr "Recorded at"
 
-#, python-format
-msgid "Remove %(name)s? Any series that uses it will go back to “Choose source…”."
-msgstr ""
-
 msgid "Req"
 msgstr "Req"
 
@@ -1221,9 +1105,6 @@ msgstr "Settlement"
 
 msgid "Shared across all slots that use Home Assistant"
 msgstr "Shared across all slots that use Home Assistant"
-
-msgid "Shared across all slots that use an uploaded CSV"
-msgstr ""
 
 msgid "Simulate cost savings?"
 msgstr "Simulate cost savings?"
@@ -1304,6 +1185,12 @@ msgstr "Standby draw"
 msgid "Standby draw cannot be negative."
 msgstr "Standby draw cannot be negative."
 
+msgid "State of charge"
+msgstr "State of charge"
+
+msgid "State of charge (kWh)"
+msgstr "State of charge (kWh)"
+
 msgid ""
 "Stays in your browser. It is sent only to your Home Assistant, never to "
 "this app."
@@ -1327,21 +1214,6 @@ msgstr "Terugleverkosten"
 msgid "Test connection"
 msgstr "Test connection"
 
-msgid "That column is not in the file."
-msgstr ""
-
-msgid "That field separator is not one this app knows."
-msgstr ""
-
-msgid "That file could not be uploaded."
-msgstr ""
-
-msgid "That file is too large to upload."
-msgstr ""
-
-msgid "That file reference is not valid."
-msgstr ""
-
 msgid ""
 "That matters here in one specific way. This simulator is a retrospective "
 "calculator: it estimates what a battery would have done over a past "
@@ -1357,11 +1229,10 @@ msgstr ""
 " advice. Check its assumptions against your own contract before spending "
 "money on the strength of a number it shows you."
 
-msgid "That timezone is not one this app knows."
+msgid "The bars can be higher than house load because of battery standby power."
 msgstr ""
-
-msgid "That unit is not one this app knows."
-msgstr ""
+"The bars can be higher than house load because of battery standby "
+"power."
 
 #, python-format
 msgid ""
@@ -1450,37 +1321,6 @@ msgid ""
 msgstr ""
 
 msgid ""
-"The file could not be read as CSV. Check that it is really comma-"
-"separated text and not a spreadsheet or an archive."
-msgstr ""
-
-msgid "The file has a header but no data rows."
-msgstr ""
-
-msgid "The file has no header row naming the columns."
-msgstr ""
-
-msgid ""
-"The file is not valid UTF-8 text. Save or export it as UTF-8 and try "
-"again."
-msgstr ""
-
-msgid "The file must be laid out like this:"
-msgstr ""
-
-msgid "The file needs at least two columns: a timestamp and one value column."
-msgstr ""
-
-msgid ""
-"The first column holds the timestamp, written as DD-MM-YYYY HH:MM:SS, "
-"with hours on a 24-hour clock (so 6 in the evening is 18:00:00, not "
-"06:00:00 PM)."
-msgstr ""
-
-msgid "The first row holds the column names."
-msgstr ""
-
-msgid ""
 "The initial state of charge is outside the operating window and will be "
 "clamped at the first interval."
 msgstr ""
@@ -1561,6 +1401,13 @@ msgstr ""
 "production was exported; lower means more went back to the grid."
 
 msgid ""
+"The solar line is total production; the rest charged the battery or went "
+"to the grid."
+msgstr ""
+"The solar line is total production; the rest charged the battery or "
+"went to the grid."
+
+msgid ""
 "The statutory feed-in floor paid out over this period. It is assessed "
 "over a whole billing period rather than hour by hour, so it appears as "
 "its own line in the money breakdown and is left out of the monthly "
@@ -1636,19 +1483,6 @@ msgstr ""
 msgid "This cannot be undone."
 msgstr "This cannot be undone."
 
-msgid ""
-"This column never decreases, so it may be a meter reading (a running "
-"total) rather than the amount used in each interval. If it is, the "
-"results will be wrong. You can continue anyway — a column that only rises"
-" across the whole file, such as solar in a morning-only export, is "
-"flagged here too."
-msgstr ""
-"This column never decreases, so it may be a meter reading (a running "
-"total) rather than the amount used in each interval. If it is, the "
-"results will be wrong. You can continue anyway — a column that only rises"
-" across the whole file, such as solar in a morning-only export, is "
-"flagged here too."
-
 msgid "This control"
 msgstr "This control"
 
@@ -1702,9 +1536,6 @@ msgstr ""
 "performance is yours. If it turns out to be defective, you bear the cost "
 "of any servicing, repair or correction."
 
-msgid "Timestamps are"
-msgstr ""
-
 msgid "Title"
 msgstr ""
 
@@ -1728,16 +1559,13 @@ msgstr ""
 msgid "Token"
 msgstr "Token"
 
+msgid "Total solar production"
+msgstr "Total solar production"
+
 msgid "Two conversions PV→battery"
 msgstr "Two conversions PV→battery"
 
 msgid "Type"
-msgstr ""
-
-msgid "UTC"
-msgstr ""
-
-msgid "Unit"
 msgstr ""
 
 msgid "Update your data →"
@@ -1745,25 +1573,6 @@ msgstr ""
 
 msgid "Upload CSV"
 msgstr "Upload CSV"
-
-#, python-format
-msgid "Upload CSV · %(file)s · %(column)s"
-msgstr ""
-
-msgid ""
-"Upload your own data as a CSV file. One file can supply several series — "
-"you choose which column feeds which series afterwards."
-msgstr ""
-
-msgid "Uploaded files"
-msgstr ""
-
-#, python-format
-msgid "Uploading %(name)s…"
-msgstr ""
-
-msgid "Upload…"
-msgstr ""
 
 msgid "Usable capacity"
 msgstr "Usable capacity"
@@ -1781,22 +1590,23 @@ msgstr ""
 msgid "VAT"
 msgstr "VAT"
 
-msgid ""
-"Values are amounts per interval, not meter readings. A column whose "
-"values only ever increase is refused."
-msgstr ""
-
 msgid "Variable"
 msgstr "Variable"
 
 msgid "Want to know what this is worth in euros?"
 msgstr "Want to know what this is worth in euros?"
 
-msgid "Wh"
-msgstr ""
-
 msgid "What \"no warranty\" means"
 msgstr "What \"no warranty\" means"
+
+msgid "What does an average day look like?"
+msgstr "What does an average day look like?"
+
+msgid "Where did the household's energy come from?"
+msgstr "Where did the household's energy come from?"
+
+msgid "Where did the solar generation go?"
+msgstr "Where did the solar generation go?"
 
 msgid "Where the energy comes from"
 msgstr "Where the energy comes from"
@@ -2109,15 +1919,6 @@ msgstr ""
 msgid "Your supplier bills"
 msgstr "Your supplier bills"
 
-msgid "a comma (,)"
-msgstr ""
-
-msgid "a semicolon (;)"
-msgstr ""
-
-msgid "a tab"
-msgstr ""
-
 msgid "as your meter recorded them"
 msgstr "as your meter recorded them"
 
@@ -2205,9 +2006,6 @@ msgstr "import T1 %(t1)s · T2 %(t2)s"
 msgid "irregular"
 msgstr "irregular"
 
-msgid "irregular spacing"
-msgstr ""
-
 msgid ""
 "is part of the plan for this simulator, but it is not built yet. The app "
 "is being written one feature at a time and this one has not been reached."
@@ -2287,9 +2085,6 @@ msgstr "per kWh throughput; 0 disables it"
 msgid "recalculating…"
 msgstr "recalculating…"
 
-msgid "remove"
-msgstr ""
-
 msgid "required"
 msgstr "required"
 
@@ -2327,10 +2122,6 @@ msgstr "to"
 msgid "undefined"
 msgstr "undefined"
 
-#, python-format
-msgid "uploaded %(date)s · %(rows)s rows · %(resolution)s"
-msgstr ""
-
 msgid "valid"
 msgstr "valid"
 
@@ -2339,9 +2130,6 @@ msgstr "α"
 
 msgid "β"
 msgstr "β"
-
-msgid "— choose a column —"
-msgstr ""
 
 msgid "— none —"
 msgstr "— none —"
@@ -2393,18 +2181,6 @@ msgstr "✓ Connected · %(energy)s energy + %(price)s measurement statistics"
 #, python-format
 msgid "✓ Imported %(count)s series. Reloading…"
 msgstr "✓ Imported %(count)s series. Reloading…"
-
-#, python-format
-msgid "✓ Removed %(name)s"
-msgstr ""
-
-#, python-format
-msgid "✓ Removed %(name)s. These series went back to “Choose source…”: %(slots)s"
-msgstr ""
-
-#, python-format
-msgid "✓ Uploaded %(name)s"
-msgstr ""
 
 #, python-format
 msgid "✗ %(reason)s"
@@ -2961,33 +2737,34 @@ msgstr "👍 I want this"
 #~ "local."
 #~ msgstr ""
 
-#~ msgid ""
-#~ "Remove %(name)s? Any series that uses"
-#~ " it will go back to \"Choose "
-#~ "source…\"."
-#~ msgstr ""
+#~ msgid "Energy flows chart"
+#~ msgstr "Energy flows chart"
 
 #~ msgid ""
-#~ "✓ Removed %(name)s. These series went"
-#~ " back to \"Choose source…\": %(slots)s"
+#~ "The solar line is total production. "
+#~ "The part above the solar segment "
+#~ "of the bars is solar that charged"
+#~ " the battery, went to the grid, "
+#~ "or could not be used."
 #~ msgstr ""
+#~ "The solar line is total production. "
+#~ "The part above the solar segment "
+#~ "of the bars is solar that charged"
+#~ " the battery, went to the grid, "
+#~ "or could not be used."
 
 #~ msgid ""
-#~ "That column looks like a cumulative "
-#~ "meter reading rather than an amount "
-#~ "per interval, so it was refused. "
-#~ "This app reads every value as the"
-#~ " amount during the interval that "
-#~ "starts at its timestamp."
+#~ "The stacked bars sit a little "
+#~ "above the household load line because"
+#~ " the battery draws a small amount "
+#~ "of power continuously for its own "
+#~ "electronics. That draw is included in"
+#~ " what the battery had to serve."
 #~ msgstr ""
-
-#~ msgid ""
-#~ "A value is not a number. Values"
-#~ " use a dot as the decimal "
-#~ "separator, and an empty cell means "
-#~ "a gap."
-#~ msgstr ""
-
-#~ msgid "Every other column holds values. Fractional values are fine."
-#~ msgstr ""
+#~ "The stacked bars sit a little "
+#~ "above the household load line because"
+#~ " the battery draws a small amount "
+#~ "of power continuously for its own "
+#~ "electronics. That draw is included in"
+#~ " what the battery had to serve."
 

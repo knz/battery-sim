@@ -640,9 +640,12 @@ def test_new_pending_controls_marked(page, data_page_en):
     assert page.locator("#cost-blocked-info").count() == 1
     assert page.locator("#setup-simulate-cost [data-pending-name]").count() == 0
 
-    # The two unbuilt chart tabs are still pending, and are on the page unconditionally.
+    # Of the two chart tabs that were pending, one still is: "SoC + price" is unbuilt and its
+    # affordance is on the page unconditionally. "Energy flows" is built (changelog
+    # 20260806-energy-flows-chart-tab.md), so its key is retired in app/features.py and nothing
+    # renders a pending affordance for it — the tab is a real control now.
     assert page.locator("[data-feature-key=chart_soc_price]").count() >= 1
-    assert page.locator("[data-feature-key=chart_energy_flows]").count() >= 1
+    assert page.locator("[data-feature-key=chart_energy_flows]").count() == 0
 
 
 def test_thumbsup_links_to_a_prefilled_github_issue(page):

@@ -39,6 +39,7 @@ and a phase-3 test passed against a script comment.
 
 from __future__ import annotations
 
+import json
 import re
 from datetime import datetime, timezone
 
@@ -1394,3 +1395,161 @@ def test_the_hidden_error_alert_does_not_repeat_one_message(env):
     assert m is not None
     text = re.sub(r"<[^>]+>", " ", m.group(1))
     assert text.count("Must be between 0 and 100.") == 1
+
+
+# ── The partial-month footnote on the *Energy flows* tab ──────────────────────────────────────
+
+
+def test_the_partial_month_footnote_appears_only_when_a_month_is_flagged(env, monkeypatch):
+    """`results.energy_flows.any_partial` gates the footnote, and it must gate it BOTH ways.
+
+    The footnote explains a hatched bar. Rendering it with nothing hatched on screen is worse than
+    not rendering it at all, and an empty `<p>` in its place would be the same defect in a quieter
+    form — which is why the absent case is asserted here rather than only the present one.
+
+    **This path cannot be reached from a dataset.** `_energy_flows` derives `partial` from
+    `Flows.gap`, and §6.9 sets that mask from `isnan(frame.load) | isnan(frame.pv)` — but
+    `reconcile._resample_sum` fills every hole with 0.0 (`nan_to_num`, plus 0 for intervals a
+    series does not cover), so `simulation_frame` cannot emit a NaN load. Observed: a 30-day
+    contiguous hole in the persisted meter yields `partial == [False, False, False]`; the missing
+    month shows up as a SHORT bar and nothing marks it as incomplete. So the frame is patched
+    here, which is the only way to exercise the flag at all. If a future change makes gaps
+    reachable — a coverage mask that propagates NaN rather than zero-filling — this test keeps
+    working unchanged and the patch simply becomes redundant.
+    """
+    client, mod = env
+    _seed(mod)
+
+    # Three months, so the flag is bounded on BOTH sides — a rule that marked everything would
+    # pass on two. February is intervals 744..1415 of the window; blanking 300 of its 672 is
+    # 44.6% missing, well over `FLOWS_PARTIAL_MONTH_FRAC`, while January and March stay at 0%.
+    n = 90 * 24  # 2026-01-01 .. 2026-04-01
+    mod["dataset"].save_dataset(
+        [_energy("grid_import_t1", 2.0, n), _energy("grid_export_t1", 0.4, n)],
+        (_WIN_START, datetime(2026, 4, 1, tzinfo=timezone.utc)), "test", [], None,
+        workspace_id="w1",
+    )
+
+    footnote = "missing more than 5 percent"
+
+    # No gaps: the footnote must be ABSENT — not an empty paragraph, not a stray heading.
+    assert footnote not in _get(client)
+
+    from app.domain import simframe
+
+    original = simframe.simulation_frame
+
+    def holed(dataset, window):
+        frame = original(dataset, window)
+        if frame is not None and frame.intervals > 1300:
+            load = np.array(frame.load, dtype=np.float64)
+            load[1000:1300] = np.nan  # inside February
+            frame.load = load
+        return frame
+
+    monkeypatch.setattr("app.results_view.simulation_frame", holed)
+
+    html = _get(client)
+    assert footnote in html
+
+    # …and the flag DISCRIMINATES: exactly the middle month is marked, which is what the JS reads
+    # to build the per-point `marker.pattern`. Asserting `any_partial` alone would pass on a
+    # payload that flagged every month, i.e. on marking that says nothing.
+    m = re.search(r'<script id="flows-data"[^>]*>(.*?)</script>', html, re.S)
+    assert m is not None, "the flows data node is what the charts are drawn from"
+    flows = json.loads(m.group(1))
+    assert flows["partial"] == [False, True, False], flows["partial"]
+    # `any_partial` is deliberately NOT in this node: it exists for the template guard above,
+    # and the JS reads the per-month array to build the per-point pattern.
+    assert "any_partial" not in flows
+
+
+def test_the_standby_note_appears_only_when_the_battery_actually_draws_standby(env):
+    """`results.energy_flows.any_standby` gates the note, and it must gate it BOTH ways.
+
+    Charts 1 and 3 stack three source segments under a `household_load` reference line, and the
+    stack is taller because §6.9 hands the simulation a rebound load (`frame.load + standby`).
+    The note explains that visible gap. At `standby_w == 0` there is no gap — the stack sits
+    exactly on the line — so the note would be explaining something that is not on the screen,
+    the same defect the partial-month footnote avoids by being gated on `any_partial`.
+
+    **Unlike that flag, this one is reachable from a plain configuration.** `simconfig` rejects
+    only NEGATIVE standby (`simconfig.py:1340`), so 0 W is a legitimate setting a user can save,
+    which is why the zero case is asserted through the store rather than by patching anything.
+
+    Both occurrences are asserted by COUNT, not by presence: the note is written under chart 1 and
+    again under chart 3, and a guard accidentally applied to only one of them would still pass a
+    substring check.
+    """
+    client, mod = env
+    cfg = _seed(mod)
+    n = 60 * 24
+    mod["dataset"].save_dataset(
+        [_energy("grid_import_t1", 2.0, n), _energy("grid_export_t1", 0.4, n)],
+        (_WIN_START, datetime(2026, 3, 2, tzinfo=timezone.utc)), "test", [], None,
+        workspace_id="w1",
+    )
+
+    note = "because of battery standby power"
+
+    # Appendix-A default (30 W): the gap is drawn, so both notes are.
+    assert cfg.battery.standby_w > 0.0, cfg.battery.standby_w
+    assert _get(client).count(note) == 2
+
+    # 0 W: the stack sits on the line and neither note may render.
+    cfg.battery.standby_w = 0.0
+    mod["simconfig_store"].save(cfg, "w1")
+    html = _get(client)
+    assert note not in html
+    # …and the gate really is the standby draw rather than the charts having vanished with it.
+    assert 'id="flows-load"' in html and 'id="flows-avgday"' in html
+
+
+def test_the_total_solar_line_and_its_note_appear_only_when_the_window_generated_pv(env):
+    """`any_pv` gates BOTH the average day's total-solar line and the note explaining it.
+
+    That chart's bars are the load-sourcing decomposition, so solar appears only as the share that
+    fed the house directly; the line is what shows the PV that charged the battery, was exported or
+    was curtailed. A household with no panels is a REACHABLE case rather than an error —
+    `simulation_frame` zero-fills an absent PV series — and there the line is flat on the axis and
+    the note describes a gap that cannot exist.
+
+    The flag rides in `#flows-data` as well as gating the markup, because the line is drawn
+    client-side; both halves are asserted here, since a guard applied to only one of them would
+    leave either an unexplained line or a note with nothing to point at.
+    """
+    client, mod = env
+    _seed(mod)
+    n = 30 * 24
+    win = (_WIN_START, datetime(2026, 1, 31, tzinfo=timezone.utc))
+    note = "The solar line is total production"
+
+    # No solar series at all: import and export only.
+    mod["dataset"].save_dataset(
+        [_energy("grid_import_t1", 2.0, n), _energy("grid_export_t1", 0.4, n)],
+        win, "test", [], None, workspace_id="w1",
+    )
+    html = _get(client)
+    assert note not in html
+    flows = json.loads(re.search(r'<script id="flows-data"[^>]*>(.*?)</script>', html, re.S).group(1))
+    assert flows["any_pv"] is False
+    # The series is still emitted (the payload shape does not change with the data), and it is zero.
+    assert sum(flows["average_day"]["pv_total"]) == 0.0
+
+    # Same window, now with generation: line and note both appear.
+    mod["dataset"].save_dataset(
+        [_energy("grid_import_t1", 2.0, n), _energy("grid_export_t1", 0.4, n),
+         _energy("solar_production", 1.5, n)],
+        win, "test", [], None, workspace_id="w1",
+    )
+    html = _get(client)
+    assert note in html
+    flows = json.loads(re.search(r'<script id="flows-data"[^>]*>(.*?)</script>', html, re.S).group(1))
+    assert flows["any_pv"] is True
+    assert sum(flows["average_day"]["pv_total"]) > 0.0
+
+    # The line bounds the segment it explains: total production is never below the part of it that
+    # reached the house. Asserting the flag alone would pass on a series wired to the wrong array.
+    a = flows["average_day"]
+    for h, (tot, direct) in enumerate(zip(a["pv_total"], a["pv_to_home"])):
+        assert tot >= direct - 0.01, (h, tot, direct)

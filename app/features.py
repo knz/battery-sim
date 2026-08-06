@@ -47,7 +47,6 @@ FEATURE_KEYS: frozenset[str] = frozenset(
     {
         "export_csv",            # Export CSV button (panel ③ results)
         "chart_soc_price",       # SoC + price chart tab (panel ③ charts)
-        "chart_energy_flows",    # Energy flows chart tab (panel ③ charts)
         # The Pricing box's three unbuilt options (§2.3, §6.5). `Contract` and `TlkMode` carry
         # every value so the stored parameter set and the radio labels name the same things, but
         # only DYNAMIC and FLAT have a rate source behind them: FIXED reads a `tariff_zone` axis
@@ -73,6 +72,10 @@ RETIRED_KEYS: frozenset[str] = frozenset(
         # (app/static/ha_fetch.js, app/templates/workspace_data.html). The disabled stub that
         # used to render this key is gone.
         "data_source_csv",
+        # Shipped as the Energy flows chart tab (three stacked-bar/average-day plots in panel ③).
+        # See changelog/20260806-energy-flows-chart-tab.md. Its sibling tab `chart_soc_price` is
+        # still pending and stays in FEATURE_KEYS.
+        "chart_energy_flows",
     }
 )
 
@@ -86,7 +89,6 @@ RETIRED_KEYS: frozenset[str] = frozenset(
 FEATURE_TITLES: dict[str, str] = {
     "export_csv": "Export CSV",
     "chart_soc_price": "SoC + price chart",
-    "chart_energy_flows": "Energy flows chart",
     "pricing_contract_fixed": "Fixed price contract",
     "pricing_contract_variable": "Variable price contract",
     "pricing_tlk_tiered": "Terugleverkosten tiered by annual volume",
@@ -94,6 +96,7 @@ FEATURE_TITLES: dict[str, str] = {
     "discharge_allow_export": "Allow export to grid",
     "simulate_cost": "Simulate cost savings",
     "data_source_csv": "Upload CSV",
+    "chart_energy_flows": "Energy flows chart",
 }
 
 

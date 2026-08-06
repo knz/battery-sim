@@ -176,11 +176,17 @@ calendar month — now honestly relabelled "Monthly grid import". Building the r
 running the A/B/C simulation and bucketing `saved_kwh` per month.
 *Origin:* `20260724-panel3-battery-simulation.md` (Phase 7).
 
-**C2. Two chart tabs are pending affordances, not implementations.** "SoC + price" and "Energy
-flows" now carry the §2.1 pending affordance with keys `chart_soc_price` and `chart_energy_flows`
-in `app/features.py`. Named as newly pending in `docs/specs/implementation-progress.md`.
+**C2. The "SoC + price" chart tab is a pending affordance, not an implementation.** — **HALF DONE**
+(`chart_energy_flows` built, `chart_soc_price` still pending). "Energy flows" shipped in
+`20260806-energy-flows-chart-tab.md` as three kWh charts — monthly load sourcing, monthly PV
+allocation, and an hour-of-day average day — so its key moved to `RETIRED_KEYS` in
+`app/features.py`. "SoC + price" keeps the §2.1 pending affordance under `chart_soc_price`; that
+changelog also records what the tab was meant to show (SoC against bare `spot_eur_kwh` on a
+secondary axis, as a dispatch diagnostic) and two questions the spec never settles: whether the
+chart covers the whole range or a zoomable window, and whether the SoC series is run C alone or
+overlaid with the perfect-foresight benchmark.
 *Origin:* `20260724-panel3-battery-simulation.md` (Phase 7),
-`20260725-spec-corrections-from-implementation.md`.
+`20260725-spec-corrections-from-implementation.md`, `20260806-energy-flows-chart-tab.md`.
 
 **C3. Run E / the cost DP, and any euro figure, are not built.** — **DONE** (cost-simulation
 increment, Phases 2–4). §6.5's price curves, §6.10's cost accounting and waterfall, and run E with
@@ -229,6 +235,27 @@ are correct; wants year disambiguation if multi-year ranges become common.
 full / empty" is in §2.4's wireframe but not in `results_from`; both sides document the divergence
 rather than hiding it. Recorded as a deliberate choice to revisit, not a defect.
 *Origin:* `20260724-panel3-battery-simulation.md` (Phase 7).
+
+**C11. `Flows.gap` can never be set from a dataset, so every gap-aware display is dead code.**
+§6.9 builds the mask from `isnan(frame.load) | isnan(frame.pv)` (`simulate.py:708`), but nothing
+upstream can deliver a NaN: `reconcile._resample_sum` applies `np.nan_to_num(..., nan=0.0)`
+(`reconcile.py:93`), uncovered intervals contribute 0 under the own-coverage policy,
+`rec.load = np.maximum(raw_load, 0.0)` (`reconcile.py:216`), and `simulation_frame` zero-fills an
+absent `pv`. Measured on a 90-day hourly dataset with a **30-day contiguous hole**, tried both as
+NaN values and with the rows dropped outright: `isnan(frame.load).sum() == 0` either way, and
+`results_from` returns `partial == [False, False, False]` with `household_load ==
+[1116, 324, 720]` kWh.
+
+The consequence is a presentation defect that exists today: the month with the hole draws as a
+bar a third of its neighbour's height and **nothing marks it as incomplete**, so a missing month
+reads as a quiet one. §7.3's "gaps are EXCLUDED from sums" and `Flows`' deliberate NaN-not-0
+convention are both written on the assumption that a hole survives reconciliation; it does not.
+
+Deliberately not fixed alongside the energy-flows tab: whether zero-filling is the right
+reconcile behaviour is a question about ingest, and changing it would move figures on every
+panel rather than one chart. The energy-flows tab's `partial` flag and hatching are built and
+verified against a patched frame, so they start working the moment a hole can reach the frame.
+*Origin:* `20260806-energy-flows-chart-tab.md`.
 
 ## D. Data ingest, frames and sources
 

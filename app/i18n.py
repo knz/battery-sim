@@ -40,6 +40,7 @@ Public API:
     SUPPORTED           the language codes the UI offers, in toggle order
     DEFAULT_LOCALE      the fallback code ('en')
     MINUS               U+2212, the app's minus glyph for every negative figure
+    DISPLAY_TZ          Europe/Amsterdam, the zone every wall-clock figure is displayed in
     resolve_locale()    pick the code for a request (cookie/header/default)
     get_translations()  the gettext.NullTranslations for a code (cached)
     configure()         point the per-locale envs at a template dir + shared globals (once)
@@ -57,6 +58,7 @@ from __future__ import annotations
 import gettext
 import re
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from babel import Locale, negotiate_locale
 from babel.numbers import format_decimal
@@ -353,6 +355,26 @@ _NUM_KINDS: dict[str, dict] = {
 # after formatting rather than by patching the pattern, because it must also catch the sign babel
 # puts on a negative number we did not explicitly sign.
 MINUS = "−"
+
+
+DISPLAY_TZ = ZoneInfo("Europe/Amsterdam")
+"""The timezone every wall-clock figure the UI shows is written in (docs/specs/README.md, §4.4).
+
+Storage and computation are UTC throughout — `SimulationFrame.index` is UTC-naive by construction
+— and display is Europe/Amsterdam. That is the same shape as the number and month-name rules above:
+one convention for how the app writes a thing, defined once, applied at the display boundary rather
+than re-decided per call site.
+
+It lives in this module, not in whichever view first needed it, because more than one view does:
+`workspace_list_view` writes the last-saved badge with it, and `results_view` buckets the
+average-day profile by local hour with it. Those two do not import each other and should not start;
+this module is the leaf both already depend on for display conventions.
+
+Note that it is a ZONE, not an offset. Europe/Amsterdam is UTC+1 in winter and UTC+2 in summer, so
+a window spanning a DST transition has no single correct shift. Any conversion over a range must be
+done per timestamp — attach UTC, then `astimezone(DISPLAY_TZ)` — never by shifting an already
+aggregated result.
+"""
 
 
 def num(value, kind: str = "count") -> dict:

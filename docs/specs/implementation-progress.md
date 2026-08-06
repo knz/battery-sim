@@ -106,7 +106,6 @@ control it was about.
 | `pricing_tlk_tiered` | "tiered by annual volume" terugleverkosten | `_panel_params.html` | a tier table, annualisation, `min_tlk_tiering_days` |
 | `export_csv` | "Export CSV" of results | `_panel_results.html` | results export |
 | `chart_soc_price` | "SoC + price" chart tab | `_panel_results.html` | that chart's series |
-| `chart_energy_flows` | "Energy flows" chart tab | `_panel_results.html` | that chart's series |
 
 ### Retired (feature shipped, key kept)
 
@@ -115,6 +114,7 @@ control it was about.
 | `discharge_allow_export` | "Allow export to grid during D2/D3" | panel ② wiring — now a real checkbox bound to `policy.allow_grid_export` |
 | `simulate_cost` | "Simulate cost savings?" choice in the setup band | the cost-simulation increment — the band's radios now POST to `/params` and panel ② draws the whole Pricing box behind the answer |
 | `data_source_csv` | "Upload CSV" data source | the CSV-import increment — a real source radio in the per-slot drawer, with an upload dialog and File/Column/Unit controls behind it |
+| `chart_energy_flows` | "Energy flows" chart tab in panel ③ | [changelog 20260806-energy-flows-chart-tab](../../changelog/20260806-energy-flows-chart-tab.md) — the tab now draws monthly load sourcing, monthly PV allocation and an average-day profile from `results_view._energy_flows` |
 
 ## How to add a pending control
 

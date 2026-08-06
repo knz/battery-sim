@@ -3341,3 +3341,96 @@ def test_the_caveat_is_scoped_to_the_saving_and_not_to_every_euro_on_the_page():
     # The superseded, over-broad claim must not come back: it named the euro figures on the page,
     # of which the two bills are the largest, and understated their movement.
     assert "the euro figures on this page" not in text
+
+
+# ── The *Energy flows* average day: resolution invariance ────────────────────────────────────
+
+
+def _flows_dataset(days: int, grid_s: int):
+    """The SAME physical load/PV over `days` days, expressed at `grid_s` resolution.
+
+    One hourly-basis profile, expanded to the target grid by SPLITTING each hour's kWh evenly
+    across its sub-intervals — so the two datasets describe one physical household, not two, and
+    any difference in a kWh figure derived from them is an artifact of the derivation.
+    """
+    from app.dataset import LoadedDataset
+    from app.domain.frames import QUALITY_DTYPE, SeriesFrame
+
+    per_hour = 3600 // grid_s
+    n = days * 24 * per_hour
+    h = np.arange(days * 24) % 24
+    load_h = 0.4 + 0.5 * np.exp(-((h - 19) ** 2) / 8.0) + 0.3 * np.exp(-((h - 8) ** 2) / 6.0)
+    pv_h = 2.5 * np.maximum(0.0, np.cos((h - 13) * np.pi / 10.0)) ** 2
+    load = np.repeat(load_h, per_hour) / per_hour
+    pv = np.repeat(pv_h, per_hour) / per_hour
+    net = load - pv
+    idx = (np.arange(n).astype("timedelta64[s]") * grid_s
+           + np.datetime64("2026-01-01T00:00:00")).astype("datetime64[s]")
+    q = np.zeros(n, dtype=QUALITY_DTYPE)
+
+    def sf(name, vals):
+        return SeriesFrame(name, "energy", grid_s, idx, np.asarray(vals, float), q)
+
+    frames = [sf("grid_import_t1", np.maximum(net, 0.0)),
+              sf("grid_export_t1", np.maximum(-net, 0.0)),
+              sf("solar_production", pv)]
+    return LoadedDataset(
+        id=1, source_type="test",
+        window=(_COV_START, _COV_START + timedelta(days=days)),
+        fetched_at=_COV_START, frames=frames, warnings=[],
+        series_sources={f.name: "test" for f in frames},
+    )
+
+
+def test_the_average_day_is_the_same_profile_at_hourly_and_15_minute_resolution():
+    """The average-day flows must be kWh PER HOUR whichever grid the data arrives on.
+
+    Each hour-of-day bucket holds one interval per day at 3600 s and four at 900 s, so a mean over
+    the INTERVALS in a bucket is kWh-per-interval — it drew the same physical day a quarter as tall
+    the moment the input was 15-minute data, against monthly bars and KPI tiles on the same page
+    that did not move. 15-minute is the standard Dutch P1 smart-meter export and a common Home
+    Assistant statistics resolution, so this is the common case, not an edge one. Measured before
+    the fix on this same 60-day fixture: the source segments summed over the 24 buckets gave
+    14.08 kWh at 3600 s and 3.50 kWh at 900 s.
+
+    The fixture feeds ONE physical profile to both runs, so the assertion is not a tolerance
+    result — the flow totals out of the simulation are equal to float noise (checked below), and
+    the only thing that can move the average day is how it is aggregated.
+
+    `soc` is deliberately NOT asserted equal per bucket. It is a STOCK, so a finer grid samples the
+    same trajectory at more points WITHIN the hour and the bucket means legitimately differ (~0.7
+    kWh here, on a ~9 kWh battery); its window mean is what should agree, and does. Applying the
+    flows' per-day rule to it would instead multiply the trace by four, which is why the view keeps
+    two aggregation functions rather than one.
+    """
+    days = 60
+    win = (_COV_START, _COV_START + timedelta(days=days))
+    flows = {}
+    for grid_s in (3600, 900):
+        r = results_from(_flows_dataset(days, grid_s), win)
+        assert r is not None and r["energy_flows"] is not None
+        flows[grid_s] = r["energy_flows"]
+
+    hourly, quarterly = flows[3600]["average_day"], flows[900]["average_day"]
+
+    # Every FLOW series, bucket by bucket. Equality to the payload's own 2 dp rounding, not an
+    # epsilon: the aggregation is a sum divided by a day count, and the sum of four quarter-hours
+    # is exactly the hour they make up.
+    for key in ("dis_home", "imp_home", "pv_to_home", "chg_pv", "chg_grid",
+                "exp_from_pv", "curtailed", "standby", "household_load"):
+        assert hourly[key] == quarterly[key], f"{key} moved with grid resolution"
+
+    # …and the level is right, not merely equal: the average day's three source segments must be
+    # the monthly stack's own total spread over the window's days. A per-interval mean would fail
+    # this at 900 s while still passing an hourly-only version of it.
+    for grid_s, ad in flows.items():
+        segments = sum(sum(ad["average_day"][k]) for k in ("dis_home", "imp_home", "pv_to_home"))
+        monthly = ad["load_sourcing"]
+        per_day = (sum(monthly["household_load"]) + sum(monthly["standby"])) / days
+        assert segments == pytest.approx(per_day, abs=0.05), (
+            f"grid {grid_s}s: average day sums to {segments} kWh against {per_day} kWh/day "
+            "on the monthly stack"
+        )
+
+    # SoC: a stock, so the WINDOW mean is the invariant, not the per-bucket value.
+    assert np.mean(hourly["soc"]) == pytest.approx(np.mean(quarterly["soc"]), abs=0.01)
