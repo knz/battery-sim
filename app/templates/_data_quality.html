@@ -22,6 +22,12 @@
   §6.2's price-granularity warning): they are rendered only when the view-model produced one, so a
   dataset that has not reached them simply omits the alert rather than showing an empty one.
 
+  A third, `quality.cumulative` (§4.2a, §7.3 check 2), is conditional for a different reason: that
+  check only runs when a wide-CSV column is bound to a slot, so on a Home Assistant dataset there
+  is no answer rather than a clean one — which is why it is not a "none detected" row alongside
+  Gaps. It is an alert rather than a row because §4.2a's accepted trade makes this the only signal
+  a user who proceeds with a genuine register will get.
+
   Reads `data.quality` from the render context.
 #}
 {% from "_msg.html" import msg with context %}
@@ -61,6 +67,16 @@
           {% if data.quality.price_warning %}
           <div role="alert" class="alert alert-warning py-2">
             <span class="text-sm">⚠ {{ msg(data.quality.price_warning) }}</span>
+          </div>
+          {% endif %}
+
+          {# A wide-CSV column that may be a cumulative meter register (§4.2a, §7.3 check 2).
+             Shown only when one was flagged: the check runs on column selection, so a dataset
+             with no CSV binding was never examined and has no answer to give. Named here so the
+             reason survives the run — the drawer's small print was dismissed long ago. #}
+          {% if data.quality.cumulative %}
+          <div role="alert" class="alert alert-warning py-2">
+            <span class="text-sm">⚠ {{ msg(data.quality.cumulative) }}</span>
           </div>
           {% endif %}
 

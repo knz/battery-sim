@@ -299,6 +299,12 @@ def _panel_data():
             # than one assembled from parts. `_N` rather than `_msg`: with no params it is a plain
             # string, which the template's `msg()` macro also accepts.
             "registers": _N("T1 ✓ mapped    T2 ✓ mapped, active"),
+            # `cumulative` (§4.2a, §7.3 check 2 — a wide-CSV column that may be a meter register)
+            # is deliberately ABSENT rather than present-and-empty, and that absence is the shape
+            # the real path has too. The check only runs when a CSV column is bound to a slot, so
+            # a Home Assistant dataset — which is what this sample demos — has no answer to give
+            # rather than a clean one, and the template's `{% if %}` drops the alert. Setting it
+            # to None here would render identically but would claim the check ran and passed.
         },
     }
 

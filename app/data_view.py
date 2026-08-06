@@ -42,7 +42,14 @@ Main items:
     _res_msg(seconds)          the same label as a nested `_msg` pair, for embedding in a sentence.
     _count_flag(frames, flag)  how many intervals across all series carry a quality flag.
     _flagged_days(frames, f)   the ISO dates of the intervals carrying a quality flag.
+    _cumulative_columns(ws)    the CSV columns a `CSV_CUMULATIVE_COLUMN` warning suspects.
     panel_data_from(dataset)   the panel-① dict; shape-compatible with sample_data._panel_data.
+
+One fact in this box does NOT come from the quality flags: the suspected cumulative CSV columns
+(§7.3 check 2, §4.2a). It cannot, because it is a claim about a whole COLUMN rather than about a
+sample, so there is no per-interval bit to count — which is why it is read from the persisted
+`LoadedDataset.warnings` instead, the one thing in this module that is. See
+`_cumulative_columns`.
 """
 
 from __future__ import annotations
@@ -169,6 +176,37 @@ def _flagged_days(frames: list[SeriesFrame], flag: QualityFlags) -> list[str]:
         mask = (np.asarray(f.quality) & int(flag)) != 0
         days.update(str(ts)[:10] for ts in np.asarray(f.index)[mask])
     return sorted(days)
+
+
+def _cumulative_columns(warnings: list[dict] | None) -> list[str]:
+    """The CSV column names a `CSV_CUMULATIVE_COLUMN` warning suspects of being a meter register.
+
+    The one data-quality fact in this box that is read from the persisted warnings rather than
+    derived from the per-interval quality bits, because there is no bit to derive it from: §7.3
+    check 2 is a suspicion about a whole COLUMN (its values never decrease over the window), not a
+    property of any one sample, so `QualityFlags` deliberately has no flag for it. The warning is
+    stamped by `app/domain/csv_wide.column_frame` and carried through the fetch by
+    `app/sources/csv_source` for exactly this row; before it was read here it died at persistence,
+    and a user who proceeded past the drawer's small print kept no record of the caveat §4.2a says
+    is "the only signal they will get".
+
+    `warnings` is a HETEROGENEOUS, PERSISTED list, so this is written to survive shapes it did not
+    write: entries that are not mappings, codes it does not recognise, and a missing or blank
+    `column` are all skipped rather than raised on. A stale row from an older schema must not take
+    down the whole panel, and there is nothing useful to say about a flagged column whose name was
+    not recorded.
+
+    De-duplicated and sorted: the warning is stamped per BINDING, so one column bound to two slots
+    is flagged twice, and a set would otherwise render in an arbitrary order.
+    """
+    out: set[str] = set()
+    for w in warnings or ():
+        if not isinstance(w, dict) or w.get("code") != "CSV_CUMULATIVE_COLUMN":
+            continue
+        column = w.get("column")
+        if isinstance(column, str) and column.strip():
+            out.add(column)
+    return sorted(out)
 
 
 def panel_data_from(dataset: LoadedDataset) -> dict:
@@ -357,6 +395,30 @@ def panel_data_from(dataset: LoadedDataset) -> dict:
         ),
         "registers": _register_summary(present),
     }
+    # The suspected-cumulative CSV columns (§4.2a, §7.3 check 2). GATED ON PRESENCE, unlike the
+    # gaps / resets / clock-change rows above, which always render and say "none detected" when
+    # clean. The difference is that those three checks run against EVERY dataset, so "none
+    # detected" there is a fact about the data — whereas check 2 only runs when a wide CSV column
+    # is bound to a slot. On a Home Assistant dataset no column was ever examined, so "none
+    # detected" would report a check that never ran. The template guards on presence for the same
+    # reason it guards `price_warning`.
+    #
+    # Counted on the number of columns, which is also what the sentence lists, so "1 columns"
+    # cannot happen. The column names are USER DATA (an uploaded file's header row) and stay
+    # literal, like the coverage line's dates and the clock-change note's days — they travel as a
+    # param and `templates/_msg.html` escapes them once through Markup substitution.
+    cumulative = _cumulative_columns(dataset.warnings)
+    if cumulative:
+        quality["cumulative"] = _msg_n(
+            "%(columns)s — the values in this column never go down, so it may be a cumulative "
+            "meter reading rather than the amount used per interval. If it is, the results will "
+            "be far too high.",
+            "%(columns)s — the values in these columns never go down, so they may be cumulative "
+            "meter readings rather than the amount used per interval. If they are, the results "
+            "will be far too high.",
+            len(cumulative),
+            columns=", ".join(cumulative),
+        )
     if report["price_granularity_lost"]["lost"]:
         native = report["price_granularity_lost"]["native_resolution_s"]
         quality["price_warning"] = _msg(

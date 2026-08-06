@@ -16,6 +16,12 @@ Three layers:
     a first-time user sees and a formatted string there would render English on a Dutch page
     while the live page rendered Dutch.
 
+One group inside that third layer is different in kind: the suspected-cumulative-column row
+(§4.2a, §7.3 check 2) is the only data-quality fact read from the persisted
+`LoadedDataset.warnings` rather than derived from the per-interval quality flags, because the claim
+is about a whole COLUMN and so has no flag. Those tests attach a warnings list directly, which is
+also the only way to reach the malformed and unrecognised shapes a persisted list can carry.
+
 No layer launches a browser or seeds a real dataset (the smoke test covers empty-state absence);
 the computed cases build SeriesFrames in-process and wrap them in a LoadedDataset.
 """
@@ -516,6 +522,141 @@ def test_panel_clock_change_note_is_none_detected_when_nothing_is_flagged():
     the reader the app read their file as written rather than assuming anything."""
     q = _panel([_energy("grid_import_t1", 2.0), _energy("grid_export_t1", 0.0)])["quality"]
     assert _render(q["dst"]) == "none detected"
+
+
+# ── The suspected-cumulative CSV columns (§4.2a, §7.3 check 2) ────────────────────────────────
+#
+# The one data-quality fact read from the persisted `LoadedDataset.warnings` rather than derived
+# from the per-interval quality bits, because there is no bit for it: the claim is about a whole
+# COLUMN (its values never decrease over the window), not about a sample. Before this row existed
+# the warning reached the fetch path and died at persistence, so a user who proceeded past the
+# drawer's small print kept no record of the caveat.
+
+
+def _dataset_with_warnings(warnings: list) -> LoadedDataset:
+    """The base two-meter dataset, with an arbitrary persisted warnings list attached.
+
+    Written directly rather than by uploading a CSV: this layer asserts what the VIEW-MODEL does
+    with a persisted warning, and `tests/test_csv_wide.py` / `tests/test_csv_source.py` already pin
+    that the parser and the source stamp the right ones. Building the list here is also the only way
+    to reach the malformed and unrecognised shapes below, which no current writer produces — and
+    which a persisted list can nonetheless carry from an older schema.
+    """
+    ds = _dataset([_energy("grid_import_t1", 2.0), _energy("grid_export_t1", 0.0)])
+    ds.warnings = warnings
+    return ds
+
+
+def _cumulative(warnings: list):
+    from app.data_view import panel_data_from
+    return panel_data_from(_dataset_with_warnings(warnings))["quality"].get("cumulative")
+
+
+def test_panel_cumulative_row_names_the_flagged_column():
+    """§4.2a: "the suspect column is also named in §7.3's data-quality box, so the reason survives
+    the run". The column NAME is the whole point — a count would not tell the reader which of their
+    bindings to look at."""
+    m = _cumulative([{"code": "CSV_CUMULATIVE_COLUMN", "column": "Verbruik"}])
+    assert isinstance(m, dict) and "msgid" in m
+    assert m["params"]["columns"] == "Verbruik"
+    assert _render(m) == (
+        "Verbruik — the values in this column never go down, so it may be a cumulative meter "
+        "reading rather than the amount used per interval. If it is, the results will be far too "
+        "high."
+    )
+
+
+def test_panel_cumulative_row_lists_several_columns_and_pluralises():
+    """One uploaded file can feed many slots (§4.2a), so several columns can be flagged. The plural
+    follows the number of columns the sentence lists, so "1 columns" cannot happen."""
+    m = _cumulative([
+        {"code": "CSV_CUMULATIVE_COLUMN", "column": "Verbruik"},
+        {"code": "CSV_CUMULATIVE_COLUMN", "column": "Teruglevering"},
+    ])
+    assert m["params"]["columns"] == "Teruglevering, Verbruik"  # sorted, for a stable render
+    assert _render(m).startswith(
+        "Teruglevering, Verbruik — the values in these columns never go down,"
+    )
+
+
+def test_panel_cumulative_row_lists_each_column_once():
+    """The warning is stamped per BINDING, so one column bound to two slots arrives twice. It is
+    one column and must be named once."""
+    m = _cumulative([
+        {"code": "CSV_CUMULATIVE_COLUMN", "column": "Meter"},
+        {"code": "CSV_CUMULATIVE_COLUMN", "column": "Meter"},
+    ])
+    assert m["params"]["columns"] == "Meter"
+    # De-duplicated BEFORE the plural is chosen, so two records of one column read singular.
+    assert "this column" in _render(m)
+
+
+def test_panel_cumulative_row_is_omitted_when_nothing_is_flagged():
+    """Absent, not "none detected" — unlike Gaps and the clock-change row.
+
+    Check 2 runs on CSV column selection, so a dataset with no CSV binding was never examined: it
+    has no answer rather than a clean one, and saying "none detected" would report a check that
+    never ran. The template guards on presence, so the alert simply does not appear.
+    """
+    from app.data_view import panel_data_from
+
+    quality = panel_data_from(_dataset_with_warnings([]))["quality"]
+    # The KEY is absent, not None: the template's `{% if %}` would drop either, but a present-and-
+    # empty key would let a later reader treat "the check ran and passed" as the meaning.
+    assert "cumulative" not in quality
+
+
+def test_panel_cumulative_row_ignores_warning_codes_it_does_not_recognise():
+    """`warnings` is a heterogeneous PERSISTED list. The two other CSV codes already have their own
+    flag-derived rows (Gaps, Clock change) and must not be re-reported here, and a code from an
+    older or newer schema must not be reported at all."""
+    assert _cumulative([
+        {"code": "CSV_GAP_CELLS", "column": "Verbruik", "count": 3},
+        {"code": "CSV_DST_AMBIGUOUS_HOUR", "column": "Verbruik", "count": 1,
+         "days": ["2026-10-25"]},
+        {"code": "SOMETHING_INVENTED_LATER", "column": "Verbruik"},
+    ]) is None
+
+
+def test_panel_cumulative_row_survives_a_malformed_persisted_warning():
+    """A stored row with no `column`, a non-string one, or one that is not a mapping at all must be
+    skipped rather than crash the whole panel — the list is persisted, so it can carry shapes this
+    code did not write. A well-formed sibling is still reported."""
+    m = _cumulative([
+        {"code": "CSV_CUMULATIVE_COLUMN"},                  # no column key at all
+        {"code": "CSV_CUMULATIVE_COLUMN", "column": None},   # column present but null
+        {"code": "CSV_CUMULATIVE_COLUMN", "column": "  "},   # blank: nothing to name
+        "CSV_CUMULATIVE_COLUMN",                             # not a mapping
+        {"code": "CSV_CUMULATIVE_COLUMN", "column": "Meter"},
+    ])
+    assert m["params"]["columns"] == "Meter"
+    # …and a list of ONLY malformed entries reports nothing rather than an empty name.
+    assert _cumulative([{"code": "CSV_CUMULATIVE_COLUMN"}]) is None
+
+
+def test_panel_cumulative_row_renders_through_the_real_template_in_both_locales():
+    """The column name is USER DATA from an uploaded header row, so it is rendered rather than
+    asserted on the view-model: `_msg.html` escapes a substituted param exactly once, and the Dutch
+    catalog has to actually carry this sentence (not just the .po file)."""
+    from app.data_view import panel_data_from
+
+    d = panel_data_from(_dataset_with_warnings(
+        [{"code": "CSV_CUMULATIVE_COLUMN", "column": "<Verbruik & co>"}]
+    ))
+    for locale in i18n.SUPPORTED:
+        html = i18n.env_for(locale).from_string(
+            '{% from "_data_quality.html" import data_quality with context %}{{ data_quality(d) }}'
+        ).render(d=d)
+        # Escaped exactly once: the raw "<" must not reach the page, and it must not be
+        # double-escaped into "&amp;lt;" either.
+        assert "&lt;Verbruik &amp; co&gt;" in html, f"[{locale}] column name not escaped once"
+        assert "<Verbruik" not in html
+    # The Dutch render must not be the English sentence — the catalog entry has to exist and be
+    # compiled, which asserting on the .po alone would not show.
+    nl = i18n.env_for("nl").from_string(
+        '{% from "_data_quality.html" import data_quality with context %}{{ data_quality(d) }}'
+    ).render(d=d)
+    assert "never go down" not in nl, "the cumulative-column warning is untranslated in Dutch"
 
 
 def test_panel_resolution_label_is_a_nested_message_not_a_baked_word():

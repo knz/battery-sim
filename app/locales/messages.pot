@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-06 13:35+0200\n"
+"POT-Creation-Date: 2026-08-06 14:09+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -36,6 +36,18 @@ msgstr ""
 #, python-format
 msgid "%(before)s → %(after)s"
 msgstr ""
+
+#, python-format
+msgid ""
+"%(columns)s — the values in this column never go down, so it may be a "
+"cumulative meter reading rather than the amount used per interval. If it "
+"is, the results will be far too high."
+msgid_plural ""
+"%(columns)s — the values in these columns never go down, so they may be "
+"cumulative meter readings rather than the amount used per interval. If "
+"they are, the results will be far too high."
+msgstr[0] ""
+msgstr[1] ""
 
 #, python-format
 msgid "%(count)s interval · %(res)s"

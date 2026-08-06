@@ -23,6 +23,13 @@ The cases, and why each is here rather than folded into an existing file:
   * **The §7.3 warnings reach the dataset.** `_load_backend_frame` returns `(frame, warnings)`
     specifically so the CSV gap / DST-ambiguity counts are not silently dropped, which is exactly the
     kind of loss no other assertion notices.
+  * **A flagged cumulative register survives the whole path UNDIFFERENCED** (D-KIND, and harness
+    fixture 22's "At column selection" paragraph). The domain layer and the source adapter each pin
+    this over a full column already (`tests/test_csv_wide.py`, `tests/test_csv_source.py`), but until
+    `test_a_flagged_register_loads_through_the_reify_path_undifferenced` nothing pinned it *through*
+    the reify path — the sibling warning test asserted only `values[0]`, which a differencing
+    implementation that keeps the first reading would pass unchanged. Silently differencing is the
+    one thing this format never does, so the property is asserted where a real fetch goes.
 
 Isolation follows `tests/test_ingest_ws.py`: an isolated `BATTERY_SIM_DATA_DIR` with the modules
 reloaded against it, so the SQLite DB, the `.npz` frames and the uploaded files never touch the
@@ -488,12 +495,75 @@ def test_a_cumulative_column_warns_and_the_fetch_still_succeeds(client):
     # say which row it is about.
     assert warn["series"] == "grid_import_t1"
 
-    # A dataset exists, and it holds the column as read — undifferenced (D-KIND).
+    # A dataset exists, and it holds the column as read — undifferenced (D-KIND). The whole
+    # 6-sample window slice is compared, not just `values[0]`: differencing that keeps the first
+    # reading leaves element 0 alone, so a single-element assertion pinned nothing about the rest.
+    # The dedicated test below carries the full argument.
     loaded = dataset.load_latest(dataset.db.WORKSPACE_ID)
     assert loaded is not None
     frame = next(f for f in loaded.frames if f.name == "grid_import_t1")
-    assert frame.values[0] == pytest.approx(1000.0)
+    assert list(frame.values) == pytest.approx([1000 + i * 0.4 for i in range(6)])
     assert any(w_.get("code") == "CSV_CUMULATIVE_COLUMN" for w_ in loaded.warnings)
+
+
+def test_a_flagged_register_loads_through_the_reify_path_undifferenced(client):
+    """Harness fixture 22: the flagged column's OWN readings reach the dataset (D-KIND).
+
+    The property the CSV path must never break. `ingest.cumulative_to_delta` exists for the Home
+    Assistant path and is deliberately never called here, so a column that looks like a meter
+    register is passed through as read — confidently wrong rather than silently altered.
+
+    Pinned at THIS layer because the other two are already covered and neither is the path a fetch
+    takes: `tests/test_csv_wide.py` pins it in `column_frame` and `tests/test_csv_source.py` pins it
+    in `CsvSource.load_with_warnings`, while the values a user actually gets have also been through
+    `_load_backend_frame`, the reify loop's persist, and `dataset.load_latest`. The sibling test
+    above went through all of that but asserted one sample.
+
+    Three choices make the assertion resistant to a differencing mutation rather than merely
+    present:
+
+      * a **constant** step (0.7 per hour). Every difference is then the same number, so a
+        differenced series is a flat line — it cannot coincidentally resemble a rising one;
+      * a step three orders of magnitude smaller than the readings (0.7 against ~5000), so no
+        tolerance admits one for the other;
+      * the window covers the WHOLE file, and the full array is compared, plus two explicit guards
+        naming the two conventions a differencing implementation would pick — `np.diff` with the
+        first reading kept (element 0 unchanged, element 1 becomes the step) and `np.diff` with a
+        zero prepended (element 0 becomes 0.0).
+
+    The warning is asserted too, so the test cannot quietly become a values-only check if the
+    `CSV_CUMULATIVE_COLUMN` plumbing regresses.
+    """
+    tc, main, dataset, uploads = client
+    readings = [5000.0 + 0.7 * i for i in range(24)]
+    lines = ["Tijdstip,Register"]
+    for i, v in enumerate(readings):
+        lines.append(f"01-01-2025 {i:02d}:00:00,{v:.1f}")
+    upload = _store_upload(uploads, "\n".join(lines) + "\n")
+
+    # The whole file, unlike `_WINDOW`: the claim is about the column, so the slice must not hide
+    # part of it.
+    full_day = {"start": "2025-01-01T00:00:00+00:00", "end": "2025-01-02T00:00:00+00:00"}
+    with tc.websocket_connect(w("/data/ingest/ws")) as ws:
+        ws.send_json({"type": "header", "source": "home_assistant", "window": full_day})
+        ws.send_json({"type": "backend_load", "name": "grid_import_t1", "source": "csv_upload",
+                      "window": full_day,
+                      "binding": {"upload_id": upload.id, "column": "Register", "unit": "kWh"}})
+        ws.send_json({"type": "done"})
+        result = ws.receive_json()
+
+    assert result["type"] == "result", result
+    assert any(w_.get("code") == "CSV_CUMULATIVE_COLUMN" for w_ in result["warnings"]), result
+
+    loaded = dataset.load_latest(dataset.db.WORKSPACE_ID)
+    assert loaded is not None
+    frame = next(f for f in loaded.frames if f.name == "grid_import_t1")
+    assert len(frame.values) == 24
+    assert list(frame.values) == pytest.approx(readings)
+    # The two differencing conventions, named so a failure says which one was introduced.
+    assert frame.values[0] == pytest.approx(5000.0), "first reading replaced by a delta"
+    assert frame.values[1] == pytest.approx(5000.7), "second reading replaced by the 0.7 step"
+    assert frame.values[-1] == pytest.approx(5000.0 + 0.7 * 23), "series flattened to its deltas"
 
 
 def test_csv_is_rejected_for_a_price_slot(client):
