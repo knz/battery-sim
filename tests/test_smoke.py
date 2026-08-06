@@ -1138,7 +1138,6 @@ def test_the_configure_workspace_button_reaches_the_edit_screen_and_saves(browse
     assert "/edit" in pg.url
 
     pg.fill("#edit-title", "Browser-named analysis")
-    pg.fill("#edit-postcode", "1012 AB")
     pg.select_option("#edit-connection", "3:63")
     pg.get_by_role("button", name="Save").click()
     pg.wait_for_load_state("networkidle")

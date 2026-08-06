@@ -1,7 +1,10 @@
 """The view-model for the edit-workspace screen (docs/specs/20-workspaces-ux.md §2′.4, §2′.8).
 
 `GET /w/{id}/edit` and `POST /w/{id}/edit` render and write the household's fixed facts: the
-workspace title, the postcode, the grid connection and the contract. This module turns a
+workspace title, the grid connection and the contract. `postcode` is still carried in the view
+dict below, but the template no longer renders a box for it — nothing in the results reads it
+yet, so §2′.4's Location box is hidden until something does. The key is kept deliberately, so
+restoring the box costs one hunk in `templates/workspace_edit.html` and nothing here. This module turns a
 `SimulationConfig` (plus the workspace row's title and a `ValidationResult`) into the dict
 `templates/workspace_edit.html` renders, and answers the two questions the template must not
 decide for itself — which connection entries the dropdown offers, and how many advanced values
@@ -425,6 +428,8 @@ def edit_view(
 
     return {
         "title": title,
+        # Produced but currently unrendered — the Location box is hidden (see the module header).
+        # Kept so restoring it is a template-only change.
         "postcode": str(cfg.postcode or ""),
         "connection_options": connection_options(cfg),
         "connection_value": connection_value(cfg),
