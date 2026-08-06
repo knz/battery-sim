@@ -6,8 +6,9 @@
   `app/workspace_edit_view.py`; the coercion, validation and persistence layers are shared with
   panel ② (`params_view.parse_form`, `simconfig_store.save`) and not duplicated anywhere here.
 
-  Four boxes, in §2′.4's order: Name, Location, Grid connection, Contract. Plus the footer, which
-  is §2′.8's and comes in two modes — `[ Cancel ] [ Save ]` from a card, `[ ← Previous ] [ Next → ]`
+  Three boxes, in §2′.4's order: Name, Grid connection, Contract. §2′.4's fourth, Location, is
+  hidden — see the comment where it used to be, which records why and how to restore it.
+  Plus the footer, which is §2′.8's and comes in two modes — `[ Cancel ] [ Save ]` from a card, `[ ← Previous ] [ Next → ]`
   in the wizard — selected by `view.wizard`.
 
   **A real full-page form, not a fragment.** Unlike `_panel_params.html` this is not swapped into
@@ -163,27 +164,28 @@
         </div>
       </div>
 
-      {# ── Location ─────────────────────────────────────────────────────────
-           LIVE, not pending (§2′.4's "The zip code"): enabled, editable and persisted, even
-           though nothing reads it yet. It is deliberately NOT a pending control — pending means
-           "specified but not built" and offers a [?] to register interest, and neither fits a
-           field that works exactly as it appears and simply has no reader. The stored string is
-           kept as typed; §2′.4 leaves format validation open. #}
-      <div class="card bg-base-100 border border-base-300">
-        <div class="card-body gap-2 p-4">
-          <h2 class="text-sm font-semibold text-base-content/70">{{ _('Location') }}</h2>
-          <div class="flex flex-wrap items-center gap-2">
-            <span class="w-28 label-text">{{ _('Postcode') }}</span>
-            <input type="text" name="postcode" id="edit-postcode"
-                   class="input input-bordered input-sm w-32"
-                   value="{{ view.postcode }}" aria-label="{{ _('Postcode') }}"
-                   placeholder="1012 AB" />
-          </div>
-          <p class="text-xs text-base-content/50">
-            ⓘ {{ _('Used to work out sunrise and sunset at your address. Nothing is sent anywhere — the calculation is local.') }}
-          </p>
-        </div>
-      </div>
+      {# ── Location — HIDDEN ────────────────────────────────────────────────
+           §2′.4's Location box (a single `postcode` text input) is deliberately not rendered.
+           Nothing in the results reads the postcode yet, so the screen was asking for a value it
+           would not use. Hidden rather than removed: it is specified, and it comes back when a
+           reader exists (sunrise/sunset at the household's address was the intended use).
+
+           **What holds the stored value safe while the box is away.** `POST /w/{id}/edit` writes
+           the postcode under `if "postcode" in form:` (app/main.py). With no input rendered the
+           key is absent from the submitted body, so that branch is skipped and an
+           already-stored postcode survives every save untouched. Were the write unguarded,
+           hiding the input would blank the stored value on each save — the same absent-vs-empty
+           distinction the `sections` marker below preserves for checkboxes. If that guard is
+           ever removed, this box has to come back with it.
+
+           Everything else is still in place and needs no change to restore: `postcode` on
+           `SimulationConfig`, its `simconfig_store` round-trip, and `view.postcode` from
+           `workspace_edit_view`. Restoring means re-rendering the box below — the input was
+           `name="postcode" id="edit-postcode"`, valued from `view.postcode`, with the help line
+           "Used to work out sunrise and sunset at your address. Nothing is sent anywhere — the
+           calculation is local." Note it is a LIVE control, not a pending one: pending means
+           "specified but not built" and offers a [?] to register interest, which does not fit a
+           field that works exactly as it appears. #}
 
       {# ── Grid connection ──────────────────────────────────────────────────
            One dropdown replacing §2.3's phases radio + free-text fuse field. Each option writes

@@ -133,7 +133,9 @@ def _form(**over) -> dict:
         # defect 1 rather than reproduce it.
         "sections": "grid pricing_advanced",
         "title": "Our house",
-        "postcode": "",
+        # No `postcode`: the Location box is hidden, so the screen submits no such key. Keeping a
+        # `"postcode": ""` here would make every test in this module post something the real form
+        # never sends, and would hide a regression in the route's `if "postcode" in form:` guard.
         "grid.connection": "1:25",
         "grid.max_import_kw_override": "",
         "grid.max_export_kw": "",
@@ -420,24 +422,42 @@ def test_the_settlement_labels_compose_into_a_sentence_in_dutch(env):
 
 # ── The postcode (§2′.4) ──────────────────────────────────────────────────────────────────────
 
-def test_the_postcode_is_a_live_input_that_round_trips(env):
-    """§2′.4: live, not pending — enabled, editable and persisted, though nothing reads it yet.
+def test_the_postcode_box_is_not_rendered(env):
+    """§2′.4's Location box is hidden: nothing in the results reads the postcode yet.
 
-    Deliberately not a pending control: pending means "specified but not built" and offers a `[?]`
-    to register interest, and neither fits a field that works exactly as it appears and simply has
-    no consumer. A disabled box with a "not built yet" dialog would misdescribe it.
+    Hidden at the template only — the field, its store round-trip and the route's write are all
+    still there (see the sibling test), so restoring the box is one hunk in the template.
     """
     client, mod = env
     _seed(mod)
 
     html = client.get("/w/w1/edit").text
-    field = re.search(r'<input type="text" name="postcode"[^>]*>', html)
-    assert field is not None and "disabled" not in field.group(0)
-    assert "data-feature-key" not in field.group(0)
+    assert re.search(r'<input[^>]*name="postcode"', html) is None
+    assert "edit-postcode" not in html
+    assert ">Location<" not in html
 
-    client.post("/w/w1/edit", data=_form(postcode="1012 AB"), follow_redirects=False)
+
+def test_a_save_leaves_a_stored_postcode_untouched(env):
+    """The guard that makes hiding the input safe, pinned directly.
+
+    `POST /w/{id}/edit` writes the postcode under `if "postcode" in form:`. The hidden box submits
+    no such key, so the branch is skipped and a value stored earlier survives. Without that guard
+    every save from this screen would blank it — the absent-vs-empty trap that has cost this build
+    three data-loss defects. `_form()` deliberately omits `postcode` here, exactly as the rendered
+    screen now does.
+    """
+    client, mod = env
+    _seed(mod)
+
+    stored = mod["simconfig_store"].load("w1")
+    stored.postcode = "1012 AB"
+    mod["simconfig_store"].save(stored, "w1")
+
+    form = _form()
+    assert "postcode" not in form, "the hidden box submits no postcode; the fixture must not either"
+    client.post("/w/w1/edit", data=form, follow_redirects=False)
+
     assert mod["simconfig_store"].load("w1").postcode == "1012 AB"
-    assert 'value="1012 AB"' in client.get("/w/w1/edit").text
 
 
 # ── The title (§2′.4) ─────────────────────────────────────────────────────────────────────────
