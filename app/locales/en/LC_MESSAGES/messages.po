@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-06 15:31+0200\n"
+"POT-Creation-Date: 2026-08-06 16:09+0200\n"
 "PO-Revision-Date: 2026-07-23 20:40+0200\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: en\n"
@@ -249,6 +249,9 @@ msgstr ""
 "An analysis is one household and one question: your data, your contract, "
 "and the battery you are considering."
 
+msgid "And how full is the battery?"
+msgstr "And how full is the battery?"
+
 msgid ""
 "Answer yes only to supply your existing battery's charge and discharge "
 "series. They are used solely to work out what your house actually "
@@ -285,6 +288,11 @@ msgstr "Band A"
 msgid "Band C"
 msgstr "Band C"
 
+msgid ""
+"Bars above the line show energy entering the house; below, energy leaving"
+" it or charging the battery."
+msgstr ""
+
 msgid "Base URL"
 msgstr "Base URL"
 
@@ -296,6 +304,12 @@ msgstr "Battery charge"
 
 msgid "Battery discharge"
 msgstr "Battery discharge"
+
+msgid "Battery → grid"
+msgstr "Battery → grid"
+
+msgid "Battery → house"
+msgstr "Battery → house"
 
 msgid "Benchmark: grid import avoided"
 msgstr "Benchmark: grid import avoided"
@@ -699,6 +713,12 @@ msgstr "Grid power"
 msgid "Grid production"
 msgstr "Grid production"
 
+msgid "Grid → battery"
+msgstr "Grid → battery"
+
+msgid "Grid → house"
+msgstr "Grid → house"
+
 msgid "Grid-coupled battery"
 msgstr "Grid-coupled battery"
 
@@ -873,6 +893,9 @@ msgstr "NO WARRANTY"
 
 msgid "Name"
 msgstr ""
+
+msgid "Net grid (import − export)"
+msgstr "Net grid (import − export)"
 
 msgid "Net saving"
 msgstr ""
@@ -1133,11 +1156,23 @@ msgstr "SoC + price chart"
 msgid "Solar"
 msgstr "Solar"
 
+msgid "Solar curtailed"
+msgstr "Solar curtailed"
+
 msgid "Solar production"
 msgstr "Solar production"
 
 msgid "Solar surplus only (net zero at the grid)"
 msgstr "Solar surplus only (net zero at the grid)"
+
+msgid "Solar → battery"
+msgstr "Solar → battery"
+
+msgid "Solar → grid"
+msgstr "Solar → grid"
+
+msgid "Solar → house"
+msgstr "Solar → house"
 
 msgid ""
 "Some of the export this battery avoided would have earned a NEGATIVE net "
@@ -1230,9 +1265,7 @@ msgstr ""
 "money on the strength of a number it shows you."
 
 msgid "The bars can be higher than house load because of battery standby power."
-msgstr ""
-"The bars can be higher than house load because of battery standby "
-"power."
+msgstr "The bars can be higher than house load because of battery standby power."
 
 #, python-format
 msgid ""
@@ -1401,13 +1434,6 @@ msgstr ""
 "production was exported; lower means more went back to the grid."
 
 msgid ""
-"The solar line is total production; the rest charged the battery or went "
-"to the grid."
-msgstr ""
-"The solar line is total production; the rest charged the battery or "
-"went to the grid."
-
-msgid ""
 "The statutory feed-in floor paid out over this period. It is assessed "
 "over a whole billing period rather than hour by hour, so it appears as "
 "its own line in the money breakdown and is left out of the monthly "
@@ -1558,9 +1584,6 @@ msgstr ""
 
 msgid "Token"
 msgstr "Token"
-
-msgid "Total solar production"
-msgstr "Total solar production"
 
 msgid "Two conversions PV→battery"
 msgstr "Two conversions PV→battery"
@@ -2767,4 +2790,25 @@ msgstr "👍 I want this"
 #~ "of power continuously for its own "
 #~ "electronics. That draw is included in"
 #~ " what the battery had to serve."
+
+#~ msgid ""
+#~ "The solar line is total production; "
+#~ "the rest charged the battery or "
+#~ "went to the grid."
+#~ msgstr ""
+#~ "The solar line is total production; "
+#~ "the rest charged the battery or "
+#~ "went to the grid."
+
+#~ msgid "Total solar production"
+#~ msgstr "Total solar production"
+
+#~ msgid "Battery exported"
+#~ msgstr "Battery exported"
+
+#~ msgid "Grid charging the battery"
+#~ msgstr "Grid charging the battery"
+
+#~ msgid "Solar exported"
+#~ msgstr "Solar exported"
 

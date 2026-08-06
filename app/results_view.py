@@ -957,23 +957,48 @@ def _energy_flows(runs, rec: ReconciledGrid, frame, cfg: SimulationConfig) -> di
         pv_allocation   where the PV generation went — chg_pv + pv_to_home + exp_from_pv +
                         curtailed, which sums to `pv`.
         average_day     the same flow terms as a 24-point hour-of-day profile over the whole
-                        window — kWh moved in an average day's hour — plus a mean SoC trace for
-                        the secondary axis. See "the average day's denominator" below: the flows
-                        are a mean per DAY, the SoC a mean per interval, and they are different
-                        because one is a flow and the other a stock.
+                        window — kWh moved in an average day's hour — plus a mean SoC trace, which
+                        the template draws in a FRAME OF ITS OWN beneath the flows rather than on a
+                        secondary axis. See "the average day's denominator" below: the flows are a
+                        mean per DAY, the SoC a mean per interval, and they are different because
+                        one is a flow and the other a stock — the same distinction that is the
+                        reason they no longer share a plot area.
 
-    **The average day carries TWO reference lines, and the second one is not decoration.** Its bars
-    are the LOAD-SOURCING decomposition, in which PV enters only as `pv_to_home` — so `chg_pv`,
-    `exp_from_pv` and `curtailed` are all invisible on it. At midday those are routinely the larger
-    part of production, meaning the chart understated what the panels did at exactly the hours they
-    did the most, under a heading asking what an average day looks like. `pv_total` is therefore
-    published as a second line: the gap between it and the `pv_to_home` segment is the PV that went
-    to the battery, to the grid, or nowhere. The alternatives — restructuring the stack, a fourth
-    chart, a diverging axis — were considered and not taken; a reference line leaves the three
-    stacked sources and the `household_load` line reading exactly as they did.
+    **The average day is DIVERGING, and the axis is what carries the meaning.** Unlike the two
+    monthly charts it is not a decomposition of one total — it splits the balance by DIRECTION:
+
+        above zero   energy entering the house   dis_home, imp_home, pv_to_home, chg_grid
+        below zero   energy leaving it or being stored   exp_from_pv, dis_grid, chg_pv, curtailed
+
+    Note what this deliberately gives up. The positive stack is NOT the load-sourcing
+    decomposition the monthly chart 1 draws: `chg_grid` is grid energy going INTO the battery, a
+    sink, sitting among three sources. Stacking it there would be wrong under chart 1's question
+    ("where did household load come from") and is right under this one ("what crossed the
+    house boundary, and which way"). The consequence is that `household_load` no longer bounds
+    this stack — it sits below the top by standby PLUS grid charging, where on chart 1 the gap is
+    standby alone. The note under the chart says so; do not copy chart 1's note here.
+
+    An earlier revision drew three positive bars only, with a `pv_total` reference line standing
+    in for the PV that charged the battery, exported or was curtailed. The line is GONE: all
+    three of those terms are now bars in their own right, so a total-production line would
+    duplicate the sum of four segments already on screen. Total PV remains recoverable as
+    `pv_to_home + chg_pv + exp_from_pv + curtailed`.
+
+    `net_grid` rides alongside as a line — see "the net-grid line" below.
 
     Total PV is NOT added to `pv_allocation`. That stack sums to PV generation by construction, so
     a total there would draw a line along the top of its own bars and say nothing.
+
+    **The net-grid line, and why it is unambiguous only because of the fourth positive bar.** It is
+
+        net_grid = (imp_home + chg_grid) − (exp_from_pv + dis_grid)
+
+    positive for a net import, matching the sign convention of every import figure on the page.
+    Both grid imports and both grid exports are drawn as bars, so this is simultaneously the
+    utility meter's reading AND the exact algebraic sum of the grid-coloured segments above and
+    below the axis. Those two readings are the same number only because `chg_grid` is on the
+    chart; drop that bar and the line either contradicts the bars or stops matching the meter.
+    It is a flow like the bars, so it takes `_hourly_flow` and shares the PRIMARY axis.
 
     **Run C, not A or B.** C is battery + standby — the headline run, the one every KPI tile above
     reports. Charting A would describe a household that does not have the battery the page is about,
@@ -1292,17 +1317,20 @@ def _energy_flows(runs, rec: ReconciledGrid, frame, cfg: SimulationConfig) -> di
             "chg_pv": _hourly_flow(chg_pv),
             "chg_grid": _hourly_flow(chg_grid),
             "exp_from_pv": _hourly_flow(exp_from_pv),
+            # Battery arbitrage export — the second BELOW-axis grid term, split out of the mixed
+            # `exp` array by the derivation above. Published since the chart became diverging;
+            # before that it appeared nowhere, folded into the gap under the old `pv_total` line.
+            "dis_grid": _hourly_flow(dis_grid),
             "curtailed": _hourly_flow(curtailed),
             "standby": _hourly_flow(standby),
             "household_load": _hourly_flow(np.where(gap, np.nan, load)),
-            # TOTAL PV generation, a second reference line. A flow (kWh generated during the hour),
-            # so `_hourly_flow` like the rest — the same masking `household_load` above gets. The
-            # bars on this chart are the LOAD-SOURCING decomposition, in which PV appears only as
-            # `pv_to_home`; the three other destinations (`chg_pv`, `exp_from_pv`, `curtailed`) are
-            # invisible on it, and at midday they are routinely the larger part of production. This
-            # line restores that: the gap between it and the `pv_to_home` segment is the PV that
-            # went to the battery, to the grid, or nowhere. See `any_pv` below for the no-PV case.
-            "pv_total": _hourly_flow(np.where(gap, np.nan, pv)),
+            # Net position at the meter, positive for a net import. Computed BEFORE bucketing, on
+            # the per-interval arrays, so an hour that imports and exports in different intervals
+            # nets within the hour rather than being averaged as two gross figures — the same
+            # reason the bars are bucketed from raw arrays rather than combined afterwards. NaN
+            # propagates from any term, so gap intervals stay gaps. See the docstring for why this
+            # is both the meter reading and the sum of the grid-coloured bars.
+            "net_grid": _hourly_flow((imp_home + chg_grid) - (exp_from_pv + dis_grid)),
             # STOCK — kWh stored at an instant, so a per-interval mean. See `_hourly_stock`.
             "soc": _hourly_stock(soc),
         },
@@ -1320,10 +1348,13 @@ def _energy_flows(runs, rec: ReconciledGrid, frame, cfg: SimulationConfig) -> di
         "any_standby": standby_per_interval > 0.0,
         # True when the window generated any PV at all. `simulation_frame` ZERO-FILLS an absent PV
         # series, so a household without panels is a reachable, non-error case that reaches here as
-        # an all-zero `pv` array. On it the total-PV line is flat on the axis and the note under the
-        # chart explains a gap that cannot exist, so both are gated on this — the same shape of
-        # decision as `any_standby`. Gated on the summed SERIES rather than on a config flag because
-        # there is no "has PV" setting to read: PV presence is a property of the DATA.
+        # an all-zero `pv` array. On it every PV-side segment of the average day (`pv_to_home`,
+        # `chg_pv`, `exp_from_pv`, `curtailed`) is identically zero, so drawing them adds four
+        # legend entries and no marks for a household that has no panels — the same shape of
+        # decision as `any_standby`. It gated the old total-PV line for the same reason; the flag
+        # outlived that line because the case it describes did not change. Gated on the summed
+        # SERIES rather than on a config flag because there is no "has PV" setting to read: PV
+        # presence is a property of the DATA.
         "any_pv": bool(np.nansum(pv) > 0.0),
     }
 

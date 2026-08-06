@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-06 15:31+0200\n"
+"POT-Creation-Date: 2026-08-06 16:09+0200\n"
 "PO-Revision-Date: 2026-07-23 20:30+0200\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: nl\n"
@@ -254,6 +254,9 @@ msgstr ""
 "Een analyse gaat over één huishouden en één vraag: je gegevens, je "
 "contract en de batterij waar je over nadenkt."
 
+msgid "And how full is the battery?"
+msgstr "En hoe vol is de batterij?"
+
 msgid ""
 "Answer yes only to supply your existing battery's charge and discharge "
 "series. They are used solely to work out what your house actually "
@@ -291,6 +294,13 @@ msgstr "Band A"
 msgid "Band C"
 msgstr "Band C"
 
+msgid ""
+"Bars above the line show energy entering the house; below, energy leaving"
+" it or charging the battery."
+msgstr ""
+"Balken boven de lijn tonen energie die het huis binnenkomt; eronder "
+"energie die het huis verlaat of de batterij laadt."
+
 msgid "Base URL"
 msgstr "Basis-URL"
 
@@ -302,6 +312,12 @@ msgstr "Batterij laden"
 
 msgid "Battery discharge"
 msgstr "Batterij ontladen"
+
+msgid "Battery → grid"
+msgstr "Batterij → net"
+
+msgid "Battery → house"
+msgstr "Batterij → huishouden"
 
 msgid "Benchmark: grid import avoided"
 msgstr "Benchmark: vermeden netafname"
@@ -710,6 +726,12 @@ msgstr "Netvermogen"
 msgid "Grid production"
 msgstr "Netinvoeding"
 
+msgid "Grid → battery"
+msgstr "Net → batterij"
+
+msgid "Grid → house"
+msgstr "Net → huishouden"
+
 msgid "Grid-coupled battery"
 msgstr "Netgekoppelde batterij"
 
@@ -885,6 +907,9 @@ msgstr "GEEN GARANTIE"
 
 msgid "Name"
 msgstr "Naam"
+
+msgid "Net grid (import − export)"
+msgstr "Netto netgebruik (afname − invoeding)"
 
 msgid "Net saving"
 msgstr "Netto besparing"
@@ -1159,11 +1184,23 @@ msgstr "Grafiek laadtoestand + prijs"
 msgid "Solar"
 msgstr "Zon"
 
+msgid "Solar curtailed"
+msgstr "Zon afgeregeld"
+
 msgid "Solar production"
 msgstr "Zonopwekking"
 
 msgid "Solar surplus only (net zero at the grid)"
 msgstr "Alleen zonne-overschot (netto nul op het net)"
+
+msgid "Solar → battery"
+msgstr "Zon → batterij"
+
+msgid "Solar → grid"
+msgstr "Zon → net"
+
+msgid "Solar → house"
+msgstr "Zon → huishouden"
 
 msgid ""
 "Some of the export this battery avoided would have earned a NEGATIVE net "
@@ -1262,8 +1299,8 @@ msgstr ""
 
 msgid "The bars can be higher than house load because of battery standby power."
 msgstr ""
-"De balken kunnen hoger zijn dan het huisverbruik door het "
-"standby-verbruik van de batterij."
+"De balken kunnen hoger zijn dan het huisverbruik door het standby-"
+"verbruik van de batterij."
 
 #, python-format
 msgid ""
@@ -1452,13 +1489,6 @@ msgstr ""
 "net terugging."
 
 msgid ""
-"The solar line is total production; the rest charged the battery or went "
-"to the grid."
-msgstr ""
-"De zonlijn is de totale opbrengst; de rest laadde de batterij of ging "
-"naar het net."
-
-msgid ""
 "The statutory feed-in floor paid out over this period. It is assessed "
 "over a whole billing period rather than hour by hour, so it appears as "
 "its own line in the money breakdown and is left out of the monthly "
@@ -1635,9 +1665,6 @@ msgstr ""
 
 msgid "Token"
 msgstr "Token"
-
-msgid "Total solar production"
-msgstr "Totale zonopbrengst"
 
 msgid "Two conversions PV→battery"
 msgstr "Twee omzettingen PV→batterij"
@@ -2915,4 +2942,25 @@ msgstr "👍 Ik wil dit"
 #~ " haar eigen elektronica. Dat verbruik "
 #~ "zit in wat de batterij moest "
 #~ "leveren."
+
+#~ msgid ""
+#~ "The solar line is total production; "
+#~ "the rest charged the battery or "
+#~ "went to the grid."
+#~ msgstr ""
+#~ "De zonlijn is de totale opbrengst; "
+#~ "de rest laadde de batterij of ging"
+#~ " naar het net."
+
+#~ msgid "Total solar production"
+#~ msgstr "Totale zonopbrengst"
+
+#~ msgid "Battery exported"
+#~ msgstr "Batterij teruggeleverd"
+
+#~ msgid "Grid charging the battery"
+#~ msgstr "Net laadt de batterij"
+
+#~ msgid "Solar exported"
+#~ msgstr "Zon teruggeleverd"
 

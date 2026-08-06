@@ -45,7 +45,7 @@
       initial load; the delegated fetch-handler calls it again after each swap. The inline draw is
       therefore gone from this template — only the data node and the chart container remain.
     * The *Energy flows* tab follows the same pattern exactly, one layer up: a `#flows-charts`
-      container holding three plot divs, a `#flows-data` node beside `#monthly-data`, and
+      container holding four plot divs, a `#flows-data` node beside `#monthly-data`, and
       window.drawEnergyFlows() over there. The Charts box now holds TWO containers, so the tab
       strip carries `data-chart-tab` (which container is visible) alongside the older
       `data-chart-view` (which series the monthly container draws).
@@ -300,14 +300,19 @@
             <h4 class="text-sm font-semibold">{{ _('Where did the household\'s energy come from?') }}</h4>
             <div id="flows-load" class="h-64 w-full"></div>
             {# ── Why the stack is taller than the line ────────────────────────────────────
-               Charts 1 and 3 both draw three stacked SOURCE segments under a `household_load`
-               reference LINE, and the stack is systematically the taller of the two. That is
-               not an error: §6.9 hands the simulation a rebound load (`frame.load + standby`),
-               so the identity that closes is
+               THIS chart draws three stacked SOURCE segments under a `household_load` reference
+               LINE, and the stack is systematically the taller of the two. That is not an error:
+               §6.9 hands the simulation a rebound load (`frame.load + standby`), so the identity
+               that closes is
 
                    dis_home + imp_home + pv_to_home  =  household_load + standby
 
                and the visible gap IS the battery's own draw. Nothing else on the screen says so.
+
+               Scoped to chart 1 alone. Chart 3 once drew the same three segments under the same
+               line and carried a copy of this note; it is now DIVERGING and stacks `chg_grid`
+               above the axis as a fourth bar, so its gap is standby PLUS grid charging and this
+               sentence would be wrong under it. It has its own note. Do not re-share the msgid.
 
                Gated on `any_standby`, exactly as the partial-month footnote below is gated on
                `any_partial` and for the same reason: `standby_w` may legitimately be 0 (only
@@ -317,9 +322,8 @@
                series, which can be 0.0 in every month while the drawn gap is still visible.
 
                The sentence is ONE short line by explicit instruction. A longer version naming the
-               mechanism was written first and cut; do not restore it. The same applies to the
-               total-solar note below — the partial-month footnote is the upper bound on length
-               for anything in this box. #}
+               mechanism was written first and cut; do not restore it. The partial-month footnote
+               is the upper bound on length for anything in this box. #}
             {% if results.energy_flows.any_standby %}
             <p class="text-xs text-base-content/70">
               {{ _('The bars can be higher than house load because of battery standby power.') }}
@@ -344,32 +348,47 @@
           <div>
             <h4 class="text-sm font-semibold">{{ _('What does an average day look like?') }}</h4>
             <div id="flows-avgday" class="h-64 w-full"></div>
-            {# ── Why a total-solar line sits above the solar segment ──────────────────────
-               The bars on this chart are the LOAD-SOURCING decomposition, so solar appears only
-               as the share that fed the house directly. PV that charged the battery, was
-               exported, or was curtailed is on none of them — and around midday that is
-               routinely the larger part of production. The `pv_total` line restores it.
+            {# ── What the axis means ─────────────────────────────────────────────────────
+               This chart is the only diverging one, and the split is by DIRECTION rather than by
+               category, so it needs one line saying which way is which. Ungated: the axis is the
+               chart's structure, true for every household including one with no panels and no
+               export, so there is no case where this sentence explains something absent.
 
-               Gated on `any_pv` rather than on `any_standby`: a household with no panels is a
-               reachable case (`simulation_frame` zero-fills an absent PV series), and there the
-               line is flat on the axis with no gap to describe. The LINE itself is suppressed on
-               the same flag, in the draw code — a note without its line, or a flat line without
-               its note, would each be half an explanation. #}
-            {% if results.energy_flows.any_pv %}
+               Note what this does NOT repeat: chart 1's standby note. That note explains the gap
+               between the household-load line and the stack top as standby draw, which is true
+               there and WRONG here — this stack also carries `chg_grid`, so its gap is standby
+               plus grid charging. Reusing the msgid would have put a confidently incorrect
+               sentence under the chart. The sentence below covers the same reader question by
+               naming what the positive bars actually are. #}
             <p class="text-xs text-base-content/70">
-              {{ _('The solar line is total production; the rest charged the battery or went to the grid.') }}
+              {{ _('Bars above the line show energy entering the house; below, energy leaving it or charging the battery.') }}
             </p>
-            {% endif %}
-            {# Same note as under chart 1, and deliberately the SAME msgid: this chart draws the
-               same three source segments under the same reference line, so the same sentence
-               reads correctly here and it is one translation rather than two. It is repeated
-               rather than written once between the charts because chart 2 sits in between and
-               asks a different question — a single note there would appear to explain that one. #}
-            {% if results.energy_flows.any_standby %}
-            <p class="text-xs text-base-content/70">
-              {{ _('The bars can be higher than house load because of battery standby power.') }}
-            </p>
-            {% endif %}
+          </div>
+          {# ── Chart 4: state of charge, in its own frame ───────────────────────────────
+             SoC was a secondary axis on chart 3 until the user split it out. It is a STOCK — kWh
+             held at an instant — and every bar above it is a FLOW, kWh moved during an hour, so
+             sharing a plot area invited a comparison by height that is not valid between the two.
+             (Matching the two ranges was tried first: one-hour buckets do make kWh-per-hour equal
+             to mean kW, but it let a 10 kWh store set the scale for 3 kWh/h flows and flattened
+             the bars.)
+
+             Deliberately NOT a heading of its own kind: it carries the same `h4` as the three
+             above so it reads as a fourth panel of one answer, and its own short question rather
+             than a bare "State of charge", which would name the axis twice.
+
+             The two charts are a PAIR read down the column — same hours, same order — so nothing
+             may be inserted between them, and chart 3's x-axis title is suppressed in the draw
+             code because this one carries it for both. #}
+          <div>
+            <h4 class="text-sm font-semibold">{{ _('And how full is the battery?') }}</h4>
+            {# `h-64` like the three charts above, NOT a shorter `h-48`. app/static/app.css is a
+               COMMITTED pre-built Tailwind bundle (see package.json — the app needs no Node at
+               runtime), so it contains only the utility classes the templates already used. `h-48`
+               appears nowhere else in this project, so it is absent from that bundle: the div got
+               no height rule at all and Plotly fell back to its own 450px default, making this
+               chart taller than the ones it sits under instead of shorter. Verified in a browser.
+               A shorter frame here would mean rebuilding and re-committing the CSS. #}
+            <div id="flows-soc" class="h-64 w-full"></div>
           </div>
         </div>
         {% endif %}
@@ -581,16 +600,36 @@
      exported / curtailed) and a source name would be the odd one out. Hence "Consumed directly"
      there. `stackedMonths()` in workspace_results.html applies the override.
 
+     **A THIRD override map, and it renames EVERY bar on the average day.** Same mechanism as
+     chart 2's, but a wider job. Charts 1 and 2 each decompose one total, so their labels can name
+     one endpoint and let the heading supply the other: "From the grid" is unambiguous under "where
+     did the household's energy come from". The average day is DIVERGING — eight segments moving
+     between four places (grid, solar, battery, house) — and under it no single-endpoint name
+     works. The old set had four grammars at once: sources ("From the grid"), destinations ("Into
+     the battery"), events ("Solar exported") and a bare state ("Curtailed"), so the legend read as
+     four kinds of thing rather than eight instances of one.
+
+     Hence `A → B` throughout, naming both endpoints. The arrow also makes the up/down split
+     legible in the legend itself, where "→ house" is exactly the above-axis group. `Solar
+     curtailed` is the one entry without an arrow, correctly: curtailed energy has no destination,
+     which is the whole point of it, and inventing one ("Solar → nowhere") would be cute at the
+     cost of being wrong.
+
+     The arrow is U+2192, not `->`. It is a legend label rendered in the page font, not code.
+
+     "Net grid (import − export)" spells out the arithmetic rather than saying "Net grid": the
+     sign convention is the one thing a reader cannot infer from a line that crosses zero, and
+     getting it backwards inverts the reading of every hour on the chart. The minus is U+2212.
+
+     `household_load` and `soc` are NOT overridden — they are lines, not segments in the transfer
+     grammar, and "Household load" names a quantity rather than a movement.
+
      **`any_pv` rides in the DATA node, unlike `any_partial` and `any_standby`.** Those two gate
      markup this template writes itself, so they are read straight off `results.energy_flows`. The
-     total-PV reference line on the average day is drawn client-side instead, and it has to be
-     suppressed on a household without panels — `simulation_frame` zero-fills an absent PV series,
-     so that case reaches the chart as a flat line on the axis plus a legend entry that answer no
-     question. The note under that chart is gated on the same flag, in the markup above.
-
-     `pv_total` is labelled "Total solar production", not "Solar", so it is separable at a glance
-     from the `pv_to_home` segment sitting in the same legend — the entire point of the line is
-     that the two are different quantities.
+     average day's PV-side segments are drawn client-side instead, and all four (`pv_to_home`,
+     `chg_pv`, `exp_from_pv`, `curtailed`) have to be suppressed together on a household without
+     panels — `simulation_frame` zero-fills an absent PV series, so that case reaches the chart as
+     four legend entries with no marks. The note under that chart is gated on the same flag.
 
      Note for editors: these rationale comments live OUTSIDE the expression below on purpose. A
      Jinja comment placed INSIDE that expression is a syntax error, and the way it fails is quiet
@@ -600,10 +639,11 @@
      written unescaped inside a quoted string: the closing pair ends this comment where it
      appears, and everything after it renders as page text.)
 
-     Only keys some chart actually draws are emitted. `standby` and `chg_grid` have no series in
-     any of the three charts (standby is a sink and is shown as the GAP under the household-load
-     line, never a segment; `chg_grid` is netted out of `imp_home` and is not a PV allocation), so
-     translating names for them would be dead msgids. #}
+     Only keys some chart actually draws are emitted. `standby` still has no series anywhere — it
+     is a sink, shown as the GAP between the household-load line and the stack top, never a
+     segment — so translating a name for it would be a dead msgid. `chg_grid` WAS in that category
+     and no longer is: the average day draws it above the axis, which is what lets the net-grid
+     line be both the meter reading and the sum of the grid-coloured bars. #}
   {% if results.energy_flows %}
   {%- set flows_month_labels = results.energy_flows.months | map('monthname') | list -%}
   <script id="flows-data" type="application/json">
@@ -621,7 +661,6 @@
           "imp_home": _('From the grid'),
           "pv_to_home": _('Directly from solar'),
           "household_load": _('Household load'),
-          "pv_total": _('Total solar production'),
           "chg_pv": _('Into the battery'),
           "exp_from_pv": _('Exported to the grid'),
           "curtailed": _('Curtailed'),
@@ -629,6 +668,17 @@
         },
         "labels_pv_allocation": {
           "pv_to_home": _('Consumed directly')
+        },
+        "labels_average_day": {
+          "dis_home": _('Battery → house'),
+          "imp_home": _('Grid → house'),
+          "pv_to_home": _('Solar → house'),
+          "chg_grid": _('Grid → battery'),
+          "exp_from_pv": _('Solar → grid'),
+          "dis_grid": _('Battery → grid'),
+          "chg_pv": _('Solar → battery'),
+          "curtailed": _('Solar curtailed'),
+          "net_grid": _('Net grid (import − export)')
         }} | tojson }}
   </script>
   {% endif %}

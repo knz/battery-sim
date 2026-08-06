@@ -331,13 +331,21 @@
         exp_from_pv: '#22c55e', // sun → grid (green)
         curtailed: '#dc2626',   // sun thrown away (red: the only segment that is a loss)
         household_load: '#1f2937',
-        // Total PV production, the average day's second reference line. A DEEPER amber than
-        // `pv_to_home`'s: it must read as the same family (both are solar, and the line bounds
-        // that segment from above) while staying separable from it and from the near-black load
-        // line beside it. A colour from elsewhere in the map would have implied a different
-        // quantity; reusing `pv_to_home`'s exactly would have made the gap between them the one
-        // thing on the chart that is hard to see.
-        pv_total: '#b45309',
+        // Net meter position, the average day's second reference line. A DEEPER slate than the two
+        // grey grid segments it sums (`imp_home` #6b7280, `chg_grid` #94a3b8), so it reads as the
+        // same family — it IS the grid terms, netted.
+        //
+        // Measured, because the numbers here are worse than they look and the next person to
+        // "improve" this colour should know what they are trading:
+        //     vs chg_grid  4.04:1     vs imp_home  2.14:1     vs household_load  1.42:1
+        // Only the first clears the 3:1 WCAG floor for non-text graphics. The conflict is real
+        // rather than an oversight: darkening to separate from the greys collapses onto the
+        // near-black load line (#1e293b measures 1.00:1 against it — the same colour), and
+        // lightening does the reverse. No slate satisfies both constraints simultaneously.
+        //
+        // So SHAPE carries this trace, not colour: dashed at width 3 against the load line's solid
+        // width 2. That is a deliberate second cue for the pair that overlaps most, not a fallback.
+        net_grid: '#334155',
         soc: '#570df8'
       };
 
@@ -418,57 +426,122 @@
         //    energy is not the same quantity as kWh moved per hour, so it cannot share the left
         //    axis).
         //
-        //    The bars are chart 1 over hours instead of months: the SAME THREE SOURCES, the same
-        //    colours, and the same `household_load` reference line, so the daily shape reads
-        //    against the monthly one. `chg_pv` is deliberately NOT on this stack — it is PV going
-        //    INTO the battery, a sink, and adding it to three load-side sources gives a bar total
-        //    that is no physical quantity at all, overstating consumption by the charging rate
-        //    right where the midday peak is. Same reason `standby` is off chart 1's stack.
+        //    DIVERGING, and unlike charts 1 and 2 it is not a decomposition of a single total.
+        //    The axis splits the balance by DIRECTION:
+        //
+        //      above 0   entering the house    dis_home, imp_home, pv_to_home, chg_grid
+        //      below 0   leaving it or stored  exp_from_pv, dis_grid, chg_pv, curtailed
+        //
+        //    This is NOT chart 1's stack over hours, and the difference is deliberate. `chg_grid`
+        //    is grid energy going INTO the battery — a sink standing among three sources, which
+        //    would be wrong under chart 1's question and is right under this one. Its consequence
+        //    is that `household_load` no longer bounds the stack: it sits below the top by standby
+        //    PLUS grid charging, where on chart 1 that gap is standby alone. The note under this
+        //    chart says so, and is NOT the same msgid as chart 1's for exactly that reason.
+        //
+        //    Plotly stacks negative y values downward within `barmode: 'stack'` on its own, so the
+        //    below-axis group needs no separate axis or offset — only negated data, which is done
+        //    here at draw time rather than in the payload. The payload keeps every flow POSITIVE
+        //    because that is what the quantity is: `curtailed` is not negative energy, it is
+        //    energy shed, and a view model that signed it would push a presentation choice into
+        //    the arithmetic every other consumer shares.
         var a = d.average_day;
-        var dayBars = ['dis_home', 'imp_home', 'pv_to_home'].map(function (k) {
+        var UP = ['dis_home', 'imp_home', 'pv_to_home', 'chg_grid'];
+        var DOWN = ['exp_from_pv', 'dis_grid', 'chg_pv', 'curtailed'];
+        // The PV-side segments, suppressed together when the window generated nothing. All four
+        // are identically zero for a household with no panels (an absent PV series is zero-filled
+        // upstream), so drawing them would add legend entries and no marks. `imp_home`, `chg_grid`
+        // and `dis_grid` are NOT gated: those are grid and battery terms, real without panels.
+        var pvKeys = { pv_to_home: 1, chg_pv: 1, exp_from_pv: 1, curtailed: 1 };
+        function keep(k) { return d.any_pv || !pvKeys[k]; }
+        // Third label map, layered like chart 2's but covering EVERY bar. The shared labels name
+        // one endpoint ("From the grid") and let a heading supply the other, which works on a
+        // single-total decomposition and not here: this chart moves energy between four places, so
+        // each segment is named "A → B". See the note beside the map in _panel_results.html.
+        var dayNames = d.labels_average_day || {};
+        function dayName(k) { return dayNames[k] || d.labels[k]; }
+        var dayBars = UP.filter(keep).map(function (k) {
           return {
-            type: 'bar', name: d.labels[k], x: a.hours, y: a[k],
+            type: 'bar', name: dayName(k), x: a.hours, y: a[k],
             marker: { color: FLOW_COLORS[k] }
           };
         });
+        dayBars = dayBars.concat(DOWN.filter(keep).map(function (k) {
+          return {
+            type: 'bar', name: dayName(k), x: a.hours,
+            y: a[k].map(function (v) { return v === null ? null : -v; }),
+            marker: { color: FLOW_COLORS[k] },
+            // Hover would otherwise read "−1.4 kWh exported", which states a direction the axis
+            // already carries and invites reading the minus as a loss. Show the magnitude.
+            customdata: a[k],
+            hovertemplate: '%{customdata} <extra>%{fullData.name}</extra>'
+          };
+        }));
         dayBars.push({
           type: 'scatter', mode: 'lines', name: d.labels.household_load,
           x: a.hours, y: a.household_load,
           line: { color: FLOW_COLORS.household_load, width: 2 }
         });
-        // TOTAL PV production, the second reference line — on the PRIMARY axis, because it is kWh
-        // moved per hour exactly like the bars are. The stack is the load-sourcing decomposition,
-        // in which solar appears only as `pv_to_home`; the PV that charged the battery, was
-        // exported or was curtailed is on none of the bars, and at midday that is routinely the
-        // larger part of production. The gap between this line and the `pv_to_home` segment is
-        // that PV. Suppressed entirely when the window generated none — an absent PV series is
-        // zero-filled upstream, so drawing it anyway would add a flat line on the axis and a
-        // legend entry to a household that has no panels. The note under the chart is gated on
-        // the same flag, in the template.
-        if (d.any_pv) {
-          dayBars.push({
-            type: 'scatter', mode: 'lines', name: d.labels.pv_total,
-            x: a.hours, y: a.pv_total,
-            // Wider than the other two reference lines, and dashed. The colour alone does not
-            // carry this trace: `pv_total` and `pv_to_home` are the same amber family on purpose
-            // (both are solar) and measure 2.46:1 against each other, under the 3:1 WCAG floor for
-            // non-text graphics — so where the line crosses the segment it bounds, contrast is the
-            // weakest cue on the chart. Width + dash are what keep it readable there.
-            line: { color: FLOW_COLORS.pv_total, width: 3, dash: 'dash' }
-          });
-        }
+        // NET position at the meter, positive for a net import — the one trace that crosses the
+        // axis, which is what makes the diverging layout say something a pair of stacks could not:
+        // where it cuts zero is the hour the house flips from buying to selling. On the PRIMARY
+        // axis, because it is kWh moved per hour exactly like the bars. It is simultaneously the
+        // meter reading and the algebraic sum of the four grid-coloured segments; those agree only
+        // because `chg_grid` is drawn. Dashed and wider, because it overlaps `imp_home`'s grey
+        // wherever the house is a net importer and needs a cue other than colour there.
         dayBars.push({
-          type: 'scatter', mode: 'lines', name: d.labels.soc,
-          x: a.hours, y: a.soc, yaxis: 'y2',
-          line: { color: FLOW_COLORS.soc, width: 2, dash: 'dot' }
+          type: 'scatter', mode: 'lines', name: dayName('net_grid'),
+          x: a.hours, y: a.net_grid,
+          line: { color: FLOW_COLORS.net_grid, width: 3, dash: 'dash' }
         });
         Plotly.newPlot('flows-avgday', dayBars, {
-          barmode: 'stack',
-          margin: { t: 10, r: 40, b: 40, l: 40 },
-          xaxis: { title: d.hour_title, dtick: 3 },
-          yaxis: { title: d.ytitle },
-          yaxis2: { title: d.soc_title, overlaying: 'y', side: 'right', rangemode: 'tozero' },
+          barmode: 'relative',
+          // Bottom margin trimmed and the x-axis title dropped: chart 4 sits directly beneath with
+          // the same hours on its axis, and labelling both would say "Hour of day" twice down one
+          // column. The tick LABELS stay — they are what let a reader carry an hour between the
+          // two frames.
+          margin: { t: 10, r: 10, b: 24, l: 40 },
+          xaxis: { dtick: 3 },
+          // `zeroline` is load-bearing here, not styling: it is the boundary the whole chart is
+          // built around, and Plotly's default hairline is too faint to read as one.
+          yaxis: { title: d.ytitle, zeroline: true, zerolinewidth: 2, zerolinecolor: '#374151' },
           legend: { orientation: 'h', y: -0.25 },
+          paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+          font: { size: 11 }
+        }, { displayModeBar: false, responsive: true });
+
+        // 4. State of charge across the same average day, in its OWN FRAME rather than on a
+        //    secondary axis of chart 3.
+        //
+        //    SoC is a STOCK — kWh held at an instant — and every bar above it is a FLOW, kWh moved
+        //    during an hour. Overlaying them shared one plot area between two quantities that
+        //    cannot be compared by height, so a SoC line crossing a bar top read as meaningful and
+        //    was not. (Matching the two ranges was tried first, on the argument that one-hour
+        //    buckets make kWh-per-hour numerically equal to mean kW: true, but it made a 10 kWh
+        //    store dictate the scale of 3 kWh/h flows and flattened the bars the chart is about.)
+        //
+        //    Separate frames drop the comparison-by-height entirely and keep the only comparison
+        //    that was ever valid: SHAPE against shape, hour by hour, read down the column. The
+        //    x-axes are identical by construction — both take `a.hours` — so a time is at the same
+        //    horizontal position in both, which is what makes "the battery fills while solar goes
+        //    to the grid" legible across the pair.
+        //
+        //    `rangemode: 'tozero'` because a stock has a meaningful zero: an empty battery. Left to
+        //    autoscale, a day whose SoC never drops below 4 kWh would draw a floor at 4 and imply
+        //    the battery emptied.
+        Plotly.newPlot('flows-soc', [{
+          type: 'scatter', mode: 'lines', name: d.labels.soc,
+          x: a.hours, y: a.soc,
+          // Solid and filled, unlike its old dotted-overlay form: nothing shares this frame, so
+          // the dash that separated it from the bars is no longer earning anything, and the fill
+          // reads as a level in a store.
+          line: { color: FLOW_COLORS.soc, width: 2 },
+          fill: 'tozeroy', fillcolor: 'rgba(87, 13, 248, 0.12)'
+        }], {
+          margin: { t: 10, r: 10, b: 40, l: 40 },
+          xaxis: { title: d.hour_title, dtick: 3 },
+          yaxis: { title: d.soc_title, rangemode: 'tozero' },
+          showlegend: false,
           paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
           font: { size: 11 }
         }, { displayModeBar: false, responsive: true });

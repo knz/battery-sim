@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-06 15:31+0200\n"
+"POT-Creation-Date: 2026-08-06 16:09+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -228,6 +228,9 @@ msgid ""
 "and the battery you are considering."
 msgstr ""
 
+msgid "And how full is the battery?"
+msgstr ""
+
 msgid ""
 "Answer yes only to supply your existing battery's charge and discharge "
 "series. They are used solely to work out what your house actually "
@@ -258,6 +261,11 @@ msgstr ""
 msgid "Band C"
 msgstr ""
 
+msgid ""
+"Bars above the line show energy entering the house; below, energy leaving"
+" it or charging the battery."
+msgstr ""
+
 msgid "Base URL"
 msgstr ""
 
@@ -268,6 +276,12 @@ msgid "Battery charge"
 msgstr ""
 
 msgid "Battery discharge"
+msgstr ""
+
+msgid "Battery → grid"
+msgstr ""
+
+msgid "Battery → house"
 msgstr ""
 
 msgid "Benchmark: grid import avoided"
@@ -646,6 +660,12 @@ msgstr ""
 msgid "Grid production"
 msgstr ""
 
+msgid "Grid → battery"
+msgstr ""
+
+msgid "Grid → house"
+msgstr ""
+
 msgid "Grid-coupled battery"
 msgstr ""
 
@@ -809,6 +829,9 @@ msgid "NO WARRANTY"
 msgstr ""
 
 msgid "Name"
+msgstr ""
+
+msgid "Net grid (import − export)"
 msgstr ""
 
 msgid "Net saving"
@@ -1036,10 +1059,22 @@ msgstr ""
 msgid "Solar"
 msgstr ""
 
+msgid "Solar curtailed"
+msgstr ""
+
 msgid "Solar production"
 msgstr ""
 
 msgid "Solar surplus only (net zero at the grid)"
+msgstr ""
+
+msgid "Solar → battery"
+msgstr ""
+
+msgid "Solar → grid"
+msgstr ""
+
+msgid "Solar → house"
 msgstr ""
 
 msgid ""
@@ -1241,11 +1276,6 @@ msgid ""
 msgstr ""
 
 msgid ""
-"The solar line is total production; the rest charged the battery or went "
-"to the grid."
-msgstr ""
-
-msgid ""
 "The statutory feed-in floor paid out over this period. It is assessed "
 "over a whole billing period rather than hour by hour, so it appears as "
 "its own line in the money breakdown and is left out of the monthly "
@@ -1364,9 +1394,6 @@ msgid ""
 msgstr ""
 
 msgid "Token"
-msgstr ""
-
-msgid "Total solar production"
 msgstr ""
 
 msgid "Two conversions PV→battery"
