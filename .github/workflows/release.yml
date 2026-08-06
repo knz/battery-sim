@@ -115,6 +115,12 @@ on:
 permissions:
   contents: read
 
+# Pinned build tool for the desktop-bundle matrix, which invokes PyInstaller directly instead of
+# going through build-linux.sh. The Linux/AppImage job is NOT covered by this — it runs
+# build-linux.sh, which carries its own PYINSTALLER_VERSION. Bump both together.
+env:
+  PYINSTALLER_VERSION: "6.21.0"
+
 jobs:
   version-gate:
     name: Tag matches app.__version__
@@ -308,13 +314,18 @@ jobs:
       # PyInstaller is installed as a build tool rather than declared in pyproject.toml, matching
       # what build-linux.sh does on Linux.
       #
-      # Unpinned, and worth knowing: PyInstaller is not in uv.lock, so a release picks up whatever
-      # version is current that day. build-linux.sh has the same property, so this is pre-existing
-      # rather than introduced here — but it does mean the release build is not fully reproducible.
+      # Pinned, because PyInstaller is not in uv.lock and an unpinned install would otherwise pick
+      # up whatever version is current on the day the release runs. These runners invoke
+      # PyInstaller directly rather than through build-linux.sh, so the pin has to be repeated
+      # here; keep the workflow-level PYINSTALLER_VERSION in step with build-linux.sh.
+      #
+      # `${{ env.… }}` rather than a shell variable: this matrix includes windows-latest, where
+      # `run:` defaults to PowerShell and `$PYINSTALLER_VERSION` would expand to nothing, turning
+      # the pin into a bare `pyinstaller==`. Actions expansion happens before the shell sees it.
       - name: Install runtime dependencies and PyInstaller
         run: |
           uv sync --no-dev
-          uv pip install pyinstaller
+          uv pip install "pyinstaller==${{ env.PYINSTALLER_VERSION }}"
 
       # `--no-sync` is load-bearing, not tidiness. A plain `uv run` re-syncs the environment
       # against the lockfile before running, which breaks the step above in two ways at once.

@@ -61,6 +61,18 @@ OUT="$DIST/Home-Battery-Simulator-x86_64.AppImage"
 # with APPIMAGETOOL=/path/to/appimagetool if the machine has no network.
 APPIMAGETOOL="${APPIMAGETOOL:-}"
 
+# Pinned to a dated release rather than the `continuous` tag, which upstream re-publishes in
+# place: under `continuous` two builds of identical source weeks apart can be produced by
+# different appimagetool binaries, with no record of which one made a given release.
+#
+# What the hash does and does not guarantee: upstream ships no signature or digest asset for this
+# release (the release carries only the four per-architecture binaries), so this is the SHA256 of
+# the artifact fetched on 2026-08-06. It pins later builds to those exact bytes and catches a
+# truncated or substituted download; it is NOT an independent check against a publisher-signed
+# manifest. If the pin is bumped, re-record the hash from the new download.
+APPIMAGETOOL_VERSION="1.9.1"
+APPIMAGETOOL_SHA256="ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0"
+
 SYS_LIB="/usr/lib/$ARCH_TRIPLET"
 SYS_TYPELIB="$SYS_LIB/girepository-1.0"
 # Debian/Ubuntu put PyGObject in the SYSTEM python's dist-packages, which is exactly why a uv
@@ -488,10 +500,27 @@ fi
 
 if [ -z "$APPIMAGETOOL" ]; then
     APPIMAGETOOL="$DIST/appimagetool.AppImage"
+    # The cached copy is verified too, not just a fresh download: a bundle left in dist/ by a
+    # build from before the pin would otherwise be reused silently, which is the same
+    # unreproducibility the pin exists to remove. A mismatch re-fetches rather than failing.
+    if [ -x "$APPIMAGETOOL" ] \
+       && ! echo "$APPIMAGETOOL_SHA256  $APPIMAGETOOL" | sha256sum --check --status; then
+        echo "==> cached appimagetool does not match the pin; re-fetching"
+        rm -f "$APPIMAGETOOL"
+    fi
     if [ ! -x "$APPIMAGETOOL" ]; then
-        echo "==> fetching appimagetool"
-        curl -fsSL -o "$APPIMAGETOOL" \
-            https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+        echo "==> fetching appimagetool $APPIMAGETOOL_VERSION"
+        # Download to a temp name and move only after the hash matches, so an interrupted or
+        # corrupted fetch cannot leave a file that the check above would later trust.
+        curl -fsSL -o "$APPIMAGETOOL.tmp" \
+            "https://github.com/AppImage/appimagetool/releases/download/$APPIMAGETOOL_VERSION/appimagetool-x86_64.AppImage"
+        if ! echo "$APPIMAGETOOL_SHA256  $APPIMAGETOOL.tmp" | sha256sum --check --status; then
+            echo "appimagetool checksum mismatch: expected $APPIMAGETOOL_SHA256, got" >&2
+            sha256sum "$APPIMAGETOOL.tmp" >&2
+            rm -f "$APPIMAGETOOL.tmp"
+            exit 1
+        fi
+        mv "$APPIMAGETOOL.tmp" "$APPIMAGETOOL"
         chmod +x "$APPIMAGETOOL"
     fi
 fi
