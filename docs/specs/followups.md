@@ -458,6 +458,23 @@ sentence that asserts a fact about layout, configuration, or which other element
 are the sentences with no test behind them.
 *Origin:* `20260806-chart-tab-restructure.md`.
 
+**G6. A plural catalog entry's `string` is a TUPLE, so an emptiness check written for scalars
+passes it over.** Repairing the catalogs after a rebase, a script decided which entries needed
+filling with `if msg.string`. For a plural entry that value is `('', '')` when nothing is
+translated — truthy — so every untranslated plural looked already-filled and was skipped in
+silence. Two Dutch plurals shipped empty.
+
+The i18n suites did not catch it; `test_panel_cumulative_row_renders_through_the_real_template_in_both_locales`
+(`tests/test_data_summary.py`) did, on the whole-suite run afterwards. That test renders the macro
+in Dutch and asserts the English sentence does not appear, which is a different and stronger claim
+than "the `.po` has an entry".
+
+Any code deciding whether a catalog entry is translated must treat plural and singular alike —
+empty means every form is empty. Worth remembering the next time a rebase resolves the five
+generated locale files by taking one side: two of them are binary `.mo` files, so that resolution
+is effectively forced, and the repair pass afterwards is where this bites.
+*Origin:* `20260806-chart-tab-restructure.md`.
+
 ## H. Deferred by the cost-simulation increment (2026-07-25)
 
 Items this increment deliberately left out of scope. Unlike A–G above, these were **not** inherited

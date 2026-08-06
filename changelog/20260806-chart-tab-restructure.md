@@ -243,13 +243,31 @@ restored from master's own catalog by exact msgid match — copied, never
 retranslated, and only where master had a non-fuzzy string for the identical
 msgid. Dutch is complete again at 565 entries.
 
-English shows 151 entries with no string, which is NOT a regression: master's
+English shows ~150 entries with no string, which is NOT a regression: master's
 own `en` catalog has 140 of the same kind. English msgids fall through to
 themselves by existing convention.
 
+**The first repair pass silently skipped every PLURAL entry**, and the i18n
+suites did not catch it. The script tested `if msg.string` to decide whether an
+entry needed filling, but for a plural entry `string` is a TUPLE of forms, and
+`('', '')` is truthy — so an entirely untranslated plural looked already-filled
+and was passed over. Two Dutch plurals stayed empty, including the
+cumulative-column warning master had just added.
+
+What caught it was
+`test_panel_cumulative_row_renders_through_the_real_template_in_both_locales`
+in `tests/test_data_summary.py`, which renders the macro in Dutch and asserts
+the English sentence does NOT appear — a test written precisely because
+asserting on the `.po` would not show whether the entry compiled. It failed in
+the whole-suite run after the i18n suites had passed, which is the argument for
+having run the whole suite rather than the focused set after a rebase.
+
+Second pass treats an entry as untranslated when EVERY form is empty. Dutch is
+now complete with zero empty entries. Three English plurals remain empty and
+are empty in master too — checked, not assumed.
+
 Verified from the compiled `.mo` files rather than the `.po` source, per G2,
-and by running the i18n suites (205 tests) plus the whole suite minus
-`test_benchmark.py`.
+and by running the whole suite minus `test_benchmark.py`.
 
 ## Current status
 
