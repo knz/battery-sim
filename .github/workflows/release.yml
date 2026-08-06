@@ -4,7 +4,7 @@
 #     version-gate     assert the pushed tag agrees with `app.__version__`; blocks everything.
 #     linux            build-appimage.sh, then verify the artifact, then upload. BLOCKING.
 #     desktop-bundle   PyInstaller onedir, as a matrix over macos-26, macos-26-intel and
-#                      windows-latest. All three continue-on-error; see below.
+#                      windows-latest. All three BLOCKING since 2026-08-06; see below.
 #     release          collect whatever was produced into a DRAFT GitHub release.
 #
 # ## Why the version gate runs first and blocks
@@ -43,12 +43,24 @@
 # 2.39 and will NOT run on Debian 12 or anything older. That is accepted for now; building in an
 # older-glibc container is the portable route and is not done here.
 #
-# ## The non-Linux jobs are continue-on-error, and what that is absorbing
+# ## The non-Linux jobs are BLOCKING, and what is still unfinished about them
 #
-# It is not "untested CI" — all three ran and passed on 2026-08-05 (run 31032747998; the Windows
-# job produced a working battery-sim.exe and a 32MB artifact in 57 seconds). It is genuinely
-# unfinished packaging work. There is no macOS or Windows build script — build-linux.sh is bash
-# with POSIX paths — so these jobs invoke `pyinstaller packaging/battery-sim.spec` directly.
+# They were `continue-on-error: true` until 2026-08-06. That flag did exactly one thing: it kept a
+# broken build from reddening the run. It never gated publishing — nothing here inspects signature
+# state, and the release job's own `always() && needs.linux.result == 'success'` condition already
+# guaranteed the thing the flag was nominally protecting, namely that a dead macOS runner cannot
+# withhold a working Linux release. So it was redundant, and its cost was real: an amber job is one
+# nobody looks at, and a broken Windows build would have surfaced as a user reporting a missing
+# download rather than as a red tag run.
+#
+# Removed after verifying per-job conclusions (not just the run's top-level status, which is what
+# continue-on-error manufactures) on runs 31094839305 and 31093496577, both 2026-08-06, both with
+# all three desktop jobs green.
+#
+# There is no macOS or Windows build script — build-linux.sh is bash with POSIX paths — so these
+# jobs invoke `pyinstaller packaging/battery-sim.spec` directly. The "(unfinished)" in each matrix
+# label refers to the packaging gaps below, NOT to the jobs' reliability: building and signing are
+# separate properties, and only the first is done.
 #
 # Windows has since been tightened: the spec now sets an icon and generates a VERSIONINFO
 # resource carrying the version and the build SHA, so the exe is identifiable once downloaded.
@@ -70,11 +82,15 @@
 # quarantines the download, so the first-run refusal documented in docs/*/security-warnings.md is
 # expected. See the BUNDLE block in packaging/battery-sim.spec for the full reasoning.
 #
-# The intent is that this is temporary. Each platform should be tightened to blocking once it has
-# gone green once and its output has been looked at. A job that is allowed to stay amber
-# indefinitely carries no information and is indistinguishable from having no job at all — if
-# these are still continue-on-error several releases from now, that is a signal to either finish
-# the packaging or delete the jobs.
+# That tightening has now happened, which is what the section above records. What remains open is
+# the packaging itself — signing on both platforms, an installer on Windows — and those gaps are
+# invisible to CI either way, since an unsigned bundle builds perfectly well. Blocking on build
+# failure does not and cannot track them.
+#
+# Two consequences worth knowing before the next red run is blamed on this change. Both were
+# previously absorbed silently and now fail the run: a retired runner label (macos-26-intel dies
+# with macos-15 in Fall 2027), and PyInstaller being unpinned in both this workflow and
+# build-linux.sh, so a bad upstream release lands directly in a tag build.
 #
 # ## Runner labels for macOS
 #
@@ -276,13 +292,15 @@ jobs:
 
   # ── the unfinished platforms ────────────────────────────────────────────────
   #
-  # One matrix, three runners. See the header for what continue-on-error is absorbing here and
-  # why it should not stay.
+  # One matrix, three runners. Blocking since 2026-08-06; see the header. "Unfinished" here means
+  # unsigned, and on Windows without an installer — not unreliable.
 
   desktop-bundle:
     name: ${{ matrix.label }}
     needs: version-gate
-    continue-on-error: true
+    # `fail-fast: false` is kept and is independent of the blocking question: one platform failing
+    # must not cancel the other two mid-build, or a release run reports the state of one runner
+    # instead of three.
     strategy:
       fail-fast: false
       matrix:
@@ -400,9 +418,13 @@ jobs:
     name: Draft the GitHub release
     needs: [linux, desktop-bundle]
     timeout-minutes: 15
-    # `always()` so a failed continue-on-error platform does not withhold the release; the Linux
-    # job is blocking and is checked explicitly, so a broken macOS build cannot stop a working
-    # Linux one from shipping, while a broken Linux build still stops everything.
+    # `always()` so a failed desktop platform does not withhold the release; the Linux job is
+    # checked explicitly, so a broken macOS build cannot stop a working Linux one from shipping,
+    # while a broken Linux build still stops everything.
+    #
+    # This is load-bearing and became MORE so on 2026-08-06. It is what actually protects the
+    # Linux release, and it is why continue-on-error on the desktop matrix was redundant. Without
+    # `always()`, a failed desktop job would now skip this job and withhold the release entirely.
     if: always() && needs.linux.result == 'success' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     permissions:
@@ -426,9 +448,11 @@ jobs:
       - name: List what was collected
         run: find artifacts -type f -printf '%p  (%s bytes)\n'
 
-      # Draft, deliberately. Any of the continue-on-error platforms may be missing entirely — so a
-      # release can arrive with fewer downloads than the README promises, and nothing here checks
-      # that — nothing is code-signed, and the release notes need a human anyway. Publishing is a
+      # Draft, deliberately. A desktop platform may still be missing entirely — the jobs block the
+      # run now, but `always()` above means the release is still drafted from whatever was
+      # produced, and `fail_on_unmatched_files: false` below tolerates the gap. So a release can
+      # still arrive with fewer downloads than the README promises, and nothing here checks that.
+      # Nothing is code-signed either, and the release notes need a human anyway. Publishing is a
       # decision, not a side effect of pushing a tag.
       #
       # The macOS attachment is a zipped `Home Battery Simulator.app` (see the header), not the raw
