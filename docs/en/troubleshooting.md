@@ -19,6 +19,23 @@ Note the log covers the LAUNCHER, not the whole app: redirection starts once the
 is resolved, so argument-parsing errors and --help still go to the terminal only. That is why the
 page says "if the app started at all".
 
+The certificate section is the one failure here that is NOT a launcher problem — the app started,
+the connection to HA is what failed — so it sits apart from the log-file flow. The import runs in
+the browser (app/static/ha_fetch.js opens the WebSocket to HA directly), so the trust decision
+belongs to the system trust store, not to anything this project controls. If the import ever
+moves server-side, this advice changes: Python's trust store would govern, not the keychain.
+
+Paired with ws_connect_failed in ha_fetch.js, which links here — reword one, check the other.
+That message lists three candidate causes rather than naming TLS because the WebSocket error
+event carries no reason: a TLS rejection, a wrong host and a stopped HA are indistinguishable.
+
+The "Accepting it in a browser does not work" section is not answering the message; it answers a
+habit. The window is pywebview using the OS renderer, which reads the SYSTEM store, while a
+browser exception is stored per-browser. Keep the section even if the message changes.
+
+macOS and Linux steps are user-reported and confirmed. Windows is reasoned by analogy and says
+so; drop the hedge when someone verifies it.
+
 Dutch counterpart: ../nl/probleemoplossing.md.
 -->
 
@@ -29,6 +46,7 @@ you cannot find the page in your browser, that file is the first place to look �
 useful thing to attach to a bug report.
 
 **Go straight to:** [Finding the log](#finding-the-log) · [Finding the address](#finding-the-address) ·
+[Certificate errors connecting to Home Assistant](#test-connection-fails-with-a-certificate-error) ·
 [Reporting a problem](#reporting-a-problem)
 
 ## Finding the log
@@ -87,6 +105,57 @@ Two other lines worth knowing when you see them:
   or close the other one first.
 - **A line mentioning a fallback or a window that could not open** — the app could not draw its
   own window and fell back to your browser. The app still works; the address is in the same log.
+
+## "Test connection" fails with a certificate error
+
+**Test connection** can fail with the address and the token both correct. The app cannot tell you
+why — the browser reports the failure without a reason — so its message names all three
+candidates: the address, whether Home Assistant is running, and the certificate.
+
+The certificate is the likely one if your Home Assistant uses HTTPS with a certificate your
+machine does not already trust: typically one from your own certificate authority, or a
+self-signed one.
+
+You are unlikely to hit this if Home Assistant runs on plain `http://`, or if you use Nabu Casa
+(Home Assistant Cloud), whose certificate comes from an authority your system already trusts.
+
+The fix: trust the **root CA certificate** — the authority's own certificate, not the one issued
+to Home Assistant. Every certificate that CA issues is then accepted, so re-issuing the Home
+Assistant one later does not bring the problem back. Restart the app afterwards.
+
+### macOS
+
+1. Open the root CA certificate file; this usually opens **Keychain Access**.
+2. Add it to the **login** keychain, or **System** to cover everyone on the machine.
+3. Open it in the list, expand **Trust**, and set **When using this certificate** to
+   **Always Trust**.
+
+### Linux
+
+On Ubuntu:
+
+```
+sudo cp your-root-ca.crt /usr/local/share/ca-certificates/
+sudo update-ca-certificates
+```
+
+The file must have a `.crt` extension and PEM contents. Other distributions use different paths
+and commands — check your distribution's documentation for its system trust store.
+
+### Windows
+
+Import the root CA into **Trusted Root Certification Authorities**. We have not verified the
+steps; if you work them out, please tell us in an issue and we will add them.
+
+### Accepting it in a browser does not work
+
+Clicking through a certificate warning in Safari, Chrome or Firefox stores an exception in that
+browser alone. The app draws its own window with the renderer your operating system provides, and
+that window reads the **system** trust store — where a browser's exception never appears. Firefox
+also keeps its own store on Linux, so trusting a CA there does not add it system-wide either.
+
+Please do not disable certificate checking to get past this. It removes the protection the
+certificate exists to provide, and trusting your own CA is not much more work.
 
 ## Reporting a problem
 

@@ -244,7 +244,10 @@ def test_placeholder_carrying_strings_keep_their_placeholders_in_both_locales():
             "connected_counts": {"energy", "price"},
             "ingest_rejected": {"reason"},
             "ws_open_failed": {"url"},
-            "ws_connect_failed": {"url"},
+            # Carries the docs URL, not the HA address: the message points at the troubleshooting
+            # page rather than telling the user to accept the certificate in a browser, which
+            # would not reach the pywebview window that renders the app.
+            "ws_connect_failed": {"docs"},
         }.items():
             found = set(re.findall(r"%\((\w+)\)s", block[key]))
             assert found == names, f"{code}/{key}: expected {sorted(names)}, got {sorted(found)}"

@@ -636,7 +636,14 @@
      `csv_error_generic` is the fallback for two distinct cases and covers both honestly: a `detail`
      that is a bare STRING (python-multipart enforces its own part limits before our handler runs and
      Starlette owns that response), and a code this table does not know — which is what a
-     newly-added parser code looks like to a catalog that has not caught up. #}
+     newly-added parser code looks like to a catalog that has not caught up.
+
+     ## `docs_troubleshooting`
+
+     A URL carried as a translatable string on purpose: the Dutch catalog translates it to the
+     Dutch page, so the language chosen for the UI also picks the language of the page a failure
+     message sends the user to. Hard-coding it in ha_fetch.js would have pinned every locale to
+     the English page. #}
 {%- set drawer_i18n = {
       "loading": _("Loading…"),
       "load_failed": _("Could not load. Please try again."),
@@ -655,7 +662,8 @@
       "connected_counts": _("✓ Connected · %(energy)s energy + %(price)s measurement statistics"),
       "failed_reason": _("✗ %(reason)s"),
       "ws_open_failed": _("Could not open a WebSocket to %(url)s."),
-      "ws_connect_failed": _("Connection failed. Check the URL, and that your browser trusts the certificate (open %(url)s once to accept it)."),
+      "docs_troubleshooting": _("https://github.com/knz/battery-sim/blob/master/docs/en/troubleshooting.md"),
+      "ws_connect_failed": _("Connection failed. Check that the address is right, that Home Assistant is running, and — if it uses HTTPS — that this machine trusts its certificate. Help: %(docs)s"),
       "ws_closed": _("connection closed"),
       "ha_token_rejected": _("Home Assistant rejected the token."),
       "ha_error": _("HA error"),
