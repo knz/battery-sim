@@ -105,24 +105,45 @@ Windows build. `changelog/20260806-windows-tzdata.md` lists that as unverified.
 - **The packaged suite still runs and still matters.** Items 1–6 assert APPLICATION
   behaviour; none observes whether a bundle carries what that behaviour needs. Adding the
   unpackaged half is not an argument for dropping the packaged half.
-- **`test_babel_locale_data_is_bundled` is still failing in the Linux release job.** Nothing
-  here fixes it. Confirmed on run 31186803969, which failed on exactly that test and nothing
-  else:
-
-      FAILED tests/test_packaged.py::test_babel_locale_data_is_bundled -
-      AssertionError: no CLDR English month abbreviation on the en results screen
-
-  The message is the predicted one: the fixture's workspace has no simulation, so both
-  guarded month nodes are absent and the grep for `Mar` finds nothing. It is a fixture/probe
-  mismatch, not missing data — `test_the_cldr_locale_data_is_in_the_bundle` passed in the
-  same run, proving the CLDR files ARE in that bundle.
-
-  Its fate is now a smaller decision than before: its end-to-end property runs unpackaged
-  (item 6) and its bundle property is asserted directly (item 7), so it is redundant rather
-  than load-bearing. Options remain what the analysis listed — narrow it to the
-  number-separator check, seed the packaged fixture with a simulation, or drop it. Left for
-  the user deliberately; it was out of the approved scope.
+- ~~**`test_babel_locale_data_is_bundled` is still failing in the Linux release job.**~~
+  **Resolved: the test was removed.** See "Item 8" below.
 - The feedback delay (packaging jobs are dispatch-only) is untouched; that is CI policy.
+
+## Item 8: `test_babel_locale_data_is_bundled` removed
+
+Added after release run 31186803969, on the user's decision (option 3 of the three the
+analysis listed: narrow it, seed its fixture, or drop it).
+
+**What the run established first.** It failed on exactly that test and nothing else:
+
+    FAILED tests/test_packaged.py::test_babel_locale_data_is_bundled -
+    AssertionError: no CLDR English month abbreviation on the en results screen
+
+The predicted message. The fixture's workspace has no simulation, so both guarded month
+nodes are absent and the grep for `Mar` finds nothing. Crucially this is a **probe failure,
+not missing data** — `test_the_cldr_locale_data_is_in_the_bundle` PASSED in the same run
+against the same bundle, so the CLDR files demonstrably arrived.
+
+**Why dropping rather than repairing.** Both properties the test covered now run elsewhere,
+each in a place better suited to it:
+
+| Property | Now asserted by |
+|---|---|
+| the CLDR `.dat` files reached the bundle | `test_the_cldr_locale_data_is_in_the_bundle` (item 7) — reads `_internal`, immune to template changes |
+| the labels render correctly per locale, end to end | `test_the_chart_month_labels_are_localised_end_to_end` (item 6) — every push, on a year-long fixture |
+
+Keeping it would have meant either re-creating the template coupling that broke it (seeding
+the packaged fixture) or keeping a page-level probe whose most valuable assertion — the
+`M0[1-9]` negative catching a silent `root` fallback — is the one that goes vacuous when a
+template change empties the page. Nothing is lost that is not now covered twice.
+
+`tests/test_packaged.py` goes from 11 collected to 10. The module docstring was rewritten to
+record why the page-rendering probe is gone, so a future reader does not re-add it; the
+`_fetch_in` helper and the `re` import both stay, still used by
+`test_the_dutch_message_catalog_is_bundled`.
+
+Changelogs referring to the removed test are left as written — they are records of what was
+true when they were written, not documentation of the current tree.
 
 ## Files Modified
 
@@ -131,11 +152,20 @@ Windows build. `changelog/20260806-windows-tzdata.md` lists that as unverified.
   `_chart_months` helper, and the end-to-end month-label test.
 - `tests/test_ingest_ws.py` — the socket inverted-window test and the WS-handshake 404 test.
 - `tests/test_slot_load.py` — the HTTP inverted-window test.
-- `tests/test_packaged.py` — the direct CLDR bundle probe.
+- `tests/test_packaged.py` — the direct CLDR bundle probe added; the page-rendering
+  `test_babel_locale_data_is_bundled` removed (item 8); module docstring rewritten for both.
 - `changelog/20260807-packaged-test-coverage-implementation.md` — this file.
 
 ## Current Status
 
-All seven items implemented and mutation-verified as recorded above. Full suite run to
-confirm nothing regressed. Item 7's bundle path is the one open assumption, and it can only
-be closed by a Release run.
+All eight items done. Items 1–7 implemented and mutation-verified as recorded above; item 8
+(the removal) followed from what release run 31186803969 showed.
+
+That run closed both of the things this file previously listed as unverified: the in-bundle
+CLDR path is confirmed, and the Windows job passed, which is the first observation of the
+`tzdata` fix working rather than an argument that it should.
+
+What remains open is not about these tests: the packaging jobs are still dispatch-only, so a
+packaging regression still surfaces at release time rather than on the push that causes it.
+That is CI policy and was never in scope here — the options the analysis listed (run on
+pushes to master, nightly, or leave as-is) are still the options.

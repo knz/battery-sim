@@ -40,29 +40,37 @@ Main items:
     _NL_TRANSLATED                  msgid/msgstr pairs that only the Dutch catalog can produce.
     test_it_serves / _static / _templates_and_data …
     test_the_dutch_message_catalog_is_bundled   the `.mo` catalogs, by translated text.
-    test_babel_locale_data_is_bundled           the CLDR data, by number separators.
     test_the_cldr_locale_data_is_in_the_bundle  the CLDR data, by reading `_internal` directly.
     test_the_websocket_route_works  a raw ws:// upgrade plus one in-protocol exchange.
 
-Those last three are deliberately three tests and not one. An earlier version folded the catalog
-check into the Babel check, and because the combined test asserted only on number separators, a
-bundle missing the entire Dutch catalog passed it — see
-`test_the_dutch_message_catalog_is_bundled` for the incident. One assertion per bundle entry is
-what keeps a green run meaningful.
+The catalog check and the CLDR check are deliberately separate tests. An earlier version folded
+them together, and because the combined test asserted only on number separators, a bundle missing
+the entire Dutch catalog passed it — see `test_the_dutch_message_catalog_is_bundled` for the
+incident. One assertion per bundle entry is what keeps a green run meaningful.
 
-## Why the CLDR data is checked TWICE, differently
+## How the CLDR data is checked, and why not through a page
 
-`test_babel_locale_data_is_bundled` probes it through a rendered page;
-`test_the_cldr_locale_data_is_in_the_bundle` reads the files under `_internal`. The second was
-added because the first is coupled to things a packaging test should not depend on: `f42690f` put
-the month labels behind `{% if results.monthly_saved_eur %}`, and a TEMPLATE change failed a
-PACKAGING test — days later, at release time, since this file only runs on a dispatch.
+`test_the_cldr_locale_data_is_in_the_bundle` reads the `.dat` files under `_internal`. It replaced
+`test_babel_locale_data_is_bundled`, which probed the same property by rendering a results screen
+and grepping it for month names and grouped numbers.
 
-The end-to-end half now also runs unpackaged, on every push, as
-`tests/test_i18n.py::test_the_chart_month_labels_are_localised_end_to_end`, where seeding a year
-of data is a fixture rather than a built artifact. See
-`changelog/20260807-packaged-test-coverage-implementation.md`; whether the page-rendering probe
-here should now be narrowed or dropped is still open.
+That probe was removed rather than repaired, for two reasons:
+
+  * **It coupled a packaging assertion to the templates.** `f42690f` put the month labels behind
+    `{% if results.monthly_saved_eur %}`, and a TEMPLATE change failed a PACKAGING test — surfacing
+    days later at release time, since this file only runs on a dispatch. Release run 31186803969
+    is the instance.
+  * **Its most valuable assertion could go vacuous.** `assert not re.search(r"\\bM0[1-9]\\b", page)`
+    catches a silent fall back to `root` (whose month names are the placeholders `M01`, `M02`, …),
+    which the number-separator check cannot see because `root` and `en` format numbers
+    identically. But it passes trivially when the page renders no months at all — exactly what
+    those guards produce.
+
+Both properties it covered still run, in better places: the CLDR files are asserted directly here,
+and the end-to-end rendering runs UNPACKAGED on every push as
+`tests/test_i18n.py::test_the_chart_month_labels_are_localised_end_to_end`, where the array is read
+out of the chart node and asserted non-empty first, so it cannot go vacuous. See
+`changelog/20260807-packaged-test-coverage-implementation.md`.
 """
 
 import json
@@ -347,51 +355,6 @@ def test_the_dutch_message_catalog_is_bundled(packaged_server, _seeded_workspace
         )
 
 
-def test_babel_locale_data_is_bundled(packaged_server, _seeded_workspace):
-    """Babel's CLDR data reached the bundle — a SEPARATE entry from the message catalogs.
-
-    `collect_data_files("babel")` in the spec, and it is the easy one to lose: it is data rather
-    than importable modules, so nothing in the import graph refers to it and PyInstaller would not
-    collect it on its own. Its absence raises `UnknownLocaleError` out of `Locale.parse`, at
-    runtime and in the packaged build only.
-
-    Since the CLDR set is now TRIMMED to `app/i18n.py::SUPPORTED` (see
-    `packaging/battery_sim_babel_locales.py`), this test also guards the trim: a keep-set that
-    dropped one of the app's own languages would fail here rather than on a user's machine.
-
-    Two independent assertions, because they catch different mistakes:
-
-    **Number separators** isolate Babel from the gettext catalogs the test above covers. Dutch
-    groups thousands with `.` and takes `,` as the decimal point, English the reverse; no message
-    catalog can produce that difference, and a bundle without `nl.dat` cannot produce the Dutch
-    form at all — it raises `UnknownLocaleError` and the page 500s.
-
-    **Month names** catch the case the separators cannot: a silent fall back to `root`. `root` and
-    `en` format numbers IDENTICALLY, so an over-aggressive trim that dropped `en.dat` while keeping
-    `root` would satisfy the separator check while quietly serving `M01 M02 M03` where a reader
-    expects `Jan Feb Mar`. That is the specific way an English bundle can look right and be wrong,
-    and it is only visible here.
-    """
-    base_url, _ = packaged_server
-    url = f"{base_url}/w/{_seeded_workspace}/results"
-    nl, en = _fetch_in(url, "nl"), _fetch_in(url, "en")
-
-    # A grouped four-digit-or-more number, in each locale's own convention.
-    assert re.search(r"\d{1,3}\.\d{3}", nl), "no Dutch-grouped number on the nl results screen"
-    assert re.search(r"\d{1,3},\d{3}", en), "no English-grouped number on the en results screen"
-
-    # The monthly chart's axis, rendered by the `monthname` filter (`app/i18n.py::month_abbr`)
-    # straight out of CLDR. `M01`-style labels are root's placeholders and mean the real locale
-    # data was not found.
-    assert re.search(r"\bMar\b", en), "no CLDR English month abbreviation on the en results screen"
-    assert re.search(r"\bmrt\b", nl), "no CLDR Dutch month abbreviation on the nl results screen"
-    for page, lang in ((en, "en"), (nl, "nl")):
-        assert not re.search(r"\bM0[1-9]\b", page), (
-            f"the {lang} results screen shows root's placeholder month labels — Babel fell back "
-            "to `root`, so that locale's .dat file is missing from the bundle"
-        )
-
-
 def test_the_websocket_route_works(packaged_server, _seeded_workspace):
     """The check this whole file is built around — see the module docstring.
 
@@ -456,14 +419,14 @@ def test_the_websocket_route_works(packaged_server, _seeded_workspace):
 def test_the_cldr_locale_data_is_in_the_bundle():
     """Babel's CLDR `.dat` files reached `_internal`, asserted on the FILES rather than on a page.
 
-    The bundle-level half of what `test_babel_locale_data_is_bundled` above checks end to end, and
-    it exists because that test's probe is coupled to things it has no business depending on. It
-    renders a results screen and greps for month names, so `f42690f` broke it by putting the month
-    node behind `{% if results.monthly_saved_eur %}` — a template change, failing a packaging test,
+    The replacement for `test_babel_locale_data_is_bundled`, which asked the same question by
+    rendering a results screen and grepping it for month names. That probe was coupled to things a
+    packaging test has no business depending on: `f42690f` broke it by putting the month node
+    behind `{% if results.monthly_saved_eur %}` — a template change failing a packaging test,
     discovered days later at release time. This one reads the filesystem: no route, no template, no
-    view-model, no simulation.
+    view-model, no simulation. See the module docstring for the full argument.
 
-    The end-to-end property is not lost by having this — it moved to
+    The end-to-end property is not lost by the removal — it moved to
     `tests/test_i18n.py::test_the_chart_month_labels_are_localised_end_to_end`, where it runs on
     every push and where seeding a year of data is a fixture rather than a built artifact.
 
