@@ -138,8 +138,15 @@ paths, which are OS frameworks and need no collection.
 
 ## Current Status
 
-Implemented. Full suite green: **1446 passed, 23 skipped** (the skips are the live-HA suite,
-excluded with `--ignore=tests/test_ha_live.py`), up from 1434 by the 12 tests added here.
+Implemented. Full suite green: **1446 passed, 23 skipped**, up from 1434 by the 12 tests added
+here.
+
+**Correction (2026-08-07):** the 23 skips were described here as the live-HA suite. That is wrong,
+and self-contradictory besides — `tests/test_ha_live.py` is excluded by `--ignore`, so it is not
+collected and cannot be among the skips. The 23 are the packaged-artifact tests
+(`tests/test_packaged.py`, `tests/test_appimage.py`, `tests/test_packaged_ingest.py`), gated on
+`BATTERY_SIM_PACKAGED_BINARY` / `BATTERY_SIM_APPIMAGE`, which only the Release workflow sets. See
+`changelog/20260807-packaged-test-gating-analysis.md`.
 
 Verified:
 
@@ -151,13 +158,19 @@ Verified:
   — i.e. no regression on the platform that already worked;
 - the docs pointer is produced for an `SSLCertVerificationError` wrapped in a `URLError`, which is
   the shape urllib actually raises, and matches the error text the user reported.
+- **that this fixes the reported failure** (confirmed by the user, 2026-08-07). A packaged macOS
+  build from Release run 31157183603 was run on the affected machine and the `price_spot` load
+  from `energy_charts` succeeded. That build was made from `90cd91c`, which also carried the
+  css-freshness and tzdata fixes; neither touches TLS, and the tzdata one is inert on macOS
+  (the system tz database is present), so the truststore change is what the result attributes to.
+  This also makes the `hiddenimports` entries observed-good on macOS rather than only reasoned:
+  had the backend module been missing from the bundle, the fetch would have raised
+  `ModuleNotFoundError` instead of succeeding.
 
 Not verified:
 
-- **that this fixes the reported failure.** It needs a packaged macOS build on the affected
-  machine. The reasoning is that truststore delegates to the keychain, which `curl` already
-  proved trusts the host — but that chain has not been observed end to end.
-- the `hiddenimports` requirement, which is reasoned from truststore's runtime `platform.system()`
+- the `hiddenimports` requirement **on Windows and Linux**, which is reasoned from truststore's
+  runtime `platform.system()`
   dispatch rather than observed in a failing bundle. Being wrong here is harmless; omitting it if
   right would break only the packaged app.
 - Windows behaviour generally: `truststore` uses SChannel there, untested by this work.
