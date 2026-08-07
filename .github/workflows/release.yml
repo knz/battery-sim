@@ -43,7 +43,7 @@
 # 2.39 and will NOT run on Debian 12 or anything older. That is accepted for now; building in an
 # older-glibc container is the portable route and is not done here.
 #
-# ## The non-Linux jobs are BLOCKING, and what is still unfinished about them
+# ## The non-Linux jobs are BLOCKING, and what is still missing from them
 #
 # They were `continue-on-error: true` until 2026-08-06. That flag did exactly one thing: it kept a
 # broken build from reddening the run. It never gated publishing — nothing here inspects signature
@@ -58,9 +58,12 @@
 # all three desktop jobs green.
 #
 # There is no macOS or Windows build script — build-linux.sh is bash with POSIX paths — so these
-# jobs invoke `pyinstaller packaging/battery-sim.spec` directly. The "(unfinished)" in each matrix
+# jobs invoke `pyinstaller packaging/battery-sim.spec` directly. The "(unsigned)" in each matrix
 # label refers to the packaging gaps below, NOT to the jobs' reliability: building and signing are
-# separate properties, and only the first is done.
+# separate properties, and only the first is done. The label read "(unfinished)" until 2026-08-07,
+# which was vague enough to read as "flaky" — false since these jobs became blocking. Note the new
+# label is narrower than the old one: it does not signal the missing Windows installer, which is
+# recorded here and in docs/*/security-warnings.md instead.
 #
 # Windows has since been tightened: the spec now sets an icon and generates a VERSIONINFO
 # resource carrying the version and the build SHA, so the exe is identifiable once downloaded.
@@ -310,10 +313,10 @@ jobs:
           path: ${{ steps.name.outputs.path }}
           if-no-files-found: error
 
-  # ── the unfinished platforms ────────────────────────────────────────────────
+  # ── the unsigned platforms ──────────────────────────────────────────────────
   #
-  # One matrix, three runners. Blocking since 2026-08-06; see the header. "Unfinished" here means
-  # unsigned, and on Windows without an installer — not unreliable.
+  # One matrix, three runners. Blocking since 2026-08-06; see the header. "Unsigned" is the whole
+  # gap on macOS; on Windows there is also no installer. Neither means unreliable.
 
   desktop-bundle:
     name: ${{ matrix.label }}
@@ -326,13 +329,13 @@ jobs:
       matrix:
         include:
           - runner: macos-26
-            label: macOS arm64 (unfinished)
+            label: macOS arm64 (unsigned)
             artifact: macos-arm64
           - runner: macos-26-intel
-            label: macOS x86_64 (unfinished)
+            label: macOS x86_64 (unsigned)
             artifact: macos-x86_64
           - runner: windows-latest
-            label: Windows (unfinished)
+            label: Windows (unsigned)
             artifact: windows-x86_64
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
