@@ -44,7 +44,7 @@ shipped or executed at runtime.
 
 ## 2. Python runtime dependencies
 
-The 41 distributions below are the resolved closure of the runtime dependencies declared in
+The 42 distributions below are the resolved closure of the runtime dependencies declared in
 `pyproject.toml`, and are frozen into the desktop bundles by PyInstaller. The `dev`
 dependency-group (pytest, playwright, httpx) is not bundled and is not listed. Versions come
 from `uv.lock`; licences are read from each distribution's own metadata (PEP 639 `License-
