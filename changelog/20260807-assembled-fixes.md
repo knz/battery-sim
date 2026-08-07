@@ -57,7 +57,31 @@ the pick.
 - `tests/test_packaging_metadata.py` — dependency-declaration and zone-resolution tests.
 - `changelog/20260807-assembled-fixes.md` — this file.
 
+### 3. Assert the release-only properties on every push (3372fbb, c1ceffa)
+
+The packaged test files are gated on env vars only the Release workflow's Linux job
+sets, so ordinary CI collects 23 tests and skips them all — and Release is
+dispatch-only. Four properties were therefore asserted nowhere else. Seven tests
+added (all additions), and one page-rendering CLDR probe removed once its two
+halves were covered separately. Detail in
+[20260807-packaged-test-coverage-implementation.md](20260807-packaged-test-coverage-implementation.md),
+with the analysis and review it followed from in the two files beside it.
+
 ## Current Status
 
-Both commits cherry-picked. Awaiting further fixes from the user; not yet pushed
-and no PR opened.
+Five commits on `worktree-fixes`, pushed, PR #17 open against master.
+
+**Release run 31187584989 (on c1ceffa) is fully green** — Linux AppImage, Windows,
+macOS arm64 and macOS x86_64 all succeeded, with the Linux verification step at
+28 passed / 0 failed. This is the first green Release run since PR #16 merged;
+the three regressions that branch introduced (stale app.css, missing tzdata, and
+the babel probe) are each addressed here.
+
+Two claims moved from reasoned to observed by that run and its predecessor
+(31186803969): the Windows build succeeds with `tzdata` declared, and the
+in-bundle path `_internal/babel/locale-data` is what the new packaged test
+expects. Both had been flagged as inferred-from-hook-sources.
+
+Still open, and out of scope throughout: the packaging jobs remain dispatch-only,
+so a packaging regression still surfaces at release time rather than on the push
+that causes it. That is CI policy.
