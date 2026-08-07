@@ -118,10 +118,14 @@ Verified:
 - that PyInstaller 6.21.0 + contrib 2026.6 carry hooks which add `tzdata` as a Windows hidden
   import and collect its data files and submodules — read from the installed hook sources.
 
-Not verified:
+**Update 2026-08-07: the Windows build now succeeds.** Release run 31186803969, dispatched on
+`worktree-fixes` (which carries this fix as `529b5f7`), completed the "Windows (unfinished)" job
+successfully. That is the first observation of the fix working, as opposed to the reasoning below;
+the item is struck from the list that follows. The run's only failure was
+`tests/test_packaged.py::test_babel_locale_data_is_bundled` in the Linux job, unrelated to this —
+see [20260807-packaged-test-coverage-implementation.md](20260807-packaged-test-coverage-implementation.md).
 
-- **that the Windows build now succeeds.** It needs a Release run; nothing local exercises the
-  Windows path.
+Not verified:
 - that the built Windows app resolves `Europe/Amsterdam` at RUNTIME. The hooks say it should, but
   this is the same class of claim as the `truststore` `hiddenimports` in the TLS work — reasoned
   from hook sources, not observed in a bundle.

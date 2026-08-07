@@ -85,14 +85,20 @@ minutes, so its logic was exercised against four synthetic layouts instead: a co
 dropped (reports it), and one with no `locale-data/` at all (reports that). The keep-set
 import path was confirmed to work, returning `{'en','nl','root'}`.
 
-**Still unverified for item 7:** the real on-disk layout inside a built bundle. The path
-`_internal/babel/locale-data/*.dat` is derived from `hook-babel.py`'s `_keep`, which
-matches destinations ending `babel/locale-data`, plus PyInstaller's onedir convention of
-rooting datas at `_internal`. That is a reasoned inference from the hook source, NOT an
-observation of a bundle — the same class of claim
-`changelog/20260806-windows-tzdata.md` flags about its own hook reasoning. It needs one
-Release run to confirm. If the path is wrong the test fails loudly with the path it looked
-at, so the failure mode is a red build rather than a silent pass.
+**Item 7's bundle path is now CONFIRMED.** It was written as a reasoned inference from
+`hook-babel.py`'s `_keep` plus PyInstaller's onedir convention, and flagged here as
+unobserved. Release run 31186803969 (dispatch on `worktree-fixes`, 2026-08-07) executed it
+against a real AppImage build:
+
+    tests/test_packaged.py::test_the_cldr_locale_data_is_in_the_bundle PASSED [ 62%]
+
+So `_internal/babel/locale-data/*.dat` is the actual layout, and the assertion that the
+keep-set locales are present holds on a real artifact. The Linux job's verification step
+went from 27 passed to 28.
+
+That run also closes an open item from an earlier commit on this branch: the **Windows job
+passed**, which is the first observation that the `tzdata` dependency actually fixes the
+Windows build. `changelog/20260806-windows-tzdata.md` lists that as unverified.
 
 ## What this does NOT do
 
@@ -100,10 +106,22 @@ at, so the failure mode is a red build rather than a silent pass.
   behaviour; none observes whether a bundle carries what that behaviour needs. Adding the
   unpackaged half is not an argument for dropping the packaged half.
 - **`test_babel_locale_data_is_bundled` is still failing in the Linux release job.** Nothing
-  here fixes it. Its fate is now a smaller decision than before: its end-to-end property
-  runs unpackaged (item 6) and its bundle property is asserted directly (item 7), so it
-  could be narrowed to the number-separator check or dropped outright. Left for the user
-  deliberately — it was out of the approved scope.
+  here fixes it. Confirmed on run 31186803969, which failed on exactly that test and nothing
+  else:
+
+      FAILED tests/test_packaged.py::test_babel_locale_data_is_bundled -
+      AssertionError: no CLDR English month abbreviation on the en results screen
+
+  The message is the predicted one: the fixture's workspace has no simulation, so both
+  guarded month nodes are absent and the grep for `Mar` finds nothing. It is a fixture/probe
+  mismatch, not missing data — `test_the_cldr_locale_data_is_in_the_bundle` passed in the
+  same run, proving the CLDR files ARE in that bundle.
+
+  Its fate is now a smaller decision than before: its end-to-end property runs unpackaged
+  (item 6) and its bundle property is asserted directly (item 7), so it is redundant rather
+  than load-bearing. Options remain what the analysis listed — narrow it to the
+  number-separator check, seed the packaged fixture with a simulation, or drop it. Left for
+  the user deliberately; it was out of the approved scope.
 - The feedback delay (packaging jobs are dispatch-only) is untouched; that is CI policy.
 
 ## Files Modified
