@@ -5,6 +5,16 @@ rows the browser forwards after fetching from Home Assistant, then asserts the d
 persisted and restores across a reload. Runs against a throwaway data dir so the SQLite DB and
 the series .npz files never touch the working tree — the same isolation the smoke test uses.
 
+Two protocol rules here were, until recently, asserted ONLY by `tests/test_packaged_ingest.py` and
+so ran only in the dispatch-only Release workflow: an inverted header window
+(`test_an_inverted_window_is_rejected_over_the_socket`, whose HTTP counterpart is
+`tests/test_slot_load.py::test_load_endpoint_inverted_window_400`) and an unknown workspace being
+refused at the HANDSHAKE with a 404 rather than an in-protocol error
+(`test_an_unknown_workspace_fails_the_websocket_handshake`). That second one is worth having here
+specifically because it has already caused a misdiagnosis — a rejected handshake looks exactly
+like a bundle with no WebSocket support. See
+`changelog/20260807-packaged-test-coverage-implementation.md`.
+
 At the end there is a unit-level block on the optional per-slot `binding` a `backend_load` message may
 carry (decision D-BIND of the CSV-import brief, step 5): the session records it verbatim for the route
 to translate, and rejects a malformed one naming the field. What it deliberately does NOT check —
@@ -211,6 +221,60 @@ def test_done_before_header_is_rejected(client):
         ws.send_json({"type": "done"})
         msg = ws.receive_json()
     assert msg["type"] == "error"
+
+
+def test_an_inverted_window_is_rejected_over_the_socket(client):
+    """`end` before `start` in the header — `app/ingest_ws.py:199`.
+
+    Sits with its neighbours above because it is the same class of check, but it had no
+    unpackaged test until now: the rule was asserted only by
+    `tests/test_packaged_ingest.py::test_level1_the_server_answers_a_header_frame`, which runs in
+    the dispatch-only Release workflow. That test uses the inverted window as a convenient way to
+    make the server originate a frame; the RULE it happens to exercise deserves its own coverage
+    where it runs on every push.
+
+    Asserts the message and not merely the type, so it cannot pass on whichever other error the
+    header path might raise first — the neighbours above assert `type` alone because for them any
+    rejection is the property; here the specific rule is.
+    """
+    tc, main, dataset = client
+    with tc.websocket_connect(w("/data/ingest/ws")) as ws:
+        ws.send_json({"type": "header",
+                      "window": {"start": "2026-07-20T02:00:00+00:00",
+                                 "end": "2026-07-20T00:00:00+00:00"}})
+        msg = ws.receive_json()
+    assert msg["type"] == "error", msg
+    assert "window end must be after start" in msg["message"], msg
+
+
+def test_an_unknown_workspace_fails_the_websocket_handshake(client):
+    """An unknown workspace id is rejected BEFORE `ws.accept()`, as an HTTP 404.
+
+    `deps.get_workspace` rejects the dependency, and FastAPI answers a rejected WebSocket
+    dependency with an ordinary HTTP 404 instead of upgrading. The client therefore sees a denial
+    response, not an in-protocol `error` frame.
+
+    **Pinned unpackaged because the packaged suite records this exact behaviour causing a
+    misdiagnosis.** A rejected handshake looks identical to "this bundle has no WebSocket support"
+    to anyone who has not read the route, and
+    `tests/test_packaged_ingest.py::test_level1_an_unknown_workspace_fails_the_handshake` exists to
+    keep that trap documented in executable form. It only ran at release time; this keeps the same
+    fact visible in the source tree on every push.
+
+    `TestClient` surfaces the denial as `WebSocketDenialResponse` carrying the real status code,
+    which is a stronger assertion than the packaged test's substring match on "404" — that one has
+    to inspect an exception's repr because a real `websockets` client raises a different type.
+    """
+    from starlette.testclient import WebSocketDenialResponse
+
+    tc, main, dataset = client
+    with pytest.raises(WebSocketDenialResponse) as excinfo:
+        with tc.websocket_connect("/w/no-such-workspace/data/ingest/ws"):
+            pass
+    assert excinfo.value.status_code == 404, (
+        "an unknown workspace should be refused by the workspace dependency with a 404. A "
+        f"different status means the rejection moved somewhere else. Got {excinfo.value.status_code}."
+    )
 
 
 def test_two_resolutions_are_not_differenced_together(client):

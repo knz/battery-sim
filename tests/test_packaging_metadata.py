@@ -10,6 +10,13 @@ Two modules under `packaging/` are covered here:
     `battery-sim.exe`. The version tuple it derives is checked against `app.__version__`, so the
     resource cannot drift from the single source the way a hand-written file would.
 
+The spec file and `pyproject.toml` are also read as TEXT further down, to pin the settings and
+dependencies a platform-specific build needs but no test on this machine would otherwise exercise
+— the macOS bundle keys, the `truststore` hidden imports, and the `tzdata` dependency Windows
+cannot resolve timezones without. Those checks catch a deleted or renamed setting, not a
+misbehaving one; the one exception is the timezone test, which empties `zoneinfo.TZPATH` to
+reproduce the Windows condition and assert real behaviour rather than a declaration.
+
 **Nothing here runs PyInstaller or writes into the source tree.** The generators' pure functions
 are called directly and their output is inspected as text; the two that write files are pointed
 at tmp_path. Note in particular that PyInstaller's own `versioninfo` module cannot even be
@@ -311,3 +318,41 @@ def test_the_resource_is_written_where_the_spec_looks_for_it(monkeypatch, tmp_pa
 
     assert written.exists()
     assert "VSVersionInfo(" in written.read_text()
+
+
+def test_tzdata_is_a_runtime_dependency():
+    """Windows has no system tz database, so the package is the only source of the zones.
+
+    `zoneinfo` searches `zoneinfo.TZPATH` first and falls back to the `tzdata` package. Linux and
+    macOS ship the system database, so dropping this dependency breaks NOTHING they run — it
+    breaks Windows only, and it breaks the BUILD rather than a test, because
+    packaging/battery-sim.spec imports app.i18n (for the Babel keep-set) and that module resolves
+    `ZoneInfo("Europe/Amsterdam")` at import. This test exists so the removal fails here, in a
+    second, instead of in a Windows job nobody dispatches for days.
+    """
+    pyproject = (ROOT / "pyproject.toml").read_text()
+    assert re.search(r'^\s*"tzdata>=', pyproject, re.MULTILINE), (
+        "tzdata is missing from [project.dependencies]; the Windows build fails in the spec "
+        "with ZoneInfoNotFoundError (see changelog/20260806-windows-tzdata.md)"
+    )
+
+
+def test_the_display_timezone_resolves_without_a_system_database():
+    """The Windows condition, reproduced: empty TZPATH, so only the package can answer.
+
+    Asserting the dependency is declared says nothing about it WORKING. This empties the search
+    path the way Windows effectively does, then resolves the app's display zone and checks both
+    sides of the DST boundary — a database that resolves the name but carries no transitions
+    would still misplace every summer timestamp the UI prints.
+    """
+    import zoneinfo
+    from datetime import datetime, timedelta
+
+    original = zoneinfo.TZPATH
+    try:
+        zoneinfo.reset_tzpath(to=[])
+        tz = zoneinfo.ZoneInfo("Europe/Amsterdam")
+        assert datetime(2026, 7, 1, 12, tzinfo=tz).utcoffset() == timedelta(hours=2), "CEST"
+        assert datetime(2026, 1, 1, 12, tzinfo=tz).utcoffset() == timedelta(hours=1), "CET"
+    finally:
+        zoneinfo.reset_tzpath(to=list(original))
