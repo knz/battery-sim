@@ -41,6 +41,7 @@ Main items:
     test_it_serves / _static / _templates_and_data …
     test_the_dutch_message_catalog_is_bundled   the `.mo` catalogs, by translated text.
     test_babel_locale_data_is_bundled           the CLDR data, by number separators.
+    test_the_cldr_locale_data_is_in_the_bundle  the CLDR data, by reading `_internal` directly.
     test_the_websocket_route_works  a raw ws:// upgrade plus one in-protocol exchange.
 
 Those last three are deliberately three tests and not one. An earlier version folded the catalog
@@ -48,6 +49,20 @@ check into the Babel check, and because the combined test asserted only on numbe
 bundle missing the entire Dutch catalog passed it — see
 `test_the_dutch_message_catalog_is_bundled` for the incident. One assertion per bundle entry is
 what keeps a green run meaningful.
+
+## Why the CLDR data is checked TWICE, differently
+
+`test_babel_locale_data_is_bundled` probes it through a rendered page;
+`test_the_cldr_locale_data_is_in_the_bundle` reads the files under `_internal`. The second was
+added because the first is coupled to things a packaging test should not depend on: `f42690f` put
+the month labels behind `{% if results.monthly_saved_eur %}`, and a TEMPLATE change failed a
+PACKAGING test — days later, at release time, since this file only runs on a dispatch.
+
+The end-to-end half now also runs unpackaged, on every push, as
+`tests/test_i18n.py::test_the_chart_month_labels_are_localised_end_to_end`, where seeding a year
+of data is a fixture rather than a built artifact. See
+`changelog/20260807-packaged-test-coverage-implementation.md`; whether the page-rendering probe
+here should now be narrowed or dropped is still open.
 """
 
 import json
@@ -436,6 +451,62 @@ def test_the_websocket_route_works(packaged_server, _seeded_workspace):
 
     reply = asyncio.run(exchange())
     assert reply == {"type": "progress", "name": "grid_import_t1", "rows": 2}
+
+
+def test_the_cldr_locale_data_is_in_the_bundle():
+    """Babel's CLDR `.dat` files reached `_internal`, asserted on the FILES rather than on a page.
+
+    The bundle-level half of what `test_babel_locale_data_is_bundled` above checks end to end, and
+    it exists because that test's probe is coupled to things it has no business depending on. It
+    renders a results screen and greps for month names, so `f42690f` broke it by putting the month
+    node behind `{% if results.monthly_saved_eur %}` — a template change, failing a packaging test,
+    discovered days later at release time. This one reads the filesystem: no route, no template, no
+    view-model, no simulation.
+
+    The end-to-end property is not lost by having this — it moved to
+    `tests/test_i18n.py::test_the_chart_month_labels_are_localised_end_to_end`, where it runs on
+    every push and where seeding a year of data is a fixture rather than a built artifact.
+
+    **The keep-set is IMPORTED, not restated.** `babel_locale_keep_set()` is the same function
+    `packaging/hooks/hook-babel.py` filters with, so this asserts that what the hook intended to
+    keep actually arrived. A hardcoded `{"en", "nl", "root"}` here would pass even after someone
+    added a language to `SUPPORTED` and the trim silently failed to follow — which is precisely the
+    regression the trim can introduce.
+
+    `root.dat` matters as much as the language files: babel's `localedata.load` merges it underneath
+    every other locale, so losing it breaks all of them at once rather than one. It is in the
+    keep-set for that reason, and is covered here by iterating that set.
+    """
+    # `packaging/` is not a package and is not importable by default; anchored to THIS file's
+    # repository rather than to the bundle's location, which the env var may point anywhere.
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "packaging"))
+    try:
+        from battery_sim_babel_locales import babel_locale_keep_set
+    finally:
+        sys.path.pop(0)
+
+    locale_data = BINARY.parent / "_internal" / "babel" / "locale-data"
+    assert locale_data.is_dir(), (
+        f"{locale_data} is missing entirely — babel's CLDR data did not reach the bundle. "
+        "Check that packaging/hooks/hook-babel.py is on hookspath and still collects."
+    )
+
+    present = {p.stem for p in locale_data.glob("*.dat")}
+    missing = babel_locale_keep_set() - present
+    assert not missing, (
+        f"the CLDR data for {sorted(missing)} is missing from the bundle. These are the locales "
+        "packaging/hooks/hook-babel.py's keep-set says to ship; without one of them "
+        "`Locale.parse` falls back to `root` and that language formats numbers and month names "
+        f"wrongly. Present: {sorted(present)}"
+    )
+
+    # `global.dat` lives OUTSIDE locale-data/ and carries the territory and `parent_exceptions`
+    # tables `Locale.parse` needs for ANY locale — the hook keeps it deliberately (see `_keep`),
+    # so its absence would mean the filter over-matched.
+    assert (BINARY.parent / "_internal" / "babel" / "global.dat").is_file(), (
+        "babel/global.dat is missing — the locale-data filter in packaging/hooks/hook-babel.py "
+        "over-matched and removed a file outside locale-data/."
+    )
 
 
 def test_the_bundle_carries_no_development_directories():

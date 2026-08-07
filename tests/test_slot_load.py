@@ -8,8 +8,12 @@ Three layers:
     others) and stands alone when no dataset exists.
   * The POST /data/slot/{slot}/load endpoint against the committed Energy-Charts data — a
     historical in-range window so no bridge fires and no network is hit.
-  * Endpoint error paths: unknown slot (404), unknown source (404), and requesting a browser_fetch
-    source ("home_assistant") here (400 with a clear message).
+  * Endpoint error paths: unknown slot (404), unknown source (404), requesting a browser_fetch
+    source ("home_assistant") here (400 with a clear message), and a window whose `end` precedes
+    its `start` (400). That last rule is enforced at both of the app's entry points — its socket
+    counterpart is `tests/test_ingest_ws.py::test_an_inverted_window_is_rejected_over_the_socket`,
+    with a different failure shape — and until it was added the rule was asserted only by the
+    packaged suite, which runs in the dispatch-only Release workflow.
   * The endpoint's CSV path (step 5 of the CSV-import brief): a `binding` in the body is threaded to
     `CsvSource.load_with_warnings`, an `upload_id` this workspace does not have is a 400 that
     persists nothing, and `CsvBindingError` is a 400 rather than the 502 the bare `except Exception`
@@ -437,6 +441,30 @@ def test_load_endpoint_unknown_source_404(client):
     )
     assert resp.status_code == 404
     assert "no_such_source" in resp.json()["detail"]
+
+
+def test_load_endpoint_inverted_window_400(client):
+    """`end` before `start` — `_parse_window` at `app/main.py:2407`.
+
+    The same rule `app/ingest_ws.py:199` enforces on the socket, at the app's other entry point,
+    and with a different failure SHAPE: an HTTP 400 here, an in-protocol `error` frame there
+    (`tests/test_ingest_ws.py::test_an_inverted_window_is_rejected_over_the_socket`). Neither
+    substitutes for the other, and until both were added the rule was asserted only by the
+    packaged suite, which runs in the dispatch-only Release workflow.
+
+    Placed here rather than beside the socket test because this route's other error paths already
+    live in this section, and reaching `_parse_window` needs a slot and source that survive steps
+    1–3 — `price_spot` + `energy_charts`, the same pair the tests above use.
+    """
+    tc, _, _ = client
+    resp = tc.post(
+        w("/data/slot/price_spot/load"),
+        json={"source": "energy_charts",
+              "window": {"start": "2024-03-05T00:00:00+00:00",
+                         "end": "2024-03-01T00:00:00+00:00"}},
+    )
+    assert resp.status_code == 400, resp.text
+    assert "window end must be after start" in resp.json()["detail"], resp.text
 
 
 def test_load_endpoint_browser_fetch_source_rejected(client):

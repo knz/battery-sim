@@ -17,6 +17,15 @@ i18n pass (see changelog/20260725-followups-section-a-investigation.md):
    request's catalog immediately before rendering — not atomic, and the sync routes run in a
    threadpool. `test_concurrent_mixed_locale_renders_do_not_cross_contaminate` drives both locales
    from many threads at once; it is the only test here that would have failed before the change.
+
+4. **Babel's CLDR data, at both levels.** `test_no_supported_locale_falls_back_to_roots_placeholder_month_names`
+   asserts on `month_abbr` directly that no SUPPORTED locale resolves to `root` (whose month
+   "names" are the placeholders `M01`, `M02`, …); `test_the_chart_month_labels_are_localised_end_to_end`
+   asserts the same property through the whole stack, on the JSON chart nodes the results page
+   emits. Both were previously checked only by `tests/test_packaged.py`, which runs in the
+   dispatch-only Release workflow — so the CLDR trim in `packaging/battery_sim_babel_locales.py`
+   could break and surface days later. See
+   `changelog/20260807-packaged-test-coverage-implementation.md`.
 """
 
 import concurrent.futures
@@ -580,6 +589,45 @@ def test_month_abbreviations_come_from_the_catalog_of_each_locale():
     assert i18n.month_abbr(13, "en") == "13"
 
 
+def test_no_supported_locale_falls_back_to_roots_placeholder_month_names():
+    """Every SUPPORTED locale has real CLDR month data — none silently resolves to `root`.
+
+    Babel's `root` locale answers `months["format"]["abbreviated"]` with the placeholders `M01`,
+    `M02`, ... rather than raising, so a locale whose `.dat` file is missing does not fail loudly:
+    it renders an x-axis reading "M01 M02 M03" where a reader expects "Jan Feb Mar". `root` and
+    `en` also format NUMBERS identically, so a separator-based check cannot tell them apart. That
+    is the specific way a locale can look right and be wrong.
+
+    This is the failure mode `packaging/battery_sim_babel_locales.py`'s CLDR trim can introduce —
+    a keep-set that drops one of the app's own languages — and until this test it was asserted
+    only by `tests/test_packaged.py::test_babel_locale_data_is_bundled`, which runs in the
+    dispatch-only Release workflow.
+
+    **Asserted on `month_abbr` directly rather than by grepping a rendered page, and that is the
+    point.** The packaged test's equivalent negative (`assert not re.search(r"\\bM0[1-9]\\b", page)`)
+    is VACUOUSLY TRUE whenever the page happens to render no month labels — which is exactly what
+    the `results.monthly_saved_eur` / `results.energy_flows` guards in `_panel_results.html`
+    produce for a workspace with no simulation. The check guarding the subtle failure was thus the
+    one an unrelated template change could silence. Calling the function cannot go vacuous.
+
+    Iterates `i18n.SUPPORTED` rather than naming en/nl, so adding a language extends the check
+    with no edit here — the trim is likeliest to go wrong on exactly the language just added.
+    """
+    for locale in i18n.SUPPORTED:
+        abbreviations = [i18n.month_abbr(m, locale) for m in range(1, 13)]
+        placeholders = [a for a in abbreviations if re.fullmatch(r"M\d\d", a)]
+        assert not placeholders, (
+            f"{locale!r} produced root's placeholder month names {placeholders} — babel has no "
+            f"CLDR data for it and fell back to `root`. Check SUPPORTED against the keep-set in "
+            f"packaging/battery_sim_babel_locales.py."
+        )
+        # The fallback in `month_abbr` returns `str(month)` on a lookup failure, which would also
+        # dodge the placeholder check above while putting bare numbers on the axis.
+        assert not any(a.isdigit() for a in abbreviations), (
+            f"{locale!r} produced bare numbers for month names: {abbreviations}"
+        )
+
+
 def test_the_number_filters_are_bound_to_their_own_locale_on_every_environment():
     """`numfmt` and `monthname` take no locale argument at the call site — they cannot, because a
     template does not know one. They are closed over the locale by `env_for`, which is only sound
@@ -677,3 +725,118 @@ def test_the_rendered_dutch_pages_use_dutch_number_conventions(seeded_client):
     assert re.search(r"\d,\d{3} €/kWh", nl), "Dutch should use a decimal comma for €/kWh"
     assert not re.search(r"\d\.\d{3} €/kWh", nl), "Dutch must not use a decimal point"
     assert re.search(r"\d\.\d{3} €/kWh", en), "English should use a decimal point for €/kWh"
+
+
+@pytest.fixture()
+def year_client(tmp_path, monkeypatch):
+    """`seeded_client`'s shape, but spanning a full year so all twelve months appear.
+
+    A SEPARATE fixture rather than a widening of `seeded_client`, so the number-convention tests
+    above keep the data their assertions were tuned against (40 days, chosen there so the figures
+    are four digits and therefore grouped). Widening it would perturb those figures for a reason
+    unrelated to what they check.
+
+    A year rather than a longer span because the month-label assertions below want every month
+    present exactly once: `last_1_year` over 365 days yields the twelve buckets the chart draws.
+    """
+    monkeypatch.setenv("BATTERY_SIM_DATA_DIR", str(tmp_path))
+
+    import numpy as np
+
+    from app.domain.frames import QUALITY_DTYPE, SeriesFrame
+
+    n = 365 * 24
+    idx = (
+        np.arange(n).astype("timedelta64[s]") * 3600
+        + np.datetime64("2026-01-01T00:00:00")
+    ).astype("datetime64[s]")
+
+    def frame(name, kind, values):
+        vals = np.full(n, float(values)) if np.isscalar(values) else np.asarray(values, float)
+        return SeriesFrame(name, kind, 3600, idx, vals, np.zeros(n, dtype=QUALITY_DTYPE))
+
+    seed_workspace()
+
+    from app import dataset
+
+    dataset.save_dataset(
+        [
+            frame("grid_import_t1", "energy", 1.5),
+            frame("grid_export_t1", "energy", 0.2),
+            frame("price_spot", "price", np.where((np.arange(n) % 24) < 12, 0.042, 0.287)),
+        ],
+        (datetime(2026, 1, 1, tzinfo=timezone.utc), datetime(2027, 1, 1, tzinfo=timezone.utc)),
+        "test", [], None,
+        workspace_id=dataset.db.WORKSPACE_ID,
+    )
+
+    from app import main
+
+    return TestClient(main.app)
+
+
+# The chart nodes carrying month labels, and the abbreviation each locale must produce for March —
+# the month whose English and Dutch forms differ ("Mar" / "mrt"), so a page serving one where the
+# other belongs is caught rather than passing on a coincidental match.
+_MONTH_CHART_NODES = ("saved-eur-data", "flows-data")
+_MARCH = {"en": "Mar", "nl": "mrt"}
+
+
+def _chart_months(html: str, node_id: str) -> list[str]:
+    """The `months` array out of a `<script type="application/json">` chart node.
+
+    Read from the JSON node rather than from visible text, and that is forced rather than
+    preferred: the charts are drawn client-side, so these labels never appear as page text at all.
+    `test_the_rendered_dutch_pages_use_dutch_number_conventions` above STRIPS `<script>` blocks
+    before asserting, so its helper cannot be reused here — the two tests look at deliberately
+    disjoint halves of the same page.
+    """
+    match = re.search(rf'<script id="{node_id}"[^>]*>(.*?)</script>', html, re.S)
+    assert match, f"the #{node_id} chart node is not on the page"
+    return json.loads(match.group(1))["months"]
+
+
+@pytest.mark.parametrize("lang", ("en", "nl"))
+def test_the_chart_month_labels_are_localised_end_to_end(year_client, lang):
+    """The monthly charts' x-axis labels, through the whole stack, in the reader's language.
+
+    This is the end-to-end half of the property `tests/test_packaged.py::test_babel_locale_data_is_bundled`
+    was asserting from the Release workflow alone. Two things made that arrangement fragile, and
+    both are fixed by moving the check here:
+
+      * It only ran on a dispatch. `f42690f` put the month node behind
+        `{% if results.monthly_saved_eur %}` and the failure surfaced days later, at release time.
+      * Its negative assertion could go VACUOUS. Grepping a rendered page for `M0[1-9]` passes
+        trivially when the page renders no months — exactly what those guards produce for a
+        workspace with no simulation. Here the array is read out and asserted non-empty FIRST, so
+        an empty page fails loudly instead of passing silently.
+
+    Both `monthname` call sites are covered (`_panel_results.html:777` and `:852`), because they
+    sit behind DIFFERENT guards — `results.monthly_saved_eur` and `results.energy_flows` — and a
+    change to either one is the shape of regression this test exists to catch.
+
+    `tests/test_i18n.py::test_no_supported_locale_falls_back_to_roots_placeholder_month_names`
+    pins the same CLDR property at unit level. This one pins the WIRING: view-model → template →
+    filter → JSON node, which a correct `month_abbr` alone does not establish.
+    """
+    response = year_client.post(w("/results"), json={"period": "last_1_year"},
+                                headers={"Cookie": f"lang={lang}"})
+    assert response.status_code == 200
+
+    for node_id in _MONTH_CHART_NODES:
+        months = _chart_months(response.text, node_id)
+
+        # First, so the assertions below cannot pass on an empty array — the vacuity the packaged
+        # version of this check was open to.
+        assert months, f"#{node_id} carries no month labels, so nothing below is being tested"
+        assert len(months) == 12, f"#{node_id} should span twelve months, got {months}"
+
+        assert _MARCH[lang] in months, (
+            f"#{node_id} has no {_MARCH[lang]!r} under lang={lang} — the labels are not being "
+            f"built in the reader's locale. Got: {months}"
+        )
+        placeholders = [m for m in months if re.fullmatch(r"M\d\d", m)]
+        assert not placeholders, (
+            f"#{node_id} shows root's placeholder labels {placeholders} under lang={lang} — babel "
+            f"fell back to `root`, so that locale's CLDR data was not found."
+        )
