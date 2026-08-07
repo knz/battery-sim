@@ -20,6 +20,39 @@ Let op: het log gaat over de STARTER, niet over de hele toepassing. Het wegschri
 zodra de datamap bekend is, dus fouten in de opdrachtregel en --help komen alleen in de terminal
 terecht. Daarom staat er "als de app überhaupt gestart is".
 
+De sectie over certificaten is het enige probleem op deze pagina dat NIET over de starter gaat —
+de app is gestart, alleen de verbinding met HA mislukt — en staat daarom los van de reeks over het
+logbestand. Het ophalen draait in de browser (app/static/ha_fetch.js opent de WebSocket
+rechtstreeks naar HA), dus het vertrouwen ligt bij de certificaatopslag van het systeem en niet
+bij dit project. Verhuist het ophalen ooit naar de server, dan klopt dit advies niet meer: dan
+telt de opslag van Python, niet die van de sleutelhanger.
+
+Hoort bij ws_connect_failed in ha_fetch.js, die hierheen linkt — pas je de een aan, controleer dan
+de ander. Die melding noemt drie mogelijke oorzaken in plaats van TLS aan te wijzen, omdat de
+foutgebeurtenis van de WebSocket geen reden meegeeft: een geweigerd certificaat, een verkeerde
+host en een gestopte HA zijn niet uit elkaar te houden.
+
+De sectie "In een browser accepteren werkt niet" is geen antwoord op de melding maar op een
+gewoonte. Het venster is pywebview met de renderer van het besturingssysteem, en dat leest de
+SYSTEEMopslag, terwijl een browseruitzondering per browser wordt bewaard. Laat de sectie staan,
+ook als de melding verandert.
+
+De stappen voor macOS en Linux zijn door gebruikers gemeld en bevestigd. Windows is naar analogie
+beredeneerd en zegt dat erbij; haal die slag om de arm weg zodra iemand het verifieert.
+
+De sectie over prijzen laden gaat over de ANDERE certificaatopslag en staat bewust los van die
+over HA, ook al melden beide CERTIFICATE_VERIFY_FAILED. Dat verzoek doet de backend via urllib, in
+het proces van de app zelf, dus daar controleert Python's `ssl` en wijst app/net_trust.py
+(truststore) die naar de opslag van het besturingssysteem. Een lezer die de stappen voor de
+sleutelhanger heeft gevolgd en dan hierop stuit, zou anders denken dat die stappen niet werkten;
+de sectie zegt daarom expliciet dat ze hier niet van toepassing zijn. Hoort bij
+`_load_failed_message` in app/main.py, die hierheen linkt.
+
+De sectie vraagt bewust om een melding in plaats van een oplossing te geven: werkt truststore,
+dan valt er voor de gebruiker niets te repareren, en het logbestand bevat de regel die zegt of het
+geladen is. Zet hier pas echte stappen neer als er een oorzaak opduikt waar een gebruiker iets
+mee kan.
+
 Engelse tegenhanger: ../en/troubleshooting.md.
 -->
 
@@ -30,6 +63,8 @@ starten, of kun je de pagina niet vinden in je browser, dan is dat bestand de ee
 kijken — en het nuttigste wat je kunt meesturen bij een melding.
 
 **Direct naar:** [Het logbestand vinden](#het-logbestand-vinden) · [Het adres vinden](#het-adres-vinden) ·
+[Certificaatfouten bij Home Assistant](#verbinding-testen-mislukt-met-een-certificaatfout) ·
+[Certificaatfouten bij prijzen laden](#prijzen-laden-mislukt-met-een-certificaatfout) ·
 [Een probleem melden](#een-probleem-melden)
 
 ## Het logbestand vinden
@@ -88,6 +123,80 @@ Twee andere regels die het weten waard zijn:
   het genoemde adres, of sluit het andere eerst af.
 - **Een regel over een venster dat niet geopend kon worden** — de app kon zijn eigen venster niet
   tekenen en is teruggevallen op je browser. De app werkt gewoon; het adres staat in hetzelfde log.
+
+## "Verbinding testen" mislukt met een certificaatfout
+
+**Verbinding testen** kan mislukken terwijl het adres en het token allebei kloppen. De app kan je
+niet vertellen waarom — de browser meldt de fout zonder reden — dus noemt de melding alle drie de
+mogelijkheden: het adres, of Home Assistant draait, en het certificaat.
+
+Het certificaat is de waarschijnlijke oorzaak als je Home Assistant HTTPS gebruikt met een
+certificaat dat je machine nog niet vertrouwt: meestal een certificaat van je eigen
+certificaatautoriteit, of een zelfondertekend certificaat.
+
+Je loopt hier waarschijnlijk niet tegenaan als Home Assistant op gewoon `http://` draait, of als
+je Nabu Casa (Home Assistant Cloud) gebruikt, waarvan het certificaat van een autoriteit komt die
+je systeem al vertrouwt.
+
+De oplossing: laat je machine het **root-CA-certificaat** vertrouwen — het certificaat van de
+autoriteit zelf, niet het certificaat dat aan Home Assistant is uitgegeven. Elk certificaat dat
+die CA uitgeeft wordt dan geaccepteerd, dus als je dat van Home Assistant later opnieuw uitgeeft,
+komt het probleem niet terug. Start daarna de app opnieuw.
+
+### macOS
+
+1. Open het root-CA-certificaat; meestal opent dan **Sleutelhangertoegang**.
+2. Voeg het toe aan de sleutelhanger **login**, of aan **Systeem** voor iedereen op de machine.
+3. Open het in de lijst, klap **Vertrouwen** uit en zet **Bij gebruik van dit certificaat** op
+   **Vertrouw altijd**.
+
+### Linux
+
+Op Ubuntu:
+
+```
+sudo cp jouw-root-ca.crt /usr/local/share/ca-certificates/
+sudo update-ca-certificates
+```
+
+Het bestand moet de extensie `.crt` hebben en PEM-inhoud bevatten. Andere distributies gebruiken
+andere paden en commando's — kijk in de documentatie van je distributie naar de
+certificaatopslag van het systeem.
+
+### Windows
+
+Importeer het root-CA-certificaat in **Vertrouwde basiscertificeringsinstanties**. We hebben de
+stappen niet nagelopen; kom je ze tegen, meld ze dan in een issue, dan zetten we ze erbij.
+
+### In een browser accepteren werkt niet
+
+Door een certificaatwaarschuwing heen klikken in Safari, Chrome of Firefox slaat een uitzondering
+op in alleen die browser. De app tekent zijn eigen venster met de renderer van je
+besturingssysteem, en dat venster leest de certificaatopslag van het **systeem** — waar een
+uitzondering uit een browser nooit terechtkomt. Firefox houdt ook op Linux een eigen opslag bij,
+dus een CA daar vertrouwen zet hem evenmin systeembreed.
+
+Zet de certificaatcontrole alsjeblieft niet uit om hier langs te komen. Daarmee verdwijnt precies
+de bescherming waarvoor het certificaat bedoeld is, en je eigen CA vertrouwen is nauwelijks meer
+werk.
+
+## Prijzen laden mislukt met een certificaatfout
+
+Een andere fout, met een melding als:
+
+```
+could not load 'price_spot' from 'energy_charts': <urlopen error [SSL: CERTIFICATE_VERIFY_FAILED]
+certificate verify failed: unable to get local issuer certificate>
+```
+
+Deze gaat niet over je Home Assistant. De app haalt spotprijzen op bij een openbare server en kon
+het certificaat van die server niet controleren. De stappen hierboven helpen hier niet: het gaat
+om een gewoon openbaar certificaat, en er is niets mis met jouw installatie.
+
+De app hoort hiervoor de certificaten van je systeem te gebruiken, dus op de meeste machines komt
+dit niet voor. Zie je het toch, [meld het dan](#een-probleem-melden) met het logbestand erbij —
+daarin staat of de app de certificaatopslag van je systeem kon bereiken, en dat is het eerste wat
+we willen weten.
 
 ## Een probleem melden
 

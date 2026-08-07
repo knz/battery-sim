@@ -35,6 +35,12 @@ dependencies = [
     "numpy>=2.5.1",
     "python-multipart>=0.0.20",
     "pywebview>=6.2.1",
+    # Makes Python's `ssl` verify against the OPERATING SYSTEM's trust store instead of whatever
+    # CA file the interpreter happened to be built against. Needed because the backend's HTTPS
+    # (app/sources/energy_charts_api.py) goes through urllib, not the webview: a bundled
+    # interpreter has no keychain access and no certifi, so every verification failed on macOS.
+    # Installed by app/net_trust.py; see changelog/20260806-backend-tls-system-trust.md.
+    "truststore>=0.10.4",
     # The IANA timezone database, as a package. `zoneinfo` looks at the SYSTEM database first
     # (zoneinfo.TZPATH) and falls back to this; Windows ships no system database at all, so there
     # it is the only source and `ZoneInfo("Europe/Amsterdam")` in app/i18n.py raises without it.

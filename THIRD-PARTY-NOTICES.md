@@ -44,7 +44,7 @@ shipped or executed at runtime.
 
 ## 2. Python runtime dependencies
 
-The 41 distributions below are the resolved closure of the runtime dependencies declared in
+The 42 distributions below are the resolved closure of the runtime dependencies declared in
 `pyproject.toml`, and are frozen into the desktop bundles by PyInstaller. The `dev`
 dependency-group (pytest, playwright, httpx) is not bundled and is not listed. Versions come
 from `uv.lock`; licences are read from each distribution's own metadata (PEP 639 `License-
@@ -90,6 +90,7 @@ because one notice file covers all three builds.
 | pyyaml | 6.0.3 | MIT | https://pypi.org/project/pyyaml/ |
 | qtpy | 2.4.3 | MIT | https://pypi.org/project/qtpy/ |
 | starlette | 1.3.1 | BSD-3-Clause | https://pypi.org/project/starlette/ |
+| truststore | 0.10.4 | MIT | https://pypi.org/project/truststore/ |
 | typing-extensions | 4.16.0 | PSF-2.0 | https://pypi.org/project/typing-extensions/ |
 | typing-inspection | 0.4.2 | MIT | https://pypi.org/project/typing-inspection/ |
 | tzdata | 2026.3 | Apache-2.0 | https://pypi.org/project/tzdata/ |

@@ -583,10 +583,20 @@
       }
       self.ws = ws;
       ws.onerror = function () {
+        // The error EVENT carries no reason — the browser withholds it deliberately, so a TLS
+        // rejection, a wrong host and a stopped HA are indistinguishable here. Hence a message
+        // that lists the candidates rather than diagnosing one.
+        //
+        // It must NOT say "your browser", nor send the user off to accept the certificate in
+        // one: the app normally runs in a pywebview window using the OS renderer (WKWebView /
+        // WebView2 / WebKit2GTK), which reads the SYSTEM trust store, while a browser stores its
+        // exceptions per-browser. Trusting the issuing CA system-wide is what reaches the window;
+        // the linked page carries the per-platform steps.
         reject(new Error(ti("ws_connect_failed",
-          "Connection failed. Check the URL, and that your browser trusts the certificate "
-          + "(open %(url)s once to accept it).",
-          { url: self.url.replace(/^ws/, "http") })));
+          "Connection failed. Check that the address is right, that Home Assistant is running, "
+          + "and — if it uses HTTPS — that this machine trusts its certificate. Help: %(docs)s",
+          { docs: t("docs_troubleshooting",
+            "https://github.com/knz/battery-sim/blob/master/docs/en/troubleshooting.md") })));
       };
       ws.onclose = function () {
         Object.keys(self.pending).forEach(function (k) {
