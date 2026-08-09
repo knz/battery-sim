@@ -42,6 +42,27 @@ These files are committed in this repository and served to the browser as-is.
 The Tailwind and daisyUI toolchain is dev-time only (`package.json`); no Node.js code is
 shipped or executed at runtime.
 
+### IBM Plex Sans and IBM Plex Mono
+
+- Files: `app/static/vendor/fonts/*.woff2` — the web-font subsets the UI loads.
+  - `plex-mono-400-latin-ext.woff2`
+  - `plex-mono-400-latin.woff2`
+  - `plex-mono-500-latin-ext.woff2`
+  - `plex-mono-500-latin.woff2`
+  - `plex-mono-600-latin-ext.woff2`
+  - `plex-mono-600-latin.woff2`
+  - `plex-sans-var-latin-ext.woff2`
+  - `plex-sans-var-latin.woff2`
+- Licence: SIL Open Font License 1.1
+- Copyright © 2017 IBM Corp. with Reserved Font Name "Plex"
+- Full licence text: `app/static/vendor/fonts/OFL.txt`
+- Upstream: https://github.com/IBM/plex
+
+Only the `latin` and `latin-ext` subsets are vendored: the UI ships English and Dutch,
+so the other subsets Google Fonts serves would be dead weight in every bundle. The sans
+is a variable font (one file spanning weights 400-700); the mono is not, so its three
+weights are three files.
+
 ## 2. Python runtime dependencies
 
 The 42 distributions below are the resolved closure of the runtime dependencies declared in

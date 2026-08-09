@@ -306,6 +306,7 @@ def workspace_list(
                 "current": locale,
                 "options": [{"code": c, "label": c.upper()} for c in i18n.SUPPORTED],
             },
+            theme=i18n.theme_context(request),
         )
     )
 
@@ -455,6 +456,7 @@ def _edit_page(
                 "current": locale,
                 "options": [{"code": c, "label": c.upper()} for c in i18n.SUPPORTED],
             },
+            theme=i18n.theme_context(request),
         )
     )
 
@@ -686,6 +688,7 @@ def _data_page(
         "current": locale,
         "options": [{"code": c, "label": c.upper()} for c in i18n.SUPPORTED],
     }
+    ctx["theme"] = i18n.theme_context(request)
     # Read by ha_fetch.js to reconcile a locally-staged mapping, and by this screen's dirty check
     # to decide whether anything is staged-but-unfetched (§2′.8, §2′.11).
     ctx["source_generation"] = db.source_generation(ws.id)
@@ -929,6 +932,7 @@ def index(
         "current": locale,
         "options": [{"code": c, "label": c.upper()} for c in i18n.SUPPORTED],
     }
+    ctx["theme"] = i18n.theme_context(request)
     ctx["view"] = results_screen_view.results_screen_view(
         cfg, ws.title, pricing_configured=not ctx["cost_toggle_blocked"]
     )
@@ -2499,4 +2503,30 @@ def set_language(code: str, request: Request):
     if code in i18n.SUPPORTED:
         # 1-year cookie; lax so a normal top-level navigation carries it.
         response.set_cookie(i18n.COOKIE_NAME, code, max_age=31_536_000, samesite="lax")
+    return response
+
+
+@app.get("/theme/{mode}")
+def set_theme(mode: str, request: Request):
+    """Set the theme cookie and redirect back to the referring page (or /).
+
+    A deliberate mirror of `set_language` above: same cookie lifetime, same SameSite, same
+    redirect-to-referer. Presentation preferences reaching a template the same way is worth
+    more than saving the few duplicated lines, and it means the header's two controls behave
+    identically — both are plain links, so both work with scripting off.
+
+    Why a server round trip rather than daisyUI's CSS-only `theme-controller`: that class
+    cannot persist a choice across the full page renders every screen here does. Setting the
+    cookie means the NEXT paint — and every later one — already carries the right
+    `data-theme`, so the user never sees the old theme flash.
+
+    An unknown mode falls through without setting the cookie, exactly as an unsupported
+    language code does, leaving whatever preference was already stored.
+    """
+    target = request.headers.get("referer") or "/"
+    response = RedirectResponse(target, status_code=303)
+    if mode in i18n.THEMES:
+        response.set_cookie(
+            i18n.THEME_COOKIE_NAME, mode, max_age=31_536_000, samesite="lax"
+        )
     return response

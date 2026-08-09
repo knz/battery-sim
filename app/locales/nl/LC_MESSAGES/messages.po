@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-09 13:05+0200\n"
+"POT-Creation-Date: 2026-08-09 14:47+0200\n"
 "PO-Revision-Date: 2026-07-23 20:30+0200\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: nl\n"
@@ -1465,6 +1465,12 @@ msgstr "Stap %(n)s van %(total)s"
 
 msgid "Supplier markup"
 msgstr "Opslag leverancier"
+
+msgid "Switch to dark theme"
+msgstr "Overschakelen naar donker thema"
+
+msgid "Switch to light theme"
+msgstr "Overschakelen naar licht thema"
 
 msgid "T1 ✓ mapped    T2 ✓ mapped, active"
 msgstr "T1 ✓ toegewezen    T2 ✓ toegewezen, actief"

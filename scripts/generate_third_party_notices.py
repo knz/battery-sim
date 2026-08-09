@@ -7,9 +7,10 @@ different route and each needing a different kind of evidence, which is why this
 sections rather than one list:
 
   1. **Vendored browser assets** — files committed in this repository and served to the browser:
-     `app/static/vendor/plotly.min.js` (plotly.js, MIT) and `app/static/app.css`, which is the
-     *compiled output* of Tailwind CSS and daisyUI (both MIT). app.css is generated but committed,
-     so it ships in every distribution form including a plain `git clone`.
+     `app/static/vendor/plotly.min.js` (plotly.js, MIT); `app/static/app.css`, which is the
+     *compiled output* of Tailwind CSS and daisyUI (both MIT); and `app/static/vendor/fonts/`,
+     the IBM Plex Sans/Mono woff2 subsets the UI loads (OFL 1.1). app.css is generated but
+     committed, so it ships in every distribution form including a plain `git clone`.
 
   2. **Python runtime dependencies** — the wheels PyInstaller freezes into the macOS/Windows
      bundles and the Linux AppImage. The set is the `[project].dependencies` closure from
@@ -138,6 +139,7 @@ UV_LOCK_PATH = _REPO_ROOT / "uv.lock"
 PACKAGE_LOCK_PATH = _REPO_ROOT / "package-lock.json"
 PLOTLY_PATH = _REPO_ROOT / "app" / "static" / "vendor" / "plotly.min.js"
 APP_CSS_PATH = _REPO_ROOT / "app" / "static" / "app.css"
+FONTS_DIR = _REPO_ROOT / "app" / "static" / "vendor" / "fonts"
 
 # The distribution name of this project in uv.lock. It is the root of the dependency walk and is
 # not itself a third party, so it never appears in the output.
@@ -163,6 +165,23 @@ def read_plotly_banner() -> tuple[str, str]:
             "replaced with one built without the standard header?"
         )
     return version.group(1), copyright_line.group(1)
+
+
+def font_files() -> list[str]:
+    """The vendored woff2 file names, sorted, read from the directory rather than hardcoded.
+
+    Same principle as `read_plotly_banner`: the notice enumerates what is actually shipped, so
+    adding or dropping a subset updates the attribution on the next run instead of leaving the
+    list quietly wrong. Raises if the directory is empty, because a fonts section naming no
+    files would attribute nothing while looking complete.
+    """
+    names = sorted(p.name for p in FONTS_DIR.glob("*.woff2"))
+    if not names:
+        raise ValueError(
+            f"{FONTS_DIR}: no .woff2 files found — the stylesheet references vendored fonts, so "
+            "an empty directory means the subsets are missing from the checkout."
+        )
+    return names
 
 
 def read_tailwind_banner() -> str | None:
@@ -694,6 +713,21 @@ def render() -> tuple[str, list[str]]:
     add("")
     add("The Tailwind and daisyUI toolchain is dev-time only (`package.json`); no Node.js code is")
     add("shipped or executed at runtime.")
+    add("")
+    add("### IBM Plex Sans and IBM Plex Mono")
+    add("")
+    add("- Files: `app/static/vendor/fonts/*.woff2` — the web-font subsets the UI loads.")
+    for name in font_files():
+        add(f"  - `{name}`")
+    add("- Licence: SIL Open Font License 1.1")
+    add('- Copyright © 2017 IBM Corp. with Reserved Font Name "Plex"')
+    add("- Full licence text: `app/static/vendor/fonts/OFL.txt`")
+    add("- Upstream: https://github.com/IBM/plex")
+    add("")
+    add("Only the `latin` and `latin-ext` subsets are vendored: the UI ships English and Dutch,")
+    add("so the other subsets Google Fonts serves would be dead weight in every bundle. The sans")
+    add("is a variable font (one file spanning weights 400-700); the mono is not, so its three")
+    add("weights are three files.")
     add("")
 
     # ── section 2 ──

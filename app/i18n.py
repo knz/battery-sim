@@ -75,6 +75,25 @@ SUPPORTED = ("en", "nl")   # order is the header toggle order
 DEFAULT_LOCALE = "en"
 COOKIE_NAME = "lang"
 
+# ── Theme ────────────────────────────────────────────────────────────────────────────────
+# The two daisyUI themes defined in app/static/src/app.tailwind.css §1. These names are a
+# CONTRACT with that stylesheet: they are written into `<html data-theme=...>` and the dark
+# one is also the selector the cost-accent rules key off. Renaming a theme means changing
+# both places.
+#
+# Theme lives here, beside the language cookie, because it is the same kind of thing: a
+# per-request presentation preference read from a cookie, defaulted when absent, and set by a
+# GET that redirects back (app/main.py's `/theme/{mode}`, mirroring `/lang/{code}`). Keeping
+# the two together means one place explains how a preference reaches a template.
+#
+# Why a server-set cookie rather than daisyUI's `theme-controller` class: that mechanism is
+# pure CSS and therefore does not persist across a page load, and every screen here is a full
+# server render. A cookie survives the redirect and applies on the very first paint, so there
+# is no flash of the wrong theme.
+THEMES = {"light": "northsea", "dark": "northsea-dark"}
+DEFAULT_THEME = "light"
+THEME_COOKIE_NAME = "theme"
+
 # gettext.translations objects, cached by locale code. Built lazily on first use.
 _catalogs: dict[str, gettext.NullTranslations] = {}
 
@@ -128,6 +147,33 @@ def resolve_locale(request: Request) -> str:
             return preferred
 
     return DEFAULT_LOCALE
+
+
+def resolve_theme(request: Request) -> str:
+    """Pick the active theme mode ('light' or 'dark') for a request: cookie → default.
+
+    Unlike `resolve_locale` there is no header-negotiation step. `prefers-color-scheme` is a
+    CSS-side signal and is not sent as a request header, so the server cannot read the OS
+    preference; honouring it would need a client round trip that would itself flash the wrong
+    theme. The cookie is therefore the only input, and the default is light.
+    """
+    cookie = request.cookies.get(THEME_COOKIE_NAME)
+    return cookie if cookie in THEMES else DEFAULT_THEME
+
+
+def theme_context(request: Request) -> dict:
+    """The `theme` mapping every screen's template expects.
+
+    `name` is what goes in `<html data-theme=...>`; `mode` is the plain light/dark word the
+    header toggle uses to decide which icon to show and which mode to link to. Both are
+    derived here so the four templates never compute the mapping themselves.
+    """
+    mode = resolve_theme(request)
+    return {
+        "mode": mode,
+        "name": THEMES[mode],
+        "next": "dark" if mode == "light" else "light",
+    }
 
 
 def env_for(code: str) -> "Environment":
