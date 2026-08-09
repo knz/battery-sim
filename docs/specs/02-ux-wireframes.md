@@ -25,7 +25,7 @@ specified in [20-workspaces-ux.md](20-workspaces-ux.md) and is not restated here
 | The workspace list — the home screen | [§2′.2](20-workspaces-ux.md#22-the-workspace-list--the-apps-home-screen) | — |
 | Edit workspace — title, location, grid connection, contract | [§2′.4](20-workspaces-ux.md#24-edit-workspace) | §2.3 boxes 2 and 6 |
 | Configure data | [§2′.5](20-workspaces-ux.md#25-configure-data) | §2.2, §2.3a |
-| Results — the battery box and the result sections, one scrolling screen | [§2′.6](20-workspaces-ux.md#26-results) | §2.3, §2.4 |
+| Results — a fixed control column beside the scrolling result sections | [§2′.6](20-workspaces-ux.md#26-results) | §2.3, §2.4 |
 
 The new-analysis wizard walks the last three in order; the footer that distinguishes the
 wizard path from the from-a-card path is [§2′.8](20-workspaces-ux.md#28-the-footer-and-the-two-entry-points).
