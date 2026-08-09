@@ -274,3 +274,65 @@ def test_cross_site_post_is_refused(client):
         "/workspaces/demo", headers={"sec-fetch-site": "cross-site"}, follow_redirects=False
     )
     assert r.status_code == 403
+
+
+# ── The translated title ─────────────────────────────────────────────────────────────────────
+
+
+def test_the_stored_title_is_the_english_constant(demo_workspace):
+    """Translation happens at render, so what is STORED must stay the stable English string.
+
+    This is the hinge of the whole design: `display_title` matches on this value, and the edit
+    screen writes it back on save. A stored translation would break both.
+    """
+    assert workspaces.get(demo_workspace)["title"] == demo.DEMO_TITLE
+
+
+def test_the_demo_title_is_translated_in_both_directions(client, demo_workspace):
+    """The title follows the language toggle — what write-time translation could not do."""
+    assert "Demo household" in client.get("/").text
+
+    client.get("/lang/nl")
+    dutch = client.get("/").text
+    assert "Demohuishouden" in dutch
+    assert "Demo household" not in dutch
+
+    # And back: a stored translation would be stuck in Dutch here.
+    client.get("/lang/en")
+    assert "Demo household" in client.get("/").text
+
+
+def test_the_results_header_is_translated_too(client, demo_workspace):
+    client.get("/lang/nl")
+    assert "Demohuishouden" in client.get(f"/w/{demo_workspace}/results").text
+    client.get("/lang/en")
+
+
+def test_the_edit_field_keeps_the_stored_title(client, demo_workspace):
+    """The rename field is the one place the title must NOT be translated.
+
+    Its value is posted back and saved, so a Dutch value there would write the translation into
+    the database — exactly the write-time translation this design exists to avoid.
+    """
+    client.get("/lang/nl")
+    try:
+        body = client.get(f"/w/{demo_workspace}/edit").text
+        assert 'value="Demo household"' in body
+        assert 'value="Demohuishouden"' not in body
+    finally:
+        client.get("/lang/en")
+
+
+def test_a_renamed_workspace_is_not_translated(client, demo_workspace):
+    """Once the user names it, the name is theirs and the substitution stops."""
+    from app import workspace_list_view
+
+    renamed = workspace_list_view.display_title("Mijn eigen analyse")
+    assert renamed == "Mijn eigen analyse"
+
+
+def test_the_msgid_matches_the_stored_constant():
+    """Two constants, one string: if they drift, the substitution silently stops firing."""
+    from app import workspace_list_view
+
+    assert workspace_list_view.DEMO_TITLE_MSGID == demo.DEMO_TITLE

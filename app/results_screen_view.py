@@ -52,6 +52,7 @@ Main items:
 
 from __future__ import annotations
 
+from app import workspace_list_view
 from app.domain.simconfig import SimulationConfig
 
 # Every setting the "More settings" pane draws, grouped by the tab that draws it (§2′.6). The
@@ -156,7 +157,10 @@ def results_screen_view(
     link. A footer flag would be a flag with one value.
     """
     return {
-        "title": title,
+        # Through `display_title` so the demo workspace's header follows the language toggle like
+        # the rest of the page; a user-chosen title passes through untouched. Display only — the
+        # edit screen deliberately does NOT do this, since its title is a rename field's value.
+        "title": workspace_list_view.display_title(title),
         "pricing_configured": bool(pricing_configured),
         "advanced_changed": advanced_changed_count(cfg),
     }

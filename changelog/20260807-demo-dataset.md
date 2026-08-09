@@ -238,6 +238,40 @@ hard (0.83 cycles/day) for a large but not implausible gain.
 regeneration that dropped the override would otherwise change the demo's story silently with
 every other test still passing.
 
+## The demo title, translated at render time
+
+**Request:** show the demo workspace's title in the active language.
+
+The obvious implementation — translate at creation time, in `demo.materialize()` — was
+rejected, and `app/workspaces.py:512` already explains why for `DEFAULT_TITLE`: a string
+written to the database once cannot follow the user's later language toggle, so translating
+it at write time gives a title that is wrong half the time rather than neutral all of it.
+A user who loads the demo in Dutch and switches to English would keep a Dutch card.
+
+**Chosen instead: translate at RENDER time.** The stored title stays the stable English
+`demo.DEMO_TITLE`; `workspace_list_view.display_title()` returns a msgid in its place when the
+stored title still matches, and the templates translate it in the request's locale. The title
+therefore follows the language toggle in both directions, which write-time translation cannot
+do. This reuses the `_msg.html` mechanism the role labels and figures already use rather than
+inventing anything.
+
+Three consequences worth stating:
+
+- **The substitution stops once the user renames the workspace**, which is the behaviour you
+  want — a name the user chose is theirs, not a label to translate.
+- **The edit screen deliberately does NOT translate.** Its title is a rename field's `value`,
+  posted back and saved; a translated value there would write the Dutch string into the
+  database, which is precisely the write-time translation being avoided. Asserted by
+  `test_the_edit_field_keeps_the_stored_title`.
+- **Two constants hold the same string** (`demo.DEMO_TITLE` and
+  `workspace_list_view.DEMO_TITLE_MSGID`), because the msgid must be a literal `_N(...)` call
+  for `pybabel extract` to see it and `app.demo` must not depend on the view layer. If they
+  drift the substitution silently stops firing, so a test pins them equal.
+
+Accepted trade-off: a user who renames some *other* workspace to exactly "Demo household" gets
+that one translated too. Harmless, and the alternative is a flag column on the `workspaces`
+table to disambiguate a case with no consequence.
+
 ## UI surface
 
 `POST /workspaces/demo` (same-site only, like every other creating route) materializes the demo
@@ -269,8 +303,14 @@ numbers for their own.
 - `app/templates/workspaces.html` — the demo control in the header and the empty state.
 - `app/locales/messages.pot`, `app/locales/{nl,en}/LC_MESSAGES/messages.{po,mo}` — two new
   msgids, with Dutch translations, extracted and compiled per `docs/maintainers/i18n.md`.
-- `tests/test_demo.py` (new, 22 tests) — committed-artifact properties, loader round-trip,
-  failure modes, and the four route tests.
+- `tests/test_demo.py` (new, 29 tests) — committed-artifact properties, loader round-trip,
+  failure modes, the four route tests, and six for the render-time title translation.
+- `app/workspace_list_view.py` — `DEMO_TITLE_MSGID` and `display_title()`; the card's title
+  now goes through the latter.
+- `app/results_screen_view.py` — the header title goes through `display_title()` too.
+- `app/templates/_workspace_card.html` — title rendered through the `msg()` macro (heading and
+  both delete-dialog `data-workspace-title` attributes).
+- `app/templates/workspace_results.html` — header title rendered through `_()`.
 - `tests/test_smoke.py` — one browser test for the demo button, added ALONGSIDE
   `_seed_reconstructable_dataset` rather than replacing it (that fixture asserts the §2′.8
   gate's lower bound with two flat series, which a three-month demo does not exercise).
