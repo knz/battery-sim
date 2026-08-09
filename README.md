@@ -20,6 +20,20 @@ over this period".
 
 ## Using the app
 
+The app is released as a **desktop app**.
+
+Builds are published on the [releases
+page](https://github.com/knz/battery-sim/releases):
+
+- for **Linux** (an AppImage),
+- **macOS** (Apple silicon and Intel),
+- **Windows**.
+
+None of them is signed, so macOS and Windows [show a warning on first
+open](docs/en/security-warnings.md).
+
+More documentation:
+
 - **[Installing and running](docs/en/install.md)** — [Installeren en starten](docs/nl/installatie.md)
 - **[The security warnings your OS shows](docs/en/security-warnings.md)** — [Beveiligingswaarschuwingen](docs/nl/beveiligingswaarschuwingen.md)
 - **[When something goes wrong](docs/en/troubleshooting.md)** — [Als er iets misgaat](docs/nl/probleemoplossing.md)
@@ -27,10 +41,6 @@ over this period".
 
 Every page exists in English and Dutch; the index is [`docs/README.md`](docs/README.md).
 
-The short version: builds are published on the
-[releases page](https://github.com/knz/battery-sim/releases) for **Linux** (an AppImage),
-**macOS** (Apple silicon and Intel) and **Windows**. None of them is signed, so macOS and
-Windows [show a warning on first open](docs/en/security-warnings.md).
 
 ## Licence
 
