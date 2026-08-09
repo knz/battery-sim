@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-06 19:34+0200\n"
+"POT-Creation-Date: 2026-08-07 17:01+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -885,6 +885,9 @@ msgstr ""
 msgid "Leave anyway"
 msgstr ""
 
+msgid "Load demo data"
+msgstr ""
+
 msgid "Loaded. Reloading…"
 msgstr ""
 
@@ -1381,6 +1384,11 @@ msgid ""
 msgstr ""
 
 msgid "The connection must be 1-phase or 3-phase."
+msgstr ""
+
+msgid ""
+"The demo is three months of a real Dutch solar household, so you can see "
+"what the app does before connecting your own data."
 msgstr ""
 
 msgid ""

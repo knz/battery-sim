@@ -3844,3 +3844,42 @@ def test_the_saved_heatmap_draws_beside_the_other_two(browser, base_url):
 
     assert errors == [], f"drawing the saved heatmap raised: {errors}"
     context.close()
+
+
+# ── The demo dataset ─────────────────────────────────────────────────────────────────────────
+
+
+def test_the_list_loads_the_demo_and_lands_on_populated_results(base_url, browser):
+    """The demo button, end to end in a browser: empty list → results with real figures.
+
+    This is the one browser path that reaches a fully-populated results screen without a Home
+    Assistant or a CSV upload. `_seed_reconstructable_dataset` above covers the MINIMUM the §2′.8
+    gate accepts, written in-process; this covers the opposite end — a realistic multi-month
+    dataset, reached the way a first-time user reaches it, through the route and the button.
+
+    Both are kept: the synthetic fixture asserts the gate's lower bound with two flat series, which
+    a three-month demo would not exercise.
+    """
+    context = browser.new_context()
+    pg = context.new_page()
+    pg.goto(base_url + "/", wait_until="networkidle")
+
+    pg.locator("form[action='/workspaces/demo'] button").first.click()
+    pg.wait_for_load_state("networkidle")
+
+    # It lands on the results screen, not the wizard: the demo arrives with config and data.
+    assert "/results" in pg.url, f"the demo did not land on results: {pg.url}"
+
+    # The period line is the compact statement that a real dataset is loaded and simulatable.
+    body = pg.locator("body").inner_text()
+    assert "2,184 intervals" in body or "2184 intervals" in body, body[:400]
+    assert "91 days" in body, body[:400]
+
+    # And the run produced figures, not an empty-state screen.
+    assert "kWh" in body
+    assert pg.get_by_text("Demo household").count() > 0
+
+    # The workspace is now on the list, so the demo is a normal workspace like any other.
+    pg.goto(base_url + "/", wait_until="networkidle")
+    assert pg.get_by_text("Demo household").count() > 0
+    context.close()

@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-06 19:34+0200\n"
+"POT-Creation-Date: 2026-08-07 17:01+0200\n"
 "PO-Revision-Date: 2026-07-23 20:30+0200\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: nl\n"
@@ -986,6 +986,9 @@ msgstr "Taal"
 msgid "Leave anyway"
 msgstr "Toch weggaan"
 
+msgid "Load demo data"
+msgstr "Demodata laden"
+
 msgid "Loaded. Reloading…"
 msgstr "Geladen. Opnieuw laden…"
 
@@ -1593,6 +1596,14 @@ msgstr ""
 
 msgid "The connection must be 1-phase or 3-phase."
 msgstr "De aansluiting moet 1-fase of 3-fase zijn."
+
+msgid ""
+"The demo is three months of a real Dutch solar household, so you can see "
+"what the app does before connecting your own data."
+msgstr ""
+"De demo bestaat uit drie maanden van een echt Nederlands huishouden met "
+"zonnepanelen, zodat u kunt zien wat de app doet voordat u uw eigen gegevens "
+"koppelt."
 
 msgid ""
 "The euro figures count only the part of your bill that responds to what "

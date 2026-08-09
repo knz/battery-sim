@@ -1,0 +1,142 @@
+{
+  "version": 1,
+  "window": {
+    "start": "2026-04-01T00:00:00+00:00",
+    "end": "2026-07-01T00:00:00+00:00"
+  },
+  "resolution_s": 3600,
+  "series": [
+    {
+      "name": "grid_import_t1",
+      "kind": "energy",
+      "resolution_s": 3600,
+      "file": "grid_import_t1.csv"
+    },
+    {
+      "name": "grid_import_t2",
+      "kind": "energy",
+      "resolution_s": 3600,
+      "file": "grid_import_t2.csv"
+    },
+    {
+      "name": "grid_export_t1",
+      "kind": "energy",
+      "resolution_s": 3600,
+      "file": "grid_export_t1.csv"
+    },
+    {
+      "name": "grid_export_t2",
+      "kind": "energy",
+      "resolution_s": 3600,
+      "file": "grid_export_t2.csv"
+    },
+    {
+      "name": "solar_production",
+      "kind": "energy",
+      "resolution_s": 3600,
+      "file": "solar_production.csv"
+    }
+  ],
+  "price_series": {
+    "name": "price_spot",
+    "kind": "price",
+    "source": "app/data/spot_prices/NL-{year}.csv",
+    "note": "Sliced from the bundled Energy-Charts spot prices at load time, not duplicated here. Verified equal to the source workspace's price_spot over this window."
+  },
+  "simconfig": {
+    "version": 1,
+    "postcode": "",
+    "has_pv": true,
+    "has_battery": false,
+    "simulate_cost": true,
+    "dp_soc_levels": 101,
+    "dp_action_levels": 41,
+    "battery": {
+      "usable_capacity_kwh": 6,
+      "min_soc_pct": 10,
+      "max_soc_pct": 100,
+      "max_charge_kw": 5.0,
+      "max_discharge_kw": 5.0,
+      "roundtrip_efficiency": 0.96,
+      "roundtrip_dc_bonus": 0.04,
+      "standby_w": 30,
+      "initial_soc_pct": 50,
+      "coupling": "ac"
+    },
+    "grid": {
+      "phases": 3,
+      "fuse_a": 25.0,
+      "max_import_kw_override": null,
+      "max_export_kw": null
+    },
+    "policy": {
+      "charge_policy": "P1",
+      "discharge_policy": "D1",
+      "band_a": -1.0,
+      "band_b": -0.08,
+      "band_c": 0.18,
+      "band_d": 9.999,
+      "allow_grid_export": true,
+      "economic_guard": false
+    },
+    "topology": {
+      "pv_coupling": "ac",
+      "battery_phases": "three_phase",
+      "approximated": false
+    },
+    "pricing": {
+      "contract": "dynamic",
+      "supplier_markup": 0.0205,
+      "energy_tax_excl_vat": 0.09161,
+      "vat_rate": 0.21,
+      "feedin_alpha": 0.5,
+      "feedin_beta": 0.0,
+      "feedin_floor_mode": "monthly",
+      "tlk_mode": "flat",
+      "tlk_eur_per_kwh": 0.04,
+      "supplier_settlement": "hourly",
+      "dal_start_hour": 23,
+      "dal_end_hour": 7,
+      "dal_weekends": true,
+      "degradation_eur_per_kwh": 0.0,
+      "rate_normaal": 0.135,
+      "rate_dal": 0.118
+    }
+  },
+  "provenance": {
+    "source": "A real Dutch three-phase PV household, hourly meter data.",
+    "anonymisation": "Occupancy patterns are attenuated, not removed. Days in the quietest quarter of overnight grid import had that import resampled from a median hour-of-day profile of the remaining days, rescaled per day so the replacements vary as real days do. Export, PV and prices are the original measurements. This lifts the low tail (overnight min/median 0.49 -> 0.58) and removes the multi-day low-import runs that read as travel, but the underlying distribution is continuous, so resampling a quantile moves the boundary rather than eliminating it: some inference remains possible.",
+    "resampled_days": [
+      "2026-04-16",
+      "2026-04-19",
+      "2026-04-21",
+      "2026-04-22",
+      "2026-04-23",
+      "2026-04-25",
+      "2026-04-26",
+      "2026-04-28",
+      "2026-04-29",
+      "2026-05-01",
+      "2026-05-08",
+      "2026-05-09",
+      "2026-05-10",
+      "2026-05-20",
+      "2026-06-03",
+      "2026-06-04",
+      "2026-06-05",
+      "2026-06-07",
+      "2026-06-08",
+      "2026-06-09",
+      "2026-06-10",
+      "2026-06-12",
+      "2026-06-13"
+    ],
+    "totals_kwh": {
+      "grid_import_t1": 407.085,
+      "grid_import_t2": 140.149,
+      "grid_export_t1": 431.667,
+      "grid_export_t2": 1002.06,
+      "solar_production": 2093.2
+    }
+  }
+}

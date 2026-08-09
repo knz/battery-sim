@@ -190,6 +190,7 @@ from app import (
     data_view,
     dataset,
     db,
+    demo,
     deps,
     i18n,
     ingest_ws,
@@ -334,6 +335,35 @@ def create_workspace(principal: Annotated[deps.Principal, Depends(deps.get_princ
     """
     workspace_id = workspaces.create(workspaces.DEFAULT_TITLE, owner_id=principal.id)
     return RedirectResponse(f"/w/{workspace_id}/edit?mode=wizard", status_code=303)
+
+
+@app.post("/workspaces/demo", dependencies=[Depends(csrf.require_same_site)])
+def create_demo_workspace(principal: Annotated[deps.Principal, Depends(deps.get_principal)]):
+    """Create a workspace from the committed demo dataset and redirect into its results (§2′.2).
+
+    The demo exists so the app can be seen working before the user has connected anything: a
+    three-month slice of a real Dutch PV household, shipped in `app/data/demo/` and materialized
+    by `app.demo`. See that module for the storage shape and the anonymisation, including what
+    the anonymisation does *not* achieve.
+
+    **Where it redirects, and why it differs from `create_workspace`.** A new empty workspace goes
+    to the wizard, because it has nothing in it and the wizard is what fills it. The demo is the
+    opposite case — config and data are already there — so it goes straight to the results screen,
+    which is the thing the user pressed the button to see.
+
+    Same-site only, and POST-with-redirect, for the same reasons as `create_workspace`: it writes,
+    and a reload of the destination must not mint a second copy.
+
+    Each press creates an independent workspace rather than reusing or overwriting one. Loading
+    the demo twice gives two copies — harmless, and it means the action can never clobber a
+    workspace the user has since edited.
+
+    A broken or missing committed dataset raises `demo.ManifestError`, which is a build-time bug
+    rather than a user-facing condition, so it is surfaced as a 500 rather than dressed up as a
+    validation error.
+    """
+    workspace_id = demo.materialize(owner_id=principal.id)
+    return RedirectResponse(f"/w/{workspace_id}/results", status_code=303)
 
 
 @app.post("/w/{workspace_id}/delete", dependencies=[Depends(csrf.require_same_site)])
