@@ -44,7 +44,10 @@
 
     {# ── Title and badges ─────────────────────────────────────────────────────────── #}
     <div class="flex flex-col gap-2">
-      <h3 class="text-base font-semibold">{{ card.title }}</h3>
+      {# Through `msg()` because the demo's title is a msgid translated at render time, so a
+         language toggle re-renders it (app/workspace_list_view._title). A user-chosen title is a
+         bare string and takes the macro's plain `_()` branch, which leaves it alone. #}
+      <h3 class="text-base font-semibold">{{ msg(card.title) }}</h3>
       <div class="flex flex-wrap items-center gap-2">
         {# Connection: `phases × fuse_a`, built by the view-model from GridConfig, never typed. #}
         <span class="badge badge-outline badge-sm">{{ msg(card.connection) }}</span>
@@ -110,11 +113,11 @@
         {% if card.has_data %}
         <button type="button" class="btn btn-ghost btn-sm text-error"
                 data-delete-data data-workspace-id="{{ card.id }}"
-                data-workspace-title="{{ card.title }}">{{ _('Delete data') }}</button>
+                data-workspace-title="{{ msg(card.title) }}">{{ _('Delete data') }}</button>
         {% endif %}
         <button type="button" class="btn btn-ghost btn-sm text-error"
                 data-delete-workspace data-workspace-id="{{ card.id }}"
-                data-workspace-title="{{ card.title }}">{{ _('Delete analysis') }}</button>
+                data-workspace-title="{{ msg(card.title) }}">{{ _('Delete analysis') }}</button>
       </div>
     </div>
   </div>

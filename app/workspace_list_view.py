@@ -66,7 +66,7 @@ from app.workspaces import WorkspaceSummary
 # this module's name has been the reference for it (§2′.2, docs/specs/README.md). It moved to
 # `app.i18n` when `results_view` needed the same zone for the average-day profile: the two views do
 # not import each other, and `i18n` is the leaf both already depend on for display conventions.
-__all__ = ["DISPLAY_TZ", "CONNECTION_BADGE", "card", "cards"]
+__all__ = ["DISPLAY_TZ", "CONNECTION_BADGE", "DEMO_TITLE_MSGID", "card", "cards", "display_title"]
 
 CONNECTION_BADGE = _N("%(phases)s×%(fuse)s A")
 """The connection badge (§2′.2): `1×25 A`, `3×63 A`.
@@ -77,6 +77,15 @@ module-level assignment is not a call the extractor recognises.
 
 The "×" is U+00D7, not the letter x — it is the multiplication sign the wireframe uses and the one
 a Dutch meter cabinet label uses.
+"""
+
+DEMO_TITLE_MSGID = _N("Demo household")
+"""The demo workspace's title, as a msgid rendered in the request's locale (see `_title`).
+
+The English text here must stay identical to `app.demo.DEMO_TITLE`, which is what is actually
+stored: `_title` matches on that value to decide whether to substitute this. They are two
+constants rather than one because this one has to be a literal `_N(...)` call for
+`pybabel extract` to see it, and `app.demo` must not depend on the view layer.
 """
 
 # The three role facts, in §2′.2's fixed order. Each is (key on DataFacts, label msgid).
@@ -176,6 +185,38 @@ def _data(summary: WorkspaceSummary) -> dict:
     }
 
 
+def display_title(title: str):
+    """A stored workspace title → what a screen should DISPLAY: a msgid for the demo, else itself.
+
+    Stored titles are not translated, and `workspaces.DEFAULT_TITLE` says why: a string written to
+    the database once cannot follow the user's later language toggle, so translating it at write
+    time produces a title that is wrong half the time rather than neutral all of it.
+
+    The demo is the one case where a translated title is still worth having. It is the first thing
+    a first-time user sees, they did not choose the name, and those users are the least likely to
+    have found the language switch. So the translation happens HERE instead: the stored title stays
+    the stable English `demo.DEMO_TITLE`, and this returns a msgid the `_msg.html` macro translates
+    in the request's locale — the same mechanism the role labels already use. A language toggle
+    therefore re-renders the title correctly, which write-time translation could not do.
+
+    Matching on the stored title means the substitution STOPS once the user renames the workspace,
+    which is the behaviour you want: a name the user chose is theirs, not a label to translate.
+    It also means a user who renames some other workspace to exactly "Demo household" gets it
+    translated too — harmless, and the alternative (a flag column on the workspaces table) is a
+    schema change to disambiguate a case with no consequence.
+
+    **Display only.** The results header calls this; the EDIT screen must not, because there the
+    title is an input field's `value` and a translated one would be written back to the database on
+    save — which is precisely the write-time translation this design avoids.
+    """
+    # Imported here rather than at module scope: `app.demo` imports `app.dataset`, and this module
+    # is imported by `app.main` at startup, so a module-scope import would widen that import graph
+    # for a constant used in one comparison.
+    from app.demo import DEMO_TITLE
+
+    return DEMO_TITLE_MSGID if title == DEMO_TITLE else title
+
+
 def card(summary: WorkspaceSummary) -> dict:
     """One `WorkspaceSummary` → the dict `_workspace_card.html` renders (§2′.2).
 
@@ -198,7 +239,7 @@ def card(summary: WorkspaceSummary) -> dict:
     """
     return {
         "id": summary.id,
-        "title": summary.title,
+        "title": display_title(summary.title),
         "connection": _msg(
             CONNECTION_BADGE, phases=summary.phases, fuse=_fmt_fuse(summary.fuse_a)
         ),

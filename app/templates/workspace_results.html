@@ -96,8 +96,12 @@
          the one screen phase 2 relocated. #}
       <a class="btn btn-ghost btn-sm px-2" href="/">{{ _('← Your analyses') }}</a>
       {# §2′.6's wireframe names the analysis in the header, as §2′.4's and §2′.5's do. Displayed
-         only: renaming is the edit screen's job and this screen posts no title field. #}
-      <span class="text-lg font-semibold">{{ view.title }}</span>
+         only: renaming is the edit screen's job and this screen posts no title field.
+
+         Through `_()` rather than rendered bare: the view-model hands over a msgid for the demo
+         workspace so its header follows the language toggle (workspace_list_view.display_title),
+         and a user-chosen title is not in the catalog, so `_()` returns it unchanged. #}
+      <span class="text-lg font-semibold">{{ _(view.title) }}</span>
     </div>
     <div class="flex-none items-center gap-2">
       {# Language toggle: one button per supported locale; the active one is highlighted.

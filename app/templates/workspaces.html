@@ -89,9 +89,16 @@
       {# A form rather than a link: creating a workspace WRITES, and a GET that writes is the
          wrong shape (the same reasoning phase 1 applied to the lifespan). It posts to
          /workspaces, which creates and redirects. #}
-      <form method="post" action="/workspaces">
-        <button type="submit" class="btn btn-primary btn-sm">{{ _('+ New analysis') }}</button>
-      </form>
+      <div class="flex flex-wrap items-center gap-2">
+        {# Secondary to [ + New analysis ]: the demo is for looking, not for the user's own
+           question. Ghost styling keeps it available without competing with the real action. #}
+        <form method="post" action="/workspaces/demo">
+          <button type="submit" class="btn btn-ghost btn-sm">{{ _('Load demo data') }}</button>
+        </form>
+        <form method="post" action="/workspaces">
+          <button type="submit" class="btn btn-primary btn-sm">{{ _('+ New analysis') }}</button>
+        </form>
+      </div>
     </div>
 
     {% if cards %}
@@ -107,9 +114,20 @@
         <p class="mt-1 text-sm text-base-content/70">
           {{ _('An analysis is one household and one question: your data, your contract, and the battery you are considering.') }}
         </p>
-        <form method="post" action="/workspaces" class="mt-4">
-          <button type="submit" class="btn btn-primary btn-sm">{{ _('+ New analysis') }}</button>
-        </form>
+        {# The empty state is where the demo earns its place: a first-time user has nothing to
+           analyse yet, and the demo is the only way to see what the app produces without first
+           connecting Home Assistant or finding a CSV. #}
+        <div class="mt-4 flex flex-wrap items-center justify-center gap-2">
+          <form method="post" action="/workspaces">
+            <button type="submit" class="btn btn-primary btn-sm">{{ _('+ New analysis') }}</button>
+          </form>
+          <form method="post" action="/workspaces/demo">
+            <button type="submit" class="btn btn-outline btn-sm">{{ _('Load demo data') }}</button>
+          </form>
+        </div>
+        <p class="mt-3 text-xs text-base-content/60">
+          {{ _('The demo is three months of a real Dutch solar household, so you can see what the app does before connecting your own data.') }}
+        </p>
       </div>
     {% endif %}
   </main>
