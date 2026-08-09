@@ -38,7 +38,7 @@
   concatenated from fragments.
 #}
 <!doctype html>
-<html lang="{{ lang.current }}" data-theme="light">
+<html lang="{{ lang.current }}" data-theme="{{ theme.name }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -79,6 +79,34 @@
            {% if opt.code == lang.current %}aria-current="true"{% endif %}>{{ opt.label }}</a>
         {% endfor %}
       </div>
+      {# Theme toggle. A plain link, exactly like the language toggle beside it: `/theme/{mode}`
+         sets a cookie and redirects back (app/main.py's `set_theme`), so the choice survives the
+         navigation and the next paint already carries the right `data-theme`. daisyUI's CSS-only
+         `theme-controller` was not used because it cannot persist across the full page renders
+         every screen here does.
+
+         The icon shows the theme the link SWITCHES TO, not the current one, which is why it reads
+         from `theme.next`. The accessible name says the same thing in words — an icon alone would
+         leave a screen-reader user guessing which direction the control goes. #}
+      <a class="btn btn-xs btn-ghost px-2"
+         href="/theme/{{ theme.next }}"
+         title="{% if theme.next == 'dark' %}{{ _('Switch to dark theme') }}{% else %}{{ _('Switch to light theme') }}{% endif %}"
+         aria-label="{% if theme.next == 'dark' %}{{ _('Switch to dark theme') }}{% else %}{{ _('Switch to light theme') }}{% endif %}">
+        {% if theme.next == 'dark' %}
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+             class="h-4 w-4" aria-hidden="true">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+        </svg>
+        {% else %}
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+             class="h-4 w-4" aria-hidden="true">
+          <circle cx="12" cy="12" r="4"></circle>
+          <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path>
+        </svg>
+        {% endif %}
+      </a>
     </div>
   </header>
 
@@ -112,7 +140,7 @@
       <div class="rounded-box border border-dashed border-base-300 bg-base-100 p-8 text-center">
         <p class="text-base font-medium">{{ _('You have no analyses yet.') }}</p>
         <p class="mt-1 text-sm text-base-content/70">
-          {{ _('An analysis is one household and one question: your data, your contract, and the battery you are considering.') }}
+          {{ _('An analysis answers one question for one household: what would this battery have saved you, on your data and your contract?') }}
         </p>
         {# The empty state is where the demo earns its place: a first-time user has nothing to
            analyse yet, and the demo is the only way to see what the app produces without first

@@ -369,10 +369,12 @@
               <span class="font-medium">{{ _('⚠ This topology is not fully supported in version 1.') }}</span>
               <span>{{ _('Your smart meter nets across phases, so the financial result would be close to the 3-phase case. What we cannot model without per-phase data is the per-phase power limit — a 1-phase battery cannot exceed one phase’s fuse rating no matter how the load is distributed.') }}</span>
               <span>{{ _('Please tell us about your setup — inverter model, phase allocation, and whether you have per-phase sensors. It directly determines whether this lands in version 2.') }}</span>
-              <label class="label cursor-pointer justify-start gap-3">
-                <input type="checkbox" name="topology.approximated" value="1" class="checkbox checkbox-sm"
+              {# Wraps like the dispatch tab's rows, and for the same reason: it sits inside an
+                 alert box that is narrower still than the cards there. #}
+              <label class="label cursor-pointer items-start justify-start gap-3 whitespace-normal">
+                <input type="checkbox" name="topology.approximated" value="1" class="checkbox checkbox-sm mt-0.5 shrink-0"
                        {% if params.approximated %}checked{% endif %} />
-                <span class="label-text">{{ _('Continue with a 3-phase approximation') }}</span>
+                <span class="label-text min-w-0">{{ _('Continue with a 3-phase approximation') }}</span>
               </label>
             </div>
             {% endif %}
@@ -412,14 +414,23 @@
 
                    **The answer that unblocks them is now a screen away**, not a band above:
                    `has_pv` moved to the configure-data screen (§2′.7). #}
+                {# **The policy labels WRAP, and three classes are needed together to get there.**
+                   daisyUI's `.label` sets `white-space: nowrap`, so these names — "D1 Serve house
+                   load when consumption exceeds…" is the longest — ran straight out of the card and
+                   were clipped at its edge once the box moved into the results screen's control
+                   column (§2′.6). `whitespace-normal` releases that; `items-start` puts the radio on
+                   the FIRST line rather than centred against a now-multi-line block; `min-w-0` lets
+                   the text span shrink below its content width, without which a flex child refuses
+                   to and the wrap never happens. Removing any one of the three brings the clipping
+                   back in some form. #}
                 {% for p in params.charge_policies %}
-                <label class="label justify-start gap-3{% if not p.disabled %} cursor-pointer{% endif %}">
-                  <input type="radio" name="policy.charge_policy" value="{{ p.key }}" class="radio radio-sm"
+                <label class="label items-start justify-start gap-3 whitespace-normal{% if not p.disabled %} cursor-pointer{% endif %}">
+                  <input type="radio" name="policy.charge_policy" value="{{ p.key }}" class="radio radio-sm mt-0.5 shrink-0"
                          {% if p.selected %}checked{% endif %}{% if p.disabled %} disabled{% endif %} />
-                  <span class="label-text{% if p.disabled %} text-base-content/50{% endif %}"><b>{{ p.key }}</b> {{ _(p.label) }}</span>
-                  {% if p.pv_only %}<span class="badge badge-ghost badge-xs">{{ _('PV only') }}</span>{% endif %}
+                  <span class="label-text min-w-0{% if p.disabled %} text-base-content/50{% endif %}"><b>{{ p.key }}</b> {{ _(p.label) }}</span>
+                  {% if p.pv_only %}<span class="badge badge-ghost badge-xs shrink-0">{{ _('PV only') }}</span>{% endif %}
                   {% if p.disabled and p.info %}
-                  <button type="button" class="btn btn-ghost btn-xs btn-circle align-middle slot-info-btn"
+                  <button type="button" class="btn btn-ghost btn-xs btn-circle align-middle shrink-0 slot-info-btn"
                           aria-label="{{ _('About') }} {{ _(p.label) }}"
                           data-info-title="{{ _(p.label) }}"
                           data-info-body="{{ _(p.info) }}">ⓘ</button>
@@ -447,11 +458,13 @@
             <div class="card bg-base-200 border border-base-300">
               <div class="card-body gap-2 p-4">
                 <h3 class="text-sm font-semibold text-base-content/70">{{ _('Discharge policy') }}</h3>
+                {# Wraps for the same reason and by the same three classes as the charge policies
+                   above — D1's and D2's names are the longest on this tab. #}
                 {% for p in params.discharge_policies %}
-                <label class="label cursor-pointer justify-start gap-3">
-                  <input type="radio" name="policy.discharge_policy" value="{{ p.key }}" class="radio radio-sm"
+                <label class="label cursor-pointer items-start justify-start gap-3 whitespace-normal">
+                  <input type="radio" name="policy.discharge_policy" value="{{ p.key }}" class="radio radio-sm mt-0.5 shrink-0"
                          {% if p.selected %}checked{% endif %} />
-                  <span class="label-text"><b>{{ p.key }}</b> {{ _(p.label) }}</span>
+                  <span class="label-text min-w-0"><b>{{ p.key }}</b> {{ _(p.label) }}</span>
                 </label>
                 {% endfor %}
                 <div class="mt-1 flex flex-wrap items-center gap-2 text-sm">
@@ -468,10 +481,12 @@
                 {{ field_messages(params.discharge_band.c) }}
                 {{ field_messages(params.discharge_band.d) }}
 
-                <label class="label cursor-pointer justify-start gap-3">
-                  <input type="checkbox" name="policy.allow_grid_export" value="1" class="checkbox checkbox-sm"
+                {# Wraps like the policy rows above: this one and the economic guard below are the
+                   two longest strings on the tab after D1's, and both clipped at the card edge. #}
+                <label class="label cursor-pointer items-start justify-start gap-3 whitespace-normal">
+                  <input type="checkbox" name="policy.allow_grid_export" value="1" class="checkbox checkbox-sm mt-0.5 shrink-0"
                          {% if params.allow_grid_export %}checked{% endif %} />
-                  <span class="label-text">{{ _('Allow export to grid during D2/D3') }}</span>
+                  <span class="label-text min-w-0">{{ _('Allow export to grid during D2/D3') }}</span>
                 </label>
 
                 {# `economic_guard` is ABSENT without a cost model (§2.3 "Without cost simulation"):
@@ -481,10 +496,10 @@
                    `cfg.simulate_cost` and `params.sections` echoes the SAME answer back, which is
                    what lets `parse_form` tell an unticked box from an undrawn one. #}
                 {% if cfg.simulate_cost %}
-                <label class="label cursor-pointer justify-start gap-3">
-                  <input type="checkbox" name="policy.economic_guard" value="1" class="checkbox checkbox-sm"
+                <label class="label cursor-pointer items-start justify-start gap-3 whitespace-normal">
+                  <input type="checkbox" name="policy.economic_guard" value="1" class="checkbox checkbox-sm mt-0.5 shrink-0"
                          {% if params.economic_guard %}checked{% endif %} />
-                  <span class="label-text">{{ _('Economic guard: never discharge at a loss') }}</span>
+                  <span class="label-text min-w-0">{{ _('Economic guard: never discharge at a loss') }}</span>
                 </label>
                 {% endif %}
               </div>

@@ -504,42 +504,58 @@ Confirm/Cancel semantics untouched.
 
 Panels ② and ③ combined, with ② reduced to a capacity-first battery box.
 
+The controls sit in a fixed column on the left; the results scroll beside them. (The layout is
+specified below under ["The controls are a fixed
+column"](#the-controls-are-a-fixed-column-not-the-top-of-a-long-page); this wireframe shows
+what is *in* each region.)
+
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │  ← Your analyses                        Our house, dynamic contract          │
-├──────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  ┌─ Battery ──────────────────────────────────────────────────────────────┐  │
-│  │  Usable capacity   [  10.0 ] kWh    ⓘ not the nameplate figure         │  │
-│  │                                                                        │  │
-│  │  ┌ More settings ────────────── 2 changed from default ── [ expand ] ┐ │  │
-│  │  │  ( Battery )  ( Installation )  ( Charge & discharge )            │ │  │
-│  │  │  ─────────────────────────────────────────────────────────────    │ │  │
-│  │  │                                                                   │ │  │
-│  │  │   Min / Max SoC   [ 10 ] % / [ 100 ] %                            │ │  │
-│  │  │   Max charge      [ 5.0 ] kW   Max discharge [ 5.0 ] kW           │ │  │
-│  │  │   Round-trip eff. [ 90 ] %     Standby draw  [ 30 ] W             │ │  │
-│  │  │   Initial SoC     [ 50 ] %     Coupling: AC-coupled               │ │  │
-│  │  │                                                                   │ │  │
-│  │  │   (Installation holds §2.3 box 3, the illustrated topology        │ │  │
-│  │  │    selectors; Charge & discharge holds boxes 4 and 5 stacked —    │ │  │
-│  │  │    P1/P2/P3 with bands A/B, D1/D2/D3 with bands C/D, export       │ │  │
-│  │  │    toggle, economic guard — with the overlap warning below both)  │ │  │
-│  │  └───────────────────────────────────────────────────────────────────┘ │  │
-│  └────────────────────────────────────────────────────────────────────────┘  │
-│                                                                              │
-│  ┌────────────────────────────────────────────────────────────────────────┐  │
-│  │  Period: [1 week] [1 month] [3 months] [6 months] (•1 year•)           │  │
-│  │          2025-07-22 → 2026-07-21 · 365 days · 8,760 intervals          │  │
-│  │                                                ⟳ recalculating…        │  │
-│  │                                                                        │  │
-│  │  Simulate cost savings?   (   ) Yes   ( • ) No                         │  │
-│  │                                                                        │  │
-│  │  … §2.4 unchanged from here: the energy-use section, ENERGY SAVINGS    │  │
-│  │    with its KPI tiles, breakdown, benchmark and secondary metrics,     │  │
-│  │    COST SAVINGS when the toggle above is on, charts, caveats.          │  │
-│  └────────────────────────────────────────────────────────────────────────┘  │
-└──────────────────────────────────────────────────────────────────────────────┘
+├──────────────────────────────┬───────────────────────────────────────────────┤
+│ ┌─ Battery ─────────────────┐│  … §2.4 unchanged: the energy-use section, ▲  │
+│ │ Usable capacity           ││    ENERGY SAVINGS with its KPI tiles,      │  │
+│ │  [  10.0 ] kWh            ││    breakdown, benchmark and secondary      │  │
+│ │  ⓘ not the nameplate      ││    metrics, COST SAVINGS when the toggle   │  │
+│ │                           ││    below is on, charts, caveats.           │  │
+│ │ ┌ More settings ────────┐ ││                                            │  │
+│ │ │ 2 changed  [ expand ] │ ││  Simulate cost savings?  (   ) Yes  ( • ) No│ │
+│ │ │ (Battery)(Installation)│││                                            │  │
+│ │ │ (Charge & discharge)  │ ││                                            │  │
+│ │ │ ───────────────────── │ ││                                            │  │
+│ │ │ Min / Max SoC         │ ││                                            │  │
+│ │ │   [ 10 ] % / [ 100 ] %│ ││                                            │  │
+│ │ │ Max charge   [ 5.0 ] kW│││                                            │  │
+│ │ │ Max discharge[ 5.0 ] kW│││                                            │  │
+│ │ │ Round-trip   [ 90 ] % │ ││                                            │  │
+│ │ │ Standby draw [ 30 ] W │ ││                                            │  │
+│ │ │ Initial SoC  [ 50 ] % │ ││                                            │  │
+│ │ │ Coupling: AC-coupled  │ ││                                            │  │
+│ │ │                       │ ││                                            │  │
+│ │ │ (Installation holds   │ ││                                            │  │
+│ │ │  §2.3 box 3, the      │ ││                                            │  │
+│ │ │  illustrated topology │ ││                                            │  │
+│ │ │  selectors; Charge &  │ ││                                            │  │
+│ │ │  discharge holds boxes│ ││                                            │  │
+│ │ │  4 and 5 stacked —    │ ││                                            │  │
+│ │ │  P1/P2/P3 w. bands A/B│ ││                                            │  │
+│ │ │  D1/D2/D3 w. bands C/D│ ││                                            │  │
+│ │ │  export toggle, econ. │ ││                                            │  │
+│ │ │  guard — overlap      │ ││                                            │  │
+│ │ │  warning below both)  │ ││                                            │  │
+│ │ └───────────────────────┘ ││                                            │  │
+│ │            [ Calculate → ]││                                            │  │
+│ └───────────────────────────┘│                                            │  │
+│ ┌─ Period ──────────────────┐│                                            │  │
+│ │ [1 week] [1 month]        ││                                            │  │
+│ │ [3 months] [6 months]     ││                                            │  │
+│ │ (•1 year•)  [ custom ]    ││                                            │  │
+│ │ 2025-07-22 → 2026-07-21   ││                                            │  │
+│ │ · 365 days · 8,760 interv.││                                            │  │
+│ │        ⟳ recalculating…   ││                                            │  │
+│ └───────────────────────────┘│                                            ▼  │
+│        ↕ own scroll          │  ↕ own scroll                                 │
+└──────────────────────────────┴───────────────────────────────────────────────┘
 ```
 
 When the workspace has no contract configured, the toggle is blocked:
@@ -624,9 +640,66 @@ paths.
 navigate away from the figures.
 [§3.4](04-state-machine.md#34-screen-structure-and-what-must-stay-visible-together) calls
 "the parameters and the results must be visible at the same time" the single most important
-interaction detail in the app. Here that is met structurally: **the battery box and the
-results are on one screen and scroll together**, so a capacity change and its effect are
-visible at once. That is why parameters were not given a screen of their own.
+interaction detail in the app. Here that is met structurally: **the controls and the results
+are on one screen**, so a capacity change and its effect are visible at once. That is why
+parameters were not given a screen of their own.
+
+### The controls are a fixed column, not the top of a long page
+
+Above the `lg` breakpoint the screen is exactly one viewport tall and the page itself does not
+scroll. The header is pinned; below it the width divides in two, each side owning its own
+scrollbar:
+
+```
+┌─ ← Your analyses ─────────── Our house, dynamic contract ──── [NL][EN] ─┐
+├──────────────────────┬───────────────────────────────────────────────────┤
+│ ┌ Battery ─────────┐ │  RESULTS                                       ▲  │
+│ │ Usable capacity  │ │  … the energy and cost sections                │  │
+│ │ [ 10.0 ] kWh     │ │  … KPI tiles, benchmark, charts, caveats       │  │
+│ │ ┌ More settings ┐│ │                                                │  │
+│ │ │(Bat)(Ins)(Chg)││ │                                                │  │
+│ │ └───────────────┘│ │                                                │  │
+│ │      [Calculate →]│ │                                                │  │
+│ └──────────────────┘ │                                                │  │
+│ ┌ Period ──────────┐ │                                                ▼  │
+│ │ (1 week)(30 days)│ ├───────────────────────────────────────────────────┤
+│ │ From […] To […]  │ │  the site footer — pinned, never scrolls          │
+│ └──────────────────┘ │                                                   │
+│      ↕ own scroll    │  ↕ own scroll (figures only)                      │
+└──────────────────────┴───────────────────────────────────────────────────┘
+```
+
+**Inputs on the left, answers on the right.** The battery box and the period card are the two
+questions — "what battery" and "over what window" — and everything in the right column is a
+function of both.
+
+This *replaces* the earlier mechanism, in which the battery box and the results sat on one long
+page and **scrolled together**. That met §3.4's requirement only near the top of the page:
+scrolling down to the charts took the capacity field off screen, and changing it meant
+scrolling back up and then back down to see what changed — on the very screen whose stated
+purpose is seeing both at once. A fixed control column meets the same requirement
+unconditionally, at every scroll position. **The requirement did not change; the mechanism
+that was failing it did.**
+
+The control column **scrolls internally** when its own content outgrows the viewport — the
+advanced pane opens a tab of fields, and a control the user cannot reach would be a worse
+failure than a second scrollbar.
+
+**The site footer is a pinned band at the bottom of the results column, not the end of its
+scroll.** It carries the privacy statement, the attribution, the licence and the NO WARRANTY
+control — a notice whose whole purpose is that a reader can find it. Because the page itself does
+not scroll above `lg`, the footer has to live inside one of the two columns; putting it at the
+bottom of the figures' scroll made it reachable only from the very end of them, behind some
+3400px of charts on a typical window. Pinning it splits the results column into a scrolling half
+and a fixed half, so the notice is on screen at every scroll position and the figures scroll
+beneath it. Below `lg` it returns to normal flow at the end of the stacked page, as on the other
+three screens.
+
+**Below `lg` the screen falls back to the vertical stack**: the page scrolls, the columns
+become blocks, and the controls sit above the results as before. The two-column form needs
+width a phone does not have, and a fixed panel on a short viewport would leave the results a
+few lines tall. On that viewport the parameters and the figures are once again visible only by
+scrolling between them — the constraint is real and the fallback is the honest response to it.
 
 ### The cost toggle and its precondition
 
@@ -917,8 +990,9 @@ three consequences:
 [§3.4](04-state-machine.md#34-screen-structure-and-what-must-stay-visible-together)'s panel
 focus model is gone: with data and results on separate screens there is no collapse/expand
 stepper to model. What survives is the rule underneath it — parameters and results must be
-visible together — which [§2′.6](#26-results) keeps by putting them on one scrolling screen,
-and which §3.4 now states as the requirement rather than as a property of the mechanism.
+visible together — which [§2′.6](#the-controls-are-a-fixed-column-not-the-top-of-a-long-page)
+keeps by putting the controls in a fixed column beside the scrolling results, and which §3.4
+now states as the requirement rather than as a property of the mechanism.
 
 ---
 
@@ -1021,6 +1095,20 @@ The five that the first round's answers left open:
 | 15 | Minimum data duration for the wizard | None — §7.4's short-window guard covers it | [§2′.8](#-next---on-step-2-is-blocked-until-house-load-can-be-reconstructed) |
 | 10 | `feature_interest` and workspace deletion | Elevated to installation-wide; `workspace_id` dropped — **superseded, table removed** | [§2′.10](#210-what-the-backend-needs-noted-not-designed) |
 | 16 | What sets `pricing.configured` | Saving the screen, not editing a field | [§2′.6](#a-contract-configured-is-an-explicit-flag) |
+
+### Resolved — third round (2026-08-09)
+
+| # | Question | Decision | § |
+|---|---|---|---|
+| 17 | How "parameters and results visible together" is met | A fixed control column beside a scrolling results column, replacing the single scrolling page | [§2′.6](#the-controls-are-a-fixed-column-not-the-top-of-a-long-page) |
+| 18 | What goes in the fixed column | Both control cards — battery box and period card. The cost toggle stays in the results block per decision 7 | [§2′.6](#the-controls-are-a-fixed-column-not-the-top-of-a-long-page) |
+| 19 | The column outgrowing a short viewport | It scrolls internally rather than clipping | [§2′.6](#the-controls-are-a-fixed-column-not-the-top-of-a-long-page) |
+| 20 | Narrow viewports | Fall back to the stacked, single-scroll layout below `lg` | [§2′.6](#the-controls-are-a-fixed-column-not-the-top-of-a-long-page) |
+
+Decision 17 revises the mechanism decisions 6 and 7 were written against, and
+[§3.4](04-state-machine.md#34-screen-structure-and-what-must-stay-visible-together) with it.
+The requirement those sections protect is unchanged — it is the reason for the revision, since
+scrolling-together met it only near the top of the page.
 
 Decision 10 had reach beyond this document: it made `feature_interest` the first deliberate
 exception to §5.5's "no table is implicitly global" invariant. It has since been superseded —

@@ -6,30 +6,59 @@
 
   **This file was `index.html` until phase 4.2.** It was the three-panel page: the setup band, then
   panels ①, ② and ③. §2′.5 moved panel ① onto its own screen (phase 4.1) and §2′.6 replaced the rest
-  with two things that scroll together:
+  with the controls and the figures on one screen.
 
-      ┌─ Battery ──────────────────────┐ ┌─ Period ──────────────────────┐
-      │ Usable capacity [ 10.0 ] kWh   │ │ (1 week)(30 days)(3 months)…  │
-      │ ┌ More settings ─ N changed ─┐ │ │ From […] To […]  [ Apply ]    │  ← _panel_interval.html
-      │ │ (Battery)(Install)(Charge) │ │ │ 2025-01-01 → 2025-12-31 · …   │
-      └─┴────────────────────────────┴─┘ │ Simulate cost savings? ( )(•) │
-        _panel_params.html               └───────────────────────────────┘
-      ┌─────────────────────────────────────────────────────────────────┐  _panel_results.html
-      │  RESULTS                                                        │
-      │  … the energy and cost sections                                 │
-      └─────────────────────────────────────────────────────────────────┘
+  ## The layout: a fixed control column beside a scrolling results column
 
-  The controls sit side by side because they answer two different questions — "what battery" and
-  "over what window" — and the results below are a function of both. The period card was the top of
-  panel ③ until this reshape; moving it up left panel ③ as figures alone, and dropped the `③` badge
-  from its title along with the numbering the screen no longer uses.
+  Above the `lg` breakpoint the screen is exactly one viewport tall and the page itself does not
+  scroll. The header is pinned; below it two columns divide what is left, each owning its own
+  scrollbar:
 
-  **The one screen is the point, and it is the constraint that shaped this file.** §2′.6 calls it
-  the equivalent of §3.4's "reopening panel ① or ② does not collapse panel ③", which that spec names
-  the single most important interaction detail in the app: the battery box and the results scroll
-  together, so a capacity change and its effect are visible at once. That is why the parameters were
-  not given a screen of their own, and it is why nothing below navigates — a parameter edit swaps
-  the fragments in place and the figures never leave the viewport.
+      ┌─ ← Your analyses ────────── Our house, dynamic contract ─── [NL][EN] ─┐
+      ├──────────────────────┬─────────────────────────────────────────────────┤
+      │ ┌ Battery ─────────┐ │  RESULTS                                     ▲  │
+      │ │ Usable capacity  │ │  … the energy and cost sections              │  │
+      │ │ [ 10.0 ] kWh     │ │  … KPI tiles, benchmark, charts, caveats     │  │
+      │ │ ┌ More settings ┐│ │                                              │  │
+      │ │ │(Bat)(Ins)(Chg)││ │  _panel_results.html                         │  │
+      │ └─┴───────────────┴┘ │                                              │  │
+      │   _panel_params.html │                                              │  │
+      │ ┌ Period ──────────┐ │                                              │  │
+      │ │ (1 week)(30 days)│ │                                              ▼  │
+      │ │ From […] To […]  │ ├─────────────────────────────────────────────────┤
+      │ └──────────────────┘ │  _footer.html — pinned, never scrolls           │
+      │   _panel_interval.html                                                 │
+      │        ↕ own scroll  │  ↕ own scroll (figures only)                    │
+      └──────────────────────┴─────────────────────────────────────────────────┘
+
+  **The split is inputs on the left, answers on the right.** The battery box and the period card
+  answer two different questions — "what battery" and "over what window" — and everything in the
+  right column is a function of both. The period card was the top of panel ③ until phase 4.2's
+  reshape; moving it out left panel ③ as figures alone, and dropped the `③` badge from its title
+  along with the numbering the screen no longer uses.
+
+  **The parameters never leave the viewport, and that is the point.** §3.4 calls "the parameters
+  and the results must be visible at the same time" the single most important interaction detail
+  in the app. §2′.6 originally met it by having the battery box and the results SCROLL TOGETHER on
+  one long page — which held only while the reader stayed near the top: scrolling down to the
+  charts took the capacity field off screen, and changing it meant scrolling back. A fixed control
+  column meets the same requirement unconditionally, at every scroll position, which is why the
+  layout changed and the requirement did not. It is also still why the parameters were not given a
+  screen of their own, and why nothing below navigates — a parameter edit swaps the fragments in
+  place and the figures never leave the viewport.
+
+  **Below `lg` every rule above is absent** and the screen falls back to the vertical stack it had
+  before: body scrolls, columns become blocks, controls sit above the results. The two-column form
+  needs width that a phone does not have, and a fixed panel on a short viewport would leave the
+  results a few lines tall.
+
+  The one structural consequence worth knowing: **the footer is INSIDE the results column, as a
+  pinned band below the scrolling figures**. The body is `lg:overflow-hidden`, so a footer left as
+  a sibling of `<main>` would sit below the one-viewport region and be unreachable at any scroll
+  position — it has to live inside one of the two columns. It was inside the results column's
+  SCROLLER at first, which made the licence and the NO WARRANTY control reachable only from the
+  very bottom of the figures; splitting that column into a scrolling half and a fixed half puts
+  them on the window's bottom edge at every scroll position instead. See the markup below.
 
   ## Three swappable fragments, and why the period card is one of them
 
@@ -68,7 +97,7 @@
   scoped path as a literal; `/lang/{code}` is a flat route and is the only literal left.
 #}
 <!doctype html>
-<html lang="{{ lang.current }}" data-theme="light">
+<html lang="{{ lang.current }}" data-theme="{{ theme.name }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -84,11 +113,18 @@
    because these routes are workspace-scoped (`/w/{id}/…`, docs/specs/08-architecture.md §5.1,
    docs/specs/20-workspaces-ux.md §2′.10). This screen loads no `ha_fetch.js` since phase 4.2, so the
    ingest WebSocket and the per-workspace slot store (§2′.11) read it on the data screen instead. #}
-<body class="min-h-screen bg-base-200 text-base-content"
+{# **The two-region layout starts on `<body>` and only above `lg`.** `lg:h-screen` +
+   `lg:overflow-hidden` pin the document to exactly one viewport and take the page's own
+   scrollbar away, which is the precondition for the two columns below to own theirs. Below the
+   breakpoint every rule here is absent, so the body is a plain `min-h-screen` document that
+   scrolls normally and the columns stack — today's layout, unchanged. #}
+<body class="min-h-screen bg-base-200 text-base-content lg:h-screen lg:overflow-hidden lg:flex lg:flex-col"
       data-workspace-id="{{ workspace_id }}">
 
   {# ── Header ─────────────────────────────────────────────────────────────────── #}
-  <header class="navbar bg-base-100 border-b border-base-300 px-4 lg:px-8">
+  {# `lg:flex-none` so the header keeps its natural height when the body becomes a flex column:
+     the two-column region below is the flex-1 child and takes everything left over. #}
+  <header class="navbar bg-base-100 border-b border-base-300 px-4 lg:flex-none lg:px-8">
     <div class="flex-1 items-baseline gap-3">
       {# Back to the list. This page is no longer the app's entry point, so without a way back the
          only route to the other analyses is the browser's Back button (§2′.2's list is the home
@@ -113,6 +149,34 @@
            {% if opt.code == lang.current %}aria-current="true"{% endif %}>{{ opt.label }}</a>
         {% endfor %}
       </div>
+      {# Theme toggle. A plain link, exactly like the language toggle beside it: `/theme/{mode}`
+         sets a cookie and redirects back (app/main.py's `set_theme`), so the choice survives the
+         navigation and the next paint already carries the right `data-theme`. daisyUI's CSS-only
+         `theme-controller` was not used because it cannot persist across the full page renders
+         every screen here does.
+
+         The icon shows the theme the link SWITCHES TO, not the current one, which is why it reads
+         from `theme.next`. The accessible name says the same thing in words — an icon alone would
+         leave a screen-reader user guessing which direction the control goes. #}
+      <a class="btn btn-xs btn-ghost px-2"
+         href="/theme/{{ theme.next }}"
+         title="{% if theme.next == 'dark' %}{{ _('Switch to dark theme') }}{% else %}{{ _('Switch to light theme') }}{% endif %}"
+         aria-label="{% if theme.next == 'dark' %}{{ _('Switch to dark theme') }}{% else %}{{ _('Switch to light theme') }}{% endif %}">
+        {% if theme.next == 'dark' %}
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+             class="h-4 w-4" aria-hidden="true">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+        </svg>
+        {% else %}
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+             class="h-4 w-4" aria-hidden="true">
+          <circle cx="12" cy="12" r="4"></circle>
+          <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path>
+        </svg>
+        {% endif %}
+      </a>
       {# The `[workspace: local]` badge and the `[⚙]` button were removed here in phase 2 (§2′.2).
          The badge named the single implicit workspace and has nothing left to say once the list
          at `/` exists; the gear was never wired to anything. The header keeps the title and the
@@ -126,24 +190,96 @@
      `[ Previous ] / [ Next ]` and the card's `[ Cancel ] / [ Save ]` do not apply, because it is
      the end of both paths." There is consequently no `?mode=wizard` handling here either — the
      wizard has nowhere further to go, so the two entry paths render the same page. #}
-  <main class="mx-auto flex max-w-5xl flex-col gap-4 p-4 lg:p-8">
-    {# The controls, side by side: the battery box and the period card. Two cards rather than one
-       row of fields, because they answer two different questions — "what battery" and "over what
-       window" — and the results below are a function of both. `items-start` so the shorter card
-       does not stretch to match the taller one (the battery box grows when its More settings pane
-       is open); `lg:grid-cols-2` so they stack rather than crush on a narrow viewport. #}
-    <div class="grid gap-4 lg:grid-cols-2 items-start">
+  {# ── The two regions: fixed controls, scrolling results ──────────────────────────────────────
+     `lg:min-h-0` is not decoration and must not be dropped. A flex child's default `min-height`
+     is `auto`, which refuses to shrink below its content — so without it BOTH columns grow to
+     their full content height, the `overflow-y-auto` below never has anything to clip, and the
+     scrollbar silently reappears on the page instead. It is repeated on each column for the same
+     reason, one nesting level down. #}
+  <main class="flex flex-col gap-4 p-4 lg:min-h-0 lg:flex-1 lg:flex-row lg:gap-0 lg:p-0">
+
+    {# ── The controls: everything that is an INPUT, in one fixed column ───────────────────────
+       The battery box and the period card, stacked. Two cards rather than one row of fields,
+       because they answer two different questions — "what battery" and "over what window" — and
+       the results beside them are a function of both.
+
+       It scrolls INTERNALLY (`lg:overflow-y-auto`) rather than clipping: the More settings pane
+       opens a tab of fields and can outgrow a short viewport, and a control the user cannot
+       reach is worse than a second scrollbar.
+
+       **The cards stretch to the column's width — do not add `items-start` here.** It was tried:
+       on a flex column that cross-axis rule shrink-wraps each card to its own content, and the
+       battery box's content is wider than the column, so instead of fitting it overflowed to
+       441px in a 384px aside and its `[ Calculate → ]` button was clipped against the border.
+       Stretched, the cards take the column's width and their contents wrap inside it.
+
+       Below `lg` this is a plain block: the two cards stack into the normal document flow above
+       the results, which is the layout this screen had before the split. #}
+    <aside class="flex flex-col gap-4
+                  lg:w-[26rem] lg:flex-none lg:min-h-0 lg:overflow-y-auto
+                  lg:border-r lg:border-base-300 lg:p-4
+                  xl:w-[30rem]">
       {% include "_panel_params.html" %}
       {% include "_panel_interval.html" %}
-    </div>
-    {# The results, full width below them. See the header comment on why this is all one screen. #}
-    {% include "_panel_results.html" %}
-  </main>
+    </aside>
 
-  {# The site footer — privacy statement, attribution, licence, and the warranty dialog it opens.
-     Shared by all four screens; see `_footer.html` on why it is an include in four places rather
-     than a base template (there is no base template here). #}
-  {% include "_footer.html" %}
+    {# ── The results: everything that is an ANSWER, over a pinned footer band ─────────────────
+       This column does NOT scroll itself. It is a flex column of two children — the figures,
+       which scroll, and the footer, which does not — so the footer sits on the window's bottom
+       edge at every scroll position instead of trailing 3500px of charts.
+
+       It used to be one node that both scrolled and held the footer. The body is
+       `lg:overflow-hidden`, so the footer cannot live outside the one-viewport region at all;
+       inside the scroller was the first answer to that and the weaker one, since the licence and
+       the NO WARRANTY control were then reachable only from the very bottom of the figures.
+
+       Not `position: sticky` on the footer: a sticky element still belongs to the scrolled
+       content, so the last figure would slide UNDER it and it would need an opaque background
+       plus matching bottom padding on the content to stay legible. Splitting the column says the
+       same thing structurally, and the scroll container's own bottom edge is then the right one.
+       #}
+    <div class="flex flex-col gap-4 lg:min-h-0 lg:flex-1 lg:gap-0 lg:overflow-hidden">
+
+      {# The scrolling half. `lg:min-h-0` here is the same load-bearing rule as on `<main>` and
+         the two columns, one nesting level further down — without it this child grows to its full
+         content height, `overflow-y-auto` never has anything to clip, and the scrollbar silently
+         moves back up to an ancestor.
+
+         The inner `max-w-4xl` is what the old `max-w-5xl` on `<main>` used to do: the column
+         itself takes the full remaining width, but the prose and caveats inside it are not run
+         out to 2000px on a wide monitor. The charts size to this wrapper, not to the viewport. #}
+      <div class="flex flex-col gap-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:p-4 lg:pb-0">
+        <div class="flex w-full max-w-4xl flex-col gap-4">
+          {% include "_panel_results.html" %}
+        </div>
+      </div>
+
+      {# The pinned half. `lg:flex-none` keeps its natural height while the scroller above takes
+         everything left over; the border and the solid background are what stop the charts
+         showing through as they pass beneath it.
+
+         The band spans the whole column so its rule crosses the full width, while the footer's
+         own `mx-auto max-w-4xl` (in `_footer.html`, unchanged) keeps the text aligned with the
+         figures rather than centred in a wider band.
+
+         `lg:[&>footer]:pb-4` trims the footer's own `pb-8`. That padding is sized for the END OF
+         A SCROLLING PAGE, where trailing space below the last line is what stops the text sitting
+         on the window edge; in a permanent band it just reads as lopsided — measured at 85px tall
+         with visibly more space below the text than above. Matching `pt-4` centres it. Done here
+         as an arbitrary variant rather than in `_footer.html`, because the other three screens
+         still end in a scrolling page and want the original spacing.
+
+         Below `lg` none of this applies: the wrapper is a plain block at the end of the stacked
+         document and the footer scrolls with the page, exactly as on the other three screens.
+
+         The footer itself — privacy statement, attribution, licence, and the warranty dialog it
+         opens — is shared by all four screens; see `_footer.html` on why it is an include in four
+         places rather than a base template (there is no base template here). #}
+      <div class="lg:flex-none lg:border-t lg:border-base-300 lg:bg-base-100 lg:[&>footer]:pb-4">
+        {% include "_footer.html" %}
+      </div>
+    </div>
+  </main>
 
   {# ── Slot info dialog — the shared ⓘ modal (specs §4.1, §2.3a). ──────────────────
        One modal for every ⓘ .slot-info-btn on THIS screen. The roster's role blurbs went to

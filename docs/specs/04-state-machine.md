@@ -166,10 +166,19 @@ split that replaced it: the parameters and the results must be visible at the sa
 user changes a capacity in order to watch the answer move; a layout that takes the figures off
 screen while the parameter is edited breaks the one loop the app exists to support. The old
 model met this by refusing to collapse panel ③ when ① or ② was reopened. The current layout
-meets it structurally — [§2′.6](20-workspaces-ux.md#26-results) puts the battery box and the
-result sections on **one scrolling screen**, which is why parameters were not given a screen of
-their own. This is the single most important interaction detail in the app, and any future
-layout change has to keep it.
+meets it structurally — [§2′.6](20-workspaces-ux.md#the-controls-are-a-fixed-column-not-the-top-of-a-long-page)
+puts the battery box and the period card in a **fixed control column that does not scroll**,
+beside the result sections in a column that does. That is why parameters were not given a
+screen of their own. This is the single most important interaction detail in the app, and any
+future layout change has to keep it.
+
+The fixed column replaced an earlier arrangement in which the controls and the results sat on
+one long page and scrolled together. That satisfied the requirement only while the reader
+stayed near the top: scrolling to the charts took the capacity field off screen, which is the
+exact failure this paragraph describes. The requirement is unchanged — what changed is a
+mechanism that met it conditionally being replaced by one that meets it at every scroll
+position. (Below the `lg` breakpoint the screen falls back to the stacked, single-scroll form,
+where the constraint is the viewport rather than the layout.)
 
 `RESULTS_STALE` is the other half of the same requirement: it renders the previous results
 dimmed rather than blanking them (§3.1), so an edit never leaves the user looking at nothing.

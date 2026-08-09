@@ -29,23 +29,263 @@
  * Custom rules below cover the few widgets daisyUI does not provide directly: the
  * illustrated radio-card selectors (§2.5), the benchmark bars (§2.4), the tabular figure
  * columns, and the .cost-label / .cost-field pair that tints the cost-simulation controls.
+ *
+ * §0 below adds the self-hosted IBM Plex faces, §1 the two custom themes, and §1.5 the page
+ * ground and figure typography. See changelog/20260809-visual-restyle.md for the direction.
  */
 
 @import 'tailwindcss' source(none);
 @source '../../templates/**/*.html';
 
-@plugin 'daisyui' {
-  themes: light --default, dark --prefersdark;
+/* ── §1 Themes: "North Sea instrument" ──────────────────────────────────────────────────
+   Two hand-tuned themes replace daisyUI's stock `light` / `dark`. The direction: this app is
+   a measurement instrument for household electricity, so the grounds are cool and desaturated
+   and the saturated hues are spent only where they carry meaning.
+
+   The hue assignments are load-bearing, not decorative, and the rest of this file depends on
+   them:
+
+     primary  — deep North-Sea blue. SELECTION STATE and primary actions. Already load-bearing
+                for .radio-card:checked, .bench-fill and .bench-dot, which is why the cost
+                accent must not reuse it (see the §2 note at .cost-label).
+     accent   — teal-cyan, a clearly distinct hue from primary. RESERVED for the cost tint.
+     warning  — warm amber. Generation / solar, the household's own supply.
+     success  — measured green. Savings.
+
+   Colours are OKLCH so that lightness is perceptually uniform: the base ramps below step in
+   even L increments, which a hex ramp of the same hue would not.
+
+   Both themes carry an explicit `--color-*-content` for every hue, because daisyUI does not
+   derive one — an omitted content colour silently falls back and lands unreadable on top of
+   its own background. */
+@plugin 'daisyui';
+
+@plugin 'daisyui/theme' {
+  name: 'northsea';
+  default: true;
+  prefersdark: false;
+  color-scheme: light;
+
+  /* Grounds: near-white with a faint blue cast, so white cards separate from the page. */
+  --color-base-100: oklch(99% 0.003 240);
+  --color-base-200: oklch(96.5% 0.006 240);
+  --color-base-300: oklch(92% 0.011 240);
+  --color-base-content: oklch(27% 0.026 250);
+
+  --color-primary: oklch(48% 0.115 250);
+  --color-primary-content: oklch(98.5% 0.005 250);
+  --color-secondary: oklch(55% 0.075 235);
+  --color-secondary-content: oklch(98.5% 0.005 235);
+
+  /* accent / accent-content are the cost tint's two halves; §2 picks between them per theme
+     on contrast grounds, so both must stay legible against their own side's grounds. */
+  --color-accent: oklch(72% 0.098 195);
+  --color-accent-content: oklch(41% 0.078 197);
+
+  --color-neutral: oklch(36% 0.028 250);
+  --color-neutral-content: oklch(98% 0.004 250);
+
+  --color-info: oklch(56% 0.098 235);
+  --color-info-content: oklch(98.5% 0.005 235);
+  --color-success: oklch(52% 0.108 155);
+  --color-success-content: oklch(98.5% 0.005 155);
+  --color-warning: oklch(72% 0.145 68);
+  --color-warning-content: oklch(26% 0.052 68);
+  --color-error: oklch(53% 0.175 27);
+  --color-error-content: oklch(98.5% 0.005 27);
+
+  /* Squarer than daisyUI's defaults. An instrument reads as machined, not soft; the figure
+     tables and stat tiles in particular look wrong with pill-rounded corners. */
+  --radius-selector: 0.25rem;
+  --radius-field: 0.25rem;
+  --radius-box: 0.375rem;
+
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 0;
+  --noise: 0;
 }
 
-/* Pin a concrete sans-serif fallback. Tailwind's default stack leads with ui-sans-serif /
-   system-ui, which resolves fine on a normal desktop but falls back to a wide serif in
-   headless environments (and on minimal systems). Appending common installed families keeps
-   typography sensible everywhere, including the Playwright screenshots used for iteration. */
+@plugin 'daisyui/theme' {
+  name: 'northsea-dark';
+  default: false;
+  prefersdark: true;
+  color-scheme: dark;
+
+  /* Not a pure black ground: a desaturated navy keeps the same hue family as the light theme,
+     and reduces the halation white figures show against true black. */
+  --color-base-100: oklch(24% 0.019 250);
+  --color-base-200: oklch(20.5% 0.019 250);
+  --color-base-300: oklch(30% 0.022 250);
+  --color-base-content: oklch(92% 0.012 245);
+
+  /* Lifted above the light theme's value, but NOT as far as first tried: at L=72% the filled
+     `Calculate →` button read as a washed pale blue against the dark card rather than as the
+     screen's one primary action. 63% with more chroma keeps it clearly the brightest thing in
+     the control column while staying comfortably legible as a text colour too. */
+  --color-primary: oklch(63% 0.145 248);
+  --color-primary-content: oklch(97% 0.012 248);
+  --color-secondary: oklch(70% 0.075 235);
+  --color-secondary-content: oklch(20% 0.022 235);
+
+  --color-accent: oklch(78% 0.098 195);
+  --color-accent-content: oklch(26% 0.045 197);
+
+  /* `neutral` is the SELECTED-button surface (see .btn-active near the end of this file), so on
+     the dark theme it has to sit clearly ABOVE the unselected buttons rather than near them.
+
+     The value is set by MEASUREMENT, not by eye, because eyeballing it got this wrong twice.
+     Two thresholds apply at once and they pull in OPPOSITE directions as lightness rises:
+
+       - the chip against the unselected buttons' base-200 ground: WCAG 1.4.11 non-text
+         contrast, needs 3:1. Rises with L.
+       - neutral-content (the chip's own label) on the chip: needs 4.5:1. Falls with L.
+
+     Measured against this theme's tokens, both hold only for L in 0.51–0.54. Earlier guesses
+     of 34% (1.72:1 surface) and 45% (2.41:1) looked plausible in a screenshot and both failed
+     the surface check; 55% passed it at 3.70:1 but pushed the label down to 4.44:1, under the
+     text threshold. 52% sits mid-window: surface 3.26:1, label 5.04:1. */
+  --color-neutral: oklch(52% 0.036 250);
+  --color-neutral-content: oklch(97% 0.008 250);
+
+  --color-info: oklch(74% 0.095 235);
+  --color-info-content: oklch(20% 0.022 235);
+  --color-success: oklch(74% 0.115 155);
+  --color-success-content: oklch(20% 0.03 155);
+  --color-warning: oklch(80% 0.135 70);
+  --color-warning-content: oklch(24% 0.05 70);
+  --color-error: oklch(71% 0.152 25);
+  --color-error-content: oklch(20% 0.04 25);
+
+  --radius-selector: 0.25rem;
+  --radius-field: 0.25rem;
+  --radius-box: 0.375rem;
+
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 0;
+  --noise: 0;
+}
+
+/* ── §0 Self-hosted faces ───────────────────────────────────────────────────────────────
+   IBM Plex Sans + IBM Plex Mono, subset to latin and latin-ext (the app ships English and
+   Dutch; the Cyrillic/Greek/Vietnamese subsets Google serves would be dead weight in every
+   bundle). Files live in app/static/vendor/fonts/, are committed, and travel in every
+   distribution form — packaging/battery-sim.spec bundles app/static wholesale, so no build
+   change was needed. Licence: OFL 1.1, text beside the fonts in OFL.txt and recorded in
+   THIRD-PARTY-NOTICES.md §1.
+
+   Why Plex rather than the usual Inter/JetBrains pairing: Plex is a superfamily drawn for
+   engineering documentation, so the mono is a true sibling of the sans — same skeleton, same
+   terminals, same vertical metrics. Nearly every screen here sets a mono figure directly
+   against a sans label (.figure-col, the stat tiles, the benchmark rows); a superfamily makes
+   those read as one voice rather than two borrowed ones.
+
+   The sans is a VARIABLE font: Google's four weight URLs all resolve to the same file, so one
+   file per subset is stored and declared with a `font-weight: 400 700` range. Shipping the
+   four byte-identical copies would have quadrupled the payload for nothing. The mono is not
+   variable, so its three weights are three files.
+
+   `font-display: swap` — the fallback stack below renders immediately and is replaced when the
+   face arrives. The app is served from localhost, so that window is very short. */
+@font-face {
+  font-family: 'IBM Plex Sans';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('/static/vendor/fonts/plex-sans-var-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
+    U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'IBM Plex Sans';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('/static/vendor/fonts/plex-sans-var-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304,
+    U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0,
+    U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/static/vendor/fonts/plex-mono-400-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
+    U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/static/vendor/fonts/plex-mono-400-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304,
+    U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0,
+    U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/static/vendor/fonts/plex-mono-500-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
+    U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/static/vendor/fonts/plex-mono-500-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304,
+    U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0,
+    U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/static/vendor/fonts/plex-mono-600-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
+    U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/static/vendor/fonts/plex-mono-600-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304,
+    U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0,
+    U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+/* Plex leads both stacks; the rest is the pinned fallback the file has always carried.
+   Tailwind's default stack leads with ui-sans-serif / system-ui, which resolves fine on a
+   normal desktop but falls back to a wide serif in headless environments (and on minimal
+   systems). Keeping the concrete families keeps typography sensible everywhere, including the
+   Playwright screenshots used for iteration, and covers the swap window before Plex loads. */
 @layer base {
   html {
-    font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
+    font-family: 'IBM Plex Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
       'Helvetica Neue', 'DejaVu Sans', Arial, sans-serif;
+  }
+  code,
+  kbd,
+  samp,
+  pre {
+    font-family: 'IBM Plex Mono', ui-monospace, 'DejaVu Sans Mono', monospace;
   }
 }
 
@@ -77,10 +317,214 @@
     @apply absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary;
   }
 
-  /* Right-aligned tabular figures for the breakdown/waterfall columns. */
+  /* Right-aligned tabular figures for the breakdown/waterfall columns.
+
+     `font-mono` resolves through the stack §0 sets, so this is Plex Mono. `tabular-nums` is
+     what makes a column of figures align on the decimal point; it is not redundant with the
+     mono face, because Plex Mono's default figures are already fixed-width but its OpenType
+     default still applies proportional spacing to some glyphs. */
   .figure-col {
     @apply text-right font-mono tabular-nums;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
   }
+}
+
+/* ── §1.5 Page ground and figure typography ─────────────────────────────────────────────
+   Unlayered for the same reason §2's cost tint is: these override daisyUI's own `.stat-*` and
+   background rules, which Tailwind nests in a layer declared AFTER ours, so a layered block
+   here loses regardless of specificity. Kept few and specific.
+
+   THE GROUND. A soft wash plus a hairline grid on 32px — a quiet reference to metered
+   intervals, and the one piece of ornament in the design.
+
+   The contrast here was tuned against screenshots, not guessed. A first pass drew the lines at
+   3.5% and they read as a visible PATTERN in the empty margins beside the control column
+   rather than as a ground; at 2% (light) / 3% (dark) the texture is legible up close and
+   disappears at a glance, which is what a ground should do. Cards are opaque on top, so a
+   figure never sits on the texture either way.
+
+   The wash is a top-down fade to transparent AND a mask on the grid: `mask-image` fades the
+   whole texture out toward the bottom of the viewport, so the long results scroll ends on a
+   flat ground instead of a uniformly-tiled one. Listing the wash first in background-image
+   paints it over the lines, which softens them further near the header.
+
+   `background-attachment: fixed` keeps the grid registered to the viewport rather than to the
+   scroll position, so scrolling does not drag the texture along. */
+body {
+  background-color: var(--color-base-200);
+  background-image:
+    linear-gradient(
+      to bottom,
+      color-mix(in oklab, var(--color-primary) 5%, transparent) 0%,
+      transparent 45%
+    ),
+    linear-gradient(
+      to right,
+      color-mix(in oklab, var(--color-base-content) 2%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      to bottom,
+      color-mix(in oklab, var(--color-base-content) 2%, transparent) 1px,
+      transparent 1px
+    );
+  background-size:
+    100% 100%,
+    32px 32px,
+    32px 32px;
+  background-attachment: fixed;
+  background-repeat: no-repeat, repeat, repeat;
+}
+[data-theme='northsea-dark'] body {
+  background-image:
+    linear-gradient(
+      to bottom,
+      color-mix(in oklab, var(--color-primary) 9%, transparent) 0%,
+      transparent 45%
+    ),
+    linear-gradient(
+      to right,
+      color-mix(in oklab, var(--color-base-content) 3%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      to bottom,
+      color-mix(in oklab, var(--color-base-content) 3%, transparent) 1px,
+      transparent 1px
+    );
+}
+
+/* The header carries the wash's own tint rather than a flat base-100, so the band at the top of
+   every screen belongs to the ground instead of floating on it. Semi-transparent over the
+   body's gradient, with a blur, so the texture reads faintly THROUGH it. */
+.navbar {
+  background-color: color-mix(in oklab, var(--color-base-100) 82%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+/* Cards get a hairline edge instead of relying on a drop shadow. `--depth: 0` in both themes
+   turned daisyUI's shadow off, which is what keeps the surfaces flat and instrument-like — but
+   with no shadow AND no border a card floats indistinctly, and on the dark theme it very nearly
+   vanishes into the ground. A 1px base-300 edge defines it in both themes without adding the
+   soft blur the direction is trying to avoid. */
+.card {
+  border: 1px solid var(--color-base-300);
+}
+
+/* The texture is ornament, so it goes away for anyone forcing high contrast — there, a flat
+   ground is unambiguously the better answer, and the wash's tint is exactly the kind of
+   low-contrast difference the setting exists to remove. */
+@media (prefers-contrast: more) {
+  body {
+    background-image: none;
+  }
+  .card {
+    border-color: var(--color-base-content);
+  }
+}
+
+/* Reduced motion. The only animation this stylesheet introduces is `.radio-card`'s colour
+   transition (and daisyUI's own component transitions); honour the preference globally rather
+   than chasing each one. `0.01ms` rather than `0` because a zero-duration animation does not
+   fire `animationend`, which some component scripts wait on. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* A visible keyboard focus ring on every interactive element. daisyUI styles focus on its own
+   components, but the header's theme and language links are `.btn-ghost`, whose focus state is
+   a background tint the wash behind it nearly cancels. An explicit ring is unambiguous, and
+   `:focus-visible` keeps it off mouse clicks. */
+:where(a, button, [role='button'], summary):focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+  border-radius: var(--radius-field);
+}
+
+/* ── The selected state of a button group ───────────────────────────────────────────────
+   `.btn-active` marks the chosen option in THREE places that all use the same markup: the
+   header's language toggle, the period presets on the results screen, and that screen's chart
+   tabs. daisyUI implements it as "the button's own colour mixed 5% toward black", which is a
+   RELATIVE darkening — it reads as pressed on a light ground, but on the dark theme it makes
+   the selected button darker than its unselected neighbours, i.e. less prominent than the
+   things it is supposed to stand out from. Reported as poor contrast on both the language
+   switcher and the period presets, and it is the same rule behind both.
+
+   Replaced with an absolute, theme-aware pair: the selected button takes the neutral surface
+   and its content colour, so it separates from the unselected ones in the same direction on
+   both themes (light: darker chip on white; dark: lighter chip on near-black). The border
+   matches so a `join` group keeps a clean seam.
+
+   The state is not carried by colour alone: `aria-current="true"` is on the selected language
+   link, the period presets sit in a group whose selection also drives the window line beneath
+   them, and the weight bump below adds a second visual signal. */
+.btn.btn-active {
+  background-color: var(--color-neutral);
+  border-color: var(--color-neutral);
+  color: var(--color-neutral-content);
+  font-weight: 600;
+}
+.btn.btn-active:hover {
+  background-color: color-mix(in oklab, var(--color-neutral), var(--color-base-content) 12%);
+  border-color: color-mix(in oklab, var(--color-neutral), var(--color-base-content) 12%);
+}
+
+/* FIGURES. The headline numbers are the content of this app; the labels around them are
+   chrome. The stock daisyUI treatment has that backwards — bold-ish labels competing with the
+   value. So: the value gets larger, lighter and mono (tabular, so a repainting panel does not
+   jitter as digits change width); the label gets smaller, tracked out and quieter.
+
+   Mono for the value specifically, not for all figures: these are read as MEASUREMENTS, and
+   the fixed width means "409 kWh" and "1,213 kWh" occupy predictable space in a tile that
+   repaints on every recalculation. */
+.stat-value {
+  font-family: 'IBM Plex Mono', ui-monospace, 'DejaVu Sans Mono', monospace;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+.stat-title {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.72;
+}
+
+/* Section dividers already carry `uppercase tracking-wider` in the markup; this tightens them
+   into the same micro-label voice as .stat-title so the two read as one system. */
+.divider.divider-start {
+  font-size: 0.6875rem;
+  letter-spacing: 0.09em;
+}
+
+/* The glance / breakdown figures. These are `<dd class="text-right …">` inside a `<dl>` — the
+   shape every summary box in _data_glance.html and _panel_results.html uses for a
+   label→figure pair. Giving them tabular figures here rather than a new class keeps the
+   change in CSS: `source(none)` means a class used outside the templates is never generated,
+   and adding one to the markup would be a template edit for a purely visual result.
+
+   Only `font-variant-numeric`, deliberately NOT the mono family. These sit inline beside their
+   labels at body size, where a full mono switch reads as a code listing; the stat tiles are
+   the place the mono voice belongs. What matters here is that the columns align. */
+dl dd.text-right {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Headings lose a little tracking as they grow — large Plex Sans is loose by default at
+   display sizes, which reads as unintentional next to the tight figures. */
+h1,
+h2,
+.card-title {
+  letter-spacing: -0.015em;
 }
 
 /* ── CSS-only tabs for the "More settings" pane (docs/specs/20-workspaces-ux.md §2′.6) ──────────
@@ -168,14 +612,25 @@
    checked border, .bench-fill / .bench-dot). Reusing it would make "this is a cost field"
    and "this is selected" the same colour.
 
-   Why the token differs per theme rather than being a flat `text-accent`. daisyUI's `accent`
-   is oklch(77% .152 181.9) — a bright teal — in BOTH the light and dark themes here. On the
-   dark theme's base-100/200 that is ~8.3:1 against the background, comfortably past WCAG AA.
-   On the light theme's white and near-white bases it is ~1.9:1, which is unreadable for the
-   small text these labels use. So light mode takes `accent-content` (the dark teal daisyUI
-   already pairs with accent, ~9.7:1 on base-100) and dark mode takes `accent` itself. Same
-   hue family, legible either way. The dark rule is written twice because daisyUI's dark theme
-   applies through both the prefers-color-scheme media query and an explicit data-theme. */
+   Why the token differs per theme rather than being a flat `text-accent`. The teal `accent`
+   is chosen light enough to sit on a DARK ground; on the light theme's near-white bases that
+   same value is far too pale for the small text these labels use. So the light theme takes
+   `accent-content` (the deep teal paired with accent) and the dark theme takes `accent`
+   itself. Same hue family, legible either way.
+
+   The measured contrast of the pairs actually shipped (§1's tokens, against each theme's
+   base-100), recomputed when the palette changed — the split exists for contrast, not taste,
+   so a new palette has to re-check it:
+
+     light  .cost-label = accent-content oklch(41% .078 197) on base-100 oklch(99% .003 240)
+            → 8.16:1, well past WCAG AA for small text.
+     dark   .cost-label = accent         oklch(78% .098 195) on base-100 oklch(24% .019 250)
+            → 8.54:1.
+
+   Since the themes are now NAMED, the dark rules key off `[data-theme='northsea-dark']` only.
+   The old `prefers-color-scheme` copy is gone: every page sets `data-theme` explicitly from
+   the cookie (app/main.py's `/theme/{mode}`, mirroring `/lang/{code}`), so the bare-`:root`
+   case those rules covered can no longer occur. */
 .cost-label {
   color: var(--color-accent-content);
 }
@@ -187,25 +642,13 @@
   @apply outline-accent-content/60;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme]) .cost-label {
-    color: var(--color-accent);
-  }
-  :root:not([data-theme]) .cost-field {
-    @apply border-accent/50;
-  }
-  :root:not([data-theme]) .cost-field:focus,
-  :root:not([data-theme]) .cost-field:focus-within {
-    @apply outline-accent/70;
-  }
-}
-[data-theme='dark'] .cost-label {
+[data-theme='northsea-dark'] .cost-label {
   color: var(--color-accent);
 }
-[data-theme='dark'] .cost-field {
+[data-theme='northsea-dark'] .cost-field {
   @apply border-accent/50;
 }
-[data-theme='dark'] .cost-field:focus,
-[data-theme='dark'] .cost-field:focus-within {
+[data-theme='northsea-dark'] .cost-field:focus,
+[data-theme='northsea-dark'] .cost-field:focus-within {
   @apply outline-accent/70;
 }
