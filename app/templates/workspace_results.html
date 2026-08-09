@@ -22,13 +22,13 @@
       │ │ ┌ More settings ┐│ │                                              │  │
       │ │ │(Bat)(Ins)(Chg)││ │  _panel_results.html                         │  │
       │ └─┴───────────────┴┘ │                                              │  │
-      │   _panel_params.html │  ─────────────────────────────────────────   │  │
-      │ ┌ Period ──────────┐ │  _footer.html                                ▼  │
-      │ │ (1 week)(30 days)│ │                                                 │
-      │ │ From […] To […]  │ │                                                 │
-      │ └──────────────────┘ │                                                 │
+      │   _panel_params.html │                                              │  │
+      │ ┌ Period ──────────┐ │                                              │  │
+      │ │ (1 week)(30 days)│ │                                              ▼  │
+      │ │ From […] To […]  │ ├─────────────────────────────────────────────────┤
+      │ └──────────────────┘ │  _footer.html — pinned, never scrolls           │
       │   _panel_interval.html                                                 │
-      │        ↕ own scroll  │  ↕ own scroll                                   │
+      │        ↕ own scroll  │  ↕ own scroll (figures only)                    │
       └──────────────────────┴─────────────────────────────────────────────────┘
 
   **The split is inputs on the left, answers on the right.** The battery box and the period card
@@ -52,9 +52,13 @@
   needs width that a phone does not have, and a fixed panel on a short viewport would leave the
   results a few lines tall.
 
-  The one structural consequence worth knowing: **the footer is INSIDE the results column**. The
-  body is `lg:overflow-hidden`, so a footer left as a sibling of `<main>` would sit below the
-  one-viewport region and be unreachable at any scroll position.
+  The one structural consequence worth knowing: **the footer is INSIDE the results column, as a
+  pinned band below the scrolling figures**. The body is `lg:overflow-hidden`, so a footer left as
+  a sibling of `<main>` would sit below the one-viewport region and be unreachable at any scroll
+  position — it has to live inside one of the two columns. It was inside the results column's
+  SCROLLER at first, which made the licence and the NO WARRANTY control reachable only from the
+  very bottom of the figures; splitting that column into a scrolling half and a fixed half puts
+  them on the window's bottom edge at every scroll position instead. See the markup below.
 
   ## Three swappable fragments, and why the period card is one of them
 
@@ -219,21 +223,59 @@
       {% include "_panel_interval.html" %}
     </aside>
 
-    {# ── The results: everything that is an ANSWER, in its own scrolling column ───────────────
-       The footer is INSIDE this column deliberately. The body is `lg:overflow-hidden`, so a
-       footer left as a sibling of `<main>` would sit below the one-viewport region and be
-       unreachable at any scroll position. Here it trails the figures, which is where it reads
-       anyway.
+    {# ── The results: everything that is an ANSWER, over a pinned footer band ─────────────────
+       This column does NOT scroll itself. It is a flex column of two children — the figures,
+       which scroll, and the footer, which does not — so the footer sits on the window's bottom
+       edge at every scroll position instead of trailing 3500px of charts.
 
-       The inner `max-w-4xl` is what the old `max-w-5xl` on `<main>` used to do: the column
-       itself takes the full remaining width, but the prose and caveats inside it are not run out
-       to 2000px on a wide monitor. The charts size to this wrapper, not to the viewport. #}
-    <div class="flex flex-col gap-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:p-4 lg:pb-0">
-      <div class="flex w-full max-w-4xl flex-col gap-4">
-        {% include "_panel_results.html" %}
-        {# The site footer — privacy statement, attribution, licence, and the warranty dialog it
-           opens. Shared by all four screens; see `_footer.html` on why it is an include in four
-           places rather than a base template (there is no base template here). #}
+       It used to be one node that both scrolled and held the footer. The body is
+       `lg:overflow-hidden`, so the footer cannot live outside the one-viewport region at all;
+       inside the scroller was the first answer to that and the weaker one, since the licence and
+       the NO WARRANTY control were then reachable only from the very bottom of the figures.
+
+       Not `position: sticky` on the footer: a sticky element still belongs to the scrolled
+       content, so the last figure would slide UNDER it and it would need an opaque background
+       plus matching bottom padding on the content to stay legible. Splitting the column says the
+       same thing structurally, and the scroll container's own bottom edge is then the right one.
+       #}
+    <div class="flex flex-col gap-4 lg:min-h-0 lg:flex-1 lg:gap-0 lg:overflow-hidden">
+
+      {# The scrolling half. `lg:min-h-0` here is the same load-bearing rule as on `<main>` and
+         the two columns, one nesting level further down — without it this child grows to its full
+         content height, `overflow-y-auto` never has anything to clip, and the scrollbar silently
+         moves back up to an ancestor.
+
+         The inner `max-w-4xl` is what the old `max-w-5xl` on `<main>` used to do: the column
+         itself takes the full remaining width, but the prose and caveats inside it are not run
+         out to 2000px on a wide monitor. The charts size to this wrapper, not to the viewport. #}
+      <div class="flex flex-col gap-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:p-4 lg:pb-0">
+        <div class="flex w-full max-w-4xl flex-col gap-4">
+          {% include "_panel_results.html" %}
+        </div>
+      </div>
+
+      {# The pinned half. `lg:flex-none` keeps its natural height while the scroller above takes
+         everything left over; the border and the solid background are what stop the charts
+         showing through as they pass beneath it.
+
+         The band spans the whole column so its rule crosses the full width, while the footer's
+         own `mx-auto max-w-4xl` (in `_footer.html`, unchanged) keeps the text aligned with the
+         figures rather than centred in a wider band.
+
+         `lg:[&>footer]:pb-4` trims the footer's own `pb-8`. That padding is sized for the END OF
+         A SCROLLING PAGE, where trailing space below the last line is what stops the text sitting
+         on the window edge; in a permanent band it just reads as lopsided — measured at 85px tall
+         with visibly more space below the text than above. Matching `pt-4` centres it. Done here
+         as an arbitrary variant rather than in `_footer.html`, because the other three screens
+         still end in a scrolling page and want the original spacing.
+
+         Below `lg` none of this applies: the wrapper is a plain block at the end of the stacked
+         document and the footer scrolls with the page, exactly as on the other three screens.
+
+         The footer itself — privacy statement, attribution, licence, and the warranty dialog it
+         opens — is shared by all four screens; see `_footer.html` on why it is an include in four
+         places rather than a base template (there is no base template here). #}
+      <div class="lg:flex-none lg:border-t lg:border-base-300 lg:bg-base-100 lg:[&>footer]:pb-4">
         {% include "_footer.html" %}
       </div>
     </div>

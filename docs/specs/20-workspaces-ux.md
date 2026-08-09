@@ -658,14 +658,14 @@ scrollbar:
 │ │ [ 10.0 ] kWh     │ │  … KPI tiles, benchmark, charts, caveats       │  │
 │ │ ┌ More settings ┐│ │                                                │  │
 │ │ │(Bat)(Ins)(Chg)││ │                                                │  │
-│ │ └───────────────┘│ │  ────────────────────────────────────────────  │  │
-│ │      [Calculate →]│ │  the site footer                              ▼  │
+│ │ └───────────────┘│ │                                                │  │
+│ │      [Calculate →]│ │                                                │  │
+│ └──────────────────┘ │                                                │  │
+│ ┌ Period ──────────┐ │                                                ▼  │
+│ │ (1 week)(30 days)│ ├───────────────────────────────────────────────────┤
+│ │ From […] To […]  │ │  the site footer — pinned, never scrolls          │
 │ └──────────────────┘ │                                                   │
-│ ┌ Period ──────────┐ │                                                   │
-│ │ (1 week)(30 days)│ │                                                   │
-│ │ From […] To […]  │ │                                                   │
-│ └──────────────────┘ │                                                   │
-│      ↕ own scroll    │  ↕ own scroll                                     │
+│      ↕ own scroll    │  ↕ own scroll (figures only)                      │
 └──────────────────────┴───────────────────────────────────────────────────┘
 ```
 
@@ -684,6 +684,16 @@ that was failing it did.**
 The control column **scrolls internally** when its own content outgrows the viewport — the
 advanced pane opens a tab of fields, and a control the user cannot reach would be a worse
 failure than a second scrollbar.
+
+**The site footer is a pinned band at the bottom of the results column, not the end of its
+scroll.** It carries the privacy statement, the attribution, the licence and the NO WARRANTY
+control — a notice whose whole purpose is that a reader can find it. Because the page itself does
+not scroll above `lg`, the footer has to live inside one of the two columns; putting it at the
+bottom of the figures' scroll made it reachable only from the very end of them, behind some
+3400px of charts on a typical window. Pinning it splits the results column into a scrolling half
+and a fixed half, so the notice is on screen at every scroll position and the figures scroll
+beneath it. Below `lg` it returns to normal flow at the end of the stacked page, as on the other
+three screens.
 
 **Below `lg` the screen falls back to the vertical stack**: the page scrolls, the columns
 become blocks, and the controls sit above the results as before. The two-column form needs
